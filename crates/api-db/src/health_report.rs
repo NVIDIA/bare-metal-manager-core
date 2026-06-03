@@ -35,6 +35,10 @@ pub async fn insert_health_report<Id>(
 where
     for<'e> Id: sqlx::Encode<'e, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> + Sync,
 {
+    // NOTE: SQL injection risk is known here: this helper intentionally preserves the existing
+    // health-report SQL shape where table_name is an internal constant at call sites, but the JSONB
+    // path still includes the report source in the SQL text. We'll want to replace this with a
+    // bound text[] path or central source validation before accepting broader inputs.
     let path = match mode {
         HealthReportApplyMode::Merge => vec!["merges".to_string(), health_report.source.clone()],
         HealthReportApplyMode::Replace => vec!["replace".to_string()],

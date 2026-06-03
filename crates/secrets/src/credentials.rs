@@ -16,9 +16,7 @@
  */
 use core::fmt;
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, atomic};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
@@ -27,7 +25,6 @@ use mac_address::MacAddress;
 use rand::RngExt;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 use crate::SecretsError;
 
@@ -233,91 +230,6 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialManager
     for CompositeCredentialManager<R, W>
 {
 }
-
-#[derive(Default)]
-pub struct TestCredentialManager {
-    credentials: Mutex<HashMap<String, Credentials>>,
-    fallback_credentials: Option<Credentials>,
-    pub set_credentials_sleep_time_ms: AtomicU32,
-}
-
-impl TestCredentialManager {
-    /// Construct a TestCredentialManager which falls back on a default set of credentials if we
-    /// can't find matching ones set via set_credentials()
-    pub fn new(fallback_credentials: Credentials) -> Self {
-        Self {
-            credentials: Mutex::new(HashMap::new()),
-            fallback_credentials: Some(fallback_credentials),
-            set_credentials_sleep_time_ms: Default::default(),
-        }
-    }
-}
-
-#[async_trait]
-impl CredentialReader for TestCredentialManager {
-    async fn get_credentials(
-        &self,
-        key: &CredentialKey,
-    ) -> Result<Option<Credentials>, SecretsError> {
-        let credentials = self.credentials.lock().await;
-        let cred = credentials
-            .get(key.to_key_str().as_ref())
-            .or(self.fallback_credentials.as_ref());
-
-        Ok(cred.cloned())
-    }
-}
-
-#[async_trait]
-impl CredentialWriter for TestCredentialManager {
-    async fn set_credentials(
-        &self,
-        key: &CredentialKey,
-        credentials: &Credentials,
-    ) -> Result<(), SecretsError> {
-        let sleep_ms = self
-            .set_credentials_sleep_time_ms
-            .load(atomic::Ordering::Acquire);
-        if sleep_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
-        }
-        let mut data = self.credentials.lock().await;
-        data.insert(key.to_key_str().to_string(), credentials.clone());
-        Ok(())
-    }
-
-    async fn create_credentials(
-        &self,
-        key: &CredentialKey,
-        credentials: &Credentials,
-    ) -> Result<(), SecretsError> {
-        let sleep_ms = self
-            .set_credentials_sleep_time_ms
-            .load(atomic::Ordering::Acquire);
-        if sleep_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms as _)).await;
-        }
-        let mut data = self.credentials.lock().await;
-        let key_str = key.to_key_str();
-        if data.contains_key(key_str.as_ref()) {
-            return Err(SecretsError::GenericError(eyre::eyre!(
-                "Secret already exists with key {key_str}"
-            )));
-        }
-
-        data.insert(key_str.to_string(), credentials.clone());
-        Ok(())
-    }
-
-    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
-        let mut data = self.credentials.lock().await;
-        let _ = data.remove(key.to_key_str().as_ref());
-
-        Ok(())
-    }
-}
-
-impl CredentialManager for TestCredentialManager {}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
@@ -593,6 +505,7 @@ impl CredentialKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::credentials::TestCredentialManager;
 
     #[test]
     fn test_generated_password() {

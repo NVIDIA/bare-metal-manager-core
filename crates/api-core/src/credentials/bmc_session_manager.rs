@@ -622,8 +622,9 @@ mod tests {
     use forge_secrets::SecretsError;
     use forge_secrets::credentials::{
         BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, CredentialWriter,
-        Credentials, TestCredentialManager,
+        Credentials,
     };
+    use forge_secrets::test_support::credentials::TestCredentialManager;
     use mac_address::MacAddress;
     use sqlx::types::chrono::Utc;
     use tokio::sync::Mutex;

@@ -665,7 +665,7 @@ pub async fn start_api(
 
         let provider = CarbideBmcPasswordProvider::new(credential_manager.clone());
 
-        let mandatory_services = carbide_config.dpf.services.clone();
+        let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
         let dpf_mandatory_services = vec![
             crate::dpf_services::dts_service(&mandatory_services.dts),
             crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),

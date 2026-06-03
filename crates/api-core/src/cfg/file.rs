@@ -784,6 +784,12 @@ pub struct DpfConfig {
     /// DPU provisioning.
     #[serde(default = "default_dpf_bfb_url")]
     pub bfb_url: String,
+    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
+    /// docker images of the mandatory services. When set, it is applied to every
+    /// mandatory service except `dts` and `doca_hbn`. This also overrides if
+    /// docker_image_pull_secret is set in services sections as well.
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
     /// Additional Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
@@ -797,8 +803,25 @@ impl Default for DpfConfig {
             flavor_name: default_dpf_flavor_name(),
             node_label_key: default_dpf_node_label_key(),
             bfb_url: String::new(),
+            docker_image_pull_secret: None,
             services: Box::default(),
         }
+    }
+}
+
+impl DpfConfig {
+    /// Returns the mandatory services with the optional [`Self::docker_image_pull_secret`]
+    /// override applied. The override affects every mandatory service except `dts` and
+    /// `doca_hbn`, which keep their own configured pull secret.
+    pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
+        let mut services = (*self.services).clone();
+        if let Some(secret) = &self.docker_image_pull_secret {
+            services.dpu_agent.docker_image_pull_secret = secret.clone();
+            services.dhcp_server.docker_image_pull_secret = secret.clone();
+            services.fmds.docker_image_pull_secret = secret.clone();
+            services.otel.docker_image_pull_secret = secret.clone();
+        }
+        services
     }
 }
 
@@ -898,7 +921,7 @@ pub struct MachineIdentityConfig {
     /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
     pub token_endpoint_http_proxy: Option<String>,
-    /// Key-id for encryption/decryption of signing keys (selects from secrets `machine_identity.encryption_keys`).
+    /// Key-id for encrypting new tenant identity ciphertext (selects from secrets `machine_identity.encryption_keys`).
     #[serde(default)]
     pub current_encryption_key_id: Option<String>,
     /// Trust domains allowed for tenant JWT `iss` (normalized host). Empty = allow any.
@@ -3602,6 +3625,60 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 pool_type: resource_pool::ResourcePoolType::Integer,
                 delegate_prefix_len: None,
             }
+        );
+    }
+
+    #[test]
+    fn dpf_docker_image_pull_secret_overrides_non_excluded_services() {
+        let cfg = DpfConfig {
+            docker_image_pull_secret: Some("my-custom-secret".to_string()),
+            ..DpfConfig::default()
+        };
+
+        let services = cfg.resolved_mandatory_services();
+
+        // Override applies to every mandatory service ...
+        assert_eq!(
+            services.dpu_agent.docker_image_pull_secret,
+            "my-custom-secret"
+        );
+        assert_eq!(
+            services.dhcp_server.docker_image_pull_secret,
+            "my-custom-secret"
+        );
+        assert_eq!(services.fmds.docker_image_pull_secret, "my-custom-secret");
+        assert_eq!(services.otel.docker_image_pull_secret, "my-custom-secret");
+
+        // ... except dts and doca_hbn, which keep the default.
+        assert_eq!(
+            services.dts.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.doca_hbn.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+    }
+
+    #[test]
+    fn dpf_docker_image_pull_secret_unset_keeps_per_service_secrets() {
+        // No global override -> services keep their own configured secret.
+        let cfg = DpfConfig::default();
+        assert!(cfg.docker_image_pull_secret.is_none());
+
+        let services = cfg.resolved_mandatory_services();
+
+        assert_eq!(
+            services.dpu_agent.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.dts.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.doca_hbn.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
         );
     }
 }

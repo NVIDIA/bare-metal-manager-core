@@ -12,6 +12,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPINVLinkLogicalPartitionCreateRequest_Validate(t *testing.T) {
@@ -45,6 +46,59 @@ func TestAPINVLinkLogicalPartitionCreateRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPINVLinkLogicalPartitionCreateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	t.Run("sources canonical fields from entity's ToProto", func(t *testing.T) {
+		desc := "primary"
+		nvllp := &cdbm.NVLinkLogicalPartition{ID: id, Name: "nvllp-a", Org: "org-1", Description: &desc}
+		req := APINVLinkLogicalPartitionCreateRequest{Name: "nvllp-a", SiteID: uuid.New().String(), Description: &desc}
+		got := req.ToProto(nvllp)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "nvllp-a", got.Config.Metadata.Name)
+		assert.Equal(t, "primary", got.Config.Metadata.Description)
+	})
+
+	t.Run("omits description when entity has none", func(t *testing.T) {
+		nvllp := &cdbm.NVLinkLogicalPartition{ID: id, Name: "nvllp-a", Org: "org-1"}
+		req := APINVLinkLogicalPartitionCreateRequest{Name: "nvllp-a", SiteID: uuid.New().String()}
+		got := req.ToProto(nvllp)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "", got.Config.Metadata.Description)
+	})
+}
+
+func TestAPINVLinkLogicalPartitionUpdateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	t.Run("always populates metadata.name from entity even when request Name is nil", func(t *testing.T) {
+		nvllp := &cdbm.NVLinkLogicalPartition{ID: id, Name: "current-name", Org: "org-1"}
+		req := APINVLinkLogicalPartitionUpdateRequest{Description: cdb.GetStrPtr("only-desc")}
+		got := req.ToProto(nvllp)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "current-name", got.Config.Metadata.Name)
+	})
+
+	t.Run("uses entity description when present", func(t *testing.T) {
+		desc := "updated-desc"
+		nvllp := &cdbm.NVLinkLogicalPartition{ID: id, Name: "current-name", Org: "org-1", Description: &desc}
+		req := APINVLinkLogicalPartitionUpdateRequest{Description: &desc}
+		got := req.ToProto(nvllp)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "updated-desc", got.Config.Metadata.Description)
+	})
 }
 
 func TestAPINVLinkLogicalPartitionUpdateRequest_Validate(t *testing.T) {
@@ -112,7 +166,7 @@ func TestAPINVLinkLogicalPartitionNew(t *testing.T) {
 		{
 			ID:       uuid.New(),
 			EntityID: dbNLP.ID.String(),
-			Status:   cdbm.NVLinkLogicalPartitionStatusPending,
+			Status:   string(cdbm.NVLinkLogicalPartitionStatusPending),
 			Created:  time.Now(),
 			Updated:  time.Now(),
 		},

@@ -10,6 +10,7 @@
 | 0.2 | 03/11/2026 | Binu Ramakrishnan | gRPC/API updates and incorporated review feedback |
 | 0.3 | 05/11/2026 | Binu Ramakrishnan | DPU agent / FMDS optional HTTP sign proxy (`[machine-identity]` `sign-proxy-url`, `sign-proxy-tls-root-ca`); `FmdsMachineIdentityConfig` in FMDS config push |
 | 0.4 | 05/11/2026 | Binu Ramakrishnan | Signing key rotation (two slots), overlap policy on rotate only |
+| 0.5 | 06/02/2026 | Binu Ramakrishnan | Site master encryption key re-wrap (`ReencryptTenantIdentitySecrets` gRPC); envelope `key_id` in ciphertext (drop DB `encryption_key_id` column) |
 |  |  |  |  |
 
 # **1\. Introduction**
@@ -95,11 +96,12 @@ The system is composed of the following major components:
 
 # **3\. Detailed Design**
 
-There are three different flows associated with implementing this feature:
+There are four operational areas associated with implementing this feature:
 
 1. *Per-tenant signing key provisioning*: Describes how a new signing key associated with a tenant is provisioned, and optionally the token delegation/exchange flows.  
 2. *SPIFFE key bundle discovery*: Discusses how the signing public keys are distributed to interested parties (verifiers)  
 3. *JWT-SVID node identity request flow*: The run time flow used by tenant applications to fetch JWT-SVIDs from NICo.
+4. *Site master encryption key rotation*: Re-wraps stored ciphertext when the site **`current_encryption_key_id`** changes (§3.1.1, **`ReencryptTenantIdentitySecrets`**).
 
 Each of these flows are discussed below.
 
@@ -141,6 +143,40 @@ SetTenantIdentityConfiguration (PUT identity/config)
 *Figure-3 Per-tenant identity configuration and signing key provisioning flow*
 
 **Signing key rotation (two slots):** `tenant_identity_config` holds **two** optional encrypted private keys and matching public-key JSON documents (`signing_key_public_*`). Exactly one slot is **current** (`current_signing_key_slot`). On **first** provisioning, material is written to slot 1. On **rotate** (`rotate_key=true`), the new pair goes into the other slot, the current pointer moves, and **`non_active_slot_expires_at`** records when the previous key may be dropped from JWKS. Overlap duration is **not** stored as a column; each **SetTenantIdentityConfiguration** that rotates must supply **`signing_key_overlap_sec`**, which must be **≥ `token_ttl_sec`** (so tokens signed with the old key stay verifiable until `exp`) and **≤** site **`signing_key_overlap_max_sec`**. While two keys are published, **GetTenantIdentityConfiguration** returns **`signing_keys`**: one entry has **`current_signer`** true; the inactive entry may include **`expire_at`** (JSON **`expireAt`**) — the JWKS overlap end.
+
+### **3.1.1 Site master encryption key rotation (KEK re-wrap)**
+
+Per-org signing private keys and token-delegation credentials are encrypted at rest with a **site master encryption key** (AES-256-GCM envelope, scheme version 1). This is **separate** from per-org **JWT signing key rotation** (§3.1 above).
+
+| Concept | Where it lives |
+| :------ | :------------- |
+| Site **current** master key id | `[machine_identity].current_encryption_key_id` in site config |
+| Master key material | Site secrets `machine_identity.encryption_keys` (e.g. Vault `…/machine_identity/encryption_keys/kv1`) |
+| Key id used to encrypt a given blob | **`key_id` inside the ciphertext envelope JSON** (standard base64 in DB), not a table column |
+
+**New encrypts** (first org provisioning, signing-key rotation, token-delegation writes) use the site **`current_encryption_key_id`**. **Decrypt** loads the AES key named by the envelope’s embedded **`key_id`**, so older keys must remain in secrets until all blobs are re-wrapped.
+
+**Operator workflow to rotate the site master key** (e.g. `kv1` → `kv2`):
+
+1. Add the new key to site secrets (`machine_identity.encryption_keys.kv2`); **keep** the old key until step 4 completes.
+2. Set `current_encryption_key_id = "kv2"` in site config and **restart** the NICo API (not hot-reloaded).
+3. Call **`ReencryptTenantIdentitySecrets`** with **`dry_run: true`** (optionally scoped to one `organization_id`), then apply with **`dry_run: false`**.
+4. Verify dry-run shows all rows **`rows_skipped_all_on_target`** / **`fields_skipped_on_target`** only; then optionally remove the retired key from secrets.
+
+Fields re-wrapped per org (when present): `encrypted_signing_key_1`, `encrypted_signing_key_2`, `encrypted_auth_method_config`.
+
+```
+Add kv2 to secrets ──► current_encryption_key_id=kv2 + restart API
+              │
+              ▼
+ReencryptTenantIdentitySecrets (dry_run=true)
+              │
+              ▼
+ReencryptTenantIdentitySecrets (dry_run=false)
+              │
+              ▼
+(Optional) remove retired key from secrets
+```
 
 ## **3.2 Per-tenant SPIFFE Key Bundle Discovery**
 
@@ -337,7 +373,6 @@ A new table will be created to store tenant signing key pairs and optional token
 | `JSONB` | `signing_key_public_2` | Public metadata JSON slot 2 (nullable) |
 | `tenant_identity_current_signing_key_slot_t` (ENUM) | `current_signing_key_slot` | `signing_key_1` or `signing_key_2` — active signer |
 | `TIMESTAMPTZ` | `non_active_slot_expires_at` | When inactive-slot JWKS publication may end (nullable) |
-| `VARCHAR(255)` | `encryption_key_id` | Envelope encryption key id (Vault / secrets) |
 | `TIMESTAMPTZ` | `created_at` | Created |
 | `TIMESTAMPTZ` | `updated_at` | Updated |
 | `VARCHAR(512)` | `token_endpoint` | Token exchange URL (optional) |
@@ -346,7 +381,7 @@ A new table will be created to store tenant signing key pairs and optional token
 | `VARCHAR(255)` | `subject_token_audience` | Subject JWT audience for exchange (optional) |
 | `TIMESTAMPTZ` | `token_delegation_created_at` | First delegation registration (optional) |
 
-_Previous single-column layout (`encrypted_signing_key`, `signing_key_public`, `key_id`, `algorithm`) is replaced by the slotted model above via migration._
+_Previous single-column layout (`encrypted_signing_key`, `signing_key_public`, `key_id`, `algorithm`) is replaced by the slotted model above via migration. The per-row **`encryption_key_id`** column was removed; master key selection for **new** encryption uses site **`current_encryption_key_id`**, while **decrypt** uses the **`key_id` field inside each stored envelope** (see §3.1.1)._
 
 ### **3.4.2 Configuration**
 
@@ -377,7 +412,7 @@ token_endpoint_domain_allowlist = []    # token delegation token_endpoint URL ho
 Global config provides:
   * the master switch (`enabled`)
   * site-wide signing algorithm (`algorithm`)
-  * **`current_encryption_key_id`**: selects which master encryption key from site secrets is used for per-org signing-key material; required when `enabled` is `true`
+  * **`current_encryption_key_id`**: selects which master encryption key from site secrets is used for **new** per-org ciphertext (signing private keys and token-delegation auth JSON); required when `enabled` is `true`. Decrypt uses the envelope’s embedded `key_id`. Rotate via §3.1.1 and **`ReencryptTenantIdentitySecrets`**.
   * optional token TTL bounds (`token_ttl_min_sec`, `token_ttl_max_sec`), and
   * optional **`signing_key_overlap_max_sec`**: max allowed **`signing_key_overlap_sec`** on a **rotate** request (default in the tens of days range; tune per environment)
   * optional HTTP proxy for token endpoint calls (`token_endpoint_http_proxy`)
@@ -598,6 +633,66 @@ Response:
 ```
 
 `signingKeys` lists **published** public keys (metadata only). Exactly one object has **`currentSigner`: true**. During rotation overlap, the **inactive** key may include **`expireAt`** (proto: `expire_at`) — end of the JWKS overlap window. With a single active key, only one object is returned and **`expireAt`** is omitted.
+
+##### **Site master encryption key re-wrap (gRPC only)**
+
+Site operators use this admin RPC after changing **`current_encryption_key_id`** to re-wrap existing ciphertext in `tenant_identity_config` with the new master key. It does **not** rotate per-org JWT signing keys (use **`rotateKey`** on Set identity config for that).
+
+**Auth:** Forge Admin CLI (internal RBAC); not exposed via NICo-rest.
+
+**Scope:** If **`organization_id`** is set, only that org (must exist). If omitted, all rows in `tenant_identity_config` are examined in stable order.
+
+**Dry run:** When **`dry_run`** is **`true`**, decrypt and validate only; **no DB writes**. Counters still reflect what would change.
+
+```bash
+# gRPC (Forge service)
+Forge.ReencryptTenantIdentitySecrets
+```
+
+Request (all orgs, dry run):
+
+```json
+{
+  "dryRun": true
+}
+```
+
+Request (single org, apply):
+
+```json
+{
+  "organizationId": "my-org-id",
+  "dryRun": false
+}
+```
+
+Response:
+
+```json
+{
+  "currentEncryptionKeyId": "kv2",
+  "rowsExamined": 1,
+  "rowsUpdated": 1,
+  "rowsSkippedAllOnTarget": 0,
+  "fieldsReencrypted": 3,
+  "fieldsSkippedOnTarget": 0,
+  "rowsFailed": 0,
+  "failures": []
+}
+```
+
+| Field | Type | Description |
+| :---- | :--- | :---------- |
+| `currentEncryptionKeyId` | string | Site **`current_encryption_key_id`** used as the re-wrap target (from running API config). |
+| `rowsExamined` | number | Org rows processed (1 per org, or all orgs). |
+| `rowsUpdated` | number | Orgs where at least one field would be or was re-wrapped. |
+| `rowsSkippedAllOnTarget` | number | Orgs where every present encrypted field already matches **`currentEncryptionKeyId`**. |
+| `fieldsReencrypted` | number | Fields that would be or were re-wrapped (counts toward update). |
+| `fieldsSkippedOnTarget` | number | Fields already on the current master key. |
+| `rowsFailed` | number | Orgs with at least one field failure (see **`failures`**). |
+| `failures` | array | Per-field errors: `organizationId`, `field` (e.g. `encrypted_signing_key_1`), `error`. |
+
+Partial failures do not fail the whole RPC; check **`rowsFailed`** and **`failures`**.
 
 #### **NICo Token Exchange Server Registration APIs**
 
@@ -937,11 +1032,37 @@ message TenantIdentityConfigResponse {
   repeated TenantIdentitySigningKey signing_keys = 11;
 }
 
-// gRPC service (extract; see crates/rpc/proto/nico.proto for full NICo service)
+message ReencryptTenantIdentitySecretsRequest {
+  // If set, only this org; otherwise all rows in tenant_identity_config.
+  optional string organization_id = 1;
+  // Decrypt and validate only; no DB writes.
+  bool dry_run = 2;
+}
+
+message ReencryptTenantIdentityFailure {
+  string organization_id = 1;
+  string field = 2;
+  string error = 3;
+}
+
+message ReencryptTenantIdentitySecretsResponse {
+  uint32 rows_examined = 1;
+  uint32 rows_updated = 2;
+  uint32 rows_skipped_all_on_target = 3;
+  uint32 fields_reencrypted = 4;
+  uint32 fields_skipped_on_target = 5;
+  uint32 rows_failed = 6;
+  repeated ReencryptTenantIdentityFailure failures = 7;
+  // Site [machine_identity].current_encryption_key_id used as the re-wrap target.
+  string current_encryption_key_id = 8;
+}
+
+// gRPC service (extract; see crates/rpc/proto/forge.proto for full Forge service)
 service NICo {
   rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
   rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
   rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
+  rpc ReencryptTenantIdentitySecrets(ReencryptTenantIdentitySecretsRequest) returns (ReencryptTenantIdentitySecretsResponse);
   rpc GetJWKS(JWKSRequest) returns (JWKS);
   rpc GetOpenIDConfiguration(OpenIDConfigRequest) returns (OpenIDConfiguration);
 }
@@ -960,6 +1081,7 @@ service NICo {
 | `GET /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.GetTokenDelegation` | Retrieve token delegation config |
 | `PUT /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.SetTokenDelegation` | Create or replace token delegation |
 | `DELETE /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.DeleteTokenDelegation` | Delete token delegation |
+| _(gRPC only; Forge Admin CLI)_ | `Forge.ReencryptTenantIdentitySecrets` | Re-wrap tenant identity ciphertext with site **`current_encryption_key_id`** (§3.1.1) |
 
 ### **3.5.2.2 Error Handling**
 

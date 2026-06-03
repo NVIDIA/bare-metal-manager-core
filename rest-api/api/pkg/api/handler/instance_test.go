@@ -696,7 +696,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, al1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	ist1 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-1", st1, cdbm.InstanceStatusReady)
@@ -836,10 +836,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, osPhoneHome)
 
 	// create a default NVLink Logical Partition
-	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpDefault)
 
-	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpNotDefault)
 
 	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllpDefault.ID), cdbm.VpcStatusReady, tnu1)
@@ -1140,10 +1140,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpc9Site2.ID, &ipbSite2.ID, cdb.GetStrPtr("192.170.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
 	// NvLink Logical Partition
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	e := echo.New()
@@ -3987,10 +3987,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	// Add NVLink GPU capability to Machine
 	common.TestBuildMachineCapability(t, dbSession, &mc5.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	instnvlifc1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
@@ -4120,7 +4120,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, nsgTenant2Site1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
@@ -4131,21 +4131,28 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	// Add InfiniBand capability to Instance Type
 	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(5), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 
-	ibp2 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp2 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp2)
 
-	ibp3 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp3 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp3)
 
-	ibp4 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp4 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp4)
 
-	ibp6 := testBuildIBPartition(t, dbSession, "test-ibp-ibdup-4slot", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp6 := testBuildIBPartition(t, dbSession, "test-ibp-ibdup-4slot", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp6)
 
 	// Extra InfiniBand Partitions for updating instance with InfiniBand Interfaces
-	ibp5 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st2, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp5 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st2, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp5)
+
+	// Instance on st2 under tn1 using ist2 (which has no InfiniBand
+	// MachineCapability), paired with ibp5 (also on st2) so the partition
+	// site check passes and the handler reaches the capability-check
+	// branch.
+	instNoIB := testInstanceBuildInstance(t, dbSession, "test-instance-no-ib", tn1.ID, ip.ID, st2.ID, &ist2.ID, vpc4Site2.ID, cdb.GetStrPtr(mc3.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	assert.NotNil(t, instNoIB)
 
 	// Instance with four READY InfiniBand interfaces — distinct (partition ID, device, device instance) per row;
 	// used for READY multi-interface no-op tests without sharing state with IB replace tests on inst1.
@@ -4603,7 +4610,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			verifyChildSpanner:          true,
 		},
 		{
-			name: "test Instance update API endpoint failure with InfiniBand Interfaces as InstanceType doesn't have InfiniBand Capability",
+			name: "test Instance update API endpoint failure due to InfiniBand Partition Site Mismatch",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -4630,6 +4637,42 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				},
 				reqInstance:           inst2.ID.String(),
 				cleanInstanceToStatus: inst2.Status,
+				reqOrg:                tnOrg1,
+				reqUser:               tnu1,
+				respCode:              http.StatusBadRequest,
+			},
+			wantErr:                     false,
+			verifySiteControllerRequest: true,
+			verifyChildSpanner:          true,
+		},
+		{
+			name: "test Instance update API endpoint failure with InfiniBand Interfaces as InstanceType doesn't have InfiniBand Capability",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					Name:        cdb.GetStrPtr("Test Instance Failure IB No Cap"),
+					Description: cdb.GetStrPtr("Test Instance Description"),
+					IpxeScript:  os2.IpxeScript,
+					Labels: map[string]string{
+						"new_key": "new_value",
+					},
+					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
+						{
+							InfiniBandPartitionID: ibp5.ID.String(),
+							Device:                "MT28908 Family [ConnectX-6]",
+							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							DeviceInstance:        0,
+							IsPhysical:            true,
+						},
+					},
+				},
+				reqInstance:           instNoIB.ID.String(),
+				cleanInstanceToStatus: instNoIB.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu1,
 				respCode:              http.StatusBadRequest,
@@ -7027,7 +7070,7 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	testUpdateInstance(t, dbSession, inst1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
@@ -7725,7 +7768,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	testUpdateInstance(t, dbSession, inst1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)

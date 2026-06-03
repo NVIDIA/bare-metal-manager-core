@@ -346,7 +346,7 @@ func TestVpc_GetAll(t *testing.T) {
 
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn1, st, "testNetworkSecurityGroup")
 
-	nvlinkLogicalPartition := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
+	nvlinkLogicalPartition := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
 
 	totalCount := 30
 

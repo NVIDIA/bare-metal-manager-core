@@ -62,6 +62,7 @@ pub mod network_security_group;
 pub mod network_segment;
 pub mod nmxc_browse;
 pub mod nvl_partition;
+pub mod nvlink_domain;
 pub mod nvlink_nmxc_endpoints;
 pub mod operating_system;
 pub mod power_options;

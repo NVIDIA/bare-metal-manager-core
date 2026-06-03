@@ -11,11 +11,140 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+func TestNVLinkLogicalPartition_ToProto(t *testing.T) {
+	id := uuid.New()
+	t.Run("includes description when set", func(t *testing.T) {
+		desc := "primary"
+		nvllp := &NVLinkLogicalPartition{ID: id, Name: "nvllp-a", Org: "org-1", Description: &desc}
+		got := nvllp.ToProto()
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "nvllp-a", got.Config.Metadata.Name)
+		assert.Equal(t, "primary", got.Config.Metadata.Description)
+	})
+
+	t.Run("populates metadata.name even when description is nil", func(t *testing.T) {
+		nvllp := &NVLinkLogicalPartition{ID: id, Name: "nvllp-a", Org: "org-1"}
+		got := nvllp.ToProto()
+		require.NotNil(t, got)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.Metadata)
+		assert.Equal(t, "nvllp-a", got.Config.Metadata.Name)
+		assert.Equal(t, "", got.Config.Metadata.Description)
+	})
+}
+
+func TestNVLinkLogicalPartition_FromProto(t *testing.T) {
+	t.Run("nil proto is a no-op", func(t *testing.T) {
+		id := uuid.New()
+		desc := "kept"
+		nvllp := &NVLinkLogicalPartition{ID: id, Name: "kept", Org: "org-1", Description: &desc}
+		nvllp.FromProto(nil)
+		assert.Equal(t, id, nvllp.ID)
+		assert.Equal(t, "kept", nvllp.Name)
+		assert.Equal(t, "org-1", nvllp.Org)
+		require.NotNil(t, nvllp.Description)
+		assert.Equal(t, "kept", *nvllp.Description)
+	})
+
+	t.Run("populates from proto metadata", func(t *testing.T) {
+		id := uuid.New()
+		nvllp := &NVLinkLogicalPartition{ID: uuid.New()}
+		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
+			Id: &cwssaws.NVLinkLogicalPartitionId{Value: id.String()},
+			Config: &cwssaws.NVLinkLogicalPartitionConfig{
+				TenantOrganizationId: "org-1",
+				Metadata:             &cwssaws.Metadata{Name: "nvllp-a", Description: "primary"},
+			},
+		})
+		assert.Equal(t, id, nvllp.ID)
+		assert.Equal(t, "nvllp-a", nvllp.Name)
+		assert.Equal(t, "org-1", nvllp.Org)
+		require.NotNil(t, nvllp.Description)
+		assert.Equal(t, "primary", *nvllp.Description)
+	})
+
+	t.Run("clears Description when proto omits it", func(t *testing.T) {
+		desc := "existing"
+		nvllp := &NVLinkLogicalPartition{ID: uuid.New(), Name: "n", Description: &desc}
+		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
+			Config: &cwssaws.NVLinkLogicalPartitionConfig{
+				Metadata: &cwssaws.Metadata{Name: "n"},
+			},
+		})
+		assert.Nil(t, nvllp.Description)
+	})
+
+	t.Run("preserves ID when proto Id is unparseable", func(t *testing.T) {
+		id := uuid.New()
+		nvllp := &NVLinkLogicalPartition{ID: id}
+		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
+			Id: &cwssaws.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
+		})
+		assert.Equal(t, id, nvllp.ID)
+	})
+}
+
+func TestNVLinkLogicalPartition_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	nvllp := &NVLinkLogicalPartition{ID: id}
+	req := nvllp.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, id.String(), req.Id.Value)
+}
+
+func TestNVLinkLogicalPartition_Validate(t *testing.T) {
+	valid := &NVLinkLogicalPartition{
+		Name:   "test-nvllp",
+		Status: NVLinkLogicalPartitionStatusReady,
+	}
+
+	t.Run("populated partition is valid", func(t *testing.T) {
+		assert.NoError(t, valid.Validate())
+	})
+	t.Run("empty Status errors", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Status = ""
+		assert.Error(t, nvllp.Validate())
+	})
+	t.Run("invalid Status errors", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Status = "Bogus"
+		assert.Error(t, nvllp.Validate())
+	})
+	t.Run("empty Name errors", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Name = ""
+		assert.Error(t, nvllp.Validate())
+	})
+	t.Run("Name with leading whitespace errors", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Name = " test-nvllp"
+		assert.Error(t, nvllp.Validate())
+	})
+	t.Run("Name with trailing whitespace errors", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Name = "test-nvllp "
+		assert.Error(t, nvllp.Validate())
+	})
+	t.Run("single-character Name errors (too short)", func(t *testing.T) {
+		nvllp := *valid
+		nvllp.Name = "x"
+		assert.Error(t, nvllp.Validate())
+	})
+}
 
 func testNVLinkLogicalPartitionSetupSchema(t *testing.T, dbSession *db.Session) {
 	// Create tables
@@ -57,7 +186,7 @@ func TestNVLinkLogicalPartitionSQLDAO_GetByID(t *testing.T) {
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -185,9 +314,9 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v1-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tn.CreatedBy)
+			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v1-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tn.CreatedBy)
 		} else {
-			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v2-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusDeleting), tn.CreatedBy)
+			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v2-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusDeleting), tn.CreatedBy)
 		}
 
 		nvlinkLogicalPartitions = append(nvlinkLogicalPartitions, *nvllp)
@@ -419,7 +548,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(NVLinkLogicalPartitionStatusReady),
+				searchQuery: db.GetTypedStrPtr(NVLinkLogicalPartitionStatusReady),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -435,7 +564,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(NVLinkLogicalPartitionStatusDeleting),
+				searchQuery: db.GetTypedStrPtr(NVLinkLogicalPartitionStatusDeleting),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -531,7 +660,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs: nil,
 				siteIDs:   nil,
 				orgs:      nil,
-				statuses:  []string{NVLinkLogicalPartitionStatusDeleting},
+				statuses:  []string{string(NVLinkLogicalPartitionStatusDeleting)},
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -601,7 +730,7 @@ func TestNVLinkLogicalPartitionSQLDAO_Create(t *testing.T) {
 		org         string
 		siteID      uuid.UUID
 		tenantID    uuid.UUID
-		status      string
+		status      NVLinkLogicalPartitionStatus
 		createdBy   User
 	}
 
@@ -661,6 +790,23 @@ func TestNVLinkLogicalPartitionSQLDAO_Create(t *testing.T) {
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
+		{
+			name: "create with invalid status returns error",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			args: args{
+				ctx:         ctx,
+				name:        "invalid-status-nvllp",
+				description: nvllp.Description,
+				org:         nvllp.Org,
+				tenantID:    nvllp.TenantID,
+				siteID:      nvllp.SiteID,
+				status:      NVLinkLogicalPartitionStatus("Bogus"),
+				createdBy:   User{ID: nvllp.CreatedBy},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -682,6 +828,9 @@ func TestNVLinkLogicalPartitionSQLDAO_Create(t *testing.T) {
 				},
 			)
 			require.Equal(t, tt.wantErr, err != nil)
+			if tt.wantErr {
+				return
+			}
 
 			assert.Equal(t, tt.want.Name, got.Name)
 			assert.Equal(t, *tt.want.Description, *got.Description)
@@ -718,7 +867,7 @@ func TestNVLinkLogicalPartitionSQLDAO_Update(t *testing.T) {
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	uNVLinkLogicalPartition := &NVLinkLogicalPartition{
 		Name:            "test-updated",
@@ -738,7 +887,7 @@ func TestNVLinkLogicalPartitionSQLDAO_Update(t *testing.T) {
 		id              uuid.UUID
 		name            *string
 		description     *string
-		Status          string
+		Status          NVLinkLogicalPartitionStatus
 		IsMissingOnSite bool
 	}
 	tests := []struct {
@@ -766,6 +915,21 @@ func TestNVLinkLogicalPartitionSQLDAO_Update(t *testing.T) {
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
+		{
+			name: "update with invalid status returns error",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			args: args{
+				ctx:             ctx,
+				id:              nvllp.ID,
+				name:            &uNVLinkLogicalPartition.Name,
+				description:     uNVLinkLogicalPartition.Description,
+				Status:          NVLinkLogicalPartitionStatus("Bogus"),
+				IsMissingOnSite: uNVLinkLogicalPartition.IsMissingOnSite,
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -785,9 +949,12 @@ func TestNVLinkLogicalPartitionSQLDAO_Update(t *testing.T) {
 				},
 			)
 
-			fmt.Printf("\ngot ID: %v, Created: %v, Updated: %v", got.ID.String(), got.Created, got.Updated)
-
 			require.Equal(t, tt.wantErr, err != nil)
+			if tt.wantErr {
+				return
+			}
+
+			fmt.Printf("\ngot ID: %v, Created: %v, Updated: %v", got.ID.String(), got.Created, got.Updated)
 
 			assert.Equal(t, tt.want.Name, got.Name)
 			assert.Equal(t, *tt.want.Description, *got.Description)
@@ -829,7 +996,7 @@ func TestNVLinkLogicalPartitionSQLDAO_Delete(t *testing.T) {
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -896,7 +1063,7 @@ func TestNVLinkLogicalPartitionSQLDAO_Clear(t *testing.T) {
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())

@@ -1060,6 +1060,7 @@ pub(crate) async fn component_power_control(
     let req = request.into_inner();
 
     let action = map_power_action(req.action)?;
+    let bypass_state_controller = req.bypass_state_controller;
 
     let target = req
         .target
@@ -1067,6 +1068,12 @@ pub(crate) async fn component_power_control(
 
     let (results, exploration_ips) = match target {
         rpc::component_power_control_request::Target::SwitchIds(list) => {
+            if cm.nv_switch_use_state_controller && !bypass_state_controller {
+                // TODO: implement state controller path for switch power control
+                return Err(Status::unimplemented(
+                    "switch power control through the state controller is not yet supported",
+                ));
+            }
             let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
             let mut results: Vec<_> = endpoints
@@ -1105,6 +1112,12 @@ pub(crate) async fn component_power_control(
             (results, ips)
         }
         rpc::component_power_control_request::Target::PowerShelfIds(list) => {
+            if cm.power_shelf_use_state_controller && !bypass_state_controller {
+                // TODO: implement state controller path for power shelf power control
+                return Err(Status::unimplemented(
+                    "power shelf power control through the state controller is not yet supported",
+                ));
+            }
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
             let mut results: Vec<_> = endpoints
@@ -1143,7 +1156,7 @@ pub(crate) async fn component_power_control(
             (results, ips)
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
-            if cm.compute_tray_use_state_controller {
+            if cm.compute_tray_use_state_controller && !bypass_state_controller {
                 // TODO: implement state controller path for compute tray power control
                 return Err(Status::unimplemented(
                     "compute tray power control through the state controller is not yet supported",
@@ -1474,6 +1487,7 @@ pub(crate) async fn update_component_firmware(
     let access_token = normalize_access_token(req.access_token);
 
     let force_update = req.force_update;
+    let bypass_state_controller = req.bypass_state_controller;
     let mut rack_maintenance_targets: Vec<RackFirmwareMaintenanceTarget> = Vec::new();
     let mut power_shelf_results: Option<Vec<rpc::ComponentResult>> = None;
     let mut rack_results: Option<Vec<rpc::ComponentResult>> = None;
@@ -1488,7 +1502,8 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("switch_ids must not be empty"));
             }
 
-            if access_token.is_some() {
+            let cm = require_component_manager(api)?;
+            if cm.nv_switch_use_state_controller && !bypass_state_controller {
                 let token = require_firmware_object_json_for_rack_maintenance(
                     "switch",
                     &access_token,
@@ -1503,54 +1518,37 @@ pub(crate) async fn update_component_firmware(
                 );
                 rack_maintenance_targets = group_switch_ids_by_rack(api, &list.ids).await?;
             } else {
-                let cm = require_component_manager(api)?;
-                if cm.nv_switch_use_state_controller {
-                    let token = require_firmware_object_json_for_rack_maintenance(
-                        "switch",
-                        &access_token,
+                reject_firmware_object_json_for_direct_dispatch("switch", &access_token)?;
+                let components = map_nv_switch_components(&t.components)?;
+                let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+
+                let mut results: Vec<_> = endpoints
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .nv_switch
+                    .queue_firmware_updates(
+                        &endpoints.resolved.endpoints,
                         &req.target_version,
-                    )?;
-                    let components = map_nv_switch_components(&t.components)?;
-                    maintenance_activities = switch_firmware_maintenance_activities(
-                        &req.target_version,
-                        &token,
                         &components,
-                        force_update,
-                    );
-                    rack_maintenance_targets = group_switch_ids_by_rack(api, &list.ids).await?;
-                } else {
-                    reject_firmware_object_json_for_direct_dispatch("switch", &access_token)?;
-                    let components = map_nv_switch_components(&t.components)?;
-                    let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
 
-                    let mut results: Vec<_> = endpoints
-                        .unresolved
-                        .iter()
-                        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                        .collect();
-
-                    let backend_results = cm
-                        .nv_switch
-                        .queue_firmware_updates(
-                            &endpoints.resolved.endpoints,
-                            &req.target_version,
-                            &components,
-                        )
-                        .await
-                        .map_err(component_manager_error_to_status)?;
-                    results.extend(backend_results.into_iter().map(|r| {
-                        let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
-                        if r.success {
-                            success_result(&id)
-                        } else {
-                            error_result(&id, r.error.unwrap_or_default())
-                        }
-                    }));
-
-                    return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                        results,
-                    }));
-                }
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             }
         }
         rpc::update_component_firmware_request::Target::ComputeTrays(t) => {
@@ -1561,7 +1559,8 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            if access_token.is_some() {
+            let cm = require_component_manager(api)?;
+            if cm.compute_tray_use_state_controller && !bypass_state_controller {
                 let token = require_firmware_object_json_for_rack_maintenance(
                     "compute tray",
                     &access_token,
@@ -1577,54 +1576,36 @@ pub(crate) async fn update_component_firmware(
                 rack_maintenance_targets =
                     group_machine_ids_by_rack(api, &list.machine_ids).await?;
             } else {
-                let cm = require_component_manager(api)?;
-                if cm.compute_tray_use_state_controller {
-                    let token = require_firmware_object_json_for_rack_maintenance(
-                        "compute tray",
-                        &access_token,
+                reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
+                let components = map_compute_tray_components(&t.components)?;
+                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+
+                let mut results: Vec<_> = resolved
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .compute_tray
+                    .update_firmware(
+                        &resolved.resolved.endpoints,
                         &req.target_version,
-                    )?;
-                    let component_names = map_compute_tray_component_names(&t.components)?;
-                    maintenance_activities = vec![firmware_upgrade_activity(
-                        req.target_version.clone(),
-                        component_names,
-                        Some(token),
-                        force_update,
-                    )];
-                    rack_maintenance_targets =
-                        group_machine_ids_by_rack(api, &list.machine_ids).await?;
-                } else {
-                    reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
-                    let components = map_compute_tray_components(&t.components)?;
-                    let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+                        &components,
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    if r.success {
+                        success_result(&r.bmc_ip.to_string())
+                    } else {
+                        error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
+                    }
+                }));
 
-                    let mut results: Vec<_> = resolved
-                        .unresolved
-                        .iter()
-                        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                        .collect();
-
-                    let backend_results = cm
-                        .compute_tray
-                        .update_firmware(
-                            &resolved.resolved.endpoints,
-                            &req.target_version,
-                            &components,
-                        )
-                        .await
-                        .map_err(component_manager_error_to_status)?;
-                    results.extend(backend_results.into_iter().map(|r| {
-                        if r.success {
-                            success_result(&r.bmc_ip.to_string())
-                        } else {
-                            error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
-                        }
-                    }));
-
-                    return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                        results,
-                    }));
-                }
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             }
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
@@ -1637,8 +1618,15 @@ pub(crate) async fn update_component_firmware(
                 ));
             }
 
-            reject_power_shelf_firmware_object_json(&access_token)?;
             let cm = require_component_manager(api)?;
+            if cm.power_shelf_use_state_controller && !bypass_state_controller {
+                // TODO: implement state controller path for power shelf firmware control
+                return Err(Status::unimplemented(
+                    "power shelf firmware control through the state controller is not yet supported",
+                ));
+            }
+
+            reject_power_shelf_firmware_object_json(&access_token)?;
             let components = map_power_shelf_components(&t.components)?;
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
@@ -1668,6 +1656,12 @@ pub(crate) async fn update_component_firmware(
             power_shelf_results = Some(results);
         }
         rpc::update_component_firmware_request::Target::Racks(t) => {
+            if bypass_state_controller {
+                // TODO: implement RMS backend direct dispatch for a full rack
+                return Err(Status::invalid_argument(
+                    "bypass_state_controller is not supported for rack-level firmware updates",
+                ));
+            }
             let list = t
                 .rack_ids
                 .ok_or_else(|| Status::invalid_argument("rack_ids is required"))?;

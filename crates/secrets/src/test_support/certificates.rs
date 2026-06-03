@@ -18,9 +18,10 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use forge_secrets::SecretsError;
-use forge_secrets::certificates::{Certificate, CertificateProvider};
 use tokio::sync::Mutex;
+
+use crate::SecretsError;
+use crate::certificates::{Certificate, CertificateProvider};
 
 #[derive(Debug, Default)]
 pub struct TestCertificateProvider {

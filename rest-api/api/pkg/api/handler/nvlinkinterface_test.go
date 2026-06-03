@@ -107,7 +107,7 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 
 	nvlinklogicalpartitions := []*cdbm.NVLinkLogicalPartition{}
 	for i := 0; i < 3; i++ {
-		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 		assert.NotNil(t, nvlinklogicalpartition1)
 		nvlinklogicalpartitions = append(nvlinklogicalpartitions, nvlinklogicalpartition1)
 	}
@@ -786,7 +786,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 
 	ibps := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 25; i++ {
-		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibp1)
 		ibps = append(ibps, ibp1)
 	}
@@ -800,7 +800,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 
 	nvllps := []*cdbm.NVLinkLogicalPartition{}
 	for i := 0; i < 3; i++ {
-		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 		assert.NotNil(t, nvlinklogicalpartition1)
 		nvllps = append(nvllps, nvlinklogicalpartition1)
 	}

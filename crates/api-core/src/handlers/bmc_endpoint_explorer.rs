@@ -27,7 +27,7 @@ use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
-use model::site_explorer::PreingestionState;
+use model::site_explorer::{NicMode, PreingestionState};
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -604,6 +604,22 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         kind: "explored_endpoint",
         id: dpu_ip.to_string(),
     })?;
+
+    // If the DPU is in NIC mode, don't allow operators to copy_bfb_to_dpu_rshim
+    // at all to begin with. While the rshim + copy part will technically
+    // work, the problem is there's no ARM OS to actually reboot into. The
+    // BFB preingestion flow will work its way through the states, and then
+    // wait for the ARM OS to come up, which it never will. Waiting will
+    // eventually, time out (SLA), and then the host will mark as failed.
+    if dpu_endpoint.report.nic_mode() == Some(NicMode::Nic) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
+             Update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
+             and wait for site-explorer to reconcile the DPU back to \
+             DPU mode before retrying.",
+        ))
+        .into());
+    }
 
     match &dpu_endpoint.preingestion_state {
         PreingestionState::Initial

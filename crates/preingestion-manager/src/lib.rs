@@ -42,7 +42,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState, TimeSyncResetPhase,
+    ExploredEndpoint, InitialResetPhase, NicMode, PowerDrainState, PreingestionState,
+    TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -274,6 +275,59 @@ async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
 ) -> PreingestionManagerResult<EndpointResult> {
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
+
+    // BFB-related preingestion doesn't work for a DPU running in NIC
+    // mode -- the Arm OS doesn't boot, so the `in_bfb_installation_wait`
+    // call to `check_dpu_console_install_complete` (which literally greps
+    // the microcom for strings) never succeeds, and we eventually will
+    // hit SLA and fail.
+    //
+    // Soo, we need to skip past a couple of BFB states:
+    // - BfbRecoveryNeeded -- don't even enter to begin with.
+    // - BfbInstallationWait -- if we've gotten to this point,
+    //   but we're in NIC mode, just transition ahead (we'll be=
+    //   waiting forever otherwise).
+    //
+    // ..but, intentionally leave `BfbPlatformPowercycle` and
+    // `BfbCopyInProgress` alone (if they're in it). They're
+    // mid-flight states where skipping risks leaving
+    // the host powered off, or leaving the spawned SSH copy
+    // task orphaned. Existing timeouts will surface if something
+    // fails, but that's fine -- those should succeed regardless
+    // of NIC mode or DPU mode.
+    //
+    // This basically just mirrors the `in_bfb_platform_powercycle`
+    // post-install handling, letting the site-explorer pairing and
+    // remediation loops to continue on.
+    let endpoint_host_bmc_ip = match &endpoint.preingestion_state {
+        PreingestionState::BfbRecoveryNeeded { host_bmc_ip, .. }
+        | PreingestionState::BfbInstallationWait { host_bmc_ip, .. } => Some(*host_bmc_ip),
+        _ => None,
+    };
+    if let Some(host_bmc_ip) = endpoint_host_bmc_ip
+        && endpoint.report.nic_mode() == Some(NicMode::Nic)
+    {
+        tracing::info!(
+            address = %endpoint.address,
+            %host_bmc_ip,
+            from_state = ?endpoint.preingestion_state,
+            "DPU is in NIC mode; skipping BFB preingestion path and marking complete",
+        );
+        db.with_txn(|txn| {
+            async move {
+                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    .await?;
+                db::explored_endpoints::set_pause_remediation(host_bmc_ip, false, txn).await?;
+                Ok::<(), DatabaseError>(())
+            }
+            .boxed()
+        })
+        .await??;
+        return Ok(EndpointResult {
+            delayed_upgrade: false,
+        });
+    }
 
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {

@@ -19,7 +19,6 @@
 
 use std::collections::HashMap;
 use std::default::Default;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,16 +26,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use carbide_ib_fabric::IbFabricMonitor;
-use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
 use carbide_ib_partition_controller::handler::IBPartitionStateHandler;
 use carbide_ib_partition_controller::io::IBPartitionStateControllerIO;
 use carbide_ipmi::IPMITool;
-use carbide_machine_controller::config::{
-    BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig, MachineValidationConfig,
-    PowerManagerOptions,
-};
+use carbide_machine_controller::config::machine_validation::MachineValidationConfig;
 use carbide_machine_controller::context::MachineStateHandlerServices;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_machine_controller::handler::{
@@ -47,13 +43,12 @@ use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServi
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
 use carbide_nvlink_manager::NvlPartitionMonitor;
-use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
-use carbide_rack_controller::config::{RackConfig, RackValidationConfig, RmsConfig};
+use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
@@ -63,7 +58,6 @@ use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode}
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
-use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
@@ -80,9 +74,9 @@ use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
 use dpu::DpuConfig;
-use forge_secrets::credentials::{
-    CompositeCredentialManager, CredentialManager, CredentialReader, TestCredentialManager,
-};
+use forge_secrets::credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
+use forge_secrets::test_support::certificates::TestCertificateProvider;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -91,13 +85,12 @@ use lazy_static::lazy_static;
 use libnmxc::NmxcPool;
 use measured_boot::pcr::PcrRegisterValue;
 use model::attestation::spdm::Verifier;
-use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::hardware_info::{HardwareInfo, TpmEkCertificate};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
 use model::machine::capabilities::MachineCapabilityType;
 use model::machine::{
-    FailureDetails, HostHealthConfig, Machine, MachineLastRebootRequested, MachineValidatingState,
-    ManagedHostState, ValidationState,
+    FailureDetails, Machine, MachineLastRebootRequested, MachineValidatingState, ManagedHostState,
+    ValidationState,
 };
 use model::metadata::Metadata;
 use model::network_security_group;
@@ -109,7 +102,6 @@ use nras::{
     VerifierClient,
 };
 use rcgen::{CertifiedKey, generate_simple_self_signed};
-use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
@@ -131,19 +123,13 @@ use tracing_subscriber::EnvFilter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
-use crate::cfg::file::{
-    CarbideConfig, ComputeAllocationEnforcement, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, FnnConfig, IbPartitionStateControllerConfig, ListenMode,
-    MachineUpdater, MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
-    VmaasConfig, VpcPeeringPolicy, default_bmc_session_lockout_threshold, default_max_find_by_ids,
-};
+use crate::cfg::file::{CarbideConfig, ComputeAllocationEnforcement, FnnConfig};
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot::convert_vec;
 use crate::scout_stream;
+use crate::test_support::default_config;
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -153,7 +139,6 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_underlay_network_segment,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
-use crate::tests::common::test_certificates::TestCertificateProvider;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -1072,300 +1057,8 @@ impl TestEnv {
     }
 }
 
-fn dpu_fw_example() -> HashMap<String, Firmware> {
-    HashMap::from([(
-        "bluefield3".to_string(),
-        Firmware {
-            vendor: bmc_vendor::BMCVendor::Nvidia,
-            model: "BlueField 3 SmartNIC Main Card".to_string(),
-            ordering: vec![FirmwareComponentType::Bmc, FirmwareComponentType::Cec],
-            explicit_start_needed: false,
-            components: HashMap::from([
-                (
-                    FirmwareComponentType::Bmc,
-                    FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("BMC_Firmware").unwrap()),
-                        preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry::standard("BF-24.10-17")],
-                    },
-                ),
-                (
-                    FirmwareComponentType::Cec,
-                    FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("Bluefield_FW_ERoT").unwrap()),
-                        preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry::standard("00.02.0180.0000")],
-                    },
-                ),
-                (
-                    FirmwareComponentType::Nic,
-                    FirmwareComponent {
-                        current_version_reported_as: Some(Regex::new("DPU_NIC").unwrap()),
-                        preingest_upgrade_when_below: None,
-                        known_firmware: vec![FirmwareEntry::standard("32.39.2048")],
-                    },
-                ),
-            ]),
-        },
-    )])
-}
-
-fn host_firmware_example() -> HashMap<String, Firmware> {
-    HashMap::from([
-        (
-            "1".to_string(),
-            Firmware {
-                vendor: bmc_vendor::BMCVendor::Dell,
-                model: "PowerEdge R750".to_string(),
-                explicit_start_needed: false,
-                components: HashMap::from([
-                    (
-                        FirmwareComponentType::Bmc,
-                        FirmwareComponent {
-                            current_version_reported_as: Some(
-                                Regex::new("^Installed-.*__iDRAC.").unwrap(),
-                            ),
-                            preingest_upgrade_when_below: Some("5".to_string()),
-                            known_firmware: vec![
-                                FirmwareEntry::standard_notdefault("6.1"),
-                                FirmwareEntry::standard_multiple_filenames("6.00.30.00"),
-                                FirmwareEntry::standard_notdefault("5"),
-                            ],
-                        },
-                    ),
-                    (
-                        FirmwareComponentType::Uefi,
-                        FirmwareComponent {
-                            current_version_reported_as: Some(
-                                Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
-                            ),
-                            preingest_upgrade_when_below: Some("1.13.2".to_string()),
-                            known_firmware: vec![FirmwareEntry::standard("1.13.2")],
-                        },
-                    ),
-                ]),
-                ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
-            },
-        ),
-        (
-            "2".to_string(),
-            Firmware {
-                vendor: bmc_vendor::BMCVendor::Dell,
-                model: "Powercycle Test".to_string(),
-                explicit_start_needed: false,
-                components: HashMap::from([(
-                    FirmwareComponentType::Uefi,
-                    FirmwareComponent {
-                        current_version_reported_as: Some(
-                            Regex::new("^Current-.*__BIOS.Setup.").unwrap(),
-                        ),
-                        preingest_upgrade_when_below: Some("1.13.2".to_string()),
-                        known_firmware: vec![FirmwareEntry::standard_powerdrains("1.13.2", 1002)],
-                    },
-                )]),
-                ordering: vec![FirmwareComponentType::Uefi, FirmwareComponentType::Bmc],
-            },
-        ),
-    ])
-}
-
 pub fn get_config() -> CarbideConfig {
-    CarbideConfig {
-        default_tenant_routing_profile_type: "EXTERNAL".to_string(),
-        enable_admin_ui: true,
-        web_ui_sidebar_tools: vec![],
-        log_history: Default::default(),
-        bgp_leaf_session_password: None,
-        rack_validation_config: RackValidationConfig {
-            enabled: true,
-            ..Default::default()
-        },
-        site_global_vpc_vni: None,
-        listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
-        metrics_endpoint: None,
-        alt_metric_prefix: None,
-        database_url: "pgsql:://localhost".to_string(),
-        max_database_connections: 1000,
-        compute_allocation_enforcement: Default::default(),
-        asn: 0,
-        datacenter_asn: 0,
-        dhcp_servers: vec![],
-        route_servers: vec![],
-        enable_route_servers: false,
-        deny_prefixes: vec![],
-        site_fabric_prefixes: vec![],
-        anycast_site_prefixes: vec![],
-        common_tenant_host_asn: None,
-        vpc_isolation_behavior: <_ as Default>::default(),
-        tls: Some(crate::cfg::file::TlsConfig {
-            root_cafile_path: "Not a real path".to_string(),
-            identity_pemfile_path: "Not a real pemfile".to_string(),
-            identity_keyfile_path: "Not a real keyfile".to_string(),
-            admin_root_cafile_path: "Not a real cafile".to_string(),
-        }),
-        auth: None,
-        pools: None,
-        networks: None,
-        dpu_ipmi_tool_impl: None,
-        dpu_ipmi_reboot_attempts: Some(0),
-        bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),
-        allow_bmc_basic_auth_fallback: false,
-        initial_domain_name: Some("test.com".to_string()),
-        sitename: Some("testsite".to_string()),
-        initial_dpu_agent_upgrade_policy: None,
-        max_concurrent_machine_updates: None,
-        machine_update_run_interval: Some(1),
-        site_explorer: SiteExplorerConfig {
-            enabled: Arc::new(false.into()),
-            run_interval: std::time::Duration::from_secs(0),
-            concurrent_explorations: 0,
-            explorations_per_run: 0,
-            create_machines: Arc::new(false.into()),
-            allocate_secondary_vtep_ip: true,
-            ..Default::default()
-        },
-        vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
-        vpc_peering_policy_on_existing: None,
-        attestation_enabled: false,
-        tpm_required: true,
-        ib_config: None,
-        ib_fabrics: [(
-            "default".to_string(),
-            IbFabricDefinition {
-                // The actual IP is not used and thereby does not matter
-                endpoints: vec!["https://127.0.0.1:443".to_string()],
-                pkeys: vec![resource_pool::Range {
-                    start: "1".to_string(),
-                    end: "100".to_string(),
-                    auto_assign: true,
-                }],
-            },
-        )]
-        .into_iter()
-        .collect(),
-        machine_state_controller: MachineStateControllerConfig {
-            dpu_wait_time: Duration::seconds(1),
-            power_down_wait: Duration::seconds(1),
-            failure_retry_time: Duration::seconds(1),
-            dpu_up_threshold: Duration::weeks(52),
-            controller: StateControllerConfig::default(),
-            scout_reporting_timeout: Duration::weeks(52),
-            uefi_boot_wait: Duration::seconds(0),
-            max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
-            ),
-            polling_bios_setup_stuck_threshold:
-                MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
-        },
-        network_segment_state_controller: NetworkSegmentStateControllerConfig {
-            network_segment_drain_time: Duration::seconds(2),
-            controller: StateControllerConfig::default(),
-        },
-        ib_partition_state_controller: IbPartitionStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        dpa_interface_state_controller: DpaInterfaceStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        power_shelf_state_controller: PowerShelfStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        rack_state_controller: RackStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        switch_state_controller: SwitchStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        dpu_config: InitialDpuConfig {
-            dpu_nic_firmware_initial_update_enabled: true,
-            dpu_nic_firmware_reprovision_update_enabled: true,
-            dpu_models: dpu_fw_example(),
-            dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
-            dpu_enable_secure_boot: true,
-            num_of_vfs: crate::cfg::file::DEFAULT_DPU_NUM_OF_VFS,
-        },
-        host_models: host_firmware_example(),
-        firmware_global: FirmwareGlobal::test_default(),
-        machine_updater: MachineUpdater {
-            instance_autoreboot_period: None,
-            max_concurrent_machine_updates_absolute: Some(10),
-            max_concurrent_machine_updates_percent: None,
-        },
-        max_find_by_ids: default_max_find_by_ids(),
-        network_security_group: NetworkSecurityGroupConfig::default(),
-        min_dpu_functioning_links: None,
-        dpu_network_monitor_pinger_type: None,
-        host_health: HostHealthConfig::default(),
-        internet_l3_vni: 1337,
-        measured_boot_collector: MeasuredBootMetricsCollectorConfig {
-            enabled: true,
-            run_interval: std::time::Duration::from_secs(10),
-        },
-        machine_validation_config: MachineValidationConfig {
-            enabled: true,
-            ..MachineValidationConfig::default()
-        },
-        bypass_rbac: false,
-        fnn: None,
-        bios_profiles: HashMap::default(),
-        selected_profile: libredfish::BiosProfileType::Performance,
-        oem_manager_profiles: HashMap::default(),
-        bom_validation: BomValidationConfig::default(),
-        listen_mode: ListenMode::Tls,
-        listen_only: false,
-        nvlink_config: Some(NvLinkConfig::default()),
-        dpa_config: Some(DpaConfig {
-            enabled: true,
-            mqtt_endpoint: "mqtt.forge".to_string(),
-            mqtt_broker_port: 1884_u16,
-            hb_interval: Duration::minutes(2),
-            subnet_ip: Ipv4Addr::UNSPECIFIED,
-            subnet_mask: 0_i32,
-            auth: MqttAuthConfig::default(),
-            monitor_run_interval: std::time::Duration::from_secs(10),
-        }),
-        power_manager_options: PowerManagerOptions {
-            enabled: false,
-            ..PowerManagerOptions::default()
-        },
-        auto_machine_repair_plugin: Default::default(),
-        vmaas_config: Some(VmaasConfig {
-            allow_instance_vf: true,
-            hbn_reps: None,
-            hbn_sfs: None,
-            secondary_overlay_support: true,
-            bridging: None,
-            public_prefixes: vec![],
-            secondary_vtep_aggregate_prefixes: vec![],
-        }),
-        mlxconfig_profiles: None,
-        rack_management_enabled: false,
-        rms: RmsConfig::default(),
-        rack_profiles: Default::default(),
-        spdm_state_controller: SpdmStateControllerConfig {
-            controller: StateControllerConfig::default(),
-        },
-        spdm: SpdmConfig {
-            enabled: false,
-            nras_config: Some(nras::Config::default()),
-        },
-        machine_identity: crate::cfg::file::MachineIdentityConfig {
-            enabled: true,
-            current_encryption_key_id: Some("test".to_string()),
-            ..Default::default()
-        },
-        dsx_exchange_event_bus: None,
-        dpf: crate::cfg::file::DpfConfig::default(),
-        x86_pxe_boot_url_override: None,
-        arm_pxe_boot_url_override: None,
-        set_http_boot_uri_for_vendors: vec![],
-        external_api_url: None,
-        external_pxe_url: None,
-        external_static_pxe_url: None,
-        supernic_firmware_profiles: HashMap::default(),
-        component_manager: None,
-        initial_objects_file: None,
-        config_ctx: None,
-    }
+    default_config::get()
 }
 
 /// crate::sqlx_test shares the pool with all testcases in a file. If there are many testcases in a file,
@@ -1598,7 +1291,6 @@ pub async fn create_test_env_with_overrides(
         .unwrap_or(&TEST_SITE_PREFIXES)
         .to_vec();
     let site_fabric_count = site_fabric_networks.len() as u8;
-    println!("Fabric Prefix: {site_fabric_networks:?}");
     let site_fabric_prefixes = { SiteFabricPrefixList::from_ipnetwork_vec(site_fabric_networks) };
 
     let eth_virt_data = EthVirtData {

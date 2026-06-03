@@ -23,7 +23,7 @@ use crate::{
     expected_rack, expected_switch, extension_service, firmware, generate_man,
     generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
     ipxe_template, jump, machine, machine_interfaces, machine_validation, managed_host,
-    managed_switch, mlx, network_devices, network_security_group, network_segment,
+    managed_switch, mlx, network_devices, network_security_group, network_segment, nvl_domain,
     nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints, operating_system, os_image, ping,
     power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
     sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
@@ -349,6 +349,13 @@ pub enum CliCommand {
     SpxPartition(spx_partition::Cmd),
 
     #[clap(
+        about = "NVLink domain related handling",
+        subcommand,
+        visible_alias = "nvd"
+    )]
+    NvlDomain(nvl_domain::Cmd),
+
+    #[clap(
         about = "Logical partition related handling",
         subcommand,
         visible_alias = "lp"
@@ -358,9 +365,10 @@ pub enum CliCommand {
     #[clap(subcommand)]
     #[clap(verbatim_doc_comment)]
     /// DPF-related commands.
-    /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU re-provisioning.
-    /// The state is saved in the machine's metadata and will be deleted if the machine is force-deleted.
-    /// To make the state persistent, add the DPF state for a machine (host) to the expected machines table.
+    /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU
+    /// re-provisioning. The state is saved in the machine's metadata and will be deleted if the
+    /// machine is force-deleted. To make the state persistent, add the DPF state for a machine
+    /// (host) to the expected machines table.
     Dpf(crate::dpf::Cmd),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]

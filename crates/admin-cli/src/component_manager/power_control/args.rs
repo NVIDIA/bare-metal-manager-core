@@ -30,17 +30,25 @@ pub struct Args {
         help = "Power control action to apply to the targeted components"
     )]
     pub action: PowerActionArg,
+
+    #[clap(
+        long = "bypass-state-controller",
+        help = "Bypass the state controller and dispatch directly to the component backend"
+    )]
+    pub bypass_state_controller: bool,
 }
 
 impl From<Args> for rpc::forge::ComponentPowerControlRequest {
     fn from(args: Args) -> Self {
         let action = ::rpc::common::SystemPowerControl::from(args.action) as i32;
+        let bypass_state_controller = args.bypass_state_controller;
         match args.target {
             PowerControlTargetArgs::Switch(target) => Self {
                 target: Some(
                     rpc::forge::component_power_control_request::Target::SwitchIds(target.into()),
                 ),
                 action,
+                bypass_state_controller,
             },
             PowerControlTargetArgs::PowerShelf(target) => Self {
                 target: Some(
@@ -49,12 +57,14 @@ impl From<Args> for rpc::forge::ComponentPowerControlRequest {
                     ),
                 ),
                 action,
+                bypass_state_controller,
             },
             PowerControlTargetArgs::ComputeTray(target) => Self {
                 target: Some(
                     rpc::forge::component_power_control_request::Target::MachineIds(target.into()),
                 ),
                 action,
+                bypass_state_controller,
             },
         }
     }

@@ -38,9 +38,9 @@ import (
 	tp "go.temporal.io/sdk/temporal"
 )
 
-func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, org string, site *cdbm.Site, tenant *cdbm.Tenant, status *string, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
+func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, org string, site *cdbm.Site, tenant *cdbm.Tenant, status *cdbm.NVLinkLogicalPartitionStatus, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady)
+		status = cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady)
 	}
 	nvllp := &cdbm.NVLinkLogicalPartition{
 		ID:              uuid.New(),
@@ -442,19 +442,19 @@ func TestNVLinkLogicalPartitionHandler_Update(t *testing.T) {
 	ts3 := testBuildTenantSiteAssociation(t, dbSession, tnOrg1, tn1.ID, site3.ID, tnu1.ID)
 	assert.NotNil(t, ts3)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusPending), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site2, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site2, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusPending), false)
 	assert.NotNil(t, nvllp2)
 
-	nvllp3 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-3", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg2, site1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending), false)
+	nvllp3 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-3", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg2, site1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusPending), false)
 	assert.NotNil(t, nvllp3)
 
-	nvllp4 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-4", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site3, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending), false)
+	nvllp4 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-4", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusPending), false)
 	assert.NotNil(t, nvllp4)
 
-	nvllp5 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-5", cdb.GetStrPtr("preserved-for-nico"), tnOrg1, site1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending), false)
+	nvllp5 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-5", cdb.GetStrPtr("preserved-for-nico"), tnOrg1, site1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusPending), false)
 	assert.NotNil(t, nvllp5)
 
 	noupdateObj := model.APINVLinkLogicalPartitionUpdateRequest{Name: cdb.GetStrPtr("test-nvllp-1"), Description: cdb.GetStrPtr("Test NVLink Logical Partition")}
@@ -898,8 +898,8 @@ func TestNVLinkLogicalPartitionHandler_GetAll(t *testing.T) {
 			},
 		)
 		assert.Nil(t, err)
-		common.TestBuildStatusDetail(t, dbSession, nvllp.ID.String(), cdbm.NVLinkLogicalPartitionStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, nvllp.ID.String(), cdbm.NVLinkLogicalPartitionStatusReady, cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, nvllp.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending), cdb.GetStrPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, nvllp.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusReady), cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
 		nvllps = append(nvllps, *nvllp)
 	}
 
@@ -908,17 +908,17 @@ func TestNVLinkLogicalPartitionHandler_GetAll(t *testing.T) {
 
 	//Site 2
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1-site2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn2, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1-site2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn2, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	common.TestBuildStatusDetail(t, dbSession, nvllp1.ID.String(), cdbm.NVLinkLogicalPartitionStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, nvllp1.ID.String(), cdbm.NVLinkLogicalPartitionStatusReady, cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, nvllp1.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending), cdb.GetStrPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, nvllp1.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusReady), cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2-site2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn2, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2-site2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn2, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
-	common.TestBuildStatusDetail(t, dbSession, nvllp2.ID.String(), cdbm.NVLinkLogicalPartitionStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, nvllp2.ID.String(), cdbm.NVLinkLogicalPartitionStatusReady, cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, nvllp2.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending), cdb.GetStrPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, nvllp2.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusReady), cdb.GetStrPtr("NVLinkLogical Partition is now ready for use"))
 
 	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip1, tn2, site2, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllp1.ID), cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
@@ -1137,7 +1137,7 @@ func TestNVLinkLogicalPartitionHandler_GetAll(t *testing.T) {
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
 			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			queryStatus:    cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending),
+			queryStatus:    cdb.GetTypedStrPtr(cdbm.NVLinkLogicalPartitionStatusPending),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -1346,10 +1346,10 @@ func TestNVLinkLogicalPartitionHandler_GetByID(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg2, site2, tn2, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg2, site2, tn2, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip1, tn1, site1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllp1.ID), cdbm.VpcStatusReady, tnu1)
@@ -1636,13 +1636,13 @@ func TestNVLinkLogicalPartitionHandler_Delete(t *testing.T) {
 	ts4 := testBuildTenantSiteAssociation(t, dbSession, tnOrg4, tn4.ID, site2.ID, tnu4.ID)
 	assert.NotNil(t, ts4)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, site1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp3 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-3", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg3, site2, tn3, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp3 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-3", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg3, site2, tn3, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp3)
 
-	nvllp4 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-4", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn4, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp4 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-4", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg4, site2, tn4, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp4)
 
 	ipuNvDel := testFabricBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg1}, []string{authz.ProviderAdminRole})

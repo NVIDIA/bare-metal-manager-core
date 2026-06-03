@@ -41,10 +41,19 @@
 # How long to cache NXDomain and Refused responses, in seconds.
 # negative_cache_ttl_secs = 120
 
+# How long to cache ServFail responses (transient nico-api failures), in
+# seconds. Kept short so a failure is not pinned across the upstream's recovery;
+# clamped to [1, 300]. Default: 5.
+# negative_cache_servfail_ttl_secs = 5
+
 # Maximum number of entries the negative cache may hold. Once reached, new
 # negative responses are not cached, bounding memory under a flood of distinct
 # non-existent names.
-# negative_cache_entries_max_count = 200000
+# negative_cache_entries_max_count = 50000
+
+# Maximum time to wait for a single upstream lookup_record call before giving up
+# and returning ServFail, in seconds. Default: 3.
+# upstream_lookup_timeout_secs = 5
 
 # Address (host:port) the Prometheus metrics server listens on.
 # metrics_listen_address = "[::]:8053"

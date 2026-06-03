@@ -51,12 +51,20 @@ spec:
             capabilities:
               add:
                 - SYS_PTRACE
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: udp
               containerPort: 53
               protocol: UDP
             - name: tcp
               containerPort: 53
+              protocol: TCP
+            # Prometheus metrics endpoint; scraped via a PodMonitor (no Service).
+            - name: metrics
+              containerPort: 8053
               protocol: TCP
           volumeMounts:
             - name: spiffe

@@ -248,7 +248,6 @@ pub struct TenantIdentityConfig {
     pub signing_key_public_2: Option<Json<identity_config::SigningKeyPublicV1>>,
     pub current_signing_key_slot: identity_config::TenantIdentityCurrentSigningKeySlot,
     pub non_active_slot_expires_at: Option<DateTime<Utc>>,
-    pub encryption_key_id: EncryptionKeyId,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,
