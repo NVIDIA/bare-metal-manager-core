@@ -1817,7 +1817,12 @@ impl SiteExplorer {
                 .endpoint_exploration_duration
                 .push(exploration_duration);
             match &result {
-                Ok(_) => metrics.endpoint_explorations_success += 1,
+                Ok(report) => {
+                    metrics.endpoint_explorations_success += 1;
+                    if let Some(e) = &report.remediation_error {
+                        redfish_error = Some(e.clone());
+                    }
+                }
                 Err(e) => {
                     *metrics
                         .endpoint_explorations_failures_by_type

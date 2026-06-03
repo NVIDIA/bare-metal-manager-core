@@ -117,6 +117,10 @@ pub struct EndpointExplorationReport {
     // Merged from multiple chassis entries
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision_id: Option<i32>,
+    /// Transient remediation error detected during an otherwise successful exploration.
+    /// Not persisted; used to trigger Site Explorer auto-remediation in the same run.
+    #[serde(skip, default)]
+    pub remediation_error: Option<EndpointExplorationError>,
 }
 
 impl EndpointExplorationReport {
@@ -675,6 +679,7 @@ impl EndpointExplorationReport {
             compute_tray_index: None,
             topology_id: None,
             revision_id: None,
+            remediation_error: None,
         }
     }
 

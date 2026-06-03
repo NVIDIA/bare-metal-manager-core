@@ -3733,6 +3733,28 @@ impl DpuMachineStateHandler {
                         "Polling BIOS setup status, waiting for settings to be applied on DPU {}",
                         dpu_snapshot.id
                     ))),
+                    Err(e)
+                        if carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready(&e) =>
+                    {
+                        let msg = format!(
+                            "DPU {} BIOS attributes not ready while polling BIOS setup (known UEFI POST/BMC race); issuing force-restart. err: {e}",
+                            dpu_snapshot.id
+                        );
+                        tracing::warn!(msg);
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+
+                        Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )))
+                    }
                     Err(e) => {
                         tracing::warn!(
                             dpu_id = %dpu_snapshot.id,
