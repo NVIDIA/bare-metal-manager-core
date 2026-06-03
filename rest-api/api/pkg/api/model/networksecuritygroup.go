@@ -10,13 +10,14 @@ import (
 	"strings"
 	"time"
 
-	hutil "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+
+	hutil "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const MaxNetworkSecurityGroupRules = 200
@@ -611,7 +612,7 @@ func NewAPINetworkSecurityGroupPropagationDetails(s *cdbm.NetworkSecurityGroupPr
 		// so that users, and we, know this is related to a mismatch between
 		// site data and our expectations.
 		status = APINetworkSecurityGroupPropagationDetailedStatusUnknown
-		details.Details = cdb.GetStrPtr("Unknown status type reported from Site")
+		details.Details = cutil.GetPtr("Unknown status type reported from Site")
 	}
 
 	details.DetailedStatus = status

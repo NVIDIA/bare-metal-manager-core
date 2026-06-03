@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPIOperatingSystemSiteAssociation(t *testing.T) {
@@ -18,7 +19,7 @@ func TestNewAPIOperatingSystemSiteAssociation(t *testing.T) {
 		ID:                uuid.New(),
 		OperatingSystemID: uuid.New(),
 		SiteID:            uuid.New(),
-		Version:           db.GetStrPtr("1234"),
+		Version:           cutil.GetPtr("1234"),
 		Status:            cdbm.OperatingSystemSiteAssociationStatusSyncing,
 		Created:           time.Now(),
 		Updated:           time.Now(),

@@ -7,13 +7,14 @@ import (
 	"errors"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 const (
@@ -177,7 +178,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	// At this point, we know phone-home has been requested,
 	// so default to empty user-data if nothing was passed in
 	if oscr.UserData == nil || *oscr.UserData == "" {
-		oscr.UserData = cdb.GetStrPtr("{}")
+		oscr.UserData = cutil.GetPtr("{}")
 	}
 
 	userDataMap := &yaml.Node{}
@@ -219,7 +220,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	}
 
 	// Render it back out.
-	oscr.UserData = cdb.GetStrPtr(string(byteUserData))
+	oscr.UserData = cutil.GetPtr(string(byteUserData))
 
 	return nil
 }
@@ -407,7 +408,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 		// have returned already; so, If we're here, then we
 		// have a request to enable that is totally missing
 		// user data, so default it.
-		mergedUserData = cdb.GetStrPtr("{}")
+		mergedUserData = cutil.GetPtr("{}")
 	}
 
 	userDataMap := &yaml.Node{}
@@ -467,7 +468,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 		// was valid, but phone-home has been disabled, and the
 		// phone-home block was the only thing in the original YAML,
 		// so just blank the DB field.
-		osur.UserData = cdb.GetStrPtr("")
+		osur.UserData = cutil.GetPtr("")
 		return nil
 	}
 
@@ -480,7 +481,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	}
 
 	// Set it in the request.
-	osur.UserData = cdb.GetStrPtr(string(byteUserData))
+	osur.UserData = cutil.GetPtr(string(byteUserData))
 
 	return nil
 }
@@ -572,10 +573,10 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		Updated:            dbOS.Updated,
 	}
 	if dbOS.InfrastructureProviderID != nil {
-		apiOperatingSystem.InfrastructureProviderID = cdb.GetStrPtr(dbOS.InfrastructureProviderID.String())
+		apiOperatingSystem.InfrastructureProviderID = cutil.GetPtr(dbOS.InfrastructureProviderID.String())
 	}
 	if dbOS.TenantID != nil {
-		apiOperatingSystem.TenantID = cdb.GetStrPtr(dbOS.TenantID.String())
+		apiOperatingSystem.TenantID = cutil.GetPtr(dbOS.TenantID.String())
 	}
 	if dbOS.InfrastructureProvider != nil {
 		apiOperatingSystem.InfrastructureProvider = NewAPIInfrastructureProviderSummary(dbOS.InfrastructureProvider)

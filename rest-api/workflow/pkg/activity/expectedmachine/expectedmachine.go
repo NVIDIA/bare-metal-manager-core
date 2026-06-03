@@ -8,11 +8,14 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 
@@ -69,7 +72,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 
 	// Fetch ALL existing expected machines for site
 	filterInput := cdbm.ExpectedMachineFilterInput{SiteIDs: []uuid.UUID{siteID}}
-	existingExpectedMachines, _, err := emDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingExpectedMachines, _, err := emDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get ExpectedMachines for Site from DB")
 		return err

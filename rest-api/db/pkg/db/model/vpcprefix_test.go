@@ -12,11 +12,14 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 func testVpcPrefixInitDB(t *testing.T) *db.Session {
@@ -65,7 +68,7 @@ func testVpcPrefixBuildInfrastructureProvider(t *testing.T, dbSession *db.Sessio
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -77,13 +80,13 @@ func testVpcPrefixBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastruct
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -137,10 +140,10 @@ func testVpcPrefixBuildIPBlock(t *testing.T, dbSession *db.Session, siteID, infr
 func testVpcPrefixBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -459,18 +462,18 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with limit returns objects",
 			vpcIDs:        []uuid.UUID{vpc1.ID},
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with offset returns objects",
 			vpcIDs:        []uuid.UUID{vpc1.ID},
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -482,12 +485,12 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &vps[4], // 5th entry is "VpcPrefix-8" and would appear first on descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with name search query returns objects",
-			searchQuery:   db.GetStrPtr("VpcPrefix-"),
+			searchQuery:   cutil.GetPtr("VpcPrefix-"),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -508,7 +511,7 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with status search query returns objects",
-			searchQuery:   db.GetStrPtr(VpcPrefixStatusReady),
+			searchQuery:   cutil.GetPtr(VpcPrefixStatusReady),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -516,7 +519,7 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with empty search query returns objects",
 			vpcIDs:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -650,26 +653,26 @@ func TestVpcPrefixSQLDAO_Update(t *testing.T) {
 		{
 			desc:                 "can update all fields",
 			id:                   VpcPrefix1.ID,
-			paramName:            db.GetStrPtr("updatedName"),
-			paramOrg:             db.GetStrPtr("updatedOrg"),
+			paramName:            cutil.GetPtr("updatedName"),
+			paramOrg:             cutil.GetPtr("updatedOrg"),
 			paramVpcID:           &vpc2.ID,
 			paramTenantID:        &tenant2.ID,
 			paramIPBlockID:       &ipBlock2.ID,
-			paramPrefix:          db.GetStrPtr(newPrefix),
+			paramPrefix:          cutil.GetPtr(newPrefix),
 			paramPrefixLength:    &newPrefixLength,
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			paramIsMissingOnSite: db.GetBoolPtr(true),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			paramIsMissingOnSite: cutil.GetPtr(true),
 
 			expectedError:           false,
-			expectedName:            db.GetStrPtr("updatedName"),
-			expectedOrg:             db.GetStrPtr("updatedOrg"),
+			expectedName:            cutil.GetPtr("updatedName"),
+			expectedOrg:             cutil.GetPtr("updatedOrg"),
 			expectedVpcID:           &vpc2.ID,
 			expectedTenantID:        &tenant2.ID,
 			expectedIPBlockID:       &ipBlock2.ID,
-			expectedprefix:          db.GetStrPtr(newPrefix),
+			expectedprefix:          cutil.GetPtr(newPrefix),
 			expectedPrefixLength:    &newPrefixLength,
-			expectedStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			expectedIsMissingOnSite: db.GetBoolPtr(true),
+			expectedStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			expectedIsMissingOnSite: cutil.GetPtr(true),
 			verifyChildSpanner:      true,
 		},
 		{
@@ -678,26 +681,26 @@ func TestVpcPrefixSQLDAO_Update(t *testing.T) {
 			paramName:            nil,
 			paramVpcID:           &vpc.ID,
 			paramPrefixLength:    nil,
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
 			paramIsMissingOnSite: nil,
 
 			expectedError:           false,
-			expectedName:            db.GetStrPtr("updatedName"),
+			expectedName:            cutil.GetPtr("updatedName"),
 			expectedVpcID:           &vpc.ID,
-			expectedprefix:          db.GetStrPtr(newPrefix),
+			expectedprefix:          cutil.GetPtr(newPrefix),
 			expectedPrefixLength:    &newPrefixLength,
-			expectedStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			expectedIsMissingOnSite: db.GetBoolPtr(true),
+			expectedStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			expectedIsMissingOnSite: cutil.GetPtr(true),
 		},
 		{
 			desc:      "error updating when Vpc foreign key violated",
 			id:        VpcPrefix1.ID,
-			paramName: db.GetStrPtr("updatedName"),
+			paramName: cutil.GetPtr("updatedName"),
 
 			paramVpcID:           &dummyUUID,
-			paramPrefix:          db.GetStrPtr(newPrefix),
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			paramIsMissingOnSite: db.GetBoolPtr(true),
+			paramPrefix:          cutil.GetPtr(newPrefix),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			paramIsMissingOnSite: cutil.GetPtr(true),
 
 			expectedError: true,
 		},

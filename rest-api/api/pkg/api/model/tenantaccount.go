@@ -9,7 +9,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
@@ -124,7 +124,7 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 	}
 
 	if dbta.TenantID != nil {
-		apiTenantAccount.TenantID = cdb.GetStrPtr(dbta.TenantID.String())
+		apiTenantAccount.TenantID = cutil.GetPtr(dbta.TenantID.String())
 	}
 
 	if dbta.TenantContact != nil {

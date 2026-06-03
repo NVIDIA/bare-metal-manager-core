@@ -12,10 +12,13 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/google/uuid"
 )
 
 func TestExpectedSwitch_FromProto(t *testing.T) {
@@ -65,7 +68,7 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 			HostId:             &host,
 			Metadata: &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		})
@@ -91,7 +94,7 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 	})
 
 	t.Run("empty BmcIpAddress yields nil pointer", func(t *testing.T) {
-		es := &ExpectedSwitch{BmcIpAddress: db.GetStrPtr("stale")}
+		es := &ExpectedSwitch{BmcIpAddress: cutil.GetPtr("stale")}
 		es.FromProto(&cwssaws.ExpectedSwitch{
 			ExpectedSwitchId: &cwssaws.UUID{Value: id.String()},
 			BmcIpAddress:     "",
@@ -160,7 +163,7 @@ func TestExpectedSwitchSQLDAO_Create(t *testing.T) {
 					SiteID:             site.ID,
 					BmcMacAddress:      "00:1B:44:11:3A:B7",
 					SwitchSerialNumber: "SWITCH123",
-					BmcIpAddress:       db.GetStrPtr("192.168.1.10"),
+					BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 					Labels: map[string]string{
 						"environment": "test",
 						"location":    "datacenter1",
@@ -407,7 +410,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -438,7 +441,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: ExpectedSwitchFilterInput{
-				SearchQuery: db.GetStrPtr("SWITCH123"),
+				SearchQuery: cutil.GetPtr("SWITCH123"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -454,20 +457,20 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -479,7 +482,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 	}
@@ -552,7 +555,7 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 			desc: "Update BMC MAC address",
 			input: ExpectedSwitchUpdateInput{
 				ExpectedSwitchID: essExp[0].ID,
-				BmcMacAddress:    db.GetStrPtr("00:1B:44:11:3A:C1"),
+				BmcMacAddress:    cutil.GetPtr("00:1B:44:11:3A:C1"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -561,7 +564,7 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 			desc: "Update switch serial number",
 			input: ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   essExp[1].ID,
-				SwitchSerialNumber: db.GetStrPtr("NEWSWITCH789"),
+				SwitchSerialNumber: cutil.GetPtr("NEWSWITCH789"),
 			},
 			expectedError: false,
 		},

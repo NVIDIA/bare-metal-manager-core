@@ -9,9 +9,12 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPISubnetCreateRequest_Validate(t *testing.T) {
@@ -26,67 +29,67 @@ func TestAPISubnetCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "error when Name is not provided",
-			obj:       APISubnetCreateRequest{Description: cdb.GetStrPtr("ab"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Description: cutil.GetPtr("ab"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APISubnetCreateRequest{Name: "a", Description: cdb.GetStrPtr("ab"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "a", Description: cutil.GetPtr("ab"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr(""), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr(""), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "error when VpcID is not valid uuid",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: "baduuid", IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: "baduuid", IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IPv4Block is not valid uuid",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr("bad"), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr("bad"), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IPv6Block is specified",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv6BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv6BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when neither IPv6Block nor IPv6Block are specified",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not valid < min",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix7},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix7},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not valid > max",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix31},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix31},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when all fields are specified",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when only IPv4BlockID is specified",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "error when /32 subnet is created",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix32},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix32},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not specified",
-			obj:       APISubnetCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APISubnetCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(uuid.New().String())},
 			expectErr: true,
 		},
 	}
@@ -109,27 +112,27 @@ func TestAPISubnetUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when Name is not provided",
-			obj:       APISubnetUpdateRequest{Description: cdb.GetStrPtr("ab")},
+			obj:       APISubnetUpdateRequest{Description: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when Description is not provided",
-			obj:       APISubnetUpdateRequest{Name: cdb.GetStrPtr("ab")},
+			obj:       APISubnetUpdateRequest{Name: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when Name is provided but is empty",
-			obj:       APISubnetUpdateRequest{Name: cdb.GetStrPtr(""), Description: cdb.GetStrPtr("ab")},
+			obj:       APISubnetUpdateRequest{Name: cutil.GetPtr(""), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APISubnetUpdateRequest{Name: cdb.GetStrPtr("a"), Description: cdb.GetStrPtr("ab")},
+			obj:       APISubnetUpdateRequest{Name: cutil.GetPtr("a"), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is not valid with empty",
-			obj:       APISubnetUpdateRequest{Name: cdb.GetStrPtr("ab"), Description: cdb.GetStrPtr("")},
+			obj:       APISubnetUpdateRequest{Name: cutil.GetPtr("ab"), Description: cutil.GetPtr("")},
 			expectErr: false,
 		},
 	}
@@ -150,7 +153,7 @@ func TestAPISubnetNew(t *testing.T) {
 		Name:                     "test",
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
 		RoutingType:              cdbm.IPBlockRoutingTypePublic,
 		Prefix:                   "192.168.0.0",
 		PrefixLength:             16,
@@ -164,7 +167,7 @@ func TestAPISubnetNew(t *testing.T) {
 		Name:                     "test",
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
 		RoutingType:              cdbm.IPBlockRoutingTypePublic,
 		Prefix:                   "2001:aabb::",
 		PrefixLength:             16,
@@ -176,11 +179,11 @@ func TestAPISubnetNew(t *testing.T) {
 	dbObj := &cdbm.Subnet{
 		ID:                         uuid.New(),
 		Name:                       "test",
-		Description:                cdb.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		SiteID:                     uuid.New(),
 		VpcID:                      uuid.New(),
 		TenantID:                   uuid.New(),
-		ControllerNetworkSegmentID: cdb.GetUUIDPtr(uuid.New()),
+		ControllerNetworkSegmentID: cutil.GetPtr(uuid.New()),
 		IPv4BlockID:                &ipv4Block.ID,
 		IPv4Prefix:                 &ipv4Block.Prefix,
 		IPv6BlockID:                &ipv6Block.ID,
@@ -192,7 +195,7 @@ func TestAPISubnetNew(t *testing.T) {
 	dbObj1 := &cdbm.Subnet{
 		ID:          uuid.New(),
 		Name:        "test",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		SiteID:      uuid.New(),
 		VpcID:       uuid.New(),
 		TenantID:    uuid.New(),
@@ -223,17 +226,17 @@ func TestAPISubnetNew(t *testing.T) {
 		{
 			desc:        "test creating API Subnet both IPv4 and IPv6",
 			dbObj:       dbObj,
-			ipbv4Prefix: cdb.GetStrPtr("192.168.0.0"),
-			ipbv6Prefix: cdb.GetStrPtr("2001:aabb::"),
-			gwv4:        cdb.GetStrPtr("192.168.0.1"),
-			gwv6:        cdb.GetStrPtr("2001:aabb::0::1"),
+			ipbv4Prefix: cutil.GetPtr("192.168.0.0"),
+			ipbv6Prefix: cutil.GetPtr("2001:aabb::"),
+			gwv4:        cutil.GetPtr("192.168.0.1"),
+			gwv6:        cutil.GetPtr("2001:aabb::0::1"),
 			sdObj:       dbsds,
 		},
 		{
 			desc:        "test creating API Subnet only IPv4",
 			dbObj:       dbObj1,
-			ipbv4Prefix: cdb.GetStrPtr("192.168.0.0"),
-			gwv4:        cdb.GetStrPtr("192.168.0.1"),
+			ipbv4Prefix: cutil.GetPtr("192.168.0.0"),
+			gwv4:        cutil.GetPtr("192.168.0.1"),
 			sdObj:       dbsds,
 		},
 	}

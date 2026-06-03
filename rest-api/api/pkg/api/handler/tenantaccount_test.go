@@ -13,14 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -28,6 +20,16 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	tmocks "go.temporal.io/sdk/mocks"
+
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 )
 
 func testTenantAccountInitDB(t *testing.T) *cdb.Session {
@@ -66,7 +68,7 @@ func testTenantAccountSetupSchema(t *testing.T, dbSession *cdb.Session) {
 
 func testTenantAccountBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 	return ip
 }
@@ -100,9 +102,9 @@ func testTenantAccountBuildUser(t *testing.T, dbSession *cdb.Session, starfleetI
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr(fmt.Sprintf("%s.%s@test.com", firstName, lastName)),
-			FirstName:   cdb.GetStrPtr(firstName),
-			LastName:    cdb.GetStrPtr(lastName),
+			Email:       cutil.GetPtr(fmt.Sprintf("%s.%s@test.com", firstName, lastName)),
+			FirstName:   cutil.GetPtr(firstName),
+			LastName:    cutil.GetPtr(lastName),
 			OrgData:     OrgData,
 		},
 	)
@@ -154,19 +156,19 @@ func testTenantAccountBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.I
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   cdb.GetStrPtr("Test Site"),
-		Description:                   cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:             cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             false,
-		SerialConsoleHostname:         cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        cdbm.SiteStatusPending,
 		CreatedBy:                     user.ID,
 	})
@@ -180,7 +182,7 @@ func testTenantAccountBuildAllocation(t *testing.T, dbSession *cdb.Session, st *
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -238,23 +240,23 @@ func TestTenantAccountHandler_Create(t *testing.T) {
 		InfrastructureProviderID string `json:"infrastructureProviderId"`
 	}
 
-	errBody1, err := json.Marshal(&ErrReq1{TenantID: cdb.GetStrPtr("some"), TenantOrg: cdb.GetStrPtr("some")})
+	errBody1, err := json.Marshal(&ErrReq1{TenantID: cutil.GetPtr("some"), TenantOrg: cutil.GetPtr("some")})
 	assert.Nil(t, err)
 	errBody2, err := json.Marshal(&ErrReq2{InfrastructureProviderID: ip.ID.String()})
 	assert.Nil(t, err)
 	errBody3, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: "something"})
 	assert.Nil(t, err)
-	errBody4, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip2.ID.String(), TenantID: cdb.GetStrPtr(tn.ID.String())})
+	errBody4, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip2.ID.String(), TenantID: cutil.GetPtr(tn.ID.String())})
 	assert.Nil(t, err)
-	errBody5, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cdb.GetStrPtr("somestr")})
+	errBody5, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cutil.GetPtr("somestr")})
 	assert.Nil(t, err)
-	errBody6, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cdb.GetStrPtr(uuid.New().String())})
+	errBody6, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cutil.GetPtr(uuid.New().String())})
 	assert.Nil(t, err)
-	okBody1, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cdb.GetStrPtr(tn.ID.String())})
+	okBody1, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantID: cutil.GetPtr(tn.ID.String())})
 	assert.Nil(t, err)
-	okBody2, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantOrg: cdb.GetStrPtr(tnOrg2)})
+	okBody2, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantOrg: cutil.GetPtr(tnOrg2)})
 	assert.Nil(t, err)
-	okBody3, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantOrg: cdb.GetStrPtr(tnOrg3)})
+	okBody3, err := json.Marshal(model.APITenantAccountCreateRequest{InfrastructureProviderID: ip.ID.String(), TenantOrg: cutil.GetPtr(tnOrg3)})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -483,14 +485,14 @@ func TestTenantAccountHandler_Update(t *testing.T) {
 	ta3 := testTenantAccountBuildTenantAccount(t, dbSession, uuid.New().String(), ip, tn3, tnOrg3, cdbm.TenantAccountStatusReady, ipUser.ID, uuid.Nil)
 	assert.NotNil(t, ta3)
 
-	errBody1, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cdb.GetStrPtr("non-uuid$!")})
+	errBody1, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cutil.GetPtr("non-uuid$!")})
 	assert.Nil(t, err)
-	errBody2, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cdb.GetStrPtr(uuid.New().String())})
+	errBody2, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cutil.GetPtr(uuid.New().String())})
 	assert.Nil(t, err)
 
 	okBody1, err := json.Marshal(model.APITenantAccountUpdateRequest{})
 	assert.Nil(t, err)
-	okBody2, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cdb.GetStrPtr(tnUser.ID.String())})
+	okBody2, err := json.Marshal(model.APITenantAccountUpdateRequest{TenantContactID: cutil.GetPtr(tnUser.ID.String())})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -736,7 +738,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 	_, err := taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
 		TenantAccountID: ta11.ID,
 		TenantContactID: &ipUser.ID,
-		Status:          cdb.GetStrPtr(cdbm.TenantAccountStatusReady),
+		Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
 	})
 	assert.Nil(t, err)
 
@@ -822,7 +824,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
 			taID:                          ta11.ID.String(),
-			queryInfrastructureProviderID: cdb.GetStrPtr("non-uuid"),
+			queryInfrastructureProviderID: cutil.GetPtr("non-uuid"),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 		},
@@ -831,7 +833,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg3,
 			user:                          ipUser,
 			taID:                          ta11.ID.String(),
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 		},
@@ -840,7 +842,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
 			taID:                          ta11.ID.String(),
-			queryInfrastructureProviderID: cdb.GetStrPtr(uuid.New().String()),
+			queryInfrastructureProviderID: cutil.GetPtr(uuid.New().String()),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusNotFound,
 		},
@@ -849,7 +851,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
 			taID:                          ta21.ID.String(),
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusNotFound,
 		},
@@ -858,7 +860,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:     ipOrg1,
 			user:           ipUser,
 			taID:           ta11.ID.String(),
-			queryTenantID:  cdb.GetStrPtr("non-uuid"),
+			queryTenantID:  cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -867,7 +869,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:     tnOrg4,
 			user:           tnUser,
 			taID:           ta11.ID.String(),
-			queryTenantID:  cdb.GetStrPtr(tn1.ID.String()),
+			queryTenantID:  cutil.GetPtr(tn1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -876,7 +878,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:     tnOrg2,
 			user:           tnUser,
 			taID:           ta11.ID.String(),
-			queryTenantID:  cdb.GetStrPtr(tn1.ID.String()),
+			queryTenantID:  cutil.GetPtr(tn1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -885,7 +887,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:     tnOrg1,
 			user:           tnUser,
 			taID:           ta12.ID.String(),
-			queryTenantID:  cdb.GetStrPtr(tn1.ID.String()),
+			queryTenantID:  cutil.GetPtr(tn1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -894,7 +896,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:               tnOrg1,
 			user:                     tnUser,
 			taID:                     uuid.New().String(),
-			queryTenantID:            cdb.GetStrPtr(tn1.ID.String()),
+			queryTenantID:            cutil.GetPtr(tn1.ID.String()),
 			expectedErr:              true,
 			expectedStatus:           http.StatusNotFound,
 			expectedID:               ta11.ID.String(),
@@ -905,7 +907,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                        ipOrg1,
 			user:                              ipUser,
 			taID:                              ta11.ID.String(),
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        ta11.ID.String(),
@@ -921,7 +923,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                        ipOrg1,
 			user:                              ipvUser,
 			taID:                              ta11.ID.String(),
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        ta11.ID.String(),
@@ -936,7 +938,7 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                        tnOrg1,
 			user:                              tnUser,
 			taID:                              ta11.ID.String(),
-			queryTenantID:                     cdb.GetStrPtr(tn1.ID.String()),
+			queryTenantID:                     cutil.GetPtr(tn1.ID.String()),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        ta11.ID.String(),
@@ -951,8 +953,8 @@ func TestTenantAccountHandler_GetByID(t *testing.T) {
 			reqOrgName:                        ipOrg1,
 			user:                              ipUser,
 			taID:                              ta11.ID.String(),
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-			queryTenantID:                     cdb.GetStrPtr(tn1.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+			queryTenantID:                     cutil.GetPtr(tn1.ID.String()),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        ta11.ID.String(),
@@ -1102,14 +1104,14 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		ta1 := testTenantAccountBuildTenantAccount(t, dbSession, fmt.Sprintf("test-tenant-account-%02d", i), ip1, tn, tn.Org, cdbm.TenantAccountStatusInvited, ipUser.ID, contactUser1.ID)
 		assert.NotNil(t, ta1)
 
-		common.TestBuildStatusDetail(t, dbSession, ta1.ID.String(), cdbm.TenantAccountStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, ta1.ID.String(), cdbm.TenantAccountStatusReady, cdb.GetStrPtr("Tenant Account is now ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, ta1.ID.String(), cdbm.TenantAccountStatusPending, cutil.GetPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, ta1.ID.String(), cdbm.TenantAccountStatusReady, cutil.GetPtr("Tenant Account is now ready for use"))
 
 		ta2 := testTenantAccountBuildTenantAccount(t, dbSession, uuid.New().String(), ip2, tn, tn.Org, cdbm.TenantAccountStatusInvited, ipUser.ID, contactUser2.ID)
 		assert.NotNil(t, ta2)
 
-		common.TestBuildStatusDetail(t, dbSession, ta2.ID.String(), cdbm.TenantAccountStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, ta2.ID.String(), cdbm.TenantAccountStatusReady, cdb.GetStrPtr("Tenant Account is now ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, ta2.ID.String(), cdbm.TenantAccountStatusPending, cutil.GetPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, ta2.ID.String(), cdbm.TenantAccountStatusReady, cutil.GetPtr("Tenant Account is now ready for use"))
 
 		tas = append(tas, *ta1, *ta2)
 	}
@@ -1121,7 +1123,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 	_, err := taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
 		TenantAccountID: tas[28].ID,
 		TenantContactID: &ipUser.ID,
-		Status:          cdb.GetStrPtr(cdbm.TenantAccountStatusReady),
+		Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
 	})
 	assert.Nil(t, err)
 
@@ -1179,7 +1181,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "error when infrastructure provider not valid uuid",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr("non-uuid"),
+			queryInfrastructureProviderID: cutil.GetPtr("non-uuid"),
 			queryTenantID:                 nil,
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
@@ -1189,7 +1191,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "error when infrastructure provider not found for org",
 			reqOrgName:                    ipOrg3,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                 nil,
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
@@ -1199,7 +1201,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "error when infrastructure provider in url doesnt match org",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(uuid.New().String()),
+			queryInfrastructureProviderID: cutil.GetPtr(uuid.New().String()),
 			queryTenantID:                 nil,
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
@@ -1210,7 +1212,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr("non-uuid"),
+			queryTenantID:                 cutil.GetPtr("non-uuid"),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
@@ -1220,7 +1222,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(tn15.ID.String()),
+			queryTenantID:                 cutil.GetPtr(tn15.ID.String()),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
@@ -1230,7 +1232,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(uuid.New().String()),
+			queryTenantID:                 cutil.GetPtr(uuid.New().String()),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
@@ -1239,7 +1241,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success when infrastructure provider id is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                 nil,
 			expectedErr:                   false,
 			queryIncludeRelations1:        nil,
@@ -1252,12 +1254,12 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success with whitespace-only search query",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			querySearchQuery:              cdb.GetStrPtr("   "),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			querySearchQuery:              cutil.GetPtr("   "),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   totalCount / 2,
-			expectedTotal:                 cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:                 cutil.GetPtr(totalCount / 2),
 			expectedAllocationCount:       1,
 		},
 		{
@@ -1265,7 +1267,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(tns[0].ID.String()),
+			queryTenantID:                 cutil.GetPtr(tns[0].ID.String()),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
@@ -1276,8 +1278,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success when both infrastructure id and tenant id are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			queryTenantID:                 cdb.GetStrPtr(tns[2].ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			queryTenantID:                 cutil.GetPtr(tns[2].ID.String()),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   1,
@@ -1287,23 +1289,23 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                              "success when user has Provider viewer role",
 			reqOrgName:                        ipOrg1,
 			user:                              ipvUser,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       totalCount / 2,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
 			expectedAllocationCount:           1,
 		},
 		{
 			name:                              "success when infrastructure id and relation are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipUser,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       totalCount / 2,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
 			expectedAllocationCount:           1,
 		},
 		{
@@ -1311,40 +1313,40 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(tns[0].ID.String()),
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryTenantID:                 cutil.GetPtr(tns[0].ID.String()),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   2,
-			expectedTenantOrg:             cdb.GetStrPtr(tns[0].Org),
+			expectedTenantOrg:             cutil.GetPtr(tns[0].Org),
 			expectedAllocationCount:       1,
 		},
 		{
 			name:                              "success when both infrastructure and tenant id/relation are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipUser,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-			queryTenantID:                     cdb.GetStrPtr(tns[2].ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+			queryTenantID:                     cutil.GetPtr(tns[2].ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       1,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
-			expectedTenantOrg:                 cdb.GetStrPtr(tns[2].Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
+			expectedTenantOrg:                 cutil.GetPtr(tns[2].Org),
 			expectedAllocationCount:           1,
 		},
 		{
 			name:                          "failure when invalid relation params are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                 nil,
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.AllocationRelationName),
-			queryIncludeRelations2:        cdb.GetStrPtr(cdbm.IPBlockRelationName),
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("TEST_ASC"),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.AllocationRelationName),
+			queryIncludeRelations2:        cutil.GetPtr(cdbm.IPBlockRelationName),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("TEST_ASC"),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
@@ -1355,7 +1357,7 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[15],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(tn15.ID.String()),
+			queryTenantID:                 cutil.GetPtr(tn15.ID.String()),
 			queryIncludeRelations1:        nil,
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
@@ -1366,19 +1368,19 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                              "success when pagination params are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipUser,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                     nil,
 			queryIncludeRelations1:            nil,
-			pageNumber:                        cdb.GetIntPtr(1),
-			pageSize:                          cdb.GetIntPtr(10),
-			orderBy:                           cdb.GetStrPtr("CREATED_DESC"),
+			pageNumber:                        cutil.GetPtr(1),
+			pageSize:                          cutil.GetPtr(10),
+			orderBy:                           cutil.GetPtr("CREATED_DESC"),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       10,
-			expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:                     cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry:                &tas[28],
-			expectedTenantOrg:                 cdb.GetStrPtr(tas[28].TenantOrg),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[28].InfrastructureProviderOrg),
+			expectedTenantOrg:                 cutil.GetPtr(tas[28].TenantOrg),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(tas[28].InfrastructureProviderOrg),
 			expectedTenantContact:             ipUser,
 			expectedAllocationCount:           1,
 		},
@@ -1386,12 +1388,12 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "failure when invalid pagination params are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
 			queryTenantID:                 nil,
 			queryIncludeRelations1:        nil,
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("TEST_ASC"),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
@@ -1402,8 +1404,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			reqOrgName:                    tnOrgs[0],
 			user:                          tnUser,
 			queryInfrastructureProviderID: nil,
-			queryTenantID:                 cdb.GetStrPtr(tns[0].ID.String()),
-			queryStatus:                   cdb.GetStrPtr(cdbm.TenantAccountStatusPending),
+			queryTenantID:                 cutil.GetPtr(tns[0].ID.String()),
+			queryStatus:                   cutil.GetPtr(cdbm.TenantAccountStatusPending),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   0,
@@ -1413,8 +1415,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success when TenantAccountStatusReady status are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			queryStatus:                   cdb.GetStrPtr(cdbm.TenantAccountStatusReady),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			queryStatus:                   cutil.GetPtr(cdbm.TenantAccountStatusReady),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   1,
@@ -1424,8 +1426,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success when BadStatus status are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			queryStatus:                   cdb.GetStrPtr("BadStatus"),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			queryStatus:                   cutil.GetPtr("BadStatus"),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
@@ -1435,8 +1437,8 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success with provider-scoped search query matching account number",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			querySearchQuery:              cdb.GetStrPtr("test-tenant-account-00"),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			querySearchQuery:              cutil.GetPtr("test-tenant-account-00"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   1,
@@ -1446,9 +1448,9 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success with search query combined with status filter",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			querySearchQuery:              cdb.GetStrPtr("test-tenant-account-00"),
-			queryStatus:                   cdb.GetStrPtr(cdbm.TenantAccountStatusInvited),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			querySearchQuery:              cutil.GetPtr("test-tenant-account-00"),
+			queryStatus:                   cutil.GetPtr(cdbm.TenantAccountStatusInvited),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   1,
@@ -1458,20 +1460,20 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                          "success with search query no matches",
 			reqOrgName:                    ipOrg1,
 			user:                          ipUser,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip1.ID.String()),
-			querySearchQuery:              cdb.GetStrPtr("nonexistent-query-xyz"),
+			queryInfrastructureProviderID: cutil.GetPtr(ip1.ID.String()),
+			querySearchQuery:              cutil.GetPtr("nonexistent-query-xyz"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   0,
-			expectedTotal:                 cdb.GetIntPtr(0),
+			expectedTotal:                 cutil.GetPtr(0),
 			expectedAllocationCount:       1,
 		},
 		{
 			name:                    "success with tenant-scoped search query matching account number",
 			reqOrgName:              tnOrgs[0],
 			user:                    tnUser,
-			queryTenantID:           cdb.GetStrPtr(tns[0].ID.String()),
-			querySearchQuery:        cdb.GetStrPtr("test-tenant-account-00"),
+			queryTenantID:           cutil.GetPtr(tns[0].ID.String()),
+			querySearchQuery:        cutil.GetPtr("test-tenant-account-00"),
 			expectedErr:             false,
 			expectedStatus:          http.StatusOK,
 			expectedCnt:             1,
@@ -1481,9 +1483,9 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 			name:                    "success with tenant-scoped search query and status filter",
 			reqOrgName:              tnOrgs[0],
 			user:                    tnUser,
-			queryTenantID:           cdb.GetStrPtr(tns[0].ID.String()),
-			querySearchQuery:        cdb.GetStrPtr("test-tenant-account-00"),
-			queryStatus:             cdb.GetStrPtr(cdbm.TenantAccountStatusInvited),
+			queryTenantID:           cutil.GetPtr(tns[0].ID.String()),
+			querySearchQuery:        cutil.GetPtr("test-tenant-account-00"),
+			queryStatus:             cutil.GetPtr(cdbm.TenantAccountStatusInvited),
 			expectedErr:             false,
 			expectedStatus:          http.StatusOK,
 			expectedCnt:             1,
@@ -1493,16 +1495,16 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		//	name:                              "success when sort by account number",
 		//	reqOrgName:                        ipOrg1,
 		//	user:                              ipUser,
-		//	queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-		//	pageNumber:                        cdb.GetIntPtr(1),
-		//	pageSize:                          cdb.GetIntPtr(10),
-		//	orderBy:                           cdb.GetStrPtr("ACCOUNT_NUMBER_DESC"),
+		//	queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+		//	pageNumber:                        cutil.GetPtr(1),
+		//	pageSize:                          cutil.GetPtr(10),
+		//	orderBy:                           cutil.GetPtr("ACCOUNT_NUMBER_DESC"),
 		//	expectedStatus:                    http.StatusOK,
 		//	expectedCnt:                       10,
-		//	expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+		//	expectedTotal:                     cutil.GetPtr(totalCount / 2),
 		//	expectedFirstEntry:                &tas[28],
-		//	expectedTenantOrg:                 cdb.GetStrPtr(tas[28].TenantOrg),
-		//	expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[28].InfrastructureProviderOrg),
+		//	expectedTenantOrg:                 cutil.GetPtr(tas[28].TenantOrg),
+		//	expectedInfrastructureProviderOrg: cutil.GetPtr(tas[28].InfrastructureProviderOrg),
 		//	expectedTenantContact:             ipUser,
 		//	expectedAllocationCount:           1,
 		//},
@@ -1510,16 +1512,16 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		//	name:                              "success when sort by tenant org name",
 		//	reqOrgName:                        ipOrg1,
 		//	user:                              ipUser,
-		//	queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-		//	pageNumber:                        cdb.GetIntPtr(1),
-		//	pageSize:                          cdb.GetIntPtr(10),
-		//	orderBy:                           cdb.GetStrPtr("TENANT_ORG_NAME_DESC"),
+		//	queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+		//	pageNumber:                        cutil.GetPtr(1),
+		//	pageSize:                          cutil.GetPtr(10),
+		//	orderBy:                           cutil.GetPtr("TENANT_ORG_NAME_DESC"),
 		//	expectedStatus:                    http.StatusOK,
 		//	expectedCnt:                       10,
-		//	expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+		//	expectedTotal:                     cutil.GetPtr(totalCount / 2),
 		//	expectedFirstEntry:                &tas[28],
-		//	expectedTenantOrg:                 cdb.GetStrPtr(tas[28].TenantOrg),
-		//	expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[28].InfrastructureProviderOrg),
+		//	expectedTenantOrg:                 cutil.GetPtr(tas[28].TenantOrg),
+		//	expectedInfrastructureProviderOrg: cutil.GetPtr(tas[28].InfrastructureProviderOrg),
 		//	expectedTenantContact:             ipUser,
 		//	expectedAllocationCount:           1,
 		//},
@@ -1527,16 +1529,16 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		//	name:                              "success when sort by tenant org display name",
 		//	reqOrgName:                        ipOrg1,
 		//	user:                              ipUser,
-		//	queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-		//	pageNumber:                        cdb.GetIntPtr(1),
-		//	pageSize:                          cdb.GetIntPtr(10),
-		//	orderBy:                           cdb.GetStrPtr("TENANT_ORG_DISPLAY_NAME_DESC"),
+		//	queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+		//	pageNumber:                        cutil.GetPtr(1),
+		//	pageSize:                          cutil.GetPtr(10),
+		//	orderBy:                           cutil.GetPtr("TENANT_ORG_DISPLAY_NAME_DESC"),
 		//	expectedStatus:                    http.StatusOK,
 		//	expectedCnt:                       10,
-		//	expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+		//	expectedTotal:                     cutil.GetPtr(totalCount / 2),
 		//	expectedFirstEntry:                &tas[28],
-		//	expectedTenantOrg:                 cdb.GetStrPtr(tas[28].TenantOrg),
-		//	expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[28].InfrastructureProviderOrg),
+		//	expectedTenantOrg:                 cutil.GetPtr(tas[28].TenantOrg),
+		//	expectedInfrastructureProviderOrg: cutil.GetPtr(tas[28].InfrastructureProviderOrg),
 		//	expectedTenantContact:             ipUser,
 		//	expectedAllocationCount:           1,
 		//},
@@ -1544,16 +1546,16 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		//	name:                              "success when sort by tenant contact email",
 		//	reqOrgName:                        ipOrg1,
 		//	user:                              ipUser,
-		//	queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-		//	pageNumber:                        cdb.GetIntPtr(1),
-		//	pageSize:                          cdb.GetIntPtr(10),
-		//	orderBy:                           cdb.GetStrPtr("TENANT_CONTACT_EMAIL_DESC"),
+		//	queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+		//	pageNumber:                        cutil.GetPtr(1),
+		//	pageSize:                          cutil.GetPtr(10),
+		//	orderBy:                           cutil.GetPtr("TENANT_CONTACT_EMAIL_DESC"),
 		//	expectedStatus:                    http.StatusOK,
 		//	expectedCnt:                       10,
-		//	expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+		//	expectedTotal:                     cutil.GetPtr(totalCount / 2),
 		//	expectedFirstEntry:                &tas[0],
-		//	expectedTenantOrg:                 cdb.GetStrPtr(tas[0].TenantOrg),
-		//	expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[0].InfrastructureProviderOrg),
+		//	expectedTenantOrg:                 cutil.GetPtr(tas[0].TenantOrg),
+		//	expectedInfrastructureProviderOrg: cutil.GetPtr(tas[0].InfrastructureProviderOrg),
 		//	expectedTenantContact:             contactUser1,
 		//	expectedAllocationCount:           1,
 		//},
@@ -1561,16 +1563,16 @@ func TestTenantAccountHandler_GetAll(t *testing.T) {
 		//	name:                              "success when sort by tenant contact full name",
 		//	reqOrgName:                        ipOrg1,
 		//	user:                              ipUser,
-		//	queryInfrastructureProviderID:     cdb.GetStrPtr(ip1.ID.String()),
-		//	pageNumber:                        cdb.GetIntPtr(1),
-		//	pageSize:                          cdb.GetIntPtr(10),
-		//	orderBy:                           cdb.GetStrPtr("TENANT_CONTACT_FULL_NAME_DESC"),
+		//	queryInfrastructureProviderID:     cutil.GetPtr(ip1.ID.String()),
+		//	pageNumber:                        cutil.GetPtr(1),
+		//	pageSize:                          cutil.GetPtr(10),
+		//	orderBy:                           cutil.GetPtr("TENANT_CONTACT_FULL_NAME_DESC"),
 		//	expectedStatus:                    http.StatusOK,
 		//	expectedCnt:                       10,
-		//	expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
+		//	expectedTotal:                     cutil.GetPtr(totalCount / 2),
 		//	expectedFirstEntry:                &tas[0],
-		//	expectedTenantOrg:                 cdb.GetStrPtr(tas[0].TenantOrg),
-		//	expectedInfrastructureProviderOrg: cdb.GetStrPtr(tas[0].InfrastructureProviderOrg),
+		//	expectedTenantOrg:                 cutil.GetPtr(tas[0].TenantOrg),
+		//	expectedInfrastructureProviderOrg: cutil.GetPtr(tas[0].InfrastructureProviderOrg),
 		//	expectedTenantContact:             contactUser1,
 		//	expectedAllocationCount:           1,
 		//},

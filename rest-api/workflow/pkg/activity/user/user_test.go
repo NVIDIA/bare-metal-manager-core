@@ -12,15 +12,16 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/uptrace/bun/extra/bundebug"
+
 	cloudutils "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 func testManageUserInitDB(t *testing.T) *cdb.Session {
@@ -43,9 +44,9 @@ func testManageUserUser(t *testing.T, dbSession *cdb.Session, auxid, starfleetid
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: auxid,
 		StarfleetID: starfleetid,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cloudutils.GetPtr("jdoe@test.com"),
+		FirstName:   cloudutils.GetPtr("John"),
+		LastName:    cloudutils.GetPtr("Doe"),
 		OrgData:     cdbm.OrgData{},
 	})
 	assert.Nil(t, err)
@@ -67,7 +68,7 @@ func TestManageUser_GetUserDataFromNgc(t *testing.T) {
 	dbSession := testManageUserInitDB(t)
 	defer dbSession.DB.Close()
 
-	user := testManageUserUser(t, dbSession, cdb.GetStrPtr(uuid.NewString()), cdb.GetStrPtr(uuid.NewString()))
+	user := testManageUserUser(t, dbSession, cloudutils.GetPtr(uuid.NewString()), cloudutils.GetPtr(uuid.NewString()))
 
 	ngcToken := "test67890"
 	encryptedNgcToken := cloudutils.EncryptData([]byte(ngcToken), *user.StarfleetID)
@@ -187,7 +188,7 @@ func TestManageUser_UpdateUserInDB(t *testing.T) {
 	dbSession := testManageUserInitDB(t)
 	defer dbSession.DB.Close()
 
-	user := testManageUserUser(t, dbSession, cdb.GetStrPtr(uuid.NewString()), cdb.GetStrPtr(uuid.NewString()))
+	user := testManageUserUser(t, dbSession, cloudutils.GetPtr(uuid.NewString()), cloudutils.GetPtr(uuid.NewString()))
 
 	fmt.Printf("user: %+v\n", user)
 
@@ -347,7 +348,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 			verify: func(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{},
-					paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+					paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "newuser@test.com", *users[0].Email)
@@ -363,10 +364,10 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					StarfleetID: cdb.GetStrPtr("existing_starfleet"),
-					Email:       cdb.GetStrPtr("existing@test.com"),
-					FirstName:   cdb.GetStrPtr("Existing"),
-					LastName:    cdb.GetStrPtr("User"),
+					StarfleetID: cloudutils.GetPtr("existing_starfleet"),
+					Email:       cloudutils.GetPtr("existing@test.com"),
+					FirstName:   cloudutils.GetPtr("Existing"),
+					LastName:    cloudutils.GetPtr("User"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -390,7 +391,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					StarfleetIDs: []string{"existing_starfleet"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "new_auxiliary_id", *users[0].AuxiliaryID)
@@ -404,10 +405,10 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					AuxiliaryID: cdb.GetStrPtr("existing_auxiliary"),
-					Email:       cdb.GetStrPtr("existing2@test.com"),
-					FirstName:   cdb.GetStrPtr("Existing2"),
-					LastName:    cdb.GetStrPtr("User2"),
+					AuxiliaryID: cloudutils.GetPtr("existing_auxiliary"),
+					Email:       cloudutils.GetPtr("existing2@test.com"),
+					FirstName:   cloudutils.GetPtr("Existing2"),
+					LastName:    cloudutils.GetPtr("User2"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -431,7 +432,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					AuxiliaryIDs: []string{"existing_auxiliary"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "new_starfleet_id", *users[0].StarfleetID)
@@ -445,11 +446,11 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					AuxiliaryID: cdb.GetStrPtr("both_auxiliary"),
-					StarfleetID: cdb.GetStrPtr("both_starfleet"),
-					Email:       cdb.GetStrPtr("both@test.com"),
-					FirstName:   cdb.GetStrPtr("Both"),
-					LastName:    cdb.GetStrPtr("User"),
+					AuxiliaryID: cloudutils.GetPtr("both_auxiliary"),
+					StarfleetID: cloudutils.GetPtr("both_starfleet"),
+					Email:       cloudutils.GetPtr("both@test.com"),
+					FirstName:   cloudutils.GetPtr("Both"),
+					LastName:    cloudutils.GetPtr("User"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -473,7 +474,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					StarfleetIDs: []string{"both_starfleet"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "both_updated@test.com", *users[0].Email)
@@ -489,20 +490,20 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				// Create user with starfleet ID
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					StarfleetID: cdb.GetStrPtr("conflict_starfleet"),
-					Email:       cdb.GetStrPtr("starfleet@test.com"),
-					FirstName:   cdb.GetStrPtr("Starfleet"),
-					LastName:    cdb.GetStrPtr("User"),
+					StarfleetID: cloudutils.GetPtr("conflict_starfleet"),
+					Email:       cloudutils.GetPtr("starfleet@test.com"),
+					FirstName:   cloudutils.GetPtr("Starfleet"),
+					LastName:    cloudutils.GetPtr("User"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
 
 				// Create different user with auxiliary ID
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					AuxiliaryID: cdb.GetStrPtr("conflict_auxiliary"),
-					Email:       cdb.GetStrPtr("auxiliary@test.com"),
-					FirstName:   cdb.GetStrPtr("Auxiliary"),
-					LastName:    cdb.GetStrPtr("User"),
+					AuxiliaryID: cloudutils.GetPtr("conflict_auxiliary"),
+					Email:       cloudutils.GetPtr("auxiliary@test.com"),
+					FirstName:   cloudutils.GetPtr("Auxiliary"),
+					LastName:    cloudutils.GetPtr("User"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -527,7 +528,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				// Verify no users were modified
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{},
-					paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+					paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 2, len(users)) // Still 2 separate users
 			},
@@ -610,9 +611,9 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				// Pre-create a user with StarfleetID to trigger unique constraint violation later
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					StarfleetID: cdb.GetStrPtr("constraint_starfleet"),
-					Email:       cdb.GetStrPtr("constraint@test.com"),
-					FirstName:   cdb.GetStrPtr("Constraint"),
+					StarfleetID: cloudutils.GetPtr("constraint_starfleet"),
+					Email:       cloudutils.GetPtr("constraint@test.com"),
+					FirstName:   cloudutils.GetPtr("Constraint"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -636,7 +637,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					StarfleetIDs: []string{"constraint_starfleet"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "constraint_updated@test.com", *users[0].Email)
@@ -652,9 +653,9 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				// Create first user with auxiliary ID
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					AuxiliaryID: cdb.GetStrPtr("duplicate_auxiliary"),
-					Email:       cdb.GetStrPtr("auxdup1@test.com"),
-					FirstName:   cdb.GetStrPtr("AuxDup1"),
+					AuxiliaryID: cloudutils.GetPtr("duplicate_auxiliary"),
+					Email:       cloudutils.GetPtr("auxdup1@test.com"),
+					FirstName:   cloudutils.GetPtr("AuxDup1"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -678,7 +679,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					AuxiliaryIDs: []string{"duplicate_auxiliary"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "starfleet_multi_aux", *users[0].StarfleetID)
@@ -692,10 +693,10 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					StarfleetID: cdb.GetStrPtr("single_starfleet"),
-					Email:       cdb.GetStrPtr("single_starfleet@test.com"),
-					FirstName:   cdb.GetStrPtr("Single"),
-					LastName:    cdb.GetStrPtr("StarfleetUser"),
+					StarfleetID: cloudutils.GetPtr("single_starfleet"),
+					Email:       cloudutils.GetPtr("single_starfleet@test.com"),
+					FirstName:   cloudutils.GetPtr("Single"),
+					LastName:    cloudutils.GetPtr("StarfleetUser"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -719,7 +720,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					StarfleetIDs: []string{"single_starfleet"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "single_starfleet_updated@test.com", *users[0].Email)
@@ -734,10 +735,10 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 
 				uDAO := cdbm.NewUserDAO(dbSession)
 				_, err = uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-					AuxiliaryID: cdb.GetStrPtr("single_auxiliary"),
-					Email:       cdb.GetStrPtr("single_auxiliary@test.com"),
-					FirstName:   cdb.GetStrPtr("Single"),
-					LastName:    cdb.GetStrPtr("AuxiliaryUser"),
+					AuxiliaryID: cloudutils.GetPtr("single_auxiliary"),
+					Email:       cloudutils.GetPtr("single_auxiliary@test.com"),
+					FirstName:   cloudutils.GetPtr("Single"),
+					LastName:    cloudutils.GetPtr("AuxiliaryUser"),
 					OrgData:     cdbm.OrgData{},
 				})
 				assert.Nil(t, err)
@@ -761,7 +762,7 @@ func TestManageUser_CreateOrUpdateUserInDBWithAuxiliaryID(t *testing.T) {
 				uDAO := cdbm.NewUserDAO(dbSession)
 				users, _, err := uDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 					AuxiliaryIDs: []string{"single_auxiliary"},
-				}, paginator.PageInput{Limit: cdb.GetIntPtr(100)}, nil)
+				}, paginator.PageInput{Limit: cloudutils.GetPtr(100)}, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(users))
 				assert.Equal(t, "single_auxiliary_updated@test.com", *users[0].Email)

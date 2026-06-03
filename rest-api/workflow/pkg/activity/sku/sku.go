@@ -9,11 +9,14 @@ import (
 	"reflect"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -71,7 +74,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 
 	// Fetch ALL existing SKUs for site
 	filterInput := cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{siteID}}
-	existingSkus, _, err := skuDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)})
+	existingSkus, _, err := skuDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get SKUs for Site from DB")
 		return err

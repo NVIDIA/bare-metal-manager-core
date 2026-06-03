@@ -10,10 +10,13 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
@@ -93,7 +96,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 			desc: "ok when BMC username is exactly 16 characters",
 			obj: APIExpectedMachineCreateRequest{
 				BmcMacAddress:       "00:11:22:33:44:55",
-				DefaultBmcUsername:  cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername:  cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword:  &validPassword,
 				ChassisSerialNumber: validChassisSerial,
 			},
@@ -103,7 +106,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedMachineCreateRequest{
 				BmcMacAddress:       "00:11:22:33:44:55",
-				DefaultBmcUsername:  cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername:  cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword:  &validPassword,
 				ChassisSerialNumber: validChassisSerial,
 			},
@@ -115,7 +118,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedMachineCreateRequest{
 				BmcMacAddress:       "00:11:22:33:44:55",
 				DefaultBmcUsername:  &validUsername,
-				DefaultBmcPassword:  cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword:  cutil.GetPtr(strings.Repeat("a", 20)),
 				ChassisSerialNumber: validChassisSerial,
 			},
 			expectErr: false,
@@ -125,7 +128,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedMachineCreateRequest{
 				BmcMacAddress:       "00:11:22:33:44:55",
 				DefaultBmcUsername:  &validUsername,
-				DefaultBmcPassword:  cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword:  cutil.GetPtr(strings.Repeat("a", 21)),
 				ChassisSerialNumber: validChassisSerial,
 			},
 			expectErr: true,
@@ -215,7 +218,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername:  &validUsername,
 				DefaultBmcPassword:  &validPassword,
 				ChassisSerialNumber: validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:        cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -226,7 +229,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername:  &validUsername,
 				DefaultBmcPassword:  &validPassword,
 				ChassisSerialNumber: validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:        cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -237,7 +240,7 @@ func TestAPIExpectedMachineCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername:  &validUsername,
 				DefaultBmcPassword:  &validPassword,
 				ChassisSerialNumber: validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:        cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},
@@ -492,7 +495,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			desc: "ok when BMC username is exactly 16 characters",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
-				DefaultBmcUsername:  cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername:  cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword:  &validPassword,
 				Labels:              map[string]string{"env": "test"},
 			},
@@ -502,7 +505,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
-				DefaultBmcUsername:  cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername:  cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword:  &validPassword,
 				Labels:              map[string]string{"env": "test"},
 			},
@@ -514,7 +517,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
 				DefaultBmcUsername:  &validUsername,
-				DefaultBmcPassword:  cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword:  cutil.GetPtr(strings.Repeat("a", 20)),
 				Labels:              map[string]string{"env": "test"},
 			},
 			expectErr: false,
@@ -524,7 +527,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
 				DefaultBmcUsername:  &validUsername,
-				DefaultBmcPassword:  cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword:  cutil.GetPtr(strings.Repeat("a", 21)),
 				Labels:              map[string]string{"env": "test"},
 			},
 			expectErr: true,
@@ -533,7 +536,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "ok when chassis serial number is exactly 32 characters",
 			obj: APIExpectedMachineUpdateRequest{
-				ChassisSerialNumber: cdb.GetStrPtr(strings.Repeat("a", 32)),
+				ChassisSerialNumber: cutil.GetPtr(strings.Repeat("a", 32)),
 				DefaultBmcUsername:  &validUsername,
 				DefaultBmcPassword:  &validPassword,
 				Labels:              map[string]string{"env": "test"},
@@ -543,7 +546,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "error when chassis serial number is 33 characters (over limit)",
 			obj: APIExpectedMachineUpdateRequest{
-				ChassisSerialNumber: cdb.GetStrPtr(strings.Repeat("a", 33)),
+				ChassisSerialNumber: cutil.GetPtr(strings.Repeat("a", 33)),
 				DefaultBmcUsername:  &validUsername,
 				DefaultBmcPassword:  &validPassword,
 				Labels:              map[string]string{"env": "test"},
@@ -555,7 +558,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv4 BmcIpAddress",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:        cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -563,7 +566,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv6 BmcIpAddress",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:        cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -571,7 +574,7 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			desc: "invalid BmcIpAddress",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
-				BmcIpAddress:        cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:        cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},
@@ -824,7 +827,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 				Created:                  time.Now(),
 				Updated:                  time.Now(),
 				Sku: &cdbm.SKU{
-					DeviceType:           cdb.GetStrPtr("gpu"),
+					DeviceType:           cutil.GetPtr("gpu"),
 					AssociatedMachineIds: []string{"machine-1", "machine-2"},
 					Components: &cdbm.SkuComponents{
 						SkuComponents: &cwssaws.SkuComponents{
@@ -947,7 +950,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 				Created:                  time.Now(),
 				Updated:                  time.Now(),
 				Sku: &cdbm.SKU{
-					DeviceType:           cdb.GetStrPtr("cpu"),
+					DeviceType:           cutil.GetPtr("cpu"),
 					AssociatedMachineIds: []string{},
 					Components:           nil,
 				},
@@ -971,7 +974,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 				Created:                  time.Now(),
 				Updated:                  time.Now(),
 				Sku: &cdbm.SKU{
-					DeviceType:           cdb.GetStrPtr("storage"),
+					DeviceType:           cutil.GetPtr("storage"),
 					AssociatedMachineIds: []string{},
 					Components: &cdbm.SkuComponents{
 						SkuComponents: &cwssaws.SkuComponents{},

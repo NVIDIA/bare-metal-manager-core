@@ -262,7 +262,7 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 				tx,
 				cdbm.SSHKeyGroupUpdateInput{
 					SSHKeyGroupID: dbskg.ID,
-					Status:        cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+					Status:        cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 				},
 			)
 			if derr != nil {
@@ -272,14 +272,14 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 
 			// Create a status detail record for the SSH Key Group
 			sdDAO := cdbm.NewStatusDetailDAO(cskh.dbSession)
-			_, derr = sdDAO.CreateFromParams(ctx, tx, dbskg.ID.String(), cdbm.SSHKeyGroupStatusSyncing, cdb.GetStrPtr("Sync required due to SSH Key creation, pending processing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, dbskg.ID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key creation, pending processing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
 			}
 
 			skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(cskh.dbSession)
-			skgsas, _, derr = skgsaDAO.GetAll(ctx, tx, []uuid.UUID{dbskg.ID}, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			skgsas, _, derr = skgsaDAO.GetAll(ctx, tx, []uuid.UUID{dbskg.ID}, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving SSH Key Group Association from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Association from DB", nil)
@@ -472,7 +472,7 @@ func (uskh UpdateSSHKeyHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update SSH Key due to data store error", nil)
 		}
 
-		skas, _, derr = skaDAO.GetAll(ctx, tx, []uuid.UUID{sk.ID}, nil, nil, nil, cdb.GetIntPtr(paginator.TotalLimit), nil)
+		skas, _, derr = skaDAO.GetAll(ctx, tx, []uuid.UUID{sk.ID}, nil, nil, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving SSH Key association from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Association from DB", nil)
@@ -599,7 +599,7 @@ func (gskh GetSSHKeyHandler) Handle(c echo.Context) error {
 	}
 
 	skaDAO := cdbm.NewSSHKeyAssociationDAO(gskh.dbSession)
-	skas, _, err := skaDAO.GetAll(ctx, nil, []uuid.UUID{sk.ID}, nil, nil, nil, cdb.GetIntPtr(paginator.TotalLimit), nil)
+	skas, _, err := skaDAO.GetAll(ctx, nil, []uuid.UUID{sk.ID}, nil, nil, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving SSH Key association from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SSH Key Association from DB", nil)
@@ -762,7 +762,7 @@ func (gaskh GetAllSSHKeyHandler) Handle(c echo.Context) error {
 	apiSSHKeys := []model.APISSHKey{}
 
 	for _, sk := range dbSSHKeys {
-		skas, _, err := skaDAO.GetAll(ctx, nil, []uuid.UUID{sk.ID}, nil, nil, nil, cdb.GetIntPtr(paginator.TotalLimit), nil)
+		skas, _, err := skaDAO.GetAll(ctx, nil, []uuid.UUID{sk.ID}, nil, nil, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting SSH Key association records")
 		}
@@ -894,7 +894,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 	var skgsasToSync []cdbm.SSHKeyGroupSiteAssociation
 
 	err = cdb.WithTx(ctx, dskh.dbSession, func(tx *cdb.Tx) error {
-		skas, _, derr := skaDAO.GetAll(ctx, tx, []uuid.UUID{sk.ID}, nil, []string{cdbm.SSHKeyGroupRelationName}, nil, cdb.GetIntPtr(paginator.TotalLimit), nil)
+		skas, _, derr := skaDAO.GetAll(ctx, tx, []uuid.UUID{sk.ID}, nil, []string{cdbm.SSHKeyGroupRelationName}, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving SSH Key association from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Association from DB", nil)
@@ -940,7 +940,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete SSH Key due to data store error", nil)
 		}
 
-		skgsasToSync, _, derr = skgsaDAO.GetAll(ctx, tx, skgIDs, nil, nil, nil, []string{cdbm.SSHKeyGroupRelationName}, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		skgsasToSync, _, derr = skgsaDAO.GetAll(ctx, tx, skgIDs, nil, nil, nil, []string{cdbm.SSHKeyGroupRelationName}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving SSH Key Group Associations related to SSH Key from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Associations from DB", nil)
@@ -962,7 +962,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 				tx,
 				cdbm.SSHKeyGroupUpdateInput{
 					SSHKeyGroupID: skgsa.SSHKeyGroupID,
-					Status:        cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+					Status:        cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 				},
 			)
 			if derr != nil {
@@ -971,7 +971,7 @@ func (dskh DeleteSSHKeyHandler) Handle(c echo.Context) error {
 			}
 
 			// Create a status detail record for the SSH Key Group
-			_, derr = sdDAO.CreateFromParams(ctx, tx, skgsa.SSHKeyGroupID.String(), cdbm.SSHKeyGroupStatusSyncing, cdb.GetStrPtr("Sync required due to SSH Key deletion, pending processing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, skgsa.SSHKeyGroupID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("Sync required due to SSH Key deletion, pending processing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)

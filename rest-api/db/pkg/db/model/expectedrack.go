@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
@@ -352,7 +355,7 @@ func (erd ExpectedRackSQLDAO) setQueryWithFilter(filter ExpectedRackFilterInput,
 	}
 
 	if filter.SearchQuery != nil {
-		normalizedTokens := db.GetStrPtr(db.GetStringToTsQuery(*filter.SearchQuery))
+		normalizedTokens := cutil.GetPtr(db.GetStringToTsQuery(*filter.SearchQuery))
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
 			return q.
 				Where("to_tsvector('english', (coalesce(er.rack_id, ' ') || ' ' || coalesce(er.rack_profile_id, ' ') || ' ' || coalesce(er.name, ' ') || ' ' || coalesce(er.description, ' ') || ' ' || coalesce(er.labels::text, ' '))) @@ to_tsquery('english', ?)", *normalizedTokens).

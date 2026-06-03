@@ -10,6 +10,12 @@ import (
 	"math"
 	"net/http"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/attribute"
+	tclient "go.temporal.io/sdk/client"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -21,11 +27,6 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"go.opentelemetry.io/otel/attribute"
-	tclient "go.temporal.io/sdk/client"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -125,7 +126,7 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 		BmcMacAddresses: []string{apiRequest.BmcMacAddress},
 		SiteIDs:         []uuid.UUID{site.ID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 
 	if err != nil {
@@ -289,7 +290,7 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 		siteDAO := cdbm.NewSiteDAO(gaesh.dbSession)
 		sites, _, err := siteDAO.GetAll(ctx, nil,
 			cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{infrastructureProvider.ID}},
-			paginator.PageInput{Limit: cdb.GetIntPtr(math.MaxInt)},
+			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
 			nil,
 		)
 		if err != nil {

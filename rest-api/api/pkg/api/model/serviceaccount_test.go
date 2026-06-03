@@ -6,10 +6,11 @@ package model
 import (
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPIServiceAccount(t *testing.T) {
@@ -40,8 +41,8 @@ func TestNewAPIServiceAccount(t *testing.T) {
 			},
 			want: &APIServiceAccount{
 				Enabled:                  true,
-				InfrastructureProviderID: cdb.GetStrPtr(dbProvider.ID.String()),
-				TenantID:                 cdb.GetStrPtr(dbTenant.ID.String()),
+				InfrastructureProviderID: cutil.GetPtr(dbProvider.ID.String()),
+				TenantID:                 cutil.GetPtr(dbTenant.ID.String()),
 			},
 		},
 		{

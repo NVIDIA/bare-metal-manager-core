@@ -131,7 +131,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 			SiteIDs:   []uuid.UUID{site.ID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -158,7 +158,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 			Names:     []string{apiRequest.Name},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -207,7 +207,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 
 		// Create a status detail record for the DPU Extension Service
 		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusPending,
-			cdb.GetStrPtr("Received DPU Extension Service creation request, pending processing"))
+			cutil.GetPtr("Received DPU Extension Service creation request, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for DPU Extension Service", nil)
@@ -219,7 +219,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		}
 
 		createDpuExtensionServiceRequest := &cwssaws.CreateDpuExtensionServiceRequest{
-			ServiceId:            cdb.GetStrPtr(dpuExtensionService.ID.String()),
+			ServiceId:            cutil.GetPtr(dpuExtensionService.ID.String()),
 			ServiceName:          apiRequest.Name,
 			Description:          apiRequest.Description,
 			TenantOrganizationId: org,
@@ -335,7 +335,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			// Don't fail the request, the service will get updated on next inventory sync
 		} else {
 			statusDetail, serr := sdDAO.CreateFromParams(ctx, nil, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusReady,
-				cdb.GetStrPtr("DPU Extension Service is ready for deployment"))
+				cutil.GetPtr("DPU Extension Service is ready for deployment"))
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			} else {
@@ -443,7 +443,7 @@ func (gadesh GetAllDpuExtensionServiceHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				SiteIDs:   []uuid.UUID{site.ID},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+			paginator.PageInput{Limit: cutil.GetPtr(1)},
 			nil,
 		)
 		if err != nil {
@@ -788,7 +788,7 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				Names:     []string{*apiRequest.Name},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+			paginator.PageInput{Limit: cutil.GetPtr(1)},
 			nil,
 		)
 		if err != nil {
@@ -1061,7 +1061,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		cdbm.DpuExtensionServiceDeploymentFilterInput{
 			DpuExtensionServiceIDs: []uuid.UUID{dpuExtensionService.ID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -1086,7 +1086,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dpuExtensionService.ID,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusDeleting),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusDeleting),
 			},
 		)
 		if derr != nil {
@@ -1463,7 +1463,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 			DpuExtensionServiceIDs: []uuid.UUID{dpuExtensionService.ID},
 			Versions:               []string{versionID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -1531,7 +1531,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 			_, derr := desDAO.Update(ctx, tx, cdbm.DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dpuExtensionService.ID,
 				ActiveVersions:        remainingVersions,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusReady),
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version")
@@ -1695,7 +1695,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 				Version:               &remainingVersions[0],
 				VersionInfo:           versionInfo,
 				ActiveVersions:        remainingVersions,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusReady),
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version (best-effort; ignoring)")

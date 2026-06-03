@@ -11,14 +11,18 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+
 	"go.opentelemetry.io/otel/trace"
+
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 )
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -183,7 +187,7 @@ func testBuildUser(t *testing.T, dbSession *db.Session, id *uuid.UUID, starfleet
 
 	user := &User{
 		ID:          uid,
-		StarfleetID: db.GetStrPtr(starfleetID),
+		StarfleetID: cutil.GetPtr(starfleetID),
 		Email:       email,
 		FirstName:   firstName,
 		LastName:    lastName,
@@ -313,7 +317,7 @@ func testBuildInfiniBandInterface(t *testing.T, dbSession *db.Session, id *uuid.
 	}
 
 	if status == nil {
-		status = db.GetStrPtr(InfiniBandInterfaceStatusPending)
+		status = cutil.GetPtr(InfiniBandInterfaceStatusPending)
 	}
 
 	ibif := &InfiniBandInterface{
@@ -371,7 +375,7 @@ func testBuildNVLinkInterface(t *testing.T, dbSession *db.Session, id *uuid.UUID
 	}
 
 	if status == nil {
-		status = db.GetStrPtr(NVLinkInterfaceStatusPending)
+		status = cutil.GetPtr(NVLinkInterfaceStatusPending)
 	}
 
 	nvli := &NVLinkInterface{
@@ -434,13 +438,13 @@ func testBuildImageOperatingSystem(t *testing.T, dbSession *db.Session, name str
 		InfrastructureProviderID: ipID,
 		TenantID:                 tenantID,
 		Type:                     "Image",
-		ImageURL:                 db.GetStrPtr("imageURL"),
-		ImageSHA:                 db.GetStrPtr("imageSHA"),
-		ImageAuthType:            db.GetStrPtr("imageAuthType"),
-		ImageAuthToken:           db.GetStrPtr("imageAuthToken"),
-		ImageDisk:                db.GetStrPtr("imageDisk"),
-		RootFsID:                 db.GetStrPtr("rootFsId"),
-		RootFsLabel:              db.GetStrPtr("rootFsLabel"),
+		ImageURL:                 cutil.GetPtr("imageURL"),
+		ImageSHA:                 cutil.GetPtr("imageSHA"),
+		ImageAuthType:            cutil.GetPtr("imageAuthType"),
+		ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+		ImageDisk:                cutil.GetPtr("imageDisk"),
+		RootFsID:                 cutil.GetPtr("rootFsId"),
+		RootFsLabel:              cutil.GetPtr("rootFsLabel"),
 		Version:                  version,
 		EnableBlockStorage:       enabelBS,
 		Status:                   status,

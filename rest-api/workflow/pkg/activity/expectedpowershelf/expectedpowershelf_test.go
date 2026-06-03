@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -156,8 +157,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 		if i%5 == 0 {
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "rack", Value: cwutil.GetPtr(fmt.Sprintf("rack-%d", i/5))},
+					{Key: "position", Value: cwutil.GetPtr(fmt.Sprintf("pos-%d", i))},
 				},
 			}
 		}
@@ -181,7 +182,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Add labels to a power shelf that didn't have them before
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "new-label", Value: cdb.GetStrPtr("new-value")},
+					{Key: "new-label", Value: cwutil.GetPtr("new-value")},
 				},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
@@ -189,9 +190,9 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Modify existing labels
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-updated-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
-					{Key: "status", Value: cdb.GetStrPtr("active")},
+					{Key: "rack", Value: cwutil.GetPtr(fmt.Sprintf("rack-updated-%d", i/5))},
+					{Key: "position", Value: cwutil.GetPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "status", Value: cwutil.GetPtr("active")},
 				},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
@@ -381,8 +382,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 							BmcIpAddress:         "10.0.0.100",
 							Metadata: &cwssaws.Metadata{
 								Labels: []*cwssaws.Label{
-									{Key: "environment", Value: cdb.GetStrPtr("test")},
-									{Key: "datacenter", Value: cdb.GetStrPtr("dc1")},
+									{Key: "environment", Value: cwutil.GetPtr("test")},
+									{Key: "datacenter", Value: cwutil.GetPtr("dc1")},
 								},
 							},
 						},
@@ -413,7 +414,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Verify updates by fetching all power shelves for the site
 			epsDAO := cdbm.NewExpectedPowerShelfDAO(dbSession)
 			filterInput := cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}
-			allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 			assert.NoError(t, gerr)
 
 			// Build a map of power shelves by ID for easy lookup
@@ -534,7 +535,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB_RaceCondition(t
 
 	// Verify the power shelf was NOT deleted
 	filterInput := cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{st.ID}}
-	allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	assert.NoError(t, gerr)
 
 	// Check if the recent power shelf still exists

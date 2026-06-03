@@ -244,13 +244,13 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 					ctx,
 					tx,
 					allocationIDs,
-					cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType),
+					cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
 					[]uuid.UUID{dbit.ID},
-					cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
+					cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 					nil,
 					nil,
 					nil,
-					cdb.GetIntPtr(paginator.TotalLimit),
+					cutil.GetPtr(paginator.TotalLimit),
 					nil,
 				)
 				if derr != nil {
@@ -414,8 +414,8 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 					tx,
 					cdbm.IPBlockUpdateInput{
 						IPBlockID:    existingChildIPBlock.ID,
-						Prefix:       cdb.GetStrPtr(newPrefix),
-						PrefixLength: cdb.GetIntPtr(newBlockSize),
+						Prefix:       cutil.GetPtr(newPrefix),
+						PrefixLength: cutil.GetPtr(newBlockSize),
 					},
 				)
 				if derr != nil {
@@ -424,7 +424,7 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 				}
 			}
 
-			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cdb.GetIntPtr(apiRequest.ConstraintValue), nil)
+			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cutil.GetPtr(apiRequest.ConstraintValue), nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Allocation Constraint in DB")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Allocation Constraint with new constraint value, DB error", nil)

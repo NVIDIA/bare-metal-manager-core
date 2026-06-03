@@ -9,10 +9,13 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPINVLinkLogicalPartitionCreateRequest_Validate(t *testing.T) {
@@ -28,7 +31,7 @@ func TestAPINVLinkLogicalPartitionCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APINVLinkLogicalPartitionCreateRequest{Name: "test", Description: cdb.GetStrPtr("test"), SiteID: uuid.New().String()},
+			obj:       APINVLinkLogicalPartitionCreateRequest{Name: "test", Description: cutil.GetPtr("test"), SiteID: uuid.New().String()},
 			expectErr: false,
 		},
 		{
@@ -79,7 +82,7 @@ func TestAPINVLinkLogicalPartitionUpdateRequest_ToProto(t *testing.T) {
 	id := uuid.New()
 	t.Run("always populates metadata.name from entity even when request Name is nil", func(t *testing.T) {
 		nvllp := &cdbm.NVLinkLogicalPartition{ID: id, Name: "current-name", Org: "org-1"}
-		req := APINVLinkLogicalPartitionUpdateRequest{Description: cdb.GetStrPtr("only-desc")}
+		req := APINVLinkLogicalPartitionUpdateRequest{Description: cutil.GetPtr("only-desc")}
 		got := req.ToProto(nvllp)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
@@ -109,12 +112,12 @@ func TestAPINVLinkLogicalPartitionUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when only some fields are provided",
-			obj:       APINVLinkLogicalPartitionUpdateRequest{Name: cdb.GetStrPtr("updatedname")},
+			obj:       APINVLinkLogicalPartitionUpdateRequest{Name: cutil.GetPtr("updatedname")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APINVLinkLogicalPartitionUpdateRequest{Name: cdb.GetStrPtr("updatedname"), Description: cdb.GetStrPtr("updated")},
+			obj:       APINVLinkLogicalPartitionUpdateRequest{Name: cutil.GetPtr("updatedname"), Description: cutil.GetPtr("updated")},
 			expectErr: false,
 		},
 	}
@@ -134,7 +137,7 @@ func TestAPINVLinkLogicalPartitionNew(t *testing.T) {
 		{
 			ID:          uuid.New(),
 			Name:        "test-vpc",
-			Description: cdb.GetStrPtr("test"),
+			Description: cutil.GetPtr("test"),
 			SiteID:      uuid.New(),
 			TenantID:    uuid.New(),
 		},
@@ -155,7 +158,7 @@ func TestAPINVLinkLogicalPartitionNew(t *testing.T) {
 	dbNLP := &cdbm.NVLinkLogicalPartition{
 		ID:          uuid.New(),
 		Name:        "test-nvl-partition",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		SiteID:      uuid.New(),
 		TenantID:    uuid.New(),
 		Status:      cdbm.NVLinkLogicalPartitionStatusPending,
@@ -199,7 +202,7 @@ func TestNewAPINVLinkLogicalPartitionSummary(t *testing.T) {
 	dbNLP := &cdbm.NVLinkLogicalPartition{
 		ID:          uuid.New(),
 		Name:        "test-nvl-partition",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		SiteID:      uuid.New(),
 		TenantID:    uuid.New(),
 		Status:      cdbm.InfiniBandInterfaceStatusPending,

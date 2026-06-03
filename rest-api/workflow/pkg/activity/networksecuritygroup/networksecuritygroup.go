@@ -64,7 +64,7 @@ func (mv ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupsInDB(ctx context
 
 	networkSecurityGroupDAO := cdbm.NewNetworkSecurityGroupDAO(mv.dbSession)
 
-	existingNetworkSecurityGroups, _, err := networkSecurityGroupDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Offset: nil, OrderBy: nil, Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingNetworkSecurityGroups, _, err := networkSecurityGroupDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Offset: nil, OrderBy: nil, Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get NetworkSecurityGroups for Site from DB")
 		return err
@@ -132,7 +132,7 @@ func (mv ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupsInDB(ctx context
 			_, err = networkSecurityGroupDAO.Create(ctx, nil, cdbm.NetworkSecurityGroupCreateInput{
 				NetworkSecurityGroupID: &controllerNetworkSecurityGroup.Id,
 				Name:                   controllerNetworkSecurityGroup.GetMetadata().GetName(),
-				Description:            cdb.GetStrPtr(controllerNetworkSecurityGroup.GetMetadata().GetDescription()),
+				Description:            cwutil.GetPtr(controllerNetworkSecurityGroup.GetMetadata().GetDescription()),
 				TenantOrg:              controllerNetworkSecurityGroup.TenantOrganizationId,
 				TenantID:               tenantID,
 				StatefulEgress:         controllerNetworkSecurityGroup.GetAttributes().GetStatefulEgress(),
@@ -166,11 +166,11 @@ func (mv ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupsInDB(ctx context
 
 				_, err = networkSecurityGroupDAO.Update(ctx, nil, cdbm.NetworkSecurityGroupUpdateInput{
 					NetworkSecurityGroupID: controllerNetworkSecurityGroup.Id,
-					Name:                   cdb.GetStrPtr(controllerNetworkSecurityGroup.GetMetadata().GetName()),
-					Description:            cdb.GetStrPtr(controllerNetworkSecurityGroup.GetMetadata().GetDescription()),
-					StatefulEgress:         cdb.GetBoolPtr(controllerNetworkSecurityGroup.GetAttributes().GetStatefulEgress()),
+					Name:                   cwutil.GetPtr(controllerNetworkSecurityGroup.GetMetadata().GetName()),
+					Description:            cwutil.GetPtr(controllerNetworkSecurityGroup.GetMetadata().GetDescription()),
+					StatefulEgress:         cwutil.GetPtr(controllerNetworkSecurityGroup.GetAttributes().GetStatefulEgress()),
 					Rules:                  rules,
-					Status:                 cdb.GetStrPtr(cdbm.NetworkSecurityGroupStatusReady),
+					Status:                 cwutil.GetPtr(cdbm.NetworkSecurityGroupStatusReady),
 					Version:                &controllerNetworkSecurityGroup.Version,
 					UpdatedByID:            siteID, /* This would normally be a user ID, but that isn't something NICo provides */
 				})

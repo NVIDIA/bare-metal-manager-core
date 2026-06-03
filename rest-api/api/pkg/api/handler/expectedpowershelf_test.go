@@ -11,20 +11,22 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/uptrace/bun/extra/bundebug"
 	tmocks "go.temporal.io/sdk/mocks"
+
+	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 )
 
 // testExpectedPowerShelfInitDB initializes a test database session
@@ -135,7 +137,7 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -161,8 +163,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "SHELF123",
 				BmcIpAddress:       &validBmcIpAddress,
 				Labels:             map[string]string{"env": "test"},
@@ -179,8 +181,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:77",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "SHELF125",
 			},
 			setupContext: func(c echo.Context) {
@@ -194,8 +196,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "SHELF126",
 			},
 			setupContext: func(c echo.Context) {
@@ -210,8 +212,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             "12345678-1234-1234-1234-123456789099",
 				BmcMacAddress:      "00:11:22:33:44:88",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "SHELF127",
 			},
 			setupContext: func(c echo.Context) {
@@ -226,8 +228,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             unmanagedSite.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:99",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "SHELF128",
 			},
 			setupContext: func(c echo.Context) {
@@ -242,8 +244,8 @@ func TestCreateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedPowerShelfCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      existingMAC,
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				ShelfSerialNumber:  "DUPLICATE-SHELF-999",
 				Labels:             map[string]string{"env": "duplicate-test"},
 			},
@@ -342,7 +344,7 @@ func TestGetAllExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -529,7 +531,7 @@ func TestGetExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -689,7 +691,7 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -713,7 +715,7 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			name: "successful update",
 			id:   testEPS.ID.String(),
 			requestBody: model.APIExpectedPowerShelfUpdateRequest{
-				ShelfSerialNumber: cdb.GetStrPtr("UPDATED-SHELF-123"),
+				ShelfSerialNumber: cutil.GetPtr("UPDATED-SHELF-123"),
 				Labels:            map[string]string{"env": "updated"},
 			},
 			setupContext: func(c echo.Context) {
@@ -727,8 +729,8 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			name: "body ID mismatch with URL should return 400",
 			id:   testEPS.ID.String(),
 			requestBody: model.APIExpectedPowerShelfUpdateRequest{
-				ID:                cdb.GetStrPtr(uuid.New().String()),
-				ShelfSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				ID:                cutil.GetPtr(uuid.New().String()),
+				ShelfSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -741,7 +743,7 @@ func TestUpdateExpectedPowerShelfHandler_Handle(t *testing.T) {
 			name: "cannot update on unmanaged site",
 			id:   unmanagedEPS.ID.String(),
 			requestBody: model.APIExpectedPowerShelfUpdateRequest{
-				ShelfSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				ShelfSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 				Labels:            map[string]string{"env": "fail"},
 			},
 			setupContext: func(c echo.Context) {
@@ -844,7 +846,7 @@ func TestDeleteExpectedPowerShelfHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,

@@ -8,14 +8,17 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // reset the tables needed for SKU tests
@@ -184,10 +187,10 @@ func TestSkuSQLDAO_GetAll(t *testing.T) {
 		expectedCount int
 		expectedTotal *int
 	}{
-		{desc: "no filters", expectedCount: 3, expectedTotal: db.GetIntPtr(3)},
+		{desc: "no filters", expectedCount: 3, expectedTotal: cutil.GetPtr(3)},
 		{desc: "filter IDs", filter: SkuFilterInput{SkuIDs: []string{created[0].ID, created[2].ID}}, expectedCount: 2},
-		{desc: "limit applies", pageInput: paginator.PageInput{Offset: db.GetIntPtr(0), Limit: db.GetIntPtr(2)}, expectedCount: 2, expectedTotal: db.GetIntPtr(3)},
-		{desc: "offset applies", pageInput: paginator.PageInput{Offset: db.GetIntPtr(1)}, expectedCount: 2, expectedTotal: db.GetIntPtr(3)},
+		{desc: "limit applies", pageInput: paginator.PageInput{Offset: cutil.GetPtr(0), Limit: cutil.GetPtr(2)}, expectedCount: 2, expectedTotal: cutil.GetPtr(3)},
+		{desc: "offset applies", pageInput: paginator.PageInput{Offset: cutil.GetPtr(1)}, expectedCount: 2, expectedTotal: cutil.GetPtr(3)},
 		{desc: "filter associated machine IDs", filter: SkuFilterInput{AssociatedMachineIds: []string{"machine-2"}}, expectedCount: 2},
 	}
 	for _, tc := range tests {

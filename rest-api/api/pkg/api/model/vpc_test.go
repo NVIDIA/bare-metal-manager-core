@@ -8,13 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestAPIVpcCreateRequest_Validate(t *testing.T) {
@@ -36,7 +38,7 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			name: "test valid VPC create request",
 			fields: fields{
 				Name:        "test-name",
-				Description: cdb.GetStrPtr("Test description"),
+				Description: cutil.GetPtr("Test description"),
 				SiteID:      uuid.NewString(),
 			},
 			wantErr: false,
@@ -45,7 +47,7 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			name: "test valid VPC create request - invalid names are specified names exceeded 256 char",
 			fields: fields{
 				Name:        "apvhhigcgctlgiwtbrgldkegmnwuqcibutndlholygxvhzrpinziepszvpmopvzkybykrwgvzojtssorabkrnawgjzeuuerphsnecipubeuzrpewkfuvwoeybagaxpvjvzvbzqznyfmcpbxrhbdkhewiepykfjeejeqatswgrlhqkgnvwqmatejufnsjgelcugcoccybywdrnlyvsegsegorygwdvurgktpuzyrsoutspsnyzynliaxwseazqmimp",
-				Description: cdb.GetStrPtr("Test description"),
+				Description: cutil.GetPtr("Test description"),
 				SiteID:      uuid.NewString(),
 			},
 			wantErr: true,
@@ -62,9 +64,9 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			name: "test invalid VPC create request - invalid Network Virtualization Type",
 			fields: fields{
 				Name:                      "test-name",
-				Description:               cdb.GetStrPtr("Test description"),
+				Description:               cutil.GetPtr("Test description"),
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr("VPC"),
+				NetworkVirtualizationType: cutil.GetPtr("VPC"),
 			},
 			wantErr: true,
 		},
@@ -85,8 +87,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 			},
 			wantErr: false,
 		},
@@ -95,8 +97,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer),
-				RoutingProfile:            cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 			},
 			wantErr: true,
 		},
@@ -105,7 +107,7 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFlat),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFlat),
 			},
 			wantErr: false,
 		},
@@ -114,8 +116,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFlat),
-				RoutingProfile:            cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFlat),
+				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 			},
 			wantErr: true,
 		},
@@ -124,7 +126,7 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:           "test-name",
 				SiteID:         uuid.NewString(),
-				RoutingProfile: cdb.GetStrPtr(APIVpcRoutingProfileExternal),
+				RoutingProfile: cutil.GetPtr(APIVpcRoutingProfileExternal),
 			},
 			wantErr: false,
 		},
@@ -133,8 +135,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr("ab"),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr("ab"),
 			},
 			wantErr: true,
 		},
@@ -143,8 +145,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr("1internal"),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr("1internal"),
 			},
 			wantErr: true,
 		},
@@ -153,8 +155,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr("privileged_internal"),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr("privileged_internal"),
 			},
 			wantErr: true,
 		},
@@ -163,8 +165,8 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:                      "test-name",
 				SiteID:                    uuid.NewString(),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr("tenant-edge"),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr("tenant-edge"),
 			},
 			wantErr: true,
 		},
@@ -173,7 +175,7 @@ func TestAPIVpcCreateRequest_Validate(t *testing.T) {
 			fields: fields{
 				Name:   "test-name",
 				SiteID: uuid.NewString(),
-				Vni:    cdb.GetIntPtr(70000),
+				Vni:    cutil.GetPtr(70000),
 			},
 			wantErr: true,
 		},
@@ -248,7 +250,7 @@ func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 			name: "test valid VPC update request",
 			fields: fields{
 				Name:        "test-name",
-				Description: cdb.GetStrPtr("Test description"),
+				Description: cutil.GetPtr("Test description"),
 			},
 			wantErr: false,
 		},
@@ -256,7 +258,7 @@ func TestAPIVpcUpdateRequest_Validate(t *testing.T) {
 			name: "test valid VPC update request - invalid names are specified names exceeded 256 char",
 			fields: fields{
 				Name:        "apvhhigcgctlgiwtbrgldkegmnwuqcibutndlholygxvhzrpinziepszvpmopvzkybykrwgvzojtssorabkrnawgjzeuuerphsnecipubeuzrpewkfuvwoeybagaxpvjvzvbzqznyfmcpbxrhbdkhewiepykfjeejeqatswgrlhqkgnvwqmatejufnsjgelcugcoccybywdrnlyvsegsegorygwdvurgktpuzyrsoutspsnyzynliaxwseazqmimp",
-				Description: cdb.GetStrPtr("Test description"),
+				Description: cutil.GetPtr("Test description"),
 			},
 			wantErr: true,
 		},
@@ -329,7 +331,7 @@ func TestAPIVpcVirtualizationUpdateRequest_Validate(t *testing.T) {
 		SiteID:                    uuid.New(),
 		TenantID:                  uuid.New(),
 		InfrastructureProviderID:  uuid.New(),
-		NetworkVirtualizationType: cdb.GetStrPtr("ETHERNET_VIRTUALIZER"),
+		NetworkVirtualizationType: cutil.GetPtr("ETHERNET_VIRTUALIZER"),
 		Created:                   cdb.GetCurTime(),
 		Updated:                   cdb.GetCurTime(),
 	}
@@ -341,7 +343,7 @@ func TestAPIVpcVirtualizationUpdateRequest_Validate(t *testing.T) {
 		SiteID:                    uuid.New(),
 		TenantID:                  uuid.New(),
 		InfrastructureProviderID:  uuid.New(),
-		NetworkVirtualizationType: cdb.GetStrPtr("FNN"),
+		NetworkVirtualizationType: cutil.GetPtr("FNN"),
 		Created:                   cdb.GetCurTime(),
 		Updated:                   cdb.GetCurTime(),
 	}
@@ -403,18 +405,18 @@ func TestNewAPIVpc(t *testing.T) {
 	dbVpc := cdbm.Vpc{
 		ID:                        uuid.New(),
 		Name:                      "test-vpc",
-		Description:               cdb.GetStrPtr("Test VPC Description"),
+		Description:               cutil.GetPtr("Test VPC Description"),
 		Org:                       "test-org",
 		TenantID:                  uuid.New(),
 		SiteID:                    uuid.New(),
-		NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer),
-		RoutingProfile:            cdb.GetStrPtr(apiVpcRoutingProfileSiteInternal),
-		ControllerVpcID:           cdb.GetUUIDPtr(uuid.New()),
+		NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+		RoutingProfile:            cutil.GetPtr(apiVpcRoutingProfileSiteInternal),
+		ControllerVpcID:           cutil.GetPtr(uuid.New()),
 		// The normal expectation is that Vni and ActiveVni match or
 		// that Vni is simply null, but we want to test for correctness
 		// in the conversion from the record in the DB and the API struct.
-		Vni:       cdb.GetIntPtr(555),
-		ActiveVni: cdb.GetIntPtr(777),
+		Vni:       cutil.GetPtr(555),
+		ActiveVni: cutil.GetPtr(777),
 		Labels: map[string]string{
 			"zone": "1",
 			"west": "2",
@@ -458,7 +460,7 @@ func TestNewAPIVpc(t *testing.T) {
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
 				NetworkVirtualizationType: dbVpc.NetworkVirtualizationType,
-				RoutingProfile:            cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
 				Vni:                       dbVpc.ActiveVni,
@@ -477,7 +479,7 @@ func TestNewAPIVpc(t *testing.T) {
 			args: args{
 				dbVpc: func() cdbm.Vpc {
 					fnnVpc := dbVpc
-					fnnVpc.NetworkVirtualizationType = cdb.GetStrPtr(cdbm.VpcFNN)
+					fnnVpc.NetworkVirtualizationType = cutil.GetPtr(cdbm.VpcFNN)
 					return fnnVpc
 				}(),
 				dbsds: dbsds,
@@ -490,8 +492,8 @@ func TestNewAPIVpc(t *testing.T) {
 				InfrastructureProviderID:  util.GetUUIDPtrToStrPtr(&dbVpc.InfrastructureProviderID),
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
-				NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN),
-				RoutingProfile:            cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
 				Vni:                       dbVpc.ActiveVni,
@@ -561,7 +563,7 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		vni := 4242
 		got := APIVpcCreateRequest{
 			Vni:            &vni,
-			RoutingProfile: cdb.GetStrPtr(APIVpcRoutingProfileInternal),
+			RoutingProfile: cutil.GetPtr(APIVpcRoutingProfileInternal),
 		}.ToProto(vpc)
 
 		require.NotNil(t, got)

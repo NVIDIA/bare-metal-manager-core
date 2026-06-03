@@ -9,7 +9,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationIs "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
@@ -82,7 +82,7 @@ func NewAPINVLinkInterface(dbnvli *cdbm.NVLinkInterface) *APINVLinkInterface {
 	}
 
 	if dbnvli.NVLinkDomainID != nil {
-		apiNVLinkInterface.NVLinkDomainID = cdb.GetStrPtr(dbnvli.NVLinkDomainID.String())
+		apiNVLinkInterface.NVLinkDomainID = cutil.GetPtr(dbnvli.NVLinkDomainID.String())
 	}
 
 	if dbnvli.GpuGUID != nil {

@@ -64,7 +64,7 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 	instanceTypeDAO := cdbm.NewInstanceTypeDAO(mv.dbSession)
 	macCapDAO := cdbm.NewMachineCapabilityDAO(mv.dbSession)
 
-	existingInstanceTypes, _, err := instanceTypeDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{site.ID}}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	existingInstanceTypes, _, err := instanceTypeDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{site.ID}}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get InstanceTypes for Site from DB")
 		return err
@@ -155,7 +155,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 	// that the properties (metadata and capabilities) match and update cloud if not.
 
 	// Build some maps we'll need before we start a new transaction.
-	cloudCaps, _, err := macCapDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceType.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	cloudCaps, _, err := macCapDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceType.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return fmt.Errorf("failed to get capabilitites for InstanceType in DB: %w", err)
 	}
@@ -188,7 +188,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 	}
 
 	if instanceType.Description == nil || *instanceType.Description != controllerInstanceType.GetMetadata().GetDescription() {
-		instanceType.Description = cdb.GetStrPtr(controllerInstanceType.GetMetadata().GetDescription())
+		instanceType.Description = cwutil.GetPtr(controllerInstanceType.GetMetadata().GetDescription())
 	}
 
 	if instanceType.Name != controllerInstanceType.GetMetadata().GetName() {
@@ -308,7 +308,7 @@ func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *c
 	instanceType, err := instanceTypeDAO.Create(ctx, tx, cdbm.InstanceTypeCreateInput{
 		ID:                       &id,
 		Name:                     controllerInstanceType.GetMetadata().GetName(),
-		Description:              cdb.GetStrPtr(controllerInstanceType.GetMetadata().GetDescription()),
+		Description:              cwutil.GetPtr(controllerInstanceType.GetMetadata().GetDescription()),
 		InfrastructureProviderID: site.InfrastructureProviderID,
 		SiteID:                   &site.ID,
 		Status:                   cdbm.InstanceTypeStatusReady,

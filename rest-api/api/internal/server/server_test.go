@@ -14,18 +14,20 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 
+	echo "github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	temporalClient "go.temporal.io/sdk/client"
+	tmocks "go.temporal.io/sdk/mocks"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	_ "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	echo "github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	temporalClient "go.temporal.io/sdk/client"
-	tmocks "go.temporal.io/sdk/mocks"
 )
 
 func Test_InitAPIServer(t *testing.T) {
@@ -165,7 +167,7 @@ func Test_Audit(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	// check if the audit log entry was created
 	aeDAO := cdbm.NewAuditEntryDAO(dbSession)
-	entries, count, err := aeDAO.GetAll(context.Background(), nil, cdbm.AuditEntryFilterInput{OrgName: cdb.GetStrPtr("wdksahew1rqv")}, paginator.PageInput{})
+	entries, count, err := aeDAO.GetAll(context.Background(), nil, cdbm.AuditEntryFilterInput{OrgName: cutil.GetPtr("wdksahew1rqv")}, paginator.PageInput{})
 	assert.NoError(t, err)
 	assert.Len(t, entries, 1)
 	assert.Equal(t, count, 1)

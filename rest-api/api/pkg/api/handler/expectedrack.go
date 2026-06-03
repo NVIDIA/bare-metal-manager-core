@@ -10,6 +10,12 @@ import (
 	"math"
 	"net/http"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/attribute"
+	tclient "go.temporal.io/sdk/client"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -21,11 +27,6 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"go.opentelemetry.io/otel/attribute"
-	tclient "go.temporal.io/sdk/client"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -128,7 +129,7 @@ func (cerh CreateExpectedRackHandler) Handle(c echo.Context) error {
 		SiteIDs: []uuid.UUID{site.ID},
 		RackIDs: []string{apiRequest.RackID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
@@ -285,7 +286,7 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 		siteDAO := cdbm.NewSiteDAO(gaerh.dbSession)
 		sites, _, err := siteDAO.GetAll(ctx, nil,
 			cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{infrastructureProvider.ID}},
-			paginator.PageInput{Limit: cdb.GetIntPtr(math.MaxInt)},
+			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
 			nil,
 		)
 		if err != nil {
@@ -580,7 +581,7 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		_, count, err := erDAO.GetAll(ctx, nil, cdbm.ExpectedRackFilterInput{
 			SiteIDs: []uuid.UUID{expectedRack.SiteID},
 			RackIDs: []string{*apiRequest.RackID},
-		}, paginator.PageInput{Limit: cdb.GetIntPtr(1)}, nil)
+		}, paginator.PageInput{Limit: cutil.GetPtr(1)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Expected Rack uniqueness due to DB error", nil)

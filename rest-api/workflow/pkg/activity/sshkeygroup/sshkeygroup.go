@@ -84,7 +84,7 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 	// updates from site-manager make it back to us.
 	// We need to catch the case where status history says "created" but the site says
 	// "not created."
-	isSSHKeyGroupCreated := cdb.GetBoolPtr(false)
+	isSSHKeyGroupCreated := cwutil.GetPtr(false)
 	if !skgsa.IsMissingOnSite {
 		isSSHKeyGroupCreated, err = mskg.IsSSHKeyGroupCreatedOnSite(ctx, nil, skgsa.ID)
 		if err != nil {
@@ -127,7 +127,7 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 
 	// Get public keys associated to this SSHKeyGroup
 	skaDAO := cdbm.NewSSHKeyAssociationDAO(mskg.dbSession)
-	skas, total, err := skaDAO.GetAll(ctx, nil, nil, []uuid.UUID{skgsa.SSHKeyGroupID}, []string{cdbm.SSHKeyRelationName}, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skas, total, err := skaDAO.GetAll(ctx, nil, nil, []uuid.UUID{skgsa.SSHKeyGroupID}, []string{cdbm.SSHKeyRelationName}, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Associations from DB by SSHKeyGroup ID")
 		return err
@@ -291,7 +291,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(mskg.dbSession)
 
-	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &site.ID, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &site.ID, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get SSH Key Group Site Associations for Site from DB")
 		return nil, err
@@ -348,7 +348,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 		}
 
 		// Update SSHKeyGroupSiteAssociation missing flag as it is now found on Site
-		_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cdb.GetBoolPtr(false))
+		_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cwutil.GetPtr(false))
 		if serr != nil {
 			slogger.Error().Err(serr).Msg("failed to update SSH Key Group Site Association missing flag in DB")
 			continue
@@ -387,13 +387,13 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 						}
 
 						// Set isMissingOnSite flag to true and update status, user can decide on deletion
-						_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cdb.GetBoolPtr(true))
+						_, serr := skgsaDAO.UpdateFromParams(ctx, nil, skgsa.ID, nil, nil, nil, nil, cwutil.GetPtr(true))
 						if serr != nil {
 							slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB for SSH Key Group Site Association")
 							continue
 						}
 
-						serr = mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cdb.GetStrPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cdb.GetStrPtr("SSHKeyGroup is missing on Site"))
+						serr = mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cwutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cwutil.GetPtr("SSHKeyGroup is missing on Site"))
 						if serr != nil {
 							slogger.Error().Err(serr).Msg("failed to update SSH Key Group Site Association status detail in DB")
 						}
@@ -411,7 +411,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 		} else if tenantKeyset.Version == *skgsa.Version && (skgsa.Status == cdbm.SSHKeyGroupSiteAssociationStatusSyncing || skgsa.Status == cdbm.SSHKeyGroupSiteAssociationStatusError) {
 			// If we reached this condition then SSH Key Group was found on Site and the versions match
 			// but the status is not synced, so we need to sync it
-			serr := mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cdb.GetStrPtr(cdbm.SSHKeyGroupSiteAssociationStatusSynced), cdb.GetStrPtr("SSH Key Group has successfully been synced with Site"))
+			serr := mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cwutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusSynced), cwutil.GetPtr("SSH Key Group has successfully been synced with Site"))
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update SSH Key Group status detail in DB")
 			}
@@ -554,7 +554,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 	var sgMessage *string
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(mskg.dbSession)
-	skgsas, skgsaTotal, err := skgsaDAO.GetAll(ctx, nil, []uuid.UUID{skgID}, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgsas, skgsaTotal, err := skgsaDAO.GetAll(ctx, nil, []uuid.UUID{skgID}, nil, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get SSHKey Group Associations from DB for SSH Key Group")
 		return err
@@ -585,7 +585,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			}
 
 			// Remove all SSH Key associations
-			skas, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{skgID}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			skas, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{skgID}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to retrieve SSH Key Assocications from DB by SSHKeyGroup ID")
 				terr := tx.Rollback()
@@ -608,7 +608,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			}
 
 			// Remove all Instance associations
-			skgias, _, err := skgiaDAO.GetAll(ctx, tx, []uuid.UUID{skgID}, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			skgias, _, err := skgiaDAO.GetAll(ctx, tx, []uuid.UUID{skgID}, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance associations from DB")
 				terr := tx.Rollback()
@@ -646,8 +646,8 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			return nil
 		}
 
-		sgStatus = cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced)
-		sgMessage = cdb.GetStrPtr("SSH Key Group successfully synced to all Sites")
+		sgStatus = cwutil.GetPtr(cdbm.SSHKeyGroupStatusSynced)
+		sgMessage = cwutil.GetPtr("SSH Key Group successfully synced to all Sites")
 	} else {
 		statusCountMap := map[string]int{}
 		for _, dbskgsa := range skgsas {
@@ -658,20 +658,20 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 			if skg.Status == cdbm.SSHKeyGroupStatusError {
 				return nil
 			}
-			sgStatus = cdb.GetStrPtr(cdbm.SSHKeyGroupStatusError)
-			sgMessage = cdb.GetStrPtr("Failed to sync SSH Key Group to one or more Sites")
+			sgStatus = cwutil.GetPtr(cdbm.SSHKeyGroupStatusError)
+			sgMessage = cwutil.GetPtr("Failed to sync SSH Key Group to one or more Sites")
 		} else if statusCountMap[cdbm.SSHKeyGroupSiteAssociationStatusSyncing] > 0 {
 			if skg.Status == cdbm.SSHKeyGroupStatusSyncing {
 				return nil
 			}
-			sgStatus = cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing)
-			sgMessage = cdb.GetStrPtr("SSH Key Group syncing to one or more Sites")
+			sgStatus = cwutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing)
+			sgMessage = cwutil.GetPtr("SSH Key Group syncing to one or more Sites")
 		} else {
 			if skg.Status == cdbm.SSHKeyGroupStatusSynced {
 				return nil
 			}
-			sgStatus = cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced)
-			sgMessage = cdb.GetStrPtr("SSH Key Group successfully synced to all Sites")
+			sgStatus = cwutil.GetPtr(cdbm.SSHKeyGroupStatusSynced)
+			sgMessage = cwutil.GetPtr("SSH Key Group successfully synced to all Sites")
 		}
 	}
 
@@ -702,23 +702,23 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupStatusInDB(ctx context.Context, s
 // IsSSHKeyGroupCreated is helper function to get if sshkeygroup created or not
 func (mskg ManageSSHKeyGroup) IsSSHKeyGroupCreatedOnSite(ctx context.Context, tx *cdb.Tx, sshKeyGroupSiteAssociationID uuid.UUID) (*bool, error) {
 	sdDAO := cdbm.NewStatusDetailDAO(mskg.dbSession)
-	skgsds, _, err := sdDAO.GetAllByEntityID(ctx, tx, sshKeyGroupSiteAssociationID.String(), nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgsds, _, err := sdDAO.GetAllByEntityID(ctx, tx, sshKeyGroupSiteAssociationID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return nil, err
 	}
 	for _, skgsd := range skgsds {
 		// if it is synced, the tenantkeyset exists
 		if skgsd.Status == cdbm.SSHKeyGroupSiteAssociationStatusSynced {
-			return cdb.GetBoolPtr(true), nil
+			return cwutil.GetPtr(true), nil
 		}
 
 		// if it is in error, however, statusmessage suggest that key DB error (duplicate)
 		// only sync required in this case
 		if skgsd.Status == cdbm.SSHKeyGroupSiteAssociationStatusError && strings.Contains(*skgsd.Message, util.ErrMsgSiteControllerDuplicateEntryFound) {
-			return cdb.GetBoolPtr(true), nil
+			return cwutil.GetPtr(true), nil
 		}
 	}
-	return cdb.GetBoolPtr(false), nil
+	return cwutil.GetPtr(false), nil
 }
 
 // NewManageSSHKeyGroup returns a new ManageSSHKeyGroup activity

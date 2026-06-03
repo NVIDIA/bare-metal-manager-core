@@ -10,9 +10,12 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
@@ -45,8 +48,8 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
-				NvOsUsername:       cdb.GetStrPtr("nvosadmin"),
-				NvOsPassword:       cdb.GetStrPtr("nvospass"),
+				NvOsUsername:       cutil.GetPtr("nvosadmin"),
+				NvOsPassword:       cutil.GetPtr("nvospass"),
 				Labels:             map[string]string{"env": "test", "zone": "us-west-1"},
 			},
 			expectErr: false,
@@ -95,7 +98,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedSwitchCreateRequest{
 				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
 			},
@@ -105,7 +108,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedSwitchCreateRequest{
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
 			},
@@ -118,7 +121,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
 				BmcMacAddress:      "00:11:22:33:44:55",
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 20)),
 				SwitchSerialNumber: validSwitchSerial,
 			},
 			expectErr: false,
@@ -128,7 +131,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedSwitchCreateRequest{
 				BmcMacAddress:      "00:11:22:33:44:55",
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 21)),
 				SwitchSerialNumber: validSwitchSerial,
 			},
 			expectErr: true,
@@ -220,7 +223,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -232,7 +235,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:       cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -244,7 +247,7 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				SwitchSerialNumber: validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:       cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},
@@ -420,7 +423,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			desc: "ok when BMC username is exactly 16 characters",
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
 			},
@@ -430,7 +433,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
 			},
@@ -442,7 +445,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 20)),
 				Labels:             map[string]string{"env": "test"},
 			},
 			expectErr: false,
@@ -452,7 +455,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 21)),
 				Labels:             map[string]string{"env": "test"},
 			},
 			expectErr: true,
@@ -461,7 +464,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "ok when switch serial number is exactly 32 characters",
 			obj: APIExpectedSwitchUpdateRequest{
-				SwitchSerialNumber: cdb.GetStrPtr(strings.Repeat("a", 32)),
+				SwitchSerialNumber: cutil.GetPtr(strings.Repeat("a", 32)),
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
@@ -471,7 +474,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "error when switch serial number is 33 characters (over limit)",
 			obj: APIExpectedSwitchUpdateRequest{
-				SwitchSerialNumber: cdb.GetStrPtr(strings.Repeat("a", 33)),
+				SwitchSerialNumber: cutil.GetPtr(strings.Repeat("a", 33)),
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
@@ -483,7 +486,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv4 BmcIpAddress",
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -491,7 +494,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv6 BmcIpAddress",
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:       cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -499,7 +502,7 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 			desc: "invalid BmcIpAddress",
 			obj: APIExpectedSwitchUpdateRequest{
 				SwitchSerialNumber: &validSwitchSerial,
-				BmcIpAddress:       cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:       cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},

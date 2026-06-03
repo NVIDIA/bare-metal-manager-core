@@ -10,11 +10,14 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -162,7 +165,7 @@ func TestDpuExtensionServiceSQLDAO_Create(t *testing.T) {
 			desc: "create one",
 			inputs: []DpuExtensionServiceCreateInput{
 				{
-					DpuExtensionServiceID: db.GetUUIDPtr(uuid.New()),
+					DpuExtensionServiceID: cutil.GetPtr(uuid.New()),
 					Name:                  "test-service-1",
 					Description:           &description,
 					ServiceType:           DpuExtensionServiceServiceTypeKubernetesPod,
@@ -182,7 +185,7 @@ func TestDpuExtensionServiceSQLDAO_Create(t *testing.T) {
 			desc: "create multiple, some with nullable fields",
 			inputs: []DpuExtensionServiceCreateInput{
 				{
-					DpuExtensionServiceID: db.GetUUIDPtr(uuid.New()),
+					DpuExtensionServiceID: cutil.GetPtr(uuid.New()),
 					Name:                  "test-service-2",
 					Description:           &description,
 					ServiceType:           DpuExtensionServiceServiceTypeKubernetesPod,
@@ -296,7 +299,7 @@ func createSampleDpuExtensionServices(ctx context.Context, t *testing.T, dbSessi
 	{
 		// DpuExtensionService set 1
 		createInputs = append(createInputs, DpuExtensionServiceCreateInput{
-			DpuExtensionServiceID: db.GetUUIDPtr(uuid.New()),
+			DpuExtensionServiceID: cutil.GetPtr(uuid.New()),
 			Name:                  "dpu-service-1",
 			Description:           &description1,
 			ServiceType:           DpuExtensionServiceServiceTypeKubernetesPod,
@@ -311,7 +314,7 @@ func createSampleDpuExtensionServices(ctx context.Context, t *testing.T, dbSessi
 
 		// DpuExtensionService set 2
 		createInputs = append(createInputs, DpuExtensionServiceCreateInput{
-			DpuExtensionServiceID: db.GetUUIDPtr(uuid.New()),
+			DpuExtensionServiceID: cutil.GetPtr(uuid.New()),
 			Name:                  "dpu-service-2",
 			Description:           &description2,
 			ServiceType:           DpuExtensionServiceServiceTypeKubernetesPod,
@@ -326,7 +329,7 @@ func createSampleDpuExtensionServices(ctx context.Context, t *testing.T, dbSessi
 
 		// DpuExtensionService set 3
 		createInputs = append(createInputs, DpuExtensionServiceCreateInput{
-			DpuExtensionServiceID: db.GetUUIDPtr(uuid.New()),
+			DpuExtensionServiceID: cutil.GetPtr(uuid.New()),
 			Name:                  "dpu-service-3",
 			Description:           nil,
 			ServiceType:           DpuExtensionServiceServiceTypeKubernetesPod,
@@ -462,7 +465,7 @@ func TestDpuExtensionServiceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -517,7 +520,7 @@ func TestDpuExtensionServiceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: DpuExtensionServiceFilterInput{
-				SearchQuery: db.GetStrPtr("dpu-service-1"),
+				SearchQuery: cutil.GetPtr("dpu-service-1"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -533,20 +536,20 @@ func TestDpuExtensionServiceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -558,7 +561,7 @@ func TestDpuExtensionServiceSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -570,7 +573,7 @@ func TestDpuExtensionServiceSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount:            3,
-			expectedTotal:            db.GetIntPtr(3),
+			expectedTotal:            cutil.GetPtr(3),
 			expectedError:            false,
 			expectedFirstOrderByName: "dpu-service-3",
 		},
@@ -673,7 +676,7 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 			desc: "Update name",
 			input: DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dessExp[0].ID,
-				Name:                  db.GetStrPtr("updated-service-name"),
+				Name:                  cutil.GetPtr("updated-service-name"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -714,7 +717,7 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 			desc: "Update status",
 			input: DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dessExp[0].ID,
-				Status:                db.GetStrPtr(DpuExtensionServiceStatusReady),
+				Status:                cutil.GetPtr(DpuExtensionServiceStatusReady),
 			},
 			expectedError: false,
 		},
@@ -722,7 +725,7 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 			desc: "Update is missing on site",
 			input: DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dessExp[0].ID,
-				IsMissingOnSite:       db.GetBoolPtr(true),
+				IsMissingOnSite:       cutil.GetPtr(true),
 			},
 			expectedError: false,
 		},
@@ -730,9 +733,9 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 			desc: "Update multiple fields",
 			input: DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dessExp[2].ID,
-				Name:                  db.GetStrPtr("multi-update-service"),
-				Status:                db.GetStrPtr(DpuExtensionServiceStatusReady),
-				Version:               db.GetStrPtr("V1-T1761856992374055"),
+				Name:                  cutil.GetPtr("multi-update-service"),
+				Status:                cutil.GetPtr(DpuExtensionServiceStatusReady),
+				Version:               cutil.GetPtr("V1-T1761856992374055"),
 				VersionInfo: &DpuExtensionServiceVersionInfo{
 					Version:        "V1-T1761856992374055",
 					Data:           "updated-data",
@@ -740,7 +743,7 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 					Created:        db.GetCurTime(),
 				},
 				ActiveVersions:  []string{"V1-T1761856992374055"},
-				IsMissingOnSite: db.GetBoolPtr(true),
+				IsMissingOnSite: cutil.GetPtr(true),
 			},
 			expectedError: false,
 		},

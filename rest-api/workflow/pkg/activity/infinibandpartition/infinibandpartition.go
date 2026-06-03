@@ -59,7 +59,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		cdbm.InfiniBandPartitionFilterInput{
 			SiteIDs: []uuid.UUID{site.ID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -116,7 +116,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if ibp.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 			isUpdateRequired = true
 		}
 
@@ -258,7 +258,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 				nil,
 				cdbm.InfiniBandPartitionUpdateInput{
 					InfiniBandPartitionID: ibp.ID,
-					IsMissingOnSite:       cdb.GetBoolPtr(true),
+					IsMissingOnSite:       cwutil.GetPtr(true),
 				},
 			)
 			if serr != nil {
@@ -267,7 +267,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 			}
 
 			errStatus := cdbm.InfiniBandPartitionStatusError
-			serr = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, &errStatus, cdb.GetStrPtr("InfiniBand Partition is missing on Site"))
+			serr = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, &errStatus, cwutil.GetPtr("InfiniBand Partition is missing on Site"))
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update InfiniBand Partition status detail in DB")
 			}

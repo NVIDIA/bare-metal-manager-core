@@ -16,6 +16,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun/extra/bundebug"
+	oteltrace "go.opentelemetry.io/otel/trace"
+	"go.temporal.io/api/enums/v1"
+	temporalClient "go.temporal.io/sdk/client"
+	tmocks "go.temporal.io/sdk/mocks"
+	tp "go.temporal.io/sdk/temporal"
+	"gopkg.in/yaml.v3"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -32,18 +45,6 @@ import (
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
-	"github.com/uptrace/bun/extra/bundebug"
-	oteltrace "go.opentelemetry.io/otel/trace"
-	"go.temporal.io/api/enums/v1"
-	temporalClient "go.temporal.io/sdk/client"
-	tmocks "go.temporal.io/sdk/mocks"
-	tp "go.temporal.io/sdk/temporal"
-	"gopkg.in/yaml.v3"
 )
 
 func testInstanceInitDB(t *testing.T) *cdb.Session {
@@ -137,7 +138,7 @@ func testInstanceSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testInstanceSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -148,19 +149,19 @@ func testInstanceBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infras
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   cdb.GetStrPtr("Test Site"),
-		Description:                   cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                   sutil.GetPtr("Test Site"),
+		Description:                   sutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         cdb.GetStrPtr("V1-T1761856992374052"),
-		SiteAgentVersion:              cdb.GetStrPtr("V1-T1761856992374052"),
-		RegistrationToken:             cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:         sutil.GetPtr("V1-T1761856992374052"),
+		SiteAgentVersion:              sutil.GetPtr("V1-T1761856992374052"),
+		RegistrationToken:             sutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   sutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             isInfinityEnabled,
-		SerialConsoleHostname:         cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:         sutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      sutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: sutil.GetPtr(60),
 		Status:                        status,
 		CreatedBy:                     user.ID,
 	})
@@ -172,7 +173,7 @@ func testInstanceBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infras
 func testInstanceBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -198,9 +199,9 @@ func testInstanceBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID str
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       sutil.GetPtr("jdoe@test.com"),
+			FirstName:   sutil.GetPtr("John"),
+			LastName:    sutil.GetPtr("Doe"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -222,7 +223,7 @@ func testInstanceSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *c
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              sutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -249,7 +250,7 @@ func testInstanceBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip 
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cdb.GetStrPtr("Test Vpc"),
+		Description:               sutil.GetPtr("Test Vpc"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
@@ -273,7 +274,7 @@ func testInstanceBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, 
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, cdbm.SubnetCreateInput{
 		Name:                       name,
-		Description:                cdb.GetStrPtr("Test Subnet"),
+		Description:                sutil.GetPtr("Test Subnet"),
 		Org:                        tn.Org,
 		SiteID:                     vpc.SiteID,
 		VpcID:                      vpc.ID,
@@ -293,7 +294,7 @@ func testInstanceBuildInstanceType(t *testing.T, dbSession *cdb.Session, ip *cdb
 		ID:                       uuid.New(),
 		Name:                     name,
 		InfrastructureProviderID: ip.ID,
-		SiteID:                   cdb.GetUUIDPtr(site.ID),
+		SiteID:                   sutil.GetPtr(site.ID),
 		Status:                   status,
 	}
 	_, err := dbSession.DB.NewInsert().Model(instanceType).Exec(context.Background())
@@ -305,7 +306,7 @@ func testInstanceBuildOperatingSystem(t *testing.T, dbSession *cdb.Session, name
 	operatingSystem := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             name,
-		TenantID:         cdb.GetUUIDPtr(tn.ID),
+		TenantID:         sutil.GetPtr(tn.ID),
 		Type:             osType,
 		AllowOverride:    allowOverride,
 		PhoneHomeEnabled: phoneHomeEnabled,
@@ -317,7 +318,7 @@ func testInstanceBuildOperatingSystem(t *testing.T, dbSession *cdb.Session, name
 
 	// If iPXE, the OS should have a script set.
 	if osType == cdbm.OperatingSystemTypeIPXE {
-		operatingSystem.IpxeScript = cdb.GetStrPtr(common.DefaultIpxeScript)
+		operatingSystem.IpxeScript = sutil.GetPtr(common.DefaultIpxeScript)
 	}
 
 	_, err := dbSession.DB.NewInsert().Model(operatingSystem).Exec(context.Background())
@@ -330,7 +331,7 @@ func testInstanceBuildOperatingSystemSiteAssociation(t *testing.T, dbSession *cd
 		ID:                uuid.New(),
 		OperatingSystemID: osID,
 		SiteID:            siteID,
-		Version:           cdb.GetStrPtr("1234"),
+		Version:           sutil.GetPtr("1234"),
 		Status:            cdbm.OperatingSystemSiteAssociationStatusSynced,
 		Created:           cdb.GetCurTime(),
 		Updated:           cdb.GetCurTime(),
@@ -365,7 +366,7 @@ func testInstanceBuildMachineWithID(t *testing.T, dbSession *cdb.Session, ip uui
 		ControllerMachineType:    controllerMachineType,
 		Metadata:                 nil,
 		IsAssigned:               *isassigned,
-		DefaultMacAddress:        cdb.GetStrPtr("00:1B:44:11:3A:B7"),
+		DefaultMacAddress:        sutil.GetPtr("00:1B:44:11:3A:B7"),
 		Status:                   cdbm.MachineStatusReady,
 	}
 	_, err := dbSession.DB.NewInsert().Model(m).Exec(context.Background())
@@ -394,12 +395,12 @@ func testInstanceBuildMachineInterface(t *testing.T, dbSession *cdb.Session, sub
 	mi := &cdbm.MachineInterface{
 		ID:                    uuid.New(),
 		MachineID:             mID,
-		ControllerInterfaceID: cdb.GetUUIDPtr(uuid.New()),
-		ControllerSegmentID:   cdb.GetUUIDPtr(uuid.New()),
-		Hostname:              cdb.GetStrPtr("test.com"),
+		ControllerInterfaceID: sutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   sutil.GetPtr(uuid.New()),
+		Hostname:              sutil.GetPtr("test.com"),
 		IsPrimary:             true,
-		SubnetID:              cdb.GetUUIDPtr(subID),
-		MacAddress:            cdb.GetStrPtr("00:00:00:00:00:00"),
+		SubnetID:              sutil.GetPtr(subID),
+		MacAddress:            sutil.GetPtr("00:00:00:00:00:00"),
 		IPAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 		Created:               cdb.GetCurTime(),
 		Updated:               cdb.GetCurTime(),
@@ -600,7 +601,7 @@ func testUpdateDESActiveVersions(t *testing.T, dbSession *cdb.Session, des *cdbm
 
 func testInstanceBuildIBInterface(t *testing.T, dbSession *cdb.Session, instance *cdbm.Instance, site *cdbm.Site, ibPartition *cdbm.InfiniBandPartition, deviceInstance int, isPhysical bool, vfID *int, status *string, isMissingOnSite bool) *cdbm.InfiniBandInterface {
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady)
+		status = sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady)
 	}
 	ibi := &cdbm.InfiniBandInterface{
 		ID:                    uuid.New(),
@@ -608,7 +609,7 @@ func testInstanceBuildIBInterface(t *testing.T, dbSession *cdb.Session, instance
 		SiteID:                site.ID,
 		InfiniBandPartitionID: ibPartition.ID,
 		Device:                "MT28908 Family [ConnectX-6]",
-		Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+		Vendor:                sutil.GetPtr("Mellanox Technologies"),
 		DeviceInstance:        deviceInstance,
 		IsPhysical:            isPhysical,
 		VirtualFunctionID:     vfID,
@@ -696,20 +697,20 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, al1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	ist1 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-1", st1, cdbm.InstanceStatusReady)
 	assert.NotNil(t, ist1)
 
 	// Add InfiniBand capability to Instance Type
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(3), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, sutil.GetPtr("Mellanox Technologies"), sutil.GetPtr(3), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	// Add Network DPU capability to Instance Type
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, sutil.GetPtr("Mellanox Technologies"), sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 
 	// Add NVLink GPU capability to Instance Type
-	mcNvlType := common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
+	mcNvlType := common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, sutil.GetPtr("NVIDIA"), sutil.GetPtr(4), sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
 	assert.NotNil(t, mcNvlType)
 
 	istnoib := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-noib", st1, cdbm.InstanceStatusReady)
@@ -718,7 +719,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, alnoib)
 	alcnoib := testInstanceSiteBuildAllocationContraints(t, dbSession, alnoib, cdbm.AllocationResourceTypeInstanceType, istnoib.ID, cdbm.AllocationConstraintTypeReserved, 10, ipu)
 	assert.NotNil(t, alcnoib)
-	mcnoib := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcnoib := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcnoib)
 	mcinstnoib := testInstanceBuildMachineInstanceType(t, dbSession, mcnoib, istnoib)
 	assert.NotNil(t, mcinstnoib)
@@ -731,69 +732,69 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, albyid)
 	alcbyid := testInstanceSiteBuildAllocationContraints(t, dbSession, albyid, cdbm.AllocationResourceTypeInstanceType, istbyid.ID, cdbm.AllocationConstraintTypeReserved, 10, ipu)
 	assert.NotNil(t, alcbyid)
-	mcbyid := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcbyid := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcbyid)
 
 	// Add capability to machine
-	common.TestBuildMachineCapability(t, dbSession, &mcbyid.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
+	common.TestBuildMachineCapability(t, dbSession, &mcbyid.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, sutil.GetPtr("NVIDIA"), sutil.GetPtr(4), sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
 
 	mcinstbyid := testInstanceBuildMachineInstanceType(t, dbSession, mcbyid, istbyid)
 	assert.NotNil(t, mcinstbyid)
 
 	// machine not belonging to an instance type
-	mcnoinst := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcnoinst := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcnoinst)
 	// machine not belonging to site 1
-	mcwrongsite := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, cdb.GetBoolPtr(false), nil)
+	mcwrongsite := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcwrongsite)
 	// machine already in-use/assigned
-	mcassigned := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(true), nil)
+	mcassigned := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(true), nil)
 	assert.NotNil(t, mcassigned)
 	// unhealthy machines
-	mcunhealthy := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcunhealthy := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcunhealthy)
 	testUpdateMachineToUnhealthy(t, dbSession, mcunhealthy)
-	mcunhealthy2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcunhealthy2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcunhealthy2)
 	testUpdateMachineToUnhealthy(t, dbSession, mcunhealthy2)
-	mcmissing := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcmissing := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcmissing)
 	testUpdateMachineToMissing(t, dbSession, mcmissing)
 
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 9, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc12 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc12 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc12)
 
-	mc13 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc13 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc13)
 
-	mc14 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc14 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc14)
 
-	mc15 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc15 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc15)
 
-	mc16 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc16 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc16)
 
-	mc17 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc17 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc17)
 
-	mc18 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc18 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc18)
 
-	mc19 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc19 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc19)
 
-	mc20 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc20 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc20)
 
 	mcinst12 := testInstanceBuildMachineInstanceType(t, dbSession, mc12, ist1)
@@ -832,35 +833,35 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	ossa1 := testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, st2.ID, os2.ID)
 	assert.NotNil(t, ossa1)
 
-	osPhoneHome := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-phonehome", tn1, cdbm.OperatingSystemTypeIPXE, true, cdb.GetStrPtr(""), true, cdbm.OperatingSystemStatusReady, tnu1)
+	osPhoneHome := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-phonehome", tn1, cdbm.OperatingSystemTypeIPXE, true, sutil.GetPtr(""), true, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, osPhoneHome)
 
 	// create a default NVLink Logical Partition
-	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpDefault)
 
-	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpNotDefault)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllpDefault.ID), cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), sutil.GetPtr(nvllpDefault.ID), cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc2)
 
-	vpcPending := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpcPending := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpcPending)
 
-	vpcSiteReady := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpcSiteReady := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpcSiteReady)
 
-	vpcSiteNotReady := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, stNotReady, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpcSiteNotReady := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, stNotReady, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpcSiteNotReady)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
-	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc2, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc2, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet2)
 
 	subnetReady := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn1, vpcPending, nil, cdbm.SubnetStatusReady, tnu1)
@@ -888,11 +889,11 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, desd3)
 
 	// Build SSHKeyGroup 1
-	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, sutil.GetPtr("test"), tn1.ID, sutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation 1
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, sutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Tenant 2
@@ -911,13 +912,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	os3 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3", tn2, cdbm.OperatingSystemTypeIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, tnu2)
 	assert.NotNil(t, os3)
 
-	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn2, st2, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu2)
+	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn2, st2, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu2)
 	assert.NotNil(t, vpc3)
 
-	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn2, st2, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu2)
+	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn2, st2, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu2)
 	assert.NotNil(t, vpc4)
 
-	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn2, vpc3, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu2)
+	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn2, vpc3, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu2)
 	assert.NotNil(t, subnet3)
 
 	subnet4 := testInstanceBuildSubnet(t, dbSession, "test-subnet-4", tn2, vpc4, nil, cdbm.SubnetStatusPending, tnu2)
@@ -948,12 +949,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// VPC prefix
 	ipb2 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb2", st2, ip, &tn2.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu2)
 	assert.NotNil(t, ipb2)
-	vpcPrefix2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", st2, tn2, vpc3.ID, &ipb2.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusError, tnu2)
+	vpcPrefix2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", st2, tn2, vpc3.ID, &ipb2.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusError, tnu2)
 
 	// Create 30 test Machines
 	ms2 := []*cdbm.Machine{}
 	for i := 0; i < 30; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, sutil.GetPtr(false), nil)
 		ms2 = append(ms2, mc)
 
 		testInstanceBuildMachineInstanceType(t, dbSession, mc, ist2)
@@ -963,7 +964,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Create 25 test Instances
 	insts2 := []*cdbm.Instance{}
 	for i := 0; i < 25; i++ {
-		inst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("test-instance-%d", i), tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, cdb.GetStrPtr(ms2[i].ID), &os3.ID, nil, cdbm.InstanceStatusReady)
+		inst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("test-instance-%d", i), tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, sutil.GetPtr(ms2[i].ID), &os3.ID, nil, cdbm.InstanceStatusReady)
 		assert.NotNil(t, inst)
 		insts2 = append(insts2, inst)
 	}
@@ -987,16 +988,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	os4 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-4", tn3, cdbm.OperatingSystemTypeIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, tnu3)
 	assert.NotNil(t, os4)
 
-	vpc5 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn3, st3, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu3)
+	vpc5 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn3, st3, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu3)
 	assert.NotNil(t, vpc5)
 
-	vpc6 := testInstanceBuildVPC(t, dbSession, "test-vpc-5", ip, tn3, st3, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu3)
+	vpc6 := testInstanceBuildVPC(t, dbSession, "test-vpc-5", ip, tn3, st3, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu3)
 	assert.NotNil(t, vpc6)
 
-	subnet5 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn3, vpc5, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu3)
+	subnet5 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn3, vpc5, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu3)
 	assert.NotNil(t, subnet5)
 
-	subnet6 := testInstanceBuildSubnet(t, dbSession, "test-subnet-5", tn3, vpc6, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu3)
+	subnet6 := testInstanceBuildSubnet(t, dbSession, "test-subnet-5", tn3, vpc6, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu3)
 	assert.NotNil(t, subnet6)
 
 	inst3 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn3.ID, ip.ID, st3.ID, &ist3.ID, vpc5.ID, nil, &os4.ID, nil, cdbm.InstanceStatusReady)
@@ -1015,15 +1016,15 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	ist5 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-5", st4, cdbm.InstanceStatusReady)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al5, cdbm.AllocationResourceTypeInstanceType, ist5.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
 
-	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st4.ID, cdb.GetBoolPtr(false), nil)
+	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st4.ID, sutil.GetPtr(false), nil)
 	mcinst5 := testInstanceBuildMachineInstanceType(t, dbSession, mc5, ist5)
 
 	assert.NotNil(t, mcinst5)
 
 	os5 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-5", tn5, cdbm.OperatingSystemTypeImage, true, nil, false, cdbm.OperatingSystemStatusReady, tnu5)
 	testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, st4.ID, os5.ID)
-	vpc7 := testInstanceBuildVPC(t, dbSession, "test-vpc-7", ip, tn5, st4, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu5)
-	subnet7 := testInstanceBuildSubnet(t, dbSession, "test-subnet-7", tn5, vpc7, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu5)
+	vpc7 := testInstanceBuildVPC(t, dbSession, "test-vpc-7", ip, tn5, st4, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu5)
+	subnet7 := testInstanceBuildSubnet(t, dbSession, "test-subnet-7", tn5, vpc7, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu5)
 
 	testInstanceBuildMachineInterface(t, dbSession, subnet7.ID, mc5.ID)
 	inst4 := testInstanceBuildInstance(t, dbSession, "test-instance-9001", tn5.ID, ip.ID, st4.ID, &ist5.ID, vpc7.ID, nil, &os5.ID, nil, cdbm.InstanceStatusReady)
@@ -1044,13 +1045,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	al7 := testInstanceSiteBuildAllocation(t, dbSession, st6, tn6, "test-allocation-7", ipu)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al7, cdbm.AllocationResourceTypeInstanceType, ist6.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
 
-	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st6.ID, cdb.GetBoolPtr(false), nil)
+	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st6.ID, sutil.GetPtr(false), nil)
 	mcinst6 := testInstanceBuildMachineInstanceType(t, dbSession, mc6, ist6)
 	assert.NotNil(t, mcinst6)
 
 	os6 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-6", tn6, cdbm.OperatingSystemTypeIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, tnu6)
-	vpc8 := testInstanceBuildVPC(t, dbSession, "test-vpc-8", ip, tn6, st6, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu6)
-	subnet8 := testInstanceBuildSubnet(t, dbSession, "test-subnet-8", tn6, vpc8, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu6)
+	vpc8 := testInstanceBuildVPC(t, dbSession, "test-vpc-8", ip, tn6, st6, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu6)
+	subnet8 := testInstanceBuildSubnet(t, dbSession, "test-subnet-8", tn6, vpc8, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu6)
 	testInstanceBuildMachineInterface(t, dbSession, subnet8.ID, mc6.ID)
 
 	inst6 := testInstanceBuildInstance(t, dbSession, "test-instance-900100", tn6.ID, ip.ID, st6.ID, &ist6.ID, vpc8.ID, nil, &os6.ID, nil, cdbm.InstanceStatusReady)
@@ -1064,24 +1065,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	al10 := testInstanceSiteBuildAllocation(t, dbSession, st7, tn7, "test-allocation-10", ipu)
 	ist10 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-10", st7, cdbm.InstanceStatusReady)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al10, cdbm.AllocationResourceTypeInstanceType, ist10.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
-	mc10 := testInstanceBuildMachine(t, dbSession, ip.ID, st7.ID, cdb.GetBoolPtr(false), nil)
+	mc10 := testInstanceBuildMachine(t, dbSession, ip.ID, st7.ID, sutil.GetPtr(false), nil)
 	mcinst10 := testInstanceBuildMachineInstanceType(t, dbSession, mc10, ist10)
 	assert.NotNil(t, mcinst10)
 	os10 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-10", tn7, cdbm.OperatingSystemTypeIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, tnu7)
-	vpc10 := testInstanceBuildVPC(t, dbSession, "test-vpc-7", ip, tn7, st7, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu7)
-	subnet10 := testInstanceBuildSubnet(t, dbSession, "test-subnet-10", tn7, vpc10, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu7)
+	vpc10 := testInstanceBuildVPC(t, dbSession, "test-vpc-7", ip, tn7, st7, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu7)
+	subnet10 := testInstanceBuildSubnet(t, dbSession, "test-subnet-10", tn7, vpc10, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu7)
 	testInstanceBuildMachineInterface(t, dbSession, subnet10.ID, mc10.ID)
 	// site 7b
 	st7b := testInstanceBuildSite(t, dbSession, ip, "test-site-7b", cdbm.SiteStatusRegistered, false, ipu)
 	al7b := testInstanceSiteBuildAllocation(t, dbSession, st7b, tn7, "test-allocation-7b", ipu)
 	ist7b := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-7b", st7b, cdbm.InstanceStatusReady)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al7b, cdbm.AllocationResourceTypeInstanceType, ist7b.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
-	mc7b := testInstanceBuildMachine(t, dbSession, ip.ID, st7b.ID, cdb.GetBoolPtr(false), nil)
+	mc7b := testInstanceBuildMachine(t, dbSession, ip.ID, st7b.ID, sutil.GetPtr(false), nil)
 	mcinst7b := testInstanceBuildMachineInstanceType(t, dbSession, mc7b, ist7b)
 	assert.NotNil(t, mcinst7b)
 	os7b := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-7b", tn7, cdbm.OperatingSystemTypeIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, tnu7)
-	vpc7b := testInstanceBuildVPC(t, dbSession, "test-vpc-7b", ip, tn7, st7b, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu7)
-	subnet7b := testInstanceBuildSubnet(t, dbSession, "test-subnet-7b", tn7, vpc7b, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu7)
+	vpc7b := testInstanceBuildVPC(t, dbSession, "test-vpc-7b", ip, tn7, st7b, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu7)
+	subnet7b := testInstanceBuildSubnet(t, dbSession, "test-subnet-7b", tn7, vpc7b, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu7)
 	testInstanceBuildMachineInterface(t, dbSession, subnet7b.ID, mc7b.ID)
 
 	// Tenant8
@@ -1098,15 +1099,15 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	al9 := testInstanceSiteBuildAllocation(t, dbSession, st8, tn8, "test-allocation-9", ipu)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al9, cdbm.AllocationResourceTypeInstanceType, ist8.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
 
-	mc8 := testInstanceBuildMachine(t, dbSession, ip.ID, st8.ID, cdb.GetBoolPtr(false), nil)
+	mc8 := testInstanceBuildMachine(t, dbSession, ip.ID, st8.ID, sutil.GetPtr(false), nil)
 	mcinst8 := testInstanceBuildMachineInstanceType(t, dbSession, mc8, ist8)
 	assert.NotNil(t, mcinst8)
 
 	os11 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-11", tn8, cdbm.OperatingSystemTypeImage, true, nil, false, cdbm.OperatingSystemStatusReady, tnu8)
 	ossa2 := testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, st8.ID, os11.ID)
 	assert.NotNil(t, ossa2)
-	vpc11 := testInstanceBuildVPC(t, dbSession, "test-vpc-11", ip, tn8, st8, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu8)
-	subnet11 := testInstanceBuildSubnet(t, dbSession, "test-subnet-11", tn8, vpc11, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu8)
+	vpc11 := testInstanceBuildVPC(t, dbSession, "test-vpc-11", ip, tn8, st8, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu8)
+	subnet11 := testInstanceBuildSubnet(t, dbSession, "test-subnet-11", tn8, vpc11, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu8)
 	testInstanceBuildMachineInterface(t, dbSession, subnet11.ID, mc8.ID)
 
 	// Deactivated OS:
@@ -1115,15 +1116,15 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	testUpdateOSIsActive(t, dbSession, os12)
 	ist9 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-9", st8, cdbm.InstanceStatusReady)
 	testInstanceSiteBuildAllocationContraints(t, dbSession, al8, cdbm.AllocationResourceTypeInstanceType, ist9.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
-	mc9 := testInstanceBuildMachine(t, dbSession, ip.ID, st8.ID, cdb.GetBoolPtr(false), nil)
+	mc9 := testInstanceBuildMachine(t, dbSession, ip.ID, st8.ID, sutil.GetPtr(false), nil)
 	mcinst9 := testInstanceBuildMachineInstanceType(t, dbSession, mc9, ist9)
 	assert.NotNil(t, mcinst9)
 	testInstanceBuildMachineInterface(t, dbSession, subnet11.ID, mc9.ID)
 
 	// FNN VPC
-	vpc9 := testInstanceBuildVPC(t, dbSession, "test-vpc-9", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpc9 := testInstanceBuildVPC(t, dbSession, "test-vpc-9", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc9)
-	vpc9Site2 := testInstanceBuildVPC(t, dbSession, "test-vpc-9-site-2", ip, tn1, st2, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpc9Site2 := testInstanceBuildVPC(t, dbSession, "test-vpc-9-site-2", ip, tn1, st2, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc9Site2)
 
 	// VPC prefix
@@ -1133,17 +1134,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, ipb5)
 	ipbSite2 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-site2", st2, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.170.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 	assert.NotNil(t, ipbSite2)
-	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st1, tn1, vpc9.ID, &ipb1.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-	vpcPrefix3 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-3", st1, tn1, vpc1.ID, &ipb1.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-	vpcPrefix5 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-5", st1, tn1, vpc9.ID, &ipb5.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-	vpcPrefix7 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-7", st1, tn1, vpc9.ID, &ipb5.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpc9Site2.ID, &ipbSite2.ID, cdb.GetStrPtr("192.170.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st1, tn1, vpc9.ID, &ipb1.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix3 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-3", st1, tn1, vpc1.ID, &ipb1.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix5 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-5", st1, tn1, vpc9.ID, &ipb5.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix7 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-7", st1, tn1, vpc9.ID, &ipb5.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpc9Site2.ID, &ipbSite2.ID, sutil.GetPtr("192.170.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
 	// NvLink Logical Partition
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	e := echo.New()
@@ -1252,24 +1253,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   "Test Instance",
-					Description:            cdb.GetStrPtr("Test Instance Description"),
+					Description:            sutil.GetPtr("Test Instance Description"),
 					TenantID:               tn1.ID.String(),
-					NetworkSecurityGroupID: cdb.GetStrPtr(nsgTenant1Site1.ID),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
+					NetworkSecurityGroupID: sutil.GetPtr(nsgTenant1Site1.ID),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
-					IpxeScript:             cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:             sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -1324,23 +1325,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:        "Test Instance provable controller but DB not Ready",
-					Description: cdb.GetStrPtr("Targeted machine: controller Ready prefix, DB status not Ready"),
+					Description: sutil.GetPtr("Targeted machine: controller Ready prefix, DB status not Ready"),
 					TenantID:    tn1.ID.String(),
 					VpcID:       vpc1.ID.String(),
-					UserData:    cdb.GetStrPtr(""),
-					IpxeScript:  cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:    sutil.GetPtr(""),
+					IpxeScript:  sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
-					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 					testInstanceBuildMachineInstanceType(t, dbSession, mc, ist1)
 					testUpdateMachineStatusAndControllerState(t, dbSession, mc, cdbm.MachineStatusError, cdbm.MachineStatusReady)
-					req.MachineID = cdb.GetStrPtr(mc.ID)
+					req.MachineID = sutil.GetPtr(mc.ID)
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -1359,24 +1360,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:        "Test Instance maintenance controller not provisionable",
-					Description: cdb.GetStrPtr("Maintenance status with non-Ready controller state"),
+					Description: sutil.GetPtr("Maintenance status with non-Ready controller state"),
 					TenantID:    tn1.ID.String(),
 					VpcID:       vpc1.ID.String(),
-					UserData:    cdb.GetStrPtr(""),
-					IpxeScript:  cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:    sutil.GetPtr(""),
+					IpxeScript:  sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					AllowUnhealthyMachine: cdb.GetBoolPtr(true),
-					PhoneHomeEnabled:      cdb.GetBoolPtr(false),
+					AllowUnhealthyMachine: sutil.GetPtr(true),
+					PhoneHomeEnabled:      sutil.GetPtr(false),
 				},
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
-					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 					testInstanceBuildMachineInstanceType(t, dbSession, mc, ist1)
 					testUpdateMachineStatusAndControllerState(t, dbSession, mc, cdbm.MachineStatusMaintenance, "Offline")
-					req.MachineID = cdb.GetStrPtr(mc.ID)
+					req.MachineID = sutil.GetPtr(mc.ID)
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -1395,24 +1396,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:        "Test Instance initializing controller not provisionable",
-					Description: cdb.GetStrPtr("Initializing status with non-Ready controller state"),
+					Description: sutil.GetPtr("Initializing status with non-Ready controller state"),
 					TenantID:    tn1.ID.String(),
 					VpcID:       vpc1.ID.String(),
-					UserData:    cdb.GetStrPtr(""),
-					IpxeScript:  cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:    sutil.GetPtr(""),
+					IpxeScript:  sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					AllowUnhealthyMachine: cdb.GetBoolPtr(true),
-					PhoneHomeEnabled:      cdb.GetBoolPtr(false),
+					AllowUnhealthyMachine: sutil.GetPtr(true),
+					PhoneHomeEnabled:      sutil.GetPtr(false),
 				},
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
-					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 					testInstanceBuildMachineInstanceType(t, dbSession, mc, ist1)
 					testUpdateMachineStatusAndControllerState(t, dbSession, mc, cdbm.MachineStatusInitializing, "Offline")
-					req.MachineID = cdb.GetStrPtr(mc.ID)
+					req.MachineID = sutil.GetPtr(mc.ID)
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -1431,24 +1432,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:        "test-instance-error-controller-ready",
-					Description: cdb.GetStrPtr("Error status with Ready controller state"),
+					Description: sutil.GetPtr("Error status with Ready controller state"),
 					TenantID:    tn1.ID.String(),
 					VpcID:       vpc1.ID.String(),
-					UserData:    cdb.GetStrPtr(""),
-					IpxeScript:  cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:    sutil.GetPtr(""),
+					IpxeScript:  sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					AllowUnhealthyMachine: cdb.GetBoolPtr(true),
-					PhoneHomeEnabled:      cdb.GetBoolPtr(false),
+					AllowUnhealthyMachine: sutil.GetPtr(true),
+					PhoneHomeEnabled:      sutil.GetPtr(false),
 				},
 				prepareReq: func(t *testing.T, req *model.APIInstanceCreateRequest) {
-					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+					mc := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 					testInstanceBuildMachineInstanceType(t, dbSession, mc, ist1)
 					testUpdateMachineStatusAndControllerState(t, dbSession, mc, cdbm.MachineStatusError, "Ready")
-					req.MachineID = cdb.GetStrPtr(mc.ID)
+					req.MachineID = sutil.GetPtr(mc.ID)
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -1466,24 +1467,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixInstanceSecondaryVpc",
-					Description:       cdb.GetStrPtr("Test VPC Prefix Instance Description Secondary VPC"),
+					Description:       sutil.GetPtr("Test VPC Prefix Instance Description Secondary VPC"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
 					SecondaryVpcIDs:   []string{vpc1.ID.String()},
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -1507,16 +1508,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixInstanceSecondaryVpcMismatch",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
 					SecondaryVpcIDs:   []string{vpc1.ID.String()},
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -1539,21 +1540,21 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixInstanceUnexpectedVpc",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -1576,15 +1577,15 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixPrimaryInterfaceWrongSite",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -1607,21 +1608,21 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixSecondaryInterfaceWrongSite",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -1643,35 +1644,35 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixInstance",
-					Description:       cdb.GetStrPtr("Test VPC Prefix Instance Description"),
+					Description:       sutil.GetPtr("Test VPC Prefix Instance Description"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 							InlineRoutingProfile: &model.APIInterfaceInlineRoutingProfile{
 								AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
 							},
 						},
 						{
-							VpcPrefixID:       cdb.GetStrPtr(vpcPrefix5.ID.String()),
+							VpcPrefixID:       sutil.GetPtr(vpcPrefix5.ID.String()),
 							IsPhysical:        false,
-							Device:            cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance:    cdb.GetIntPtr(0),
-							VirtualFunctionID: cdb.GetIntPtr(1),
+							Device:            sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance:    sutil.GetPtr(0),
+							VirtualFunctionID: sutil.GetPtr(1),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix7.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix7.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 					Labels: map[string]string{
@@ -1701,23 +1702,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:           "Test Instance Custom iPXE script",
 					TenantID:       tn1.ID.String(),
-					InstanceTypeID: cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID: sutil.GetPtr(ist1.ID.String()),
 					VpcID:          vpc1.ID.String(),
-					UserData:       cdb.GetStrPtr(cdmu.TestCommonCloudInit + "\n#comment-58b81c96-5e6a-11ef-82bb-233657c23006"),
-					IpxeScript:     cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:       sutil.GetPtr(cdmu.TestCommonCloudInit + "\n#comment-58b81c96-5e6a-11ef-82bb-233657c23006"),
+					IpxeScript:     sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(true),
+					PhoneHomeEnabled: sutil.GetPtr(true),
 				},
 				reqMachine:           nil, // We randomize machines.  Any instance type with multiple valid machines can't be tested for a known machine.
 				reqOrg:               tnOrg,
 				reqUser:              tnu1,
 				respCode:             http.StatusCreated,
 				respMessage:          "",
-				respUserDataContains: cdb.GetStrPtr("58b81c96-5e6a-11ef-82bb-233657c23006"),
+				respUserDataContains: sutil.GetPtr("58b81c96-5e6a-11ef-82bb-233657c23006"),
 			},
 			wantErr: false,
 		},
@@ -1732,23 +1733,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:           "Test Instance Custom iPXE script with no phonehome",
 					TenantID:       tn1.ID.String(),
-					InstanceTypeID: cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID: sutil.GetPtr(ist1.ID.String()),
 					VpcID:          vpc1.ID.String(),
-					UserData:       cdb.GetStrPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
-					IpxeScript:     cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:       sutil.GetPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
+					IpxeScript:     sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqMachine:   nil, // We randomize machines.  Any instance type with multiple valid machines can't be tested for a known machine.
 				reqOrg:       tnOrg,
 				reqUser:      tnu1,
 				respCode:     http.StatusCreated,
 				respMessage:  "",
-				respUserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit + "some_key: some_value\n"),
+				respUserData: sutil.GetPtr(cdmu.TestCommonCloudInit + "some_key: some_value\n"),
 			},
 			wantErr: false,
 		},
@@ -1763,24 +1764,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance OS Empty User Data",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(osPhoneHome.ID.String()),
-					UserData:          cdb.GetStrPtr(""),
+					OperatingSystemID: sutil.GetPtr(osPhoneHome.ID.String()),
+					UserData:          sutil.GetPtr(""),
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(true),
+					PhoneHomeEnabled: sutil.GetPtr(true),
 				},
 				reqMachine:           nil, // We randomize machines.  Any instance type with multiple valid machines can't be tested for a known machine.
 				reqOrg:               tnOrg,
 				reqUser:              tnu1,
 				respCode:             http.StatusCreated,
 				respMessage:          "",
-				respUserDataContains: cdb.GetStrPtr(util.SiteCloudConfig),
+				respUserDataContains: sutil.GetPtr(util.SiteCloudConfig),
 			},
 			wantErr: false,
 		},
@@ -1795,24 +1796,24 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance OS Nil User Data",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(osPhoneHome.ID.String()),
+					OperatingSystemID: sutil.GetPtr(osPhoneHome.ID.String()),
 					UserData:          nil,
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(true),
+					PhoneHomeEnabled: sutil.GetPtr(true),
 				},
 				reqMachine:           nil, // We randomize machines.  Any instance type with multiple valid machines can't be tested for a known machine.
 				reqOrg:               tnOrg,
 				reqUser:              tnu1,
 				respCode:             http.StatusCreated,
 				respMessage:          "",
-				respUserDataContains: cdb.GetStrPtr(util.SiteCloudConfig),
+				respUserDataContains: sutil.GetPtr(util.SiteCloudConfig),
 			},
 			wantErr: false,
 		},
@@ -1827,23 +1828,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:           "Test Instance with minimum requirements",
 					TenantID:       tn1.ID.String(),
-					InstanceTypeID: cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID: sutil.GetPtr(ist1.ID.String()),
 					VpcID:          vpc1.ID.String(),
-					UserData:       cdb.GetStrPtr(""),
-					IpxeScript:     cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:       sutil.GetPtr(""),
+					IpxeScript:     sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqMachine:   nil, // We randomize machines.  Any instance type with multiple valid machines can't be tested for a known machine.
 				reqOrg:       tnOrg,
 				reqUser:      tnu1,
 				respCode:     http.StatusCreated,
 				respMessage:  "",
-				respUserData: cdb.GetStrPtr(""),
+				respUserData: sutil.GetPtr(""),
 			},
 			wantErr: false,
 		},
@@ -1858,17 +1859,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:           "Test Instance for failure",
 					TenantID:       tn1.ID.String(),
-					InstanceTypeID: cdb.GetStrPtr(ist1.ID.String()),
-					MachineID:      cdb.GetStrPtr(uuid.New().String()),
+					InstanceTypeID: sutil.GetPtr(ist1.ID.String()),
+					MachineID:      sutil.GetPtr(uuid.New().String()),
 					VpcID:          vpc1.ID.String(),
-					UserData:       cdb.GetStrPtr(""),
-					IpxeScript:     cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:       sutil.GetPtr(""),
+					IpxeScript:     sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -1888,16 +1889,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with machine ID",
 					TenantID:   tn2.ID.String(),
-					MachineID:  cdb.GetStrPtr(uuid.New().String()),
+					MachineID:  sutil.GetPtr(uuid.New().String()),
 					VpcID:      vpc3.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet3.ID.String()),
+							SubnetID: sutil.GetPtr(subnet3.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg2,
 				reqUser:     tnu2,
@@ -1917,13 +1918,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with machine ID",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcbyid.ID),
+					MachineID:  sutil.GetPtr(mcbyid.ID),
 					VpcID:      vpc2.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet2.ID.String()),
+							SubnetID: sutil.GetPtr(subnet2.ID.String()),
 						},
 					},
 					NVLinkInterfaces: []model.APINVLinkInterfaceCreateOrUpdateRequest{
@@ -1944,14 +1945,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 							DeviceInstance:           3,
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqMachine:   mcbyid,
 				reqOrg:       tnOrg,
 				reqUser:      tnu1,
 				respCode:     http.StatusCreated,
 				respMessage:  "",
-				respUserData: cdb.GetStrPtr(""),
+				respUserData: sutil.GetPtr(""),
 			},
 			wantErr: false,
 		},
@@ -1966,23 +1967,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance without machine ID",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcnoinst.ID),
+					MachineID:  sutil.GetPtr(mcnoinst.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqMachine:   mcnoinst,
 				reqOrg:       tnOrg,
 				reqUser:      tnu1,
 				respCode:     http.StatusCreated,
 				respMessage:  "",
-				respUserData: cdb.GetStrPtr(""),
+				respUserData: sutil.GetPtr(""),
 			},
 			wantErr: false,
 		},
@@ -1997,16 +1998,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with machine from wrong site",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcwrongsite.ID),
+					MachineID:  sutil.GetPtr(mcwrongsite.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2026,13 +2027,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with non-existing DPU Extension Service ID for deployment",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcassigned.ID),
+					MachineID:  sutil.GetPtr(mcassigned.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
@@ -2041,7 +2042,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 							Version:               "V1-T1761856992374052",
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2061,13 +2062,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with DPU Extension Service specified for deployment belongs to a different Site",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcassigned.ID),
+					MachineID:  sutil.GetPtr(mcassigned.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
@@ -2076,7 +2077,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 							Version:               "V1-T1761856992374052",
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2096,16 +2097,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with assigned machine",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcassigned.ID),
+					MachineID:  sutil.GetPtr(mcassigned.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2125,16 +2126,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with unhealthy machine",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcunhealthy.ID),
+					MachineID:  sutil.GetPtr(mcunhealthy.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2154,17 +2155,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                  "Test Instance with unhealthy machine and flag true",
 					TenantID:              tn1.ID.String(),
-					MachineID:             cdb.GetStrPtr(mcunhealthy2.ID),
-					AllowUnhealthyMachine: cdb.GetBoolPtr(true),
+					MachineID:             sutil.GetPtr(mcunhealthy2.ID),
+					AllowUnhealthyMachine: sutil.GetPtr(true),
 					VpcID:                 vpc1.ID.String(),
-					UserData:              cdb.GetStrPtr(""),
-					IpxeScript:            cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:              sutil.GetPtr(""),
+					IpxeScript:            sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2184,16 +2185,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:       "Test Instance with missing machine",
 					TenantID:   tn1.ID.String(),
-					MachineID:  cdb.GetStrPtr(mcmissing.ID),
+					MachineID:  sutil.GetPtr(mcmissing.ID),
 					VpcID:      vpc1.ID.String(),
-					UserData:   cdb.GetStrPtr(""),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(""),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
@@ -2213,13 +2214,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "test-instance-more-allocation",
 					TenantID:          tn6.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist6.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist6.ID.String()),
 					VpcID:             vpc8.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os6.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os6.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet8.ID.String()),
+							SubnetID: sutil.GetPtr(subnet8.ID.String()),
 						},
 					},
 				},
@@ -2242,17 +2243,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance Custom iPXE script 01",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
-					OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
+					OperatingSystemID: sutil.GetPtr(uuid.NewString()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(true),
+					PhoneHomeEnabled: sutil.GetPtr(true),
 				},
 				reqMachine:  mc14,
 				reqOrg:      tnOrg,
@@ -2273,17 +2274,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance Custom iPXE script 02",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
-					OperatingSystemID: cdb.GetStrPtr("not a real UUID"),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
+					OperatingSystemID: sutil.GetPtr("not a real UUID"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(true),
+					PhoneHomeEnabled: sutil.GetPtr(true),
 				},
 				reqMachine:  mc15,
 				reqOrg:      tnOrg,
@@ -2304,17 +2305,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance Site Mismatch",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
 					UserData:          nil,
 					IpxeScript:        nil,
-					OperatingSystemID: cdb.GetStrPtr(os2.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os2.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqMachine:  mc15,
 				reqOrg:      tnOrg,
@@ -2334,16 +2335,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
-					Description:       cdb.GetStrPtr("Test Instance Description"),
+					Description:       sutil.GetPtr("Test Instance Description"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
@@ -2351,7 +2352,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -2385,16 +2386,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance no-IB",
-					Description:       cdb.GetStrPtr("Test Instance Description"),
+					Description:       sutil.GetPtr("Test Instance Description"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(istnoib.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(istnoib.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
@@ -2402,7 +2403,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -2427,13 +2428,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance iPXE script",
 					TenantID:          tn5.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist5.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist5.ID.String()),
 					VpcID:             vpc7.ID.String(),
 					OperatingSystemID: nil,
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet7.ID.String()),
+							SubnetID: sutil.GetPtr(subnet7.ID.String()),
 						},
 					},
 				},
@@ -2456,14 +2457,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance os image type",
 					TenantID:          tn8.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist8.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist8.ID.String()),
 					VpcID:             vpc11.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os11.ID.String()),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					OperatingSystemID: sutil.GetPtr(os11.ID.String()),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet11.ID.String()),
+							SubnetID: sutil.GetPtr(subnet11.ID.String()),
 						},
 					},
 				},
@@ -2486,14 +2487,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance deactivated os image type",
 					TenantID:          tn8.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist9.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist9.ID.String()),
 					VpcID:             vpc11.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os12.ID.String()),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					OperatingSystemID: sutil.GetPtr(os12.ID.String()),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet11.ID.String()),
+							SubnetID: sutil.GetPtr(subnet11.ID.String()),
 						},
 					},
 				},
@@ -2516,13 +2517,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -2545,9 +2546,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance 2",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 				},
 				reqMachine:  mc1,
@@ -2568,13 +2569,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpcSiteNotReady.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnetSiteNotReady.ID.String()),
+							SubnetID: sutil.GetPtr(subnetSiteNotReady.ID.String()),
 						},
 					},
 				},
@@ -2597,13 +2598,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpcPending.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnetReady.ID.String()),
+							SubnetID: sutil.GetPtr(subnetReady.ID.String()),
 						},
 					},
 				},
@@ -2625,16 +2626,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixInstance",
-					Description:       cdb.GetStrPtr("Test VPC Prefix Instance Description"),
+					Description:       sutil.GetPtr("Test VPC Prefix Instance Description"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID: sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:  true,
 						},
 					},
@@ -2661,13 +2662,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpcSiteReady.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnetPending.ID.String()),
+							SubnetID: sutil.GetPtr(subnetPending.ID.String()),
 						},
 					},
 				},
@@ -2690,16 +2691,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixPrimaryInterfaceMustMatchVpc",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
 					SecondaryVpcIDs:   []string{vpc1.ID.String()},
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -2722,13 +2723,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVpcPrefixPrimaryInterfaceMustMatchVpcNoDeviceInfo",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
 					SecondaryVpcIDs:   []string{vpc1.ID.String()},
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID: sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:  true,
 						},
 					},
@@ -2752,13 +2753,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "TestVPCPrefix2Instance",
 					TenantID:          tn2.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist2.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist2.ID.String()),
 					VpcID:             vpc3.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefix2.ID.String()),
+							VpcPrefixID: sutil.GetPtr(vpcPrefix2.ID.String()),
 							IsPhysical:  true,
 						},
 					},
@@ -2782,17 +2783,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance 01",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID:   cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID:   sutil.GetPtr(subnet1.ID.String()),
 							IsPhysical: true,
 						},
 						{
-							SubnetID:   cdb.GetStrPtr(subnet2.ID.String()),
+							SubnetID:   sutil.GetPtr(subnet2.ID.String()),
 							IsPhysical: true,
 						},
 					},
@@ -2816,13 +2817,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance 02",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os3.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os3.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -2845,13 +2846,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance UserData",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -2874,13 +2875,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                     "Test Instance custom iPXE",
 					TenantID:                 tn5.ID.String(),
-					InstanceTypeID:           cdb.GetStrPtr(ist5.ID.String()),
+					InstanceTypeID:           sutil.GetPtr(ist5.ID.String()),
 					VpcID:                    vpc7.ID.String(),
-					OperatingSystemID:        cdb.GetStrPtr(os5.ID.String()),
-					AlwaysBootWithCustomIpxe: cdb.GetBoolPtr(true),
+					OperatingSystemID:        sutil.GetPtr(os5.ID.String()),
+					AlwaysBootWithCustomIpxe: sutil.GetPtr(true),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet7.ID.String()),
+							SubnetID: sutil.GetPtr(subnet7.ID.String()),
 						},
 					},
 				},
@@ -2903,13 +2904,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance custom iPXE",
 					TenantID:          tn5.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist5.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist5.ID.String()),
 					VpcID:             vpc7.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os5.ID.String()),
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					OperatingSystemID: sutil.GetPtr(os5.ID.String()),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet7.ID.String()),
+							SubnetID: sutil.GetPtr(subnet7.ID.String()),
 						},
 					},
 				},
@@ -2932,13 +2933,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "test-instance-26",
 					TenantID:          tn2.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist2.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist2.ID.String()),
 					VpcID:             vpc3.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os3.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os3.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet3.ID.String()),
+							SubnetID: sutil.GetPtr(subnet3.ID.String()),
 						},
 					},
 				},
@@ -2962,13 +2963,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -2991,13 +2992,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance with no name conflict",
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(uuid.New().String()),
+					InstanceTypeID:    sutil.GetPtr(uuid.New().String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -3020,14 +3021,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   uuid.NewString(),
 					TenantID:               tn1.ID.String(),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
-					NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
+					NetworkSecurityGroupID: sutil.GetPtr(uuid.NewString()),
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -3050,14 +3051,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   uuid.NewString(),
 					TenantID:               tn1.ID.String(),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
 					NetworkSecurityGroupID: &nsgTenant1Site2.ID,
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -3080,14 +3081,14 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   uuid.NewString(),
 					TenantID:               tn1.ID.String(),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
 					NetworkSecurityGroupID: &nsgTenant2Site1.ID,
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 				},
@@ -3110,7 +3111,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:           "Test Instance",
 					TenantID:       "not-a-valid-uuid",
-					InstanceTypeID: cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID: sutil.GetPtr(ist1.ID.String()),
 					VpcID:          vpc1.ID.String(),
 				},
 				reqOrg:      tnOrg,
@@ -3131,13 +3132,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn3.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist3.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist3.ID.String()),
 					VpcID:             vpc5.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os4.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os4.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet5.ID.String()),
+							SubnetID: sutil.GetPtr(subnet5.ID.String()),
 						},
 					},
 				},
@@ -3160,13 +3161,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
 					TenantID:          tn3.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist3.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist3.ID.String()),
 					VpcID:             vpc5.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os4.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os4.ID.String()),
 					UserData:          nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet6.ID.String()),
+							SubnetID: sutil.GetPtr(subnet6.ID.String()),
 						},
 					},
 				},
@@ -3188,16 +3189,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
-					Description:       cdb.GetStrPtr("Test Instance Description"),
+					Description:       sutil.GetPtr("Test Instance Description"),
 					TenantID:          tn7.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist10.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist10.ID.String()),
 					VpcID:             vpc10.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os10.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os10.ID.String()),
 					UserData:          nil,
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet10.ID.String()),
+							SubnetID: sutil.GetPtr(subnet10.ID.String()),
 						},
 					},
 					Labels: map[string]string{
@@ -3223,16 +3224,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance",
-					Description:       cdb.GetStrPtr("Test Instance Description"),
+					Description:       sutil.GetPtr("Test Instance Description"),
 					TenantID:          tn7.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist7b.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist7b.ID.String()),
 					VpcID:             vpc7b.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os7b.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os7b.ID.String()),
 					UserData:          nil,
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet7b.ID.String()),
+							SubnetID: sutil.GetPtr(subnet7b.ID.String()),
 						},
 					},
 					Labels: map[string]string{
@@ -3258,17 +3259,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   "Test Instance infiniband",
-					Description:            cdb.GetStrPtr("Test Instance Description"),
+					Description:            sutil.GetPtr("Test Instance Description"),
 					TenantID:               tn1.ID.String(),
-					NetworkSecurityGroupID: cdb.GetStrPtr(nsgTenant1Site1.ID),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
+					NetworkSecurityGroupID: sutil.GetPtr(nsgTenant1Site1.ID),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
-					IpxeScript:             cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:             sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
@@ -3276,7 +3277,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            false,
 						},
@@ -3304,17 +3305,17 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:                   "Test Instance infiniband device",
-					Description:            cdb.GetStrPtr("Test Instance Description"),
+					Description:            sutil.GetPtr("Test Instance Description"),
 					TenantID:               tn1.ID.String(),
-					NetworkSecurityGroupID: cdb.GetStrPtr(nsgTenant1Site1.ID),
-					InstanceTypeID:         cdb.GetStrPtr(ist1.ID.String()),
+					NetworkSecurityGroupID: sutil.GetPtr(nsgTenant1Site1.ID),
+					InstanceTypeID:         sutil.GetPtr(ist1.ID.String()),
 					VpcID:                  vpc1.ID.String(),
-					OperatingSystemID:      cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID:      sutil.GetPtr(os1.ID.String()),
 					UserData:               nil,
-					IpxeScript:             cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript:             sutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							SubnetID: cdb.GetStrPtr(subnet1.ID.String()),
+							SubnetID: sutil.GetPtr(subnet1.ID.String()),
 						},
 					},
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
@@ -3322,7 +3323,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        4,
 							IsPhysical:            true,
 						},
@@ -3350,25 +3351,25 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Instance duplicate device and instance",
-					Description:       cdb.GetStrPtr("Test Instance duplicate device and instance Description"),
+					Description:       sutil.GetPtr("Test Instance duplicate device and instance Description"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc9.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
 					UserData:          nil,
 					IpxeScript:        nil,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix5.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix5.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 					Labels: map[string]string{
@@ -3399,12 +3400,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
 					Name:              "Test Auto on ETV VPC",
-					Description:       cdb.GetStrPtr("auto=true must be rejected outside Flat VPCs"),
+					Description:       sutil.GetPtr("auto=true must be rejected outside Flat VPCs"),
 					TenantID:          tn1.ID.String(),
-					InstanceTypeID:    cdb.GetStrPtr(ist1.ID.String()),
+					InstanceTypeID:    sutil.GetPtr(ist1.ID.String()),
 					VpcID:             vpc1.ID.String(),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
+					OperatingSystemID: sutil.GetPtr(os1.ID.String()),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
 					AutoNetwork:       true,
 					Interfaces:        []model.APIInterfaceCreateOrUpdateRequest{},
 				},
@@ -3472,7 +3473,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			assert.Equal(t, rst.Description, tt.args.reqData.Description)
 			assert.Equal(t, rst.Status, cdbm.InstanceStatusPending)
 			if tt.args.reqMachine != nil {
-				assert.Equal(t, rst.MachineID, cdb.GetStrPtr(tt.args.reqMachine.ID))
+				assert.Equal(t, rst.MachineID, sutil.GetPtr(tt.args.reqMachine.ID))
 			}
 			assert.Equal(t, len(rst.StatusHistory), 1)
 			if len(tt.args.reqData.Interfaces) > 0 {
@@ -3647,7 +3648,7 @@ func resetInstanceStatus(t *testing.T, dbSession *cdb.Session, instanceID uuid.U
 	instanceDAO := cdbm.NewInstanceDAO(dbSession)
 	_, err := instanceDAO.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
 		InstanceID:                instanceID,
-		InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{Status: cdb.GetStrPtr(status)},
+		InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{Status: sutil.GetPtr(status)},
 	})
 	if err != nil {
 		t.Fatalf("error updating instance status: %v", err)
@@ -3704,16 +3705,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	alc2 := testInstanceSiteBuildAllocationContraints(t, dbSession, al2, cdbm.AllocationResourceTypeInstanceType, ist2.ID, cdbm.AllocationConstraintTypeReserved, 6, ipu)
 	assert.NotNil(t, alc2)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 
-	mc3 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, cdb.GetBoolPtr(false), nil)
+	mc3 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc3)
 
-	mc4 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, cdb.GetBoolPtr(false), nil)
+	mc4 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc4)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -3726,52 +3727,52 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, mcinst4)
 
 	// Build SSHKeyGroup 1
-	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg1, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("12345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg1, sutil.GetPtr("test"), tn1.ID, sutil.GetPtr("12345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation 1
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cdb.GetStrPtr("1122"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, sutil.GetPtr("1122"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSHKeyGroup 2
-	skg2 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg1, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("123457"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg2 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg1, sutil.GetPtr("test"), tn1.ID, sutil.GetPtr("123457"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg2)
 
 	// Build SSHKeyGroupSiteAssociation 2
-	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st1.ID, cdb.GetStrPtr("3344"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st1.ID, sutil.GetPtr("3344"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa2)
 
 	// Build SSHKeyGroup 3
-	skg3 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg1, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("123458"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg3 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg1, sutil.GetPtr("test"), tn1.ID, sutil.GetPtr("123458"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg3)
 
 	// Build SSHKeyGroupSiteAssociation 3
-	skgsa3 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st2.ID, cdb.GetStrPtr("5566"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa3 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st2.ID, sutil.GetPtr("5566"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa3)
 
-	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, cdb.GetStrPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
+	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, sutil.GetPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
 	// IPXE type with user-data override allowed.
-	os2 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-2", tn1, cdbm.OperatingSystemTypeIPXE, true, cdb.GetStrPtr(cdmu.TestCommonCloudInit), true, cdbm.OperatingSystemStatusReady, tnu1)
+	os2 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-2", tn1, cdbm.OperatingSystemTypeIPXE, true, sutil.GetPtr(cdmu.TestCommonCloudInit), true, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os2)
 
 	// IPXE type with user-data override NOT allowed.
-	os3 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3", tn1, cdbm.OperatingSystemTypeIPXE, false, cdb.GetStrPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
+	os3 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3", tn1, cdbm.OperatingSystemTypeIPXE, false, sutil.GetPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os3)
 
 	// IPXE type with user-data override allowed and empty user-data
-	osPhoneHome := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-phonehome", tn1, cdbm.OperatingSystemTypeIPXE, true, cdb.GetStrPtr(""), true, cdbm.OperatingSystemStatusReady, tnu1)
+	osPhoneHome := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-phonehome", tn1, cdbm.OperatingSystemTypeIPXE, true, sutil.GetPtr(""), true, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, osPhoneHome)
 
 	// Same as os3 but deactivated:
-	os3off := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3-deactivated", tn1, cdbm.OperatingSystemTypeIPXE, false, cdb.GetStrPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
+	os3off := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3-deactivated", tn1, cdbm.OperatingSystemTypeIPXE, false, sutil.GetPtr(cdmu.TestCommonCloudInit), false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os3off)
 	os3off.IsActive = false
 	testUpdateOSIsActive(t, dbSession, os3off)
 
 	// IPXE type with user-data override allowed.
-	os4 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-4", tn2, cdbm.OperatingSystemTypeIPXE, true, cdb.GetStrPtr(cdmu.TestCommonCloudInit), true, cdbm.OperatingSystemStatusReady, tnu2)
+	os4 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-4", tn2, cdbm.OperatingSystemTypeIPXE, true, sutil.GetPtr(cdmu.TestCommonCloudInit), true, cdbm.OperatingSystemStatusReady, tnu2)
 	assert.NotNil(t, os4)
 
 	// OS Image type with user-data override allowed.
@@ -3791,16 +3792,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	ossa2 := testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, st3.ID, os7.ID)
 	assert.NotNil(t, ossa2)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn2, st2, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu2)
+	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn2, st2, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu2)
 	assert.NotNil(t, vpc3)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -3812,42 +3813,42 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
-	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-name-updated", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc2.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-name-updated", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc2.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst2)
 
-	inst3 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusTerminating)
+	inst3 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusTerminating)
 	assert.NotNil(t, inst3)
 
-	instConfiguring := testInstanceBuildInstance(t, dbSession, "test-instance-configuring", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusConfiguring)
+	instConfiguring := testInstanceBuildInstance(t, dbSession, "test-instance-configuring", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusConfiguring)
 	assert.NotNil(t, instConfiguring)
 
 	// Instance with iPXE OS type and user-data allowed
-	inst4 := testInstanceBuildInstance(t, dbSession, "test-instance-4", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst4 := testInstanceBuildInstance(t, dbSession, "test-instance-4", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst4)
 
 	// Instance with iPXE OS type and user-data NOT allowed
-	inst5 := testInstanceBuildInstance(t, dbSession, "test-instance-5", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os3.ID, nil, cdbm.InstanceStatusReady)
+	inst5 := testInstanceBuildInstance(t, dbSession, "test-instance-5", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os3.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst5)
 
-	inst6 := testInstanceBuildInstance(t, dbSession, "test-instance-6", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, cdb.GetStrPtr(mc3.ID), &os4.ID, nil, cdbm.InstanceStatusReady)
+	inst6 := testInstanceBuildInstance(t, dbSession, "test-instance-6", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, sutil.GetPtr(mc3.ID), &os4.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst6)
 
-	inst7 := testInstanceBuildInstance(t, dbSession, "test-instance-7", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, cdb.GetStrPtr(mc3.ID), &os5.ID, nil, cdbm.InstanceStatusReady)
+	inst7 := testInstanceBuildInstance(t, dbSession, "test-instance-7", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc3.ID, sutil.GetPtr(mc3.ID), &os5.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst7)
 
-	inst8 := testInstanceBuildInstance(t, dbSession, "test-instance-8", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst8 := testInstanceBuildInstance(t, dbSession, "test-instance-8", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst8)
 
 	skgia8 := testInstanceBuildSSHKeyGroupInstanceAssociation(t, dbSession, skg1.ID, st1.ID, inst8.ID)
 	assert.NotNil(t, skgia8)
 
-	inst9 := testInstanceBuildInstance(t, dbSession, "test-instance-9", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst9 := testInstanceBuildInstance(t, dbSession, "test-instance-9", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst9)
 
-	inst10 := testInstanceBuildInstance(t, dbSession, "test-instance-10", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst10 := testInstanceBuildInstance(t, dbSession, "test-instance-10", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst10)
 
 	instsub1 := testInstanceBuildInstanceInterface(t, dbSession, inst1.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusReady)
@@ -3858,7 +3859,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	ist4 := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-4", st3, cdbm.InstanceStatusReady)
 	assert.NotNil(t, ist4)
 
-	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cdb.GetBoolPtr(false), nil)
+	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc5)
 
 	mcinst5 := testInstanceBuildMachineInstanceType(t, dbSession, mc5, ist4)
@@ -3873,42 +3874,42 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	alc4 := testInstanceSiteBuildAllocationContraints(t, dbSession, al3, cdbm.AllocationResourceTypeIPBlock, ist4.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
 	assert.NotNil(t, alc4)
 
-	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc4)
 
 	// VPC prefix
 	ipb1 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb2", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu2)
 	assert.NotNil(t, ipb1)
-	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st3, tn1, vpc4.ID, &ipb1.ID, cdb.GetStrPtr("192.168.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st3, tn1, vpc4.ID, &ipb1.ID, sutil.GetPtr("192.168.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefix1)
-	vpc4Site2 := testInstanceBuildVPC(t, dbSession, "test-vpc-4-site-2", ip, tn1, st2, nil, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpc4Site2 := testInstanceBuildVPC(t, dbSession, "test-vpc-4-site-2", ip, tn1, st2, nil, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc4Site2)
 	ipbSite2 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-site2-update", st2, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.173.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 	assert.NotNil(t, ipbSite2)
-	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2-update", st2, tn1, vpc4Site2.ID, &ipbSite2.ID, cdb.GetStrPtr("192.173.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2-update", st2, tn1, vpc4Site2.ID, &ipbSite2.ID, sutil.GetPtr("192.173.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
-	vpc4Site3Secondary := testInstanceBuildVPC(t, dbSession, "test-vpc-4-site-3-secondary", ip, tn1, st3, nil, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpc4Site3Secondary := testInstanceBuildVPC(t, dbSession, "test-vpc-4-site-3-secondary", ip, tn1, st3, nil, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc4Site3Secondary)
 	ipbSite3Secondary := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-site3-secondary-update", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.174.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 	assert.NotNil(t, ipbSite3Secondary)
-	vpcPrefixSite3Secondary := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site3-secondary-update", st3, tn1, vpc4Site3Secondary.ID, &ipbSite3Secondary.ID, cdb.GetStrPtr("192.174.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefixSite3Secondary := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site3-secondary-update", st3, tn1, vpc4Site3Secondary.ID, &ipbSite3Secondary.ID, sutil.GetPtr("192.174.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite3Secondary)
 
 	ipb2 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb2", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.172.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu2)
 	assert.NotNil(t, ipb2)
-	vpcPrefix2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", st3, tn1, vpc4.ID, &ipb2.ID, cdb.GetStrPtr("192.172.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", st3, tn1, vpc4.ID, &ipb2.ID, sutil.GetPtr("192.172.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefix2)
 
 	// Use for updating the instance
 	ipb3 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb3", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.152.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu2)
 	assert.NotNil(t, ipb3)
-	vpcPrefix3 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-3", st3, tn1, vpc4.ID, &ipb3.ID, cdb.GetStrPtr("192.152.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcPrefix3 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-3", st3, tn1, vpc4.ID, &ipb3.ID, sutil.GetPtr("192.152.0.0/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefix3)
 
-	inst11 := testInstanceBuildInstance(t, dbSession, "test-instance-11", tn1.ID, ip.ID, st3.ID, &ist1.ID, vpc4.ID, cdb.GetStrPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst11 := testInstanceBuildInstance(t, dbSession, "test-instance-11", tn1.ID, ip.ID, st3.ID, &ist1.ID, vpc4.ID, sutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst11)
 
-	inst12 := testInstanceBuildInstance(t, dbSession, "test-instance-12", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst12 := testInstanceBuildInstance(t, dbSession, "test-instance-12", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 
 	instifc1 := testInstanceBuildInstanceInterface(t, dbSession, inst12.ID, nil, &vpcPrefix1.ID, nil, cdbm.InterfaceStatusReady)
 	assert.NotNil(t, instifc1)
@@ -3916,23 +3917,23 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	instifc2 := testInstanceBuildInstanceInterface(t, dbSession, inst12.ID, nil, &vpcPrefix2.ID, nil, cdbm.InterfaceStatusReady)
 	assert.NotNil(t, instifc2)
 
-	mc7 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cdb.GetBoolPtr(false), nil)
+	mc7 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc7)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc7, ist4))
-	mc8 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cdb.GetBoolPtr(false), nil)
+	mc8 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc8)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc8, ist4))
-	mc9 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cdb.GetBoolPtr(false), nil)
+	mc9 := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc9)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc9, ist4))
 
 	buildNsgPropagationMultiVpcPair := func(primaryName, secondaryName, primaryPrefixName, secondaryPrefixName, primaryCIDR, secondaryCIDR string) (*cdbm.Vpc, *cdbm.Vpc, *cdbm.VpcPrefix, *cdbm.VpcPrefix) {
-		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st3, nil, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st3, nil, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st3, nil, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st3, nil, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 		primaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, primaryPrefixName+"-ipb", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, primaryCIDR, 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 		secondaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, secondaryPrefixName+"-ipb", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, secondaryCIDR, 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-		primaryPrefix := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st3, tn1, primary.ID, &primaryIPB.ID, cdb.GetStrPtr(primaryCIDR+"/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-		secondaryPrefix := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st3, tn1, secondary.ID, &secondaryIPB.ID, cdb.GetStrPtr(secondaryCIDR+"/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		primaryPrefix := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st3, tn1, primary.ID, &primaryIPB.ID, sutil.GetPtr(primaryCIDR+"/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		secondaryPrefix := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st3, tn1, secondary.ID, &secondaryIPB.ID, sutil.GetPtr(secondaryCIDR+"/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 		return primary, secondary, primaryPrefix, secondaryPrefix
 	}
 
@@ -3940,13 +3941,13 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	vpcPrimaryNone, vpcSecondaryNone, vpcPrefixPrimaryNone, vpcPrefixSecondaryNone := buildNsgPropagationMultiVpcPair("test-update-vpc-primary-none", "test-update-vpc-secondary-none", "test-update-vpcprefix-none-primary", "test-update-vpcprefix-none-secondary", "192.177.0.0", "192.178.0.0")
 	vpcPrimaryPartial, vpcSecondaryPartial, vpcPrefixPrimaryPartial, vpcPrefixSecondaryPartial := buildNsgPropagationMultiVpcPair("test-update-vpc-primary-partial", "test-update-vpc-secondary-partial", "test-update-vpcprefix-partial-primary", "test-update-vpcprefix-partial-secondary", "192.179.0.0", "192.180.0.0")
 
-	instUpdateFull := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-full", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryFull.ID, cdb.GetStrPtr(mc7.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instUpdateFull := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-full", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryFull.ID, sutil.GetPtr(mc7.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instUpdateFull)
-	instUpdateNone := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-none", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryNone.ID, cdb.GetStrPtr(mc8.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instUpdateNone := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-none", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryNone.ID, sutil.GetPtr(mc8.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instUpdateNone)
-	instUpdateRebootFull := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-reboot-full", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryFull.ID, cdb.GetStrPtr(mc7.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instUpdateRebootFull := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-reboot-full", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryFull.ID, sutil.GetPtr(mc7.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instUpdateRebootFull)
-	instUpdatePartial := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-partial", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryPartial.ID, cdb.GetStrPtr(mc9.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instUpdatePartial := testInstanceBuildInstance(t, dbSession, "test-instance-update-vpc-partial", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcPrimaryPartial.ID, sutil.GetPtr(mc9.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instUpdatePartial)
 
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instUpdateFull.ID, nil, &vpcPrefixPrimaryFull.ID, nil, cdbm.InterfaceStatusReady))
@@ -3980,116 +3981,116 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	setVpcProp(vpcSecondaryPartial, []string{instUpdatePartial.ID.String()}, []string{instUpdatePartial.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
 
 	// Add Network DPU capability to Instance Type
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist4.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist4.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, sutil.GetPtr("Mellanox Technologies"), sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 
-	inst13 := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-update", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst13 := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-update", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 
 	// Add NVLink GPU capability to Machine
-	common.TestBuildMachineCapability(t, dbSession, &mc5.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
+	common.TestBuildMachineCapability(t, dbSession, &mc5.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, sutil.GetPtr("NVIDIA"), sutil.GetPtr(4), sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
-	instnvlifc1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
+	instnvlifc1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instnvlifc1)
 
-	instnvlifc2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
+	instnvlifc2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instnvlifc2)
 
-	instnvlifc3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
+	instnvlifc3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instnvlifc3)
 
-	instnvlifc4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
+	instnvlifc4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instnvlifc4)
 
 	// Dedicated instances for four-NVLink → two-NVLink subset updates (avoid mutating inst13 used by later tests).
-	instSubsetFourToTwoA := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-to-two-a", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instSubsetFourToTwoA := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-to-two-a", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instSubsetFourToTwoA)
-	instSubsetANvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetANvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetANvl1)
-	instSubsetANvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetANvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetANvl2)
-	instSubsetANvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetANvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetANvl3)
-	instSubsetANvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetANvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoA.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetANvl4)
 
-	instSubsetFourToTwoB := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-to-two-b", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instSubsetFourToTwoB := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-to-two-b", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instSubsetFourToTwoB)
-	instSubsetBNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetBNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetBNvl1)
-	instSubsetBNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetBNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetBNvl2)
-	instSubsetBNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetBNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetBNvl3)
-	instSubsetBNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
+	instSubsetBNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instSubsetFourToTwoB.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusReady)
 	assert.NotNil(t, instSubsetBNvl4)
 
 	// Instances with four Pending NVLink interfaces — isolate stale vs fresh `updated` timestamp behavior across subtests.
-	inst13PendingStale := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-pending-stale", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst13PendingStale := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-pending-stale", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst13PendingStale)
 
-	inst13psNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusPending)
+	inst13psNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13psNvl1)
-	inst13psNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusPending)
+	inst13psNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13psNvl2)
-	inst13psNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusPending)
+	inst13psNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13psNvl3)
-	inst13psNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusPending)
+	inst13psNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingStale.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13psNvl4)
 
-	inst13PendingFresh := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-pending-fresh", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst13PendingFresh := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-pending-fresh", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst13PendingFresh)
 
-	inst13pfNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusPending)
+	inst13pfNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13pfNvl1)
-	inst13pfNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusPending)
+	inst13pfNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13pfNvl2)
-	inst13pfNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusPending)
+	inst13pfNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13pfNvl3)
-	inst13pfNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusPending)
+	inst13pfNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13PendingFresh.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, inst13pfNvl4)
 
 	// Instance with four Deleting NVLink rows (devices 0–3 across nvllp1/nvllp2); same multiset re-request must re-issue new Pending rows.
-	instFourDeletingNVLink := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-all-deleting", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instFourDeletingNVLink := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-four-all-deleting", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instFourDeletingNVLink)
 
-	inst4DelNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusDeleting)
-	inst4DelNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusDeleting)
-	inst4DelNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusDeleting)
-	inst4DelNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp2.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusDeleting)
+	inst4DelNvl1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusDeleting)
+	inst4DelNvl2 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 1, cdbm.NVLinkInterfaceStatusDeleting)
+	inst4DelNvl3 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 2, cdbm.NVLinkInterfaceStatusDeleting)
+	inst4DelNvl4 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instFourDeletingNVLink.ID, nvllp2.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 3, cdbm.NVLinkInterfaceStatusDeleting)
 	assert.NotNil(t, inst4DelNvl1)
 	assert.NotNil(t, inst4DelNvl2)
 	assert.NotNil(t, inst4DelNvl3)
 	assert.NotNil(t, inst4DelNvl4)
 
 	// Dedicated instances for NVLink Error → re-issue (within grace vs stale Updated).
-	instNvlinkErrorGrace := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-error-grace", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instNvlinkErrorGrace := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-error-grace", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instNvlinkErrorGrace)
-	nvlinkErrGraceIfc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instNvlinkErrorGrace.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusError)
+	nvlinkErrGraceIfc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instNvlinkErrorGrace.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusError)
 	assert.NotNil(t, nvlinkErrGraceIfc)
 
-	instNvlinkErrorStale := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-error-stale", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instNvlinkErrorStale := testInstanceBuildInstance(t, dbSession, "test-instance-nvlink-error-stale", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc5.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instNvlinkErrorStale)
-	nvlinkErrStaleIfc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instNvlinkErrorStale.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusError)
+	nvlinkErrStaleIfc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, instNvlinkErrorStale.ID, nvllp1.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusError)
 	assert.NotNil(t, nvlinkErrStaleIfc)
 
-	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, cdb.GetBoolPtr(false), nil)
+	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st2.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc6)
 
 	mcinst6 := testInstanceBuildMachineInstanceType(t, dbSession, mc6, ist2)
 	assert.NotNil(t, mcinst6)
 
-	inst14 := testInstanceBuildInstance(t, dbSession, "test-instance-14", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc2.ID, cdb.GetStrPtr(mc6.ID), &os4.ID, nil, cdbm.InstanceStatusError)
+	inst14 := testInstanceBuildInstance(t, dbSession, "test-instance-14", tn2.ID, ip.ID, st2.ID, &ist2.ID, vpc2.ID, sutil.GetPtr(mc6.ID), &os4.ID, nil, cdbm.InstanceStatusError)
 	assert.NotNil(t, inst14)
 
 	insDAO := cdbm.NewInstanceDAO(dbSession)
 	_, err := insDAO.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
 		InstanceID:                inst14.ID,
-		InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cdb.GetBoolPtr(true)},
+		InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: sutil.GetPtr(true)},
 	})
 	assert.NoError(t, err)
 
@@ -4120,94 +4121,94 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, nsgTenant2Site1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
-	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibi1)
 
 	// Extra InfiniBand Partitions for updating instance with InfiniBand Interfaces
 
 	// Add InfiniBand capability to Instance Type
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(5), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, sutil.GetPtr("Mellanox Technologies"), sutil.GetPtr(5), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 
-	ibp2 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp2 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp2)
 
-	ibp3 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp3 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp3)
 
-	ibp4 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp4 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp4)
 
-	ibp6 := testBuildIBPartition(t, dbSession, "test-ibp-ibdup-4slot", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp6 := testBuildIBPartition(t, dbSession, "test-ibp-ibdup-4slot", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp6)
 
 	// Extra InfiniBand Partitions for updating instance with InfiniBand Interfaces
-	ibp5 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st2, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp5 := testBuildIBPartition(t, dbSession, "test-ibp-2", tnOrg1, st2, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp5)
 
 	// Instance on st2 under tn1 using ist2 (which has no InfiniBand
 	// MachineCapability), paired with ibp5 (also on st2) so the partition
 	// site check passes and the handler reaches the capability-check
 	// branch.
-	instNoIB := testInstanceBuildInstance(t, dbSession, "test-instance-no-ib", tn1.ID, ip.ID, st2.ID, &ist2.ID, vpc4Site2.ID, cdb.GetStrPtr(mc3.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instNoIB := testInstanceBuildInstance(t, dbSession, "test-instance-no-ib", tn1.ID, ip.ID, st2.ID, &ist2.ID, vpc4Site2.ID, sutil.GetPtr(mc3.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instNoIB)
 
 	// Instance with four READY InfiniBand interfaces — distinct (partition ID, device, device instance) per row;
 	// used for READY multi-interface no-op tests without sharing state with IB replace tests on inst1.
-	mcIbDup := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcIbDup := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcIbDup)
 
-	instIbReadyDup := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ready-four", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mcIbDup.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instIbReadyDup := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ready-four", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mcIbDup.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instIbReadyDup)
 
-	ibiIbDup0 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp2, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibiIbDup0 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp2, 0, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibiIbDup0)
 
-	ibiIbDup1 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp3, 1, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibiIbDup1 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp3, 1, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibiIbDup1)
 
-	ibiIbDup2 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp4, 2, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibiIbDup2 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp4, 2, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibiIbDup2)
 
-	ibiIbDup3 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp6, 3, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibiIbDup3 := testInstanceBuildIBInterface(t, dbSession, instIbReadyDup, st1, ibp6, 3, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibiIbDup3)
 
 	// Instance with one READY InfiniBand — used only for partition-in-map-key behavior (same device/instance, different partition is not a no-op).
-	mcIbPartitionSwap := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcIbPartitionSwap := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcIbPartitionSwap)
 
-	instIbPartitionSwap := testInstanceBuildInstance(t, dbSession, "test-instance-ib-partition-key", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mcIbPartitionSwap.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instIbPartitionSwap := testInstanceBuildInstance(t, dbSession, "test-instance-ib-partition-key", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mcIbPartitionSwap.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instIbPartitionSwap)
 
-	ibiIbPartitionSwap := testInstanceBuildIBInterface(t, dbSession, instIbPartitionSwap, st1, ibp1, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibiIbPartitionSwap := testInstanceBuildIBInterface(t, dbSession, instIbPartitionSwap, st1, ibp1, 0, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibiIbPartitionSwap)
 
 	// Instances with InfiniBand interface in Error — re-issue paths: Error within InfiniBandInterfaceStatusSyncGraceWindow (explicit branch) vs stale Updated (grace else branch).
-	mcIbIfcErrGrace := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcIbIfcErrGrace := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcIbIfcErrGrace)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mcIbIfcErrGrace, ist1))
-	instIbIfcErrorGrace := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ifc-error-grace", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mcIbIfcErrGrace.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instIbIfcErrorGrace := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ifc-error-grace", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mcIbIfcErrGrace.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instIbIfcErrorGrace)
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instIbIfcErrorGrace.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusReady))
-	ibiIbErrorGrace := testInstanceBuildIBInterface(t, dbSession, instIbIfcErrorGrace, st1, ibp2, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusError), false)
+	ibiIbErrorGrace := testInstanceBuildIBInterface(t, dbSession, instIbIfcErrorGrace, st1, ibp2, 0, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusError), false)
 	assert.NotNil(t, ibiIbErrorGrace)
 
-	mcIbIfcErrStale := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mcIbIfcErrStale := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mcIbIfcErrStale)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mcIbIfcErrStale, ist1))
-	instIbIfcErrorStale := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ifc-error-stale", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mcIbIfcErrStale.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	instIbIfcErrorStale := testInstanceBuildInstance(t, dbSession, "test-instance-ib-ifc-error-stale", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mcIbIfcErrStale.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instIbIfcErrorStale)
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instIbIfcErrorStale.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusReady))
-	ibiIbErrorStale := testInstanceBuildIBInterface(t, dbSession, instIbIfcErrorStale, st1, ibp2, 0, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusError), false)
+	ibiIbErrorStale := testInstanceBuildIBInterface(t, dbSession, instIbIfcErrorStale, st1, ibp2, 0, true, nil, sutil.GetPtr(cdbm.InfiniBandInterfaceStatusError), false)
 	assert.NotNil(t, ibiIbErrorStale)
 
 	// Instance for DPU Extension Service Deployment update
-	mc15 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc15 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc15)
 
-	inst15 := testInstanceBuildInstance(t, dbSession, "test-instance-des-preserve", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc15.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst15 := testInstanceBuildInstance(t, dbSession, "test-instance-des-preserve", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc15.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst15)
 
 	des1 := common.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-1", model.DpuExtensionServiceTypeKubernetesPod, tn1, st1, "1.0.0", cdbm.DpuExtensionServiceStatusReady, tnu1)
@@ -4233,20 +4234,20 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, desd2)
 
 	// Instance to test preservation of existing DPU Extension Service Deployments when omitted from request
-	mc16 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc16 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc16)
 
-	inst16 := testInstanceBuildInstance(t, dbSession, "test-instance-des-update", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc16.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst16 := testInstanceBuildInstance(t, dbSession, "test-instance-des-update", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc16.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst16)
 
 	desd16 := common.TestBuildDpuExtensionServiceDeployment(t, dbSession, des1, inst16.ID, "1.0.0", cdbm.DpuExtensionServiceDeploymentStatusRunning, tnu1)
 	assert.NotNil(t, desd16)
 
 	// Instance to test creation of new DPU Extension Service Deployments when empty array is provided in request
-	mc17 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc17 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc17)
 
-	inst17 := testInstanceBuildInstance(t, dbSession, "test-instance-des-update", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc17.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	inst17 := testInstanceBuildInstance(t, dbSession, "test-instance-des-update", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc17.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst17)
 
 	desd17 := common.TestBuildDpuExtensionServiceDeployment(t, dbSession, des1, inst17.ID, "1.0.0", cdbm.DpuExtensionServiceDeploymentStatusRunning, tnu1)
@@ -4363,8 +4364,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance IB no-op"),
-					Description: cdb.GetStrPtr("Test Instance Description"),
+					Name:        sutil.GetPtr("Test Instance IB no-op"),
+					Description: sutil.GetPtr("Test Instance Description"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"new_key": "new_value",
@@ -4373,7 +4374,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4400,34 +4401,34 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance IB no-op four"),
+					Name:       sutil.GetPtr("Test Instance IB no-op four"),
 					IpxeScript: os2.IpxeScript,
 					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
 						{
 							InfiniBandPartitionID: ibp2.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
 						{
 							InfiniBandPartitionID: ibp3.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        1,
 							IsPhysical:            true,
 						},
 						{
 							InfiniBandPartitionID: ibp4.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        2,
 							IsPhysical:            true,
 						},
 						{
 							InfiniBandPartitionID: ibp6.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        3,
 							IsPhysical:            true,
 						},
@@ -4454,8 +4455,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance IB partition swap same slot"),
-					Description: cdb.GetStrPtr("Test Instance Description"),
+					Name:        sutil.GetPtr("Test Instance IB partition swap same slot"),
+					Description: sutil.GetPtr("Test Instance Description"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"new_key": "new_value",
@@ -4464,7 +4465,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp2.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4491,13 +4492,13 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance IB error re-issue grace"),
+					Name:       sutil.GetPtr("Test Instance IB error re-issue grace"),
 					IpxeScript: os2.IpxeScript,
 					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
 						{
 							InfiniBandPartitionID: ibp2.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4533,13 +4534,13 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance IB error re-issue stale"),
+					Name:       sutil.GetPtr("Test Instance IB error re-issue stale"),
 					IpxeScript: os2.IpxeScript,
 					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
 						{
 							InfiniBandPartitionID: ibp2.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4575,8 +4576,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance"),
-					Description: cdb.GetStrPtr("Test Instance Description"),
+					Name:        sutil.GetPtr("Test Instance"),
+					Description: sutil.GetPtr("Test Instance Description"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"new_key": "new_value",
@@ -4585,14 +4586,14 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp2.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
 						{
 							InfiniBandPartitionID: ibp3.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        1,
 							IsPhysical:            true,
 						},
@@ -4619,8 +4620,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Failure IB"),
-					Description: cdb.GetStrPtr("Test Instance Description"),
+					Name:        sutil.GetPtr("Test Instance Failure IB"),
+					Description: sutil.GetPtr("Test Instance Description"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"new_key": "new_value",
@@ -4629,7 +4630,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp5.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4655,8 +4656,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Failure IB No Cap"),
-					Description: cdb.GetStrPtr("Test Instance Description"),
+					Name:        sutil.GetPtr("Test Instance Failure IB No Cap"),
+					Description: sutil.GetPtr("Test Instance Description"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"new_key": "new_value",
@@ -4665,7 +4666,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						{
 							InfiniBandPartitionID: ibp5.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                sutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -4691,7 +4692,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-configuring"),
+					Name:       sutil.GetPtr("test-instance-configuring"),
 					IpxeScript: os2.IpxeScript,
 				},
 				reqInstance:           instConfiguring.ID.String(),
@@ -4712,7 +4713,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-des-preserve-renamed"),
+					Name:       sutil.GetPtr("test-instance-des-preserve-renamed"),
 					IpxeScript: os2.IpxeScript,
 				},
 				reqInstance:           inst16.ID.String(),
@@ -4736,7 +4737,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:                           cdb.GetStrPtr("test-instance-des-cleared"),
+					Name:                           sutil.GetPtr("test-instance-des-cleared"),
 					IpxeScript:                     os2.IpxeScript,
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{},
 				},
@@ -4761,8 +4762,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("test-instance-des-update"),
-					Description: cdb.GetStrPtr("Test Instance updated description"),
+					Name:        sutil.GetPtr("test-instance-des-update"),
+					Description: sutil.GetPtr("Test Instance updated description"),
 					IpxeScript:  os2.IpxeScript,
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
@@ -4795,7 +4796,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-des-wrong-tenant"),
+					Name:       sutil.GetPtr("test-instance-des-wrong-tenant"),
 					IpxeScript: os2.IpxeScript,
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
@@ -4822,7 +4823,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-des-invalid-version"),
+					Name:       sutil.GetPtr("test-instance-des-invalid-version"),
 					IpxeScript: os2.IpxeScript,
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
@@ -4849,7 +4850,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-des-invalid-id"),
+					Name:       sutil.GetPtr("test-instance-des-invalid-id"),
 					IpxeScript: os2.IpxeScript,
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
@@ -4876,8 +4877,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:           cdb.GetStrPtr("Test Instance"),
-					Description:    cdb.GetStrPtr("Test Instance Description"),
+					Name:           sutil.GetPtr("Test Instance"),
+					Description:    sutil.GetPtr("Test Instance Description"),
 					IpxeScript:     os2.IpxeScript,
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
 				},
@@ -4963,7 +4964,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+					NetworkSecurityGroupID: sutil.GetPtr(uuid.NewString()),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -4984,9 +4985,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:                   cdb.GetStrPtr("Test Instance"),
-					Description:            cdb.GetStrPtr("Test Instance Description"),
-					NetworkSecurityGroupID: cdb.GetStrPtr(""),
+					Name:                   sutil.GetPtr("Test Instance"),
+					Description:            sutil.GetPtr("Test Instance Description"),
+					NetworkSecurityGroupID: sutil.GetPtr(""),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5007,8 +5008,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:           cdb.GetStrPtr("Test Instance 8"),
-					Description:    cdb.GetStrPtr("Test Instance Description"),
+					Name:           sutil.GetPtr("Test Instance 8"),
+					Description:    sutil.GetPtr("Test Instance Description"),
 					IpxeScript:     os2.IpxeScript,
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
 				},
@@ -5032,8 +5033,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:           cdb.GetStrPtr("Test Instance 9"),
-					Description:    cdb.GetStrPtr("Test Instance Description"),
+					Name:           sutil.GetPtr("Test Instance 9"),
+					Description:    sutil.GetPtr("Test Instance Description"),
 					IpxeScript:     os2.IpxeScript,
 					SSHKeyGroupIDs: []string{skg2.ID.String()},
 				},
@@ -5057,8 +5058,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:           cdb.GetStrPtr("Test Instance 10"),
-					Description:    cdb.GetStrPtr("Test Instance Description"),
+					Name:           sutil.GetPtr("Test Instance 10"),
+					Description:    sutil.GetPtr("Test Instance Description"),
 					IpxeScript:     os2.IpxeScript,
 					SSHKeyGroupIDs: []string{},
 				},
@@ -5082,8 +5083,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:           cdb.GetStrPtr("Test Instance"),
-					Description:    cdb.GetStrPtr("Test Instance Description"),
+					Name:           sutil.GetPtr("Test Instance"),
+					Description:    sutil.GetPtr("Test Instance Description"),
 					IpxeScript:     os2.IpxeScript,
 					SSHKeyGroupIDs: []string{skg3.ID.String()},
 				},
@@ -5106,7 +5107,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-name-updated"),
+					Name:       sutil.GetPtr("test-instance-name-updated"),
 					IpxeScript: os2.IpxeScript,
 				},
 				reqInstance:           inst1.ID.String(),
@@ -5127,7 +5128,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name: cdb.GetStrPtr("test-instance-1"),
+					Name: sutil.GetPtr("test-instance-1"),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5147,8 +5148,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot:        cdb.GetBoolPtr(true),
-					RebootWithCustomIpxe: cdb.GetBoolPtr(true),
+					TriggerReboot:        sutil.GetPtr(true),
+					RebootWithCustomIpxe: sutil.GetPtr(true),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5168,15 +5169,15 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
-					UserData:   cdb.GetStrPtr(cdmu.TestCommonCloudInit + "\n#comment-2a69bc94-5e76-11ef-90ac-3f5706c2f872"),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(cdmu.TestCommonCloudInit + "\n#comment-2a69bc94-5e76-11ef-90ac-3f5706c2f872"),
 				},
 				reqInstance:           inst4.ID.String(),
 				cleanInstanceToStatus: inst4.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu1,
 				respCode:              http.StatusOK,
-				respUserDataContains:  cdb.GetStrPtr("2a69bc94-5e76-11ef-90ac-3f5706c2f872"),
+				respUserDataContains:  sutil.GetPtr("2a69bc94-5e76-11ef-90ac-3f5706c2f872"),
 			},
 			wantErr: false,
 		},
@@ -5190,16 +5191,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript:       cdb.GetStrPtr(common.DefaultIpxeScript),
-					UserData:         cdb.GetStrPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
-					PhoneHomeEnabled: cdb.GetBoolPtr(false),
+					IpxeScript:       sutil.GetPtr(common.DefaultIpxeScript),
+					UserData:         sutil.GetPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
+					PhoneHomeEnabled: sutil.GetPtr(false),
 				},
 				reqInstance:           inst4.ID.String(),
 				cleanInstanceToStatus: inst4.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu1,
 				respCode:              http.StatusOK,
-				respUserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit + "some_key: some_value\n"),
+				respUserData:          sutil.GetPtr(cdmu.TestCommonCloudInit + "some_key: some_value\n"),
 			},
 			wantErr: false,
 		},
@@ -5213,7 +5214,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 				},
 				reqInstance:           inst4.ID.String(),
 				cleanInstanceToStatus: inst4.Status,
@@ -5233,7 +5234,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5253,8 +5254,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
-					UserData:   cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(cdmu.TestCommonCloudInit),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5274,9 +5275,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript:        cdb.GetStrPtr(common.DefaultIpxeScript),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit),
-					OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+					IpxeScript:        sutil.GetPtr(common.DefaultIpxeScript),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit),
+					OperatingSystemID: sutil.GetPtr(uuid.NewString()),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5296,7 +5297,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(os3.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os3.ID.String()),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5316,9 +5317,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(osPhoneHome.ID.String()),
+					OperatingSystemID: sutil.GetPtr(osPhoneHome.ID.String()),
 					UserData:          nil,
-					PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+					PhoneHomeEnabled:  sutil.GetPtr(true),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5338,9 +5339,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(osPhoneHome.ID.String()),
-					UserData:          cdb.GetStrPtr(""),
-					PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+					OperatingSystemID: sutil.GetPtr(osPhoneHome.ID.String()),
+					UserData:          sutil.GetPtr(""),
+					PhoneHomeEnabled:  sutil.GetPtr(true),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5360,7 +5361,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(os3off.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os3off.ID.String()),
 				},
 				reqInstance:           inst5.ID.String(),
 				cleanInstanceToStatus: inst5.Status,
@@ -5380,8 +5381,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
-					UserData:   cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
+					UserData:   sutil.GetPtr(cdmu.TestCommonCloudInit),
 				},
 				reqInstance:           inst3.ID.String(),
 				cleanInstanceToStatus: inst3.Status,
@@ -5400,9 +5401,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot:        cdb.GetBoolPtr(true),
-					RebootWithCustomIpxe: cdb.GetBoolPtr(true),
-					ApplyUpdatesOnReboot: cdb.GetBoolPtr(true),
+					TriggerReboot:        sutil.GetPtr(true),
+					RebootWithCustomIpxe: sutil.GetPtr(true),
+					ApplyUpdatesOnReboot: sutil.GetPtr(true),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5421,7 +5422,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot: cdb.GetBoolPtr(true),
+					TriggerReboot: sutil.GetPtr(true),
 				},
 				reqInstance:           inst3.ID.String(),
 				cleanInstanceToStatus: inst3.Status,
@@ -5440,7 +5441,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					RebootWithCustomIpxe: cdb.GetBoolPtr(true),
+					RebootWithCustomIpxe: sutil.GetPtr(true),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5459,7 +5460,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					ApplyUpdatesOnReboot: cdb.GetBoolPtr(true),
+					ApplyUpdatesOnReboot: sutil.GetPtr(true),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5478,8 +5479,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot:        cdb.GetBoolPtr(false),
-					ApplyUpdatesOnReboot: cdb.GetBoolPtr(true),
+					TriggerReboot:        sutil.GetPtr(false),
+					ApplyUpdatesOnReboot: sutil.GetPtr(true),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5498,7 +5499,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name: cdb.GetStrPtr("Test Instance"),
+					Name: sutil.GetPtr("Test Instance"),
 				},
 				reqInstance:           inst1.ID.String(),
 				cleanInstanceToStatus: inst1.Status,
@@ -5518,7 +5519,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name: cdb.GetStrPtr("Test Instance"),
+					Name: sutil.GetPtr("Test Instance"),
 				},
 				reqInstance: "",
 				reqOrg:      tnOrg1,
@@ -5537,8 +5538,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot:        cdb.GetBoolPtr(true),
-					RebootWithCustomIpxe: cdb.GetBoolPtr(true),
+					TriggerReboot:        sutil.GetPtr(true),
+					RebootWithCustomIpxe: sutil.GetPtr(true),
 				},
 				reqInstance:           inst6.ID.String(),
 				cleanInstanceToStatus: inst6.Status,
@@ -5558,8 +5559,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("test-instance-1"),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					Name:       sutil.GetPtr("test-instance-1"),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 				},
 				reqInstance:           inst6.ID.String(),
 				cleanInstanceToStatus: inst6.Status,
@@ -5579,16 +5580,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(os5.ID.String()),
-					UserData:          cdb.GetStrPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
-					PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+					OperatingSystemID: sutil.GetPtr(os5.ID.String()),
+					UserData:          sutil.GetPtr(cdmu.TestCommonCloudInit + cdmu.TestCommonPhoneHomeSegment + "\nsome_key: some_value\n"),
+					PhoneHomeEnabled:  sutil.GetPtr(true),
 				},
 				reqInstance:           inst7.ID.String(),
 				cleanInstanceToStatus: inst7.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu2,
 				respCode:              http.StatusBadRequest,
-				respMessage:           cdb.GetStrPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
+				respMessage:           sutil.GetPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
 			},
 			wantErr: false,
 		},
@@ -5603,14 +5604,14 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
 
-					OperatingSystemID: cdb.GetStrPtr(os7.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os7.ID.String()),
 				},
 				reqInstance:           inst7.ID.String(),
 				cleanInstanceToStatus: inst7.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu2,
 				respCode:              http.StatusBadRequest,
-				respMessage:           cdb.GetStrPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
+				respMessage:           sutil.GetPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
 			},
 			wantErr: false,
 		},
@@ -5624,14 +5625,14 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					OperatingSystemID: cdb.GetStrPtr(os6.ID.String()),
+					OperatingSystemID: sutil.GetPtr(os6.ID.String()),
 				},
 				reqInstance:           inst7.ID.String(),
 				cleanInstanceToStatus: inst7.Status,
 				reqOrg:                tnOrg1,
 				reqUser:               tnu2,
 				respCode:              http.StatusBadRequest,
-				respMessage:           cdb.GetStrPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
+				respMessage:           sutil.GetPtr("Update of Instance with Image based Operating System is not supported. Site must have ImageBasedOperatingSystem capability enabled."),
 			},
 			wantErr: false,
 		},
@@ -5645,18 +5646,18 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Failure"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Failure"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Failure"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Failure"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"instance_update_interface_update": "true",
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -5664,8 +5665,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusBadRequest,
-				respMessage:        cdb.GetStrPtr("Device and Device Instance cannot be specified if Instance Type or Machine doesn't have Network Capability with DPU device type"),
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respMessage:        sutil.GetPtr("Device and Device Instance cannot be specified if Instance Type or Machine doesn't have Network Capability with DPU device type"),
+				respNoOfInterfaces: sutil.GetPtr(1),
 				ethInterfacesToDelete: []cdbm.Interface{
 					*instifc1,
 					*instifc2,
@@ -5685,18 +5686,18 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Success"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Success"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Success"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Success"),
 					IpxeScript:  os2.IpxeScript,
 					Labels: map[string]string{
 						"instance_update_interface_update": "true",
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 							InlineRoutingProfile: &model.APIInterfaceInlineRoutingProfile{
 								AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
 							},
@@ -5707,7 +5708,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusOK,
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respNoOfInterfaces: sutil.GetPtr(1),
 				ethInterfacesToDelete: []cdbm.Interface{
 					*instifc1,
 					*instifc2,
@@ -5727,24 +5728,24 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Success Multi VPC"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Success Multi VPC"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Success Multi VPC"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Success Multi VPC"),
 					IpxeScript:  os2.IpxeScript,
 					SecondaryVpcIDs: []string{
 						vpc4Site3Secondary.ID.String(),
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite3Secondary.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -5752,7 +5753,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusOK,
-				respNoOfInterfaces: cdb.GetIntPtr(2),
+				respNoOfInterfaces: sutil.GetPtr(2),
 				ethInterfacesToDelete: []cdbm.Interface{
 					*instifc1,
 					*instifc2,
@@ -5779,16 +5780,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixPrimaryFull.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixPrimaryFull.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondaryFull.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSecondaryFull.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -5796,11 +5797,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                                tnOrg1,
 				reqUser:                               tnu1,
 				respCode:                              http.StatusOK,
-				respNoOfInterfaces:                    cdb.GetIntPtr(2),
+				respNoOfInterfaces:                    sutil.GetPtr(2),
 				expectedSecondaryVpcIDs:               []string{vpcSecondaryFull.ID.String()},
-				expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
-				expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
-				expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
+				expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
+				expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
+				expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
 			},
 			wantErr: false,
 		},
@@ -5820,16 +5821,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixPrimaryNone.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixPrimaryNone.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondaryNone.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSecondaryNone.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -5837,11 +5838,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                                tnOrg1,
 				reqUser:                               tnu1,
 				respCode:                              http.StatusOK,
-				respNoOfInterfaces:                    cdb.GetIntPtr(2),
+				respNoOfInterfaces:                    sutil.GetPtr(2),
 				expectedSecondaryVpcIDs:               []string{vpcSecondaryNone.ID.String()},
-				expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
-				expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
-				expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
+				expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
+				expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
+				expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
 			},
 			wantErr: false,
 		},
@@ -5861,16 +5862,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixPrimaryPartial.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixPrimaryPartial.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondaryPartial.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSecondaryPartial.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -5878,11 +5879,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                                tnOrg1,
 				reqUser:                               tnu1,
 				respCode:                              http.StatusOK,
-				respNoOfInterfaces:                    cdb.GetIntPtr(2),
+				respNoOfInterfaces:                    sutil.GetPtr(2),
 				expectedSecondaryVpcIDs:               []string{vpcSecondaryPartial.ID.String()},
-				expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
-				expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusPartial),
-				expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
+				expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
+				expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusPartial),
+				expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
 			},
 			wantErr: false,
 		},
@@ -5896,17 +5897,17 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					TriggerReboot:        cdb.GetBoolPtr(true),
-					RebootWithCustomIpxe: cdb.GetBoolPtr(true),
+					TriggerReboot:        sutil.GetPtr(true),
+					RebootWithCustomIpxe: sutil.GetPtr(true),
 				},
 				reqInstance:                           instUpdateRebootFull.ID.String(),
 				cleanInstanceToStatus:                 instUpdateRebootFull.Status,
 				reqOrg:                                tnOrg1,
 				reqUser:                               tnu1,
 				respCode:                              http.StatusOK,
-				expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
-				expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
-				expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
+				expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
+				expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
+				expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
 			},
 			wantErr: false,
 		},
@@ -5920,18 +5921,18 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Secondary VPC Mismatch"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Secondary VPC Mismatch"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Secondary VPC Mismatch"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Secondary VPC Mismatch"),
 					IpxeScript:  os2.IpxeScript,
 					SecondaryVpcIDs: []string{
 						vpc4Site3Secondary.ID.String(),
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -5939,7 +5940,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg1,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: cdb.GetStrPtr("One or more Interfaces in request data specify VPC Prefixes that do not belong to VPCs specified in `vpcId` or `secondaryVpcIds`"),
+				respMessage: sutil.GetPtr("One or more Interfaces in request data specify VPC Prefixes that do not belong to VPCs specified in `vpcId` or `secondaryVpcIds`"),
 			},
 			wantErr: false,
 		},
@@ -5953,21 +5954,21 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Unexpected VPC"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Unexpected VPC"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Unexpected VPC"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Unexpected VPC"),
 					IpxeScript:  os2.IpxeScript,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite3Secondary.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -5975,7 +5976,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg1,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: cdb.GetStrPtr(fmt.Sprintf("One or more Interfaces specify VPC Prefix: %s belonging to VPC: %s which is not specified in 'vpcId' or 'secondaryVpcIds'", vpcPrefixSite3Secondary.ID.String(), vpc4Site3Secondary.ID.String())),
+				respMessage: sutil.GetPtr(fmt.Sprintf("One or more Interfaces specify VPC Prefix: %s belonging to VPC: %s which is not specified in 'vpcId' or 'secondaryVpcIds'", vpcPrefixSite3Secondary.ID.String(), vpc4Site3Secondary.ID.String())),
 			},
 			wantErr: false,
 		},
@@ -5989,18 +5990,18 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Primary Must Match VPC"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Primary Must Match VPC"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Primary Must Match VPC"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Primary Must Match VPC"),
 					IpxeScript:  os2.IpxeScript,
 					SecondaryVpcIDs: []string{
 						vpc4Site3Secondary.ID.String(),
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite3Secondary.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -6008,8 +6009,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusBadRequest,
-				respMessage:        cdb.GetStrPtr("The physical Interface for deviceInstance: 0 must use a VPC Prefix that belongs to VPC specified in `vpcId`"),
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respMessage:        sutil.GetPtr("The physical Interface for deviceInstance: 0 must use a VPC Prefix that belongs to VPC specified in `vpcId`"),
+				respNoOfInterfaces: sutil.GetPtr(1),
 			},
 			wantErr: false,
 		},
@@ -6023,15 +6024,15 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Update Primary Must Match VPC No Device Info"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Update Primary Must Match VPC No Device Info"),
+					Name:        sutil.GetPtr("Test Instance Interface Update Primary Must Match VPC No Device Info"),
+					Description: sutil.GetPtr("Test Instance Description Interface Update Primary Must Match VPC No Device Info"),
 					IpxeScript:  os2.IpxeScript,
 					SecondaryVpcIDs: []string{
 						vpc4Site3Secondary.ID.String(),
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefixSite3Secondary.ID.String()),
+							VpcPrefixID: sutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
 							IsPhysical:  true,
 						},
 					},
@@ -6040,8 +6041,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusBadRequest,
-				respMessage:        cdb.GetStrPtr("The physical Interface must use a VPC Prefix that belongs to VPC specified in `vpcId`"),
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respMessage:        sutil.GetPtr("The physical Interface must use a VPC Prefix that belongs to VPC specified in `vpcId`"),
+				respNoOfInterfaces: sutil.GetPtr(1),
 			},
 			wantErr: false,
 		},
@@ -6055,15 +6056,15 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Wrong Site Primary"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Wrong Site Primary"),
+					Name:        sutil.GetPtr("Test Instance Interface Wrong Site Primary"),
+					Description: sutil.GetPtr("Test Instance Description Interface Wrong Site Primary"),
 					IpxeScript:  os2.IpxeScript,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 					},
 				},
@@ -6071,8 +6072,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusBadRequest,
-				respMessage:        cdb.GetStrPtr(fmt.Sprintf("VPC Prefix: %v specified in request does not belong to Site", vpcPrefixSite2.ID.String())),
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respMessage:        sutil.GetPtr(fmt.Sprintf("VPC Prefix: %v specified in request does not belong to Site", vpcPrefixSite2.ID.String())),
+				respNoOfInterfaces: sutil.GetPtr(1),
 			},
 			wantErr: false,
 		},
@@ -6086,21 +6087,21 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:        cdb.GetStrPtr("Test Instance Interface Wrong Site Secondary"),
-					Description: cdb.GetStrPtr("Test Instance Description Interface Wrong Site Secondary"),
+					Name:        sutil.GetPtr("Test Instance Interface Wrong Site Secondary"),
+					Description: sutil.GetPtr("Test Instance Description Interface Wrong Site Secondary"),
 					IpxeScript:  os2.IpxeScript,
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix3.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    sutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         sutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: sutil.GetPtr(1),
 						},
 					},
 				},
@@ -6108,8 +6109,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:             tnOrg1,
 				reqUser:            tnu1,
 				respCode:           http.StatusBadRequest,
-				respMessage:        cdb.GetStrPtr(fmt.Sprintf("VPC Prefix: %v specified in request does not belong to Site", vpcPrefixSite2.ID.String())),
-				respNoOfInterfaces: cdb.GetIntPtr(1),
+				respMessage:        sutil.GetPtr(fmt.Sprintf("VPC Prefix: %v specified in request does not belong to Site", vpcPrefixSite2.ID.String())),
+				respNoOfInterfaces: sutil.GetPtr(1),
 			},
 			wantErr: false,
 		},
@@ -6227,7 +6228,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance NVLink error re-issue grace"),
+					Name:       sutil.GetPtr("Test Instance NVLink error re-issue grace"),
 					IpxeScript: os2.IpxeScript,
 					NVLinkInterfaces: []model.APINVLinkInterfaceCreateOrUpdateRequest{
 						{NVLinkLogicalPartitionID: nvllp1.ID.String(), DeviceInstance: 0},
@@ -6237,7 +6238,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                   tnOrg1,
 				reqUser:                  tnu1,
 				respCode:                 http.StatusOK,
-				respNoOfNVLinkInterfaces: cdb.GetIntPtr(1),
+				respNoOfNVLinkInterfaces: sutil.GetPtr(1),
 				nvlinkInterfacesToDelete: []cdbm.NVLinkInterface{*nvlinkErrGraceIfc},
 				beforeHandle: func(t *testing.T) {
 					recent := time.Now().UTC().Add(-45 * time.Second)
@@ -6263,7 +6264,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance NVLink error re-issue stale"),
+					Name:       sutil.GetPtr("Test Instance NVLink error re-issue stale"),
 					IpxeScript: os2.IpxeScript,
 					NVLinkInterfaces: []model.APINVLinkInterfaceCreateOrUpdateRequest{
 						{NVLinkLogicalPartitionID: nvllp1.ID.String(), DeviceInstance: 0},
@@ -6273,7 +6274,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                   tnOrg1,
 				reqUser:                  tnu1,
 				respCode:                 http.StatusOK,
-				respNoOfNVLinkInterfaces: cdb.GetIntPtr(1),
+				respNoOfNVLinkInterfaces: sutil.GetPtr(1),
 				nvlinkInterfacesToDelete: []cdbm.NVLinkInterface{*nvlinkErrStaleIfc},
 				beforeHandle: func(t *testing.T) {
 					stale := time.Now().UTC().Add(-2 * time.Minute)
@@ -6313,9 +6314,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                         tnOrg1,
 				reqUser:                        tnu1,
 				respCode:                       http.StatusOK,
-				respNoOfNVLinkInterfaces:       cdb.GetIntPtr(4),
+				respNoOfNVLinkInterfaces:       sutil.GetPtr(4),
 				nvLinkSkipPendingDBAssertions:  true,
-				expectSiteNVLinkGpuConfigCount: cdb.GetIntPtr(0),
+				expectSiteNVLinkGpuConfigCount: sutil.GetPtr(0),
 				nvlinkInterfacesToDelete: []cdbm.NVLinkInterface{
 					*inst4DelNvl1, *inst4DelNvl2, *inst4DelNvl3, *inst4DelNvl4,
 				},
@@ -6360,8 +6361,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                          tnOrg1,
 				reqUser:                         tnu1,
 				respCode:                        http.StatusOK,
-				respNoOfNVLinkInterfaces:        cdb.GetIntPtr(2),
-				expectSiteNVLinkGpuConfigCount:  cdb.GetIntPtr(4),
+				respNoOfNVLinkInterfaces:        sutil.GetPtr(2),
+				expectSiteNVLinkGpuConfigCount:  sutil.GetPtr(4),
 				nvLinkGpuConfigsVerifyCountOnly: true,
 			},
 			wantErr:                     false,
@@ -6395,8 +6396,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                          tnOrg1,
 				reqUser:                         tnu1,
 				respCode:                        http.StatusOK,
-				respNoOfNVLinkInterfaces:        cdb.GetIntPtr(2),
-				expectSiteNVLinkGpuConfigCount:  cdb.GetIntPtr(4),
+				respNoOfNVLinkInterfaces:        sutil.GetPtr(2),
+				expectSiteNVLinkGpuConfigCount:  sutil.GetPtr(4),
 				nvLinkGpuConfigsVerifyCountOnly: true,
 			},
 			wantErr:                     false,
@@ -6437,7 +6438,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                   tnOrg1,
 				reqUser:                  tnu1,
 				respCode:                 http.StatusOK,
-				respNoOfNVLinkInterfaces: cdb.GetIntPtr(4),
+				respNoOfNVLinkInterfaces: sutil.GetPtr(4),
 				nvlinkInterfacesToDelete: []cdbm.NVLinkInterface{
 					*instnvlifc1,
 					*instnvlifc2,
@@ -6466,7 +6467,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                   tnOrg1,
 				reqUser:                  tnu1,
 				respCode:                 http.StatusOK,
-				respNoOfNVLinkInterfaces: cdb.GetIntPtr(4),
+				respNoOfNVLinkInterfaces: sutil.GetPtr(4),
 				nvlinkInterfacesToDelete: []cdbm.NVLinkInterface{
 					*instnvlifc1,
 					*instnvlifc2,
@@ -6488,14 +6489,14 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					Name:       cdb.GetStrPtr("Test Instance"),
-					IpxeScript: cdb.GetStrPtr(common.DefaultIpxeScript),
+					Name:       sutil.GetPtr("Test Instance"),
+					IpxeScript: sutil.GetPtr(common.DefaultIpxeScript),
 				},
 				reqInstance: inst14.ID.String(),
 				reqOrg:      tnOrg1,
 				reqUser:     tnu1,
 				respCode:    http.StatusConflict,
-				respMessage: cdb.GetStrPtr("Instance is missing on site and cannot be updated"),
+				respMessage: sutil.GetPtr("Instance is missing on site and cannot be updated"),
 			},
 			wantErr: false,
 		},
@@ -6514,13 +6515,13 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceUpdateRequest{
-					AutoNetwork: cdb.GetBoolPtr(true),
+					AutoNetwork: sutil.GetPtr(true),
 				},
 				reqInstance: inst1.ID.String(),
 				reqOrg:      tnOrg1,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: cdb.GetStrPtr("`autoNetwork: true` is only supported when the Instance's VPC has `networkVirtualizationType` set to `FLAT`"),
+				respMessage: sutil.GetPtr("`autoNetwork: true` is only supported when the Instance's VPC has `networkVirtualizationType` set to `FLAT`"),
 			},
 			wantErr: false,
 		},
@@ -7020,19 +7021,19 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 
 	mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, ist1)
 	assert.NotNil(t, mcinst2)
 
-	mc3 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc3 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc3)
 
 	mcinst3 := testInstanceBuildMachineInstanceType(t, dbSession, mc3, ist1)
@@ -7041,39 +7042,39 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
 	// Set an NSG on this VPC
 	vpc2.NetworkSecurityGroupID = &nsg1.ID
 	testUpdateVPC(t, dbSession, vpc2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1, nil, cdbm.SubnetStatusPending, tnu1)
 	assert.NotNil(t, subnet2)
-	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn1, vpc2, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn1, vpc2, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet3)
 
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	// Attach an NSG to this instance
-	inst1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1.ID)
+	inst1.NetworkSecurityGroupID = sutil.GetPtr(nsg1.ID)
 	testUpdateInstance(t, dbSession, inst1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
-	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, sutil.GetPtr(1), sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibi1)
 
 	instsub1 := testInstanceBuildInstanceInterface(t, dbSession, inst1.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusPending)
@@ -7086,34 +7087,34 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	desd1 := common.TestBuildDpuExtensionServiceDeployment(t, dbSession, des1, inst1.ID, "1.0.0", cdbm.DpuExtensionServiceDeploymentStatusRunning, tnu1)
 	assert.NotNil(t, desd1)
 
-	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc2.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc2.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst2)
 
-	inst2.ControllerInstanceID = cdb.GetUUIDPtr(uuid.New())
+	inst2.ControllerInstanceID = sutil.GetPtr(uuid.New())
 
-	inst3 := testInstanceBuildInstance(t, dbSession, "test-instance-4", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, cdb.GetStrPtr(mc3.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst3 := testInstanceBuildInstance(t, dbSession, "test-instance-4", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, sutil.GetPtr(mc3.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst3)
-	inst3WithIfc := testInstanceBuildInstance(t, dbSession, "test-instance-4-with-interface", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, cdb.GetStrPtr(mc2.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst3WithIfc := testInstanceBuildInstance(t, dbSession, "test-instance-4-with-interface", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, sutil.GetPtr(mc2.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst3WithIfc)
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, inst3WithIfc.ID, &subnet3.ID, nil, nil, cdbm.InterfaceStatusPending))
 
-	mc4 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc4 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc4)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc4, ist1))
-	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc5 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc5)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc5, ist1))
-	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc6 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc6)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc6, ist1))
 
 	buildMultiVpcPair := func(primaryName, secondaryName, primaryPrefixName, secondaryPrefixName, primaryCIDR, secondaryCIDR string) (*cdbm.Vpc, *cdbm.Vpc, *cdbm.VpcPrefix, *cdbm.VpcPrefix) {
-		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 		primaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, primaryPrefixName+"-ipb", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, primaryCIDR[:len(primaryCIDR)-3], 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 		secondaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, secondaryPrefixName+"-ipb", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, secondaryCIDR[:len(secondaryCIDR)-3], 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-		primaryVP := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st1, tn1, primary.ID, &primaryIPB.ID, cdb.GetStrPtr(primaryCIDR), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-		secondaryVP := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st1, tn1, secondary.ID, &secondaryIPB.ID, cdb.GetStrPtr(secondaryCIDR), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		primaryVP := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st1, tn1, primary.ID, &primaryIPB.ID, sutil.GetPtr(primaryCIDR), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		secondaryVP := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st1, tn1, secondary.ID, &secondaryIPB.ID, sutil.GetPtr(secondaryCIDR), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 		return primary, secondary, primaryVP, secondaryVP
 	}
 
@@ -7121,11 +7122,11 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	vpcPrimaryNone, vpcSecondaryNone, vpcPrefixPrimaryNone, vpcPrefixSecondaryNone := buildMultiVpcPair("test-get-vpc-primary-none", "test-get-vpc-secondary-none", "test-get-vpcprefix-none-primary", "test-get-vpcprefix-none-secondary", "192.187.0.0/24", "192.190.0.0/24")
 	vpcPrimaryPartial, vpcSecondaryPartial, vpcPrefixPrimaryPartial, vpcPrefixSecondaryPartial := buildMultiVpcPair("test-get-vpc-primary-partial", "test-get-vpc-secondary-partial", "test-get-vpcprefix-partial-primary", "test-get-vpcprefix-partial-secondary", "192.188.0.0/24", "192.191.0.0/24")
 
-	instFull := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-full", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryFull.ID, cdb.GetStrPtr(mc4.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	instFull := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-full", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryFull.ID, sutil.GetPtr(mc4.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instFull)
-	instNone := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-none", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryNone.ID, cdb.GetStrPtr(mc5.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	instNone := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-none", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryNone.ID, sutil.GetPtr(mc5.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instNone)
-	instPartial := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-partial", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryPartial.ID, cdb.GetStrPtr(mc6.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	instPartial := testInstanceBuildInstance(t, dbSession, "test-instance-get-vpc-partial", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpcPrimaryPartial.ID, sutil.GetPtr(mc6.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instPartial)
 
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instFull.ID, nil, &vpcPrefixPrimaryFull.ID, nil, cdbm.InterfaceStatusPending))
@@ -7213,9 +7214,9 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedIBInterfaceID:                   cdb.GetStrPtr(ibi1.ID.String()),
-			expectedDpuExtensionServiceDeploymentID: cdb.GetStrPtr(desd1.ID.String()),
-			expectedNetworkSecurityGroupInherited:   cdb.GetBoolPtr(false),
+			expectedIBInterfaceID:                   sutil.GetPtr(ibi1.ID.String()),
+			expectedDpuExtensionServiceDeploymentID: sutil.GetPtr(desd1.ID.String()),
+			expectedNetworkSecurityGroupInherited:   sutil.GetPtr(false),
 			expectSubnet:                            true,
 			wantErr:                                 false,
 		},
@@ -7234,7 +7235,7 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(false), // Because the VPC has no NSG
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(false), // Because the VPC has no NSG
 			wantErr:                               false,
 		},
 		{
@@ -7252,7 +7253,7 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(false),
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(false),
 			wantErr:                               false,
 		},
 		{
@@ -7270,9 +7271,9 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
-			expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
-			expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
+			expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
+			expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
 			wantErr:                               false,
 		},
 		{
@@ -7290,10 +7291,10 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
 			expectedSecondaryVpcIDs:               []string{vpcSecondaryFull.ID.String()},
-			expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
-			expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
+			expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusFull),
+			expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronized),
 			wantErr:                               false,
 		},
 		{
@@ -7311,10 +7312,10 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
 			expectedSecondaryVpcIDs:               []string{vpcSecondaryNone.ID.String()},
-			expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
-			expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
+			expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusNone),
+			expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
 			wantErr:                               false,
 		},
 		{
@@ -7332,10 +7333,10 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectedNetworkSecurityGroupInherited: cdb.GetBoolPtr(true),
+			expectedNetworkSecurityGroupInherited: sutil.GetPtr(true),
 			expectedSecondaryVpcIDs:               []string{vpcSecondaryPartial.ID.String()},
-			expectedPropagationDetailedStatus:     cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationDetailedStatusPartial),
-			expectedPropagationStatus:             cdb.GetStrPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
+			expectedPropagationDetailedStatus:     sutil.GetPtr(model.APINetworkSecurityGroupPropagationDetailedStatusPartial),
+			expectedPropagationStatus:             sutil.GetPtr(model.APINetworkSecurityGroupPropagationStatusSynchronizing),
 			wantErr:                               false,
 		},
 		{
@@ -7425,23 +7426,23 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 			verifyChildSpanner: true,
 			expectSubnet:       true,
 
-			queryIncludeRelationTenant:               cdb.GetStrPtr(cdbm.TenantRelationName),
-			queryIncludeRelationSite:                 cdb.GetStrPtr(cdbm.SiteRelationName),
-			queryIncludeRelationVpc:                  cdb.GetStrPtr(cdbm.VpcRelationName),
-			queryIncludeRelationInstanceType:         cdb.GetStrPtr(cdbm.InstanceTypeRelationName),
-			queryIncludeRelationProvider:             cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelationMachine:              cdb.GetStrPtr(cdbm.MachineRelationName),
-			queryIncludeRelationOperatingSystem:      cdb.GetStrPtr(cdbm.OperatingSystemRelationName),
-			queryIncludeRelationNetworkSecurityGroup: cdb.GetStrPtr(cdbm.NetworkSecurityGroupRelationName),
+			queryIncludeRelationTenant:               sutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeRelationSite:                 sutil.GetPtr(cdbm.SiteRelationName),
+			queryIncludeRelationVpc:                  sutil.GetPtr(cdbm.VpcRelationName),
+			queryIncludeRelationInstanceType:         sutil.GetPtr(cdbm.InstanceTypeRelationName),
+			queryIncludeRelationProvider:             sutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelationMachine:              sutil.GetPtr(cdbm.MachineRelationName),
+			queryIncludeRelationOperatingSystem:      sutil.GetPtr(cdbm.OperatingSystemRelationName),
+			queryIncludeRelationNetworkSecurityGroup: sutil.GetPtr(cdbm.NetworkSecurityGroupRelationName),
 
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(st1.Name),
-			expectedTenantOrg:                 cdb.GetStrPtr(tn1.Org),
-			expectedInstanceTypeName:          cdb.GetStrPtr(ist1.Name),
-			expectedVpcName:                   cdb.GetStrPtr(vpc1.Name),
-			expectedMachineControllerID:       cdb.GetStrPtr(mc1.ControllerMachineID),
-			expectedOperatingSystemName:       cdb.GetStrPtr(os1.Name),
-			expectedNetworkSecurityGroupName:  cdb.GetStrPtr(nsg1.Name),
+			expectedInfrastructureProviderOrg: sutil.GetPtr(ip.Org),
+			expectedSiteName:                  sutil.GetPtr(st1.Name),
+			expectedTenantOrg:                 sutil.GetPtr(tn1.Org),
+			expectedInstanceTypeName:          sutil.GetPtr(ist1.Name),
+			expectedVpcName:                   sutil.GetPtr(vpc1.Name),
+			expectedMachineControllerID:       sutil.GetPtr(mc1.ControllerMachineID),
+			expectedOperatingSystemName:       sutil.GetPtr(os1.Name),
+			expectedNetworkSecurityGroupName:  sutil.GetPtr(nsg1.Name),
 		},
 		{
 			name: "test Instance get API endpoint with ssh url",
@@ -7458,7 +7459,7 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			expectSerialConsoleURL: cdb.GetStrPtr(fmt.Sprintf("ssh://%s@%s", inst1.ControllerInstanceID.String(), *st1.SerialConsoleHostname)),
+			expectSerialConsoleURL: sutil.GetPtr(fmt.Sprintf("ssh://%s@%s", inst1.ControllerInstanceID.String(), *st1.SerialConsoleHostname)),
 			wantErr:                false,
 			expectSubnet:           true,
 		},
@@ -7533,7 +7534,7 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 			}
 
 			assert.Equal(t, rst.Name, tt.args.reqInstance.Name)
-			assert.Equal(t, rst.MachineID, cdb.GetStrPtr(tt.args.reqMachine.ID))
+			assert.Equal(t, rst.MachineID, sutil.GetPtr(tt.args.reqMachine.ID))
 			assert.Equal(t, rst.Status, cdbm.InstanceStatusReady)
 
 			if tt.expectSubnet {
@@ -7696,11 +7697,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	alc3 := testInstanceSiteBuildAllocationContraints(t, dbSession, al4, cdbm.AllocationResourceTypeInstanceType, ist4.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc3)
 
-	mc1 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil, "machine-1")
+	mc1 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil, "machine-1")
 	assert.NotNil(t, mc1)
-	mc2 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil, "machine-2")
+	mc2 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil, "machine-2")
 	assert.NotNil(t, mc2)
-	mc3 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st3.ID, cdb.GetBoolPtr(false), nil, "machine-3")
+	mc3 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st3.ID, sutil.GetPtr(false), nil, "machine-3")
 	assert.NotNil(t, mc3)
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
@@ -7718,29 +7719,29 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	os3 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-3", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os3)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
 	// Set an NSG for this VPC
 	vpc1.NetworkSecurityGroupID = &nsg1.ID
 	testUpdateVPC(t, dbSession, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc3)
 
-	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn1, st3, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn1, st3, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc4)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1, nil, cdbm.SubnetStatusPending, tnu1)
 	assert.NotNil(t, subnet2)
 
-	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn1, vpc4, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet3 := testInstanceBuildSubnet(t, dbSession, "test-subnet-3", tn1, vpc4, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet3)
 
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
@@ -7749,7 +7750,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	instarr := []*cdbm.Instance{}
 	instsubarr := []*cdbm.Interface{}
 	for i := 11; i <= 35; i++ {
-		inst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("test-instance-%d", i), tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+		inst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("test-instance-%d", i), tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 		assert.NotNil(t, inst)
 
 		instsub := testInstanceBuildInstanceInterface(t, dbSession, inst.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusPending)
@@ -7757,21 +7758,21 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 		instarr = append(instarr, inst)
 		instsubarr = append(instsubarr, instsub)
 
-		common.TestBuildStatusDetail(t, dbSession, inst.ID.String(), cdbm.InstanceStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, inst.ID.String(), cdbm.InstanceStatusProvisioning, cdb.GetStrPtr("Instance is being provisioned on Site"))
+		common.TestBuildStatusDetail(t, dbSession, inst.ID.String(), cdbm.InstanceStatusPending, sutil.GetPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, inst.ID.String(), cdbm.InstanceStatusProvisioning, sutil.GetPtr("Instance is being provisioned on Site"))
 	}
 	inst1 := instarr[0]
 	instsub1 := instsubarr[0]
 
 	// Apply the NSG to this instance
-	inst1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1.ID)
+	inst1.NetworkSecurityGroupID = sutil.GetPtr(nsg1.ID)
 	testUpdateInstance(t, dbSession, inst1)
 
 	// InfiniBand Interface Support
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
-	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	ibi1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibp1, 0, false, sutil.GetPtr(1), sutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 	assert.NotNil(t, ibi1)
 
 	// DPU Extension Service Deployment Support
@@ -7781,35 +7782,35 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	desd1 := common.TestBuildDpuExtensionServiceDeployment(t, dbSession, des1, inst1.ID, "1.0.0", cdbm.DpuExtensionServiceDeploymentStatusRunning, tnu1)
 	assert.NotNil(t, desd1)
 
-	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-vpc", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpc3.ID, cdb.GetStrPtr(mc2.ID), &os2.ID, cdb.GetStrPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
+	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-vpc", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpc3.ID, sutil.GetPtr(mc2.ID), &os2.ID, sutil.GetPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst2)
 
 	instsub2 := testInstanceBuildInstanceInterface(t, dbSession, inst2.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, instsub2)
 
-	common.TestBuildStatusDetail(t, dbSession, inst2.ID.String(), cdbm.InstanceStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, inst2.ID.String(), cdbm.InstanceStatusProvisioning, cdb.GetStrPtr("Instance is being provisioned on Site"))
+	common.TestBuildStatusDetail(t, dbSession, inst2.ID.String(), cdbm.InstanceStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, inst2.ID.String(), cdbm.InstanceStatusProvisioning, sutil.GetPtr("Instance is being provisioned on Site"))
 
-	inst4 := testInstanceBuildInstance(t, dbSession, "test-instance-no-site-id", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, cdb.GetStrPtr(mc3.ID), &os2.ID, cdb.GetStrPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
+	inst4 := testInstanceBuildInstance(t, dbSession, "test-instance-no-site-id", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpc4.ID, sutil.GetPtr(mc3.ID), &os2.ID, sutil.GetPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst4)
 
-	mc4 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil, "machine-getall-4")
+	mc4 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil, "machine-getall-4")
 	assert.NotNil(t, mc4)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc4, ist2))
-	mc5 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil, "machine-getall-5")
+	mc5 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil, "machine-getall-5")
 	assert.NotNil(t, mc5)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc5, ist2))
-	mc6 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil, "machine-getall-6")
+	mc6 := testInstanceBuildMachineWithID(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil, "machine-getall-6")
 	assert.NotNil(t, mc6)
 	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mc6, ist2))
 
 	buildMultiVpcPair := func(primaryName, secondaryName, primaryPrefixName, secondaryPrefixName, primaryCIDR, secondaryCIDR string) (*cdbm.Vpc, *cdbm.Vpc, *cdbm.VpcPrefix, *cdbm.VpcPrefix) {
-		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		primary := testInstanceBuildVPC(t, dbSession, primaryName, ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+		secondary := testInstanceBuildVPC(t, dbSession, secondaryName, ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 		primaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, primaryPrefixName+"-ipb", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, primaryCIDR, 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
 		secondaryIPB := common.TestBuildVpcPrefixIPBlock(t, dbSession, secondaryPrefixName+"-ipb", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, secondaryCIDR, 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-		primaryPrefix := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st1, tn1, primary.ID, &primaryIPB.ID, cdb.GetStrPtr(primaryCIDR+"/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
-		secondaryPrefix := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st1, tn1, secondary.ID, &secondaryIPB.ID, cdb.GetStrPtr(secondaryCIDR+"/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		primaryPrefix := common.TestBuildVPCPrefix(t, dbSession, primaryPrefixName, st1, tn1, primary.ID, &primaryIPB.ID, sutil.GetPtr(primaryCIDR+"/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+		secondaryPrefix := common.TestBuildVPCPrefix(t, dbSession, secondaryPrefixName, st1, tn1, secondary.ID, &secondaryIPB.ID, sutil.GetPtr(secondaryCIDR+"/24"), sutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 		return primary, secondary, primaryPrefix, secondaryPrefix
 	}
 
@@ -7817,11 +7818,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	vpcPrimaryNone, vpcSecondaryNone, vpcPrefixPrimaryNone, vpcPrefixSecondaryNone := buildMultiVpcPair("test-getall-vpc-primary-none", "test-getall-vpc-secondary-none", "test-getall-vpcprefix-none-primary", "test-getall-vpcprefix-none-secondary", "192.184.0.0", "192.187.0.0")
 	vpcPrimaryPartial, vpcSecondaryPartial, vpcPrefixPrimaryPartial, vpcPrefixSecondaryPartial := buildMultiVpcPair("test-getall-vpc-primary-partial", "test-getall-vpc-secondary-partial", "test-getall-vpcprefix-partial-primary", "test-getall-vpcprefix-partial-secondary", "192.185.0.0", "192.188.0.0")
 
-	instFull := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-full", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryFull.ID, cdb.GetStrPtr(mc4.ID), &os2.ID, cdb.GetStrPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
+	instFull := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-full", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryFull.ID, sutil.GetPtr(mc4.ID), &os2.ID, sutil.GetPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
 	assert.NotNil(t, instFull)
-	instNone := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-none", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryNone.ID, cdb.GetStrPtr(mc5.ID), &os2.ID, cdb.GetStrPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
+	instNone := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-none", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryNone.ID, sutil.GetPtr(mc5.ID), &os2.ID, sutil.GetPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
 	assert.NotNil(t, instNone)
-	instPartial := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-partial", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryPartial.ID, cdb.GetStrPtr(mc6.ID), &os2.ID, cdb.GetStrPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
+	instPartial := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-partial", tn1.ID, ip.ID, st1.ID, &ist2.ID, vpcPrimaryPartial.ID, sutil.GetPtr(mc6.ID), &os2.ID, sutil.GetPtr("test-ipxe-script"), cdbm.InstanceStatusReady)
 	assert.NotNil(t, instPartial)
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instFull.ID, nil, &vpcPrefixPrimaryFull.ID, nil, cdbm.InterfaceStatusPending))
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instFull.ID, nil, &vpcPrefixSecondaryFull.ID, nil, cdbm.InterfaceStatusPending))
@@ -7829,12 +7830,12 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instNone.ID, nil, &vpcPrefixSecondaryNone.ID, nil, cdbm.InterfaceStatusPending))
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instPartial.ID, nil, &vpcPrefixPrimaryPartial.ID, nil, cdbm.InterfaceStatusPending))
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instPartial.ID, nil, &vpcPrefixSecondaryPartial.ID, nil, cdbm.InterfaceStatusPending))
-	common.TestBuildStatusDetail(t, dbSession, instFull.ID.String(), cdbm.InstanceStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, instFull.ID.String(), cdbm.InstanceStatusProvisioning, cdb.GetStrPtr("Instance is being provisioned on Site"))
-	common.TestBuildStatusDetail(t, dbSession, instNone.ID.String(), cdbm.InstanceStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, instNone.ID.String(), cdbm.InstanceStatusProvisioning, cdb.GetStrPtr("Instance is being provisioned on Site"))
-	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusProvisioning, cdb.GetStrPtr("Instance is being provisioned on Site"))
+	common.TestBuildStatusDetail(t, dbSession, instFull.ID.String(), cdbm.InstanceStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, instFull.ID.String(), cdbm.InstanceStatusProvisioning, sutil.GetPtr("Instance is being provisioned on Site"))
+	common.TestBuildStatusDetail(t, dbSession, instNone.ID.String(), cdbm.InstanceStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, instNone.ID.String(), cdbm.InstanceStatusProvisioning, sutil.GetPtr("Instance is being provisioned on Site"))
+	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusProvisioning, sutil.GetPtr("Instance is being provisioned on Site"))
 
 	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status cwssaws.NetworkSecurityGroupPropagationStatus) {
 		vpc.NetworkSecurityGroupID = &nsg1.ID
@@ -7930,13 +7931,13 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			wantErr:                                  false,
-			orderBy:                                  cdb.GetStrPtr("NAME_ASC"),
+			orderBy:                                  sutil.GetPtr("NAME_ASC"),
 			expectedCount:                            20,
 			expectedTotal:                            29,
 			expectedFirstEntryName:                   instarr[0].Name,
 			verifyChildSpanner:                       true,
-			expectedIBInterfaceID:                    cdb.GetStrPtr(ibi1.ID.String()),
-			expectedDpuExtensionServiceDeploymentID:  cdb.GetStrPtr(desd1.ID.String()),
+			expectedIBInterfaceID:                    sutil.GetPtr(ibi1.ID.String()),
+			expectedDpuExtensionServiceDeploymentID:  sutil.GetPtr(desd1.ID.String()),
 			expectSubnet:                             true,
 			expectedAnyNetworkSecurityGroupInherited: true,
 		},
@@ -7955,7 +7956,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr:                false,
-			orderBy:                cdb.GetStrPtr("NAME_ASC"),
+			orderBy:                sutil.GetPtr("NAME_ASC"),
 			expectedCount:          20,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[0].Name,
@@ -7974,7 +7975,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr:       false,
-			orderBy:       cdb.GetStrPtr("NAME_ASC"),
+			orderBy:       sutil.GetPtr("NAME_ASC"),
 			expectedCount: 20,
 			expectedTotal: 30,
 		},
@@ -8061,9 +8062,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:             cdb.GetIntPtr(1),
-			pageSize:               cdb.GetIntPtr(10),
-			orderBy:                cdb.GetStrPtr("NAME_ASC"),
+			pageNumber:             sutil.GetPtr(1),
+			pageSize:               sutil.GetPtr(10),
+			orderBy:                sutil.GetPtr("NAME_ASC"),
 			expectedCount:          10,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[0].Name,
@@ -8084,9 +8085,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:             cdb.GetIntPtr(2),
-			pageSize:               cdb.GetIntPtr(10),
-			orderBy:                cdb.GetStrPtr("NAME_ASC"),
+			pageNumber:             sutil.GetPtr(2),
+			pageSize:               sutil.GetPtr(10),
+			orderBy:                sutil.GetPtr("NAME_ASC"),
 			expectedCount:          10,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[10].Name,
@@ -8108,9 +8109,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusBadRequest,
 			},
-			pageNumber: cdb.GetIntPtr(1),
-			pageSize:   cdb.GetIntPtr(10),
-			orderBy:    cdb.GetStrPtr("TEST_DESC"),
+			pageNumber: sutil.GetPtr(1),
+			pageSize:   sutil.GetPtr(10),
+			orderBy:    sutil.GetPtr("TEST_DESC"),
 			wantErr:    false,
 		},
 		{
@@ -8129,29 +8130,29 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			},
 
 			wantErr:                false,
-			orderBy:                cdb.GetStrPtr("NAME_ASC"),
+			orderBy:                sutil.GetPtr("NAME_ASC"),
 			expectedCount:          20,
 			expectedTotal:          29,
 			expectSubnet:           true,
 			expectedFirstEntryName: instarr[0].Name,
 
-			queryIncludeRelationTenant:               cdb.GetStrPtr(cdbm.TenantRelationName),
-			queryIncludeRelationSite:                 cdb.GetStrPtr(cdbm.SiteRelationName),
-			queryIncludeRelationVpc:                  cdb.GetStrPtr(cdbm.VpcRelationName),
-			queryIncludeRelationInstanceType:         cdb.GetStrPtr(cdbm.InstanceTypeRelationName),
-			queryIncludeRelationProvider:             cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelationMachine:              cdb.GetStrPtr(cdbm.MachineRelationName),
-			queryIncludeRelationOperatingSystem:      cdb.GetStrPtr(cdbm.OperatingSystemRelationName),
-			queryIncludeRelationNetworkSecurityGroup: cdb.GetStrPtr(cdbm.NetworkSecurityGroupRelationName),
+			queryIncludeRelationTenant:               sutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeRelationSite:                 sutil.GetPtr(cdbm.SiteRelationName),
+			queryIncludeRelationVpc:                  sutil.GetPtr(cdbm.VpcRelationName),
+			queryIncludeRelationInstanceType:         sutil.GetPtr(cdbm.InstanceTypeRelationName),
+			queryIncludeRelationProvider:             sutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelationMachine:              sutil.GetPtr(cdbm.MachineRelationName),
+			queryIncludeRelationOperatingSystem:      sutil.GetPtr(cdbm.OperatingSystemRelationName),
+			queryIncludeRelationNetworkSecurityGroup: sutil.GetPtr(cdbm.NetworkSecurityGroupRelationName),
 
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(st1.Name),
-			expectedTenantOrg:                 cdb.GetStrPtr(tn1.Org),
-			expectedInstanceTypeName:          cdb.GetStrPtr(ist1.Name),
-			expectedVpcName:                   cdb.GetStrPtr(vpc1.Name),
-			expectedMachineControllerID:       cdb.GetStrPtr(mc1.ControllerMachineID),
-			expectedOperatingSystemName:       cdb.GetStrPtr(os1.Name),
-			expectedNetworkSecurityGroupName:  cdb.GetStrPtr(nsg1.Name),
+			expectedInfrastructureProviderOrg: sutil.GetPtr(ip.Org),
+			expectedSiteName:                  sutil.GetPtr(st1.Name),
+			expectedTenantOrg:                 sutil.GetPtr(tn1.Org),
+			expectedInstanceTypeName:          sutil.GetPtr(ist1.Name),
+			expectedVpcName:                   sutil.GetPtr(vpc1.Name),
+			expectedMachineControllerID:       sutil.GetPtr(mc1.ControllerMachineID),
+			expectedOperatingSystemName:       sutil.GetPtr(os1.Name),
+			expectedNetworkSecurityGroupName:  sutil.GetPtr(nsg1.Name),
 		},
 		{
 			name: "test Instance getall API endpoint success multiple siteIDs",
@@ -8168,7 +8169,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr:       false,
-			orderBy:       cdb.GetStrPtr("NAME_ASC"),
+			orderBy:       sutil.GetPtr("NAME_ASC"),
 			expectedCount: 20,
 			expectedTotal: 29,
 			expectSubnet:  true,
@@ -8188,7 +8189,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				VpcIDs: []uuid.UUID{vpc2.ID},
 			},
@@ -8210,11 +8211,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				VpcIDs: []uuid.UUID{vpc3.ID},
 			},
-			expectedMachineIDOverride: cdb.GetStrPtr(mc2.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc2.ID),
 			expectedCount:             1,
 			expectedTotal:             1,
 			expectSubnet:              true,
@@ -8234,7 +8235,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				VpcIDs: []uuid.UUID{vpc1.ID, vpc3.ID},
 			},
@@ -8257,7 +8258,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				InstanceTypeIDs: []uuid.UUID{ist3.ID},
 			},
@@ -8279,11 +8280,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				InstanceTypeIDs: []uuid.UUID{ist2.ID},
 			},
-			expectedMachineIDOverride: cdb.GetStrPtr(mc2.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc2.ID),
 			expectedCount:             4,
 			expectedTotal:             4,
 		},
@@ -8302,7 +8303,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				InstanceTypeIDs: []uuid.UUID{ist1.ID, ist2.ID},
 			},
@@ -8343,7 +8344,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				OperatingSystemIDs: []uuid.UUID{os3.ID},
 			},
@@ -8365,11 +8366,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				OperatingSystemIDs: []uuid.UUID{os2.ID},
 			},
-			expectedMachineIDOverride: cdb.GetStrPtr(mc2.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc2.ID),
 			expectedCount:             4,
 			expectedTotal:             4,
 		},
@@ -8388,7 +8389,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				OperatingSystemIDs: []uuid.UUID{os1.ID, os2.ID},
 			},
@@ -8429,11 +8430,11 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				MachineIDs: []string{mc2.ID},
 			},
-			expectedMachineIDOverride: cdb.GetStrPtr(mc2.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc2.ID),
 			expectedCount:             1,
 			expectedTotal:             1,
 		},
@@ -8452,7 +8453,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:    http.StatusOK,
 			},
 			wantErr: false,
-			orderBy: cdb.GetStrPtr("NAME_ASC"),
+			orderBy: sutil.GetPtr("NAME_ASC"),
 			filter: cdbm.InstanceFilterInput{
 				MachineIDs: []string{mc1.ID, mc2.ID},
 			},
@@ -8496,7 +8497,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			filter: cdbm.InstanceFilterInput{
-				SearchQuery: cdb.GetStrPtr("test-instance"),
+				SearchQuery: sutil.GetPtr("test-instance"),
 			},
 			wantErr:       false,
 			expectedCount: 20,
@@ -8518,7 +8519,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			filter: cdbm.InstanceFilterInput{
-				SearchQuery: cdb.GetStrPtr("ready"),
+				SearchQuery: sutil.GetPtr("ready"),
 			},
 			wantErr:       false,
 			expectedCount: 20,
@@ -8540,7 +8541,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			filter: cdbm.InstanceFilterInput{
-				SearchQuery: cdb.GetStrPtr("test-instance ready"),
+				SearchQuery: sutil.GetPtr("test-instance ready"),
 			},
 			wantErr:       false,
 			expectedCount: 20,
@@ -8562,7 +8563,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			filter: cdbm.InstanceFilterInput{
-				SearchQuery: cdb.GetStrPtr("error"),
+				SearchQuery: sutil.GetPtr("error"),
 			},
 			wantErr:       false,
 			expectedCount: 0,
@@ -8634,7 +8635,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			expectedCount:             1,
 			expectedTotal:             1,
 			expectedFirstEntryName:    "test-instance-vpc",
-			expectedMachineIDOverride: cdb.GetStrPtr(mc2.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc2.ID),
 		},
 		{
 			name: "test Instance getall API endpoint multi-vpc inherited nsg propagation full state",
@@ -8658,7 +8659,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			expectedCount:             1,
 			expectedTotal:             1,
 			expectedFirstEntryName:    "test-instance-vpc-full",
-			expectedMachineIDOverride: cdb.GetStrPtr(mc4.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc4.ID),
 			expectedNetworkSecurityGroupInheritedByName: map[string]bool{
 				"test-instance-vpc-full": true,
 			},
@@ -8697,7 +8698,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			expectedCount:             1,
 			expectedTotal:             1,
 			expectedFirstEntryName:    "test-instance-vpc-none",
-			expectedMachineIDOverride: cdb.GetStrPtr(mc5.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc5.ID),
 			expectedNetworkSecurityGroupInheritedByName: map[string]bool{
 				"test-instance-vpc-none": true,
 			},
@@ -8736,7 +8737,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			expectedCount:             1,
 			expectedTotal:             1,
 			expectedFirstEntryName:    "test-instance-vpc-partial",
-			expectedMachineIDOverride: cdb.GetStrPtr(mc6.ID),
+			expectedMachineIDOverride: sutil.GetPtr(mc6.ID),
 			expectedNetworkSecurityGroupInheritedByName: map[string]bool{
 				"test-instance-vpc-partial": true,
 			},
@@ -8851,9 +8852,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:                cdb.GetIntPtr(1),
-			pageSize:                  cdb.GetIntPtr(10),
-			orderBy:                   cdb.GetStrPtr("MACHINE_ID_DESC"),
+			pageNumber:                sutil.GetPtr(1),
+			pageSize:                  sutil.GetPtr(10),
+			orderBy:                   sutil.GetPtr("MACHINE_ID_DESC"),
 			expectedCount:             10,
 			expectedTotal:             29,
 			expectedFirstEntryName:    "test-instance-vpc-partial",
@@ -8876,9 +8877,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:             cdb.GetIntPtr(1),
-			pageSize:               cdb.GetIntPtr(10),
-			orderBy:                cdb.GetStrPtr("TENANT_ORG_DISPLAY_NAME_ASC"),
+			pageNumber:             sutil.GetPtr(1),
+			pageSize:               sutil.GetPtr(10),
+			orderBy:                sutil.GetPtr("TENANT_ORG_DISPLAY_NAME_ASC"),
 			expectedCount:          10,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[0].Name,
@@ -8899,9 +8900,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:             cdb.GetIntPtr(1),
-			pageSize:               cdb.GetIntPtr(10),
-			orderBy:                cdb.GetStrPtr("INSTANCE_TYPE_NAME_ASC"),
+			pageNumber:             sutil.GetPtr(1),
+			pageSize:               sutil.GetPtr(10),
+			orderBy:                sutil.GetPtr("INSTANCE_TYPE_NAME_ASC"),
 			expectedCount:          10,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[0].Name,
@@ -8922,9 +8923,9 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			pageNumber:             cdb.GetIntPtr(1),
-			pageSize:               cdb.GetIntPtr(10),
-			orderBy:                cdb.GetStrPtr("HAS_INFINIBAND_ASC"),
+			pageNumber:             sutil.GetPtr(1),
+			pageSize:               sutil.GetPtr(10),
+			orderBy:                sutil.GetPtr("HAS_INFINIBAND_ASC"),
 			expectedCount:          10,
 			expectedTotal:          29,
 			expectedFirstEntryName: instarr[0].Name,
@@ -9061,7 +9062,7 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 			assert.Equal(t, tt.expectedTotal, pr.Total)
 
 			if len(rst) > 0 {
-				expectedMachineID := cdb.GetStrPtr(mc1.ID)
+				expectedMachineID := sutil.GetPtr(mc1.ID)
 				if tt.expectedMachineIDOverride != nil {
 					expectedMachineID = tt.expectedMachineIDOverride
 				}
@@ -9232,7 +9233,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -9241,16 +9242,16 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, stNotReady, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc3 := testInstanceBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, stNotReady, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc3)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -9259,13 +9260,13 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
-	instVpcNotReady := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	instVpcNotReady := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc2.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instVpcNotReady)
 
-	instSiteNotReady := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, stNotReady.ID, &ist1.ID, vpc3.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	instSiteNotReady := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, stNotReady.ID, &ist1.ID, vpc3.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instSiteNotReady)
 
 	instsub1 := testInstanceBuildInstanceInterface(t, dbSession, inst1.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusPending)
@@ -9370,7 +9371,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceDeleteRequest{MachineHealthIssue: &model.APIMachineHealthIssue{
-					Category: "Hardware", Summary: cdb.GetStrPtr("Some summary"), Details: cdb.GetStrPtr("Some details"),
+					Category: "Hardware", Summary: sutil.GetPtr("Some summary"), Details: sutil.GetPtr("Some details"),
 				}},
 				reqInstance: inst1.ID.String(),
 				reqOrg:      tnOrg1,
@@ -9390,7 +9391,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceDeleteRequest{MachineHealthIssue: &model.APIMachineHealthIssue{
-					Category: "UNSPECIFIED", Summary: cdb.GetStrPtr("Some summary"), Details: cdb.GetStrPtr("Some details"),
+					Category: "UNSPECIFIED", Summary: sutil.GetPtr("Some summary"), Details: sutil.GetPtr("Some details"),
 				}},
 				reqInstance: inst1.ID.String(),
 				reqOrg:      tnOrg1,
@@ -9870,7 +9871,7 @@ func TestInstanceHandler_GetStatusDetails(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -9879,10 +9880,10 @@ func TestInstanceHandler_GetStatusDetails(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	// add status details objects

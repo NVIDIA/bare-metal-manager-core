@@ -8,12 +8,15 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 )
 
 func TestInfrastructureProviderSQLDAO_GetByID(t *testing.T) {
@@ -37,9 +40,9 @@ func TestInfrastructureProviderSQLDAO_GetByID(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("test"),
+		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -141,18 +144,18 @@ func TestInfrastructureProviderSQLDAO_GetAllByOrg(t *testing.T) {
 	ip1 := InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           "test 1",
-		DisplayName:    db.GetStrPtr("test 2"),
+		DisplayName:    cutil.GetPtr("test 2"),
 		Org:            org,
-		OrgDisplayName: db.GetStrPtr(orgDisplayName),
+		OrgDisplayName: cutil.GetPtr(orgDisplayName),
 		CreatedBy:      uuid.New(),
 	}
 
 	ip2 := InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           "test 2",
-		DisplayName:    db.GetStrPtr("test 2"),
+		DisplayName:    cutil.GetPtr("test 2"),
 		Org:            org,
-		OrgDisplayName: db.GetStrPtr(orgDisplayName),
+		OrgDisplayName: cutil.GetPtr(orgDisplayName),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -239,9 +242,9 @@ func TestInfrastructureProviderSQLDAO_CreateFromParams(t *testing.T) {
 
 	ip := &InfrastructureProvider{
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("test"),
+		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -344,9 +347,9 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("Test"),
+		DisplayName:    cutil.GetPtr("Test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -359,9 +362,9 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 	uip := &InfrastructureProvider{
 		ID:             ip.ID,
 		Name:           "test2",
-		DisplayName:    db.GetStrPtr("Test 2"),
+		DisplayName:    cutil.GetPtr("Test 2"),
 		Org:            ip.Org,
-		OrgDisplayName: db.GetStrPtr("Test Org Updated"),
+		OrgDisplayName: cutil.GetPtr("Test Org Updated"),
 		CreatedBy:      ip.CreatedBy,
 	}
 
@@ -385,7 +388,7 @@ func TestInfrastructureProviderSQLDAO_UpdateFromParams(t *testing.T) {
 			args: args{
 				ctx:            ctx,
 				id:             ip.ID,
-				name:           db.GetStrPtr(uip.Name),
+				name:           cutil.GetPtr(uip.Name),
 				displayName:    uip.DisplayName,
 				orgDisplayName: uip.OrgDisplayName,
 			},
@@ -453,9 +456,9 @@ func TestInfrastructureProviderSQLDAO_DeleteByID(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("test"),
+		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
