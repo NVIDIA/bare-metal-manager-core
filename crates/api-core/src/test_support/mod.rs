@@ -15,4 +15,10 @@
  * limitations under the License.
  */
 
+pub mod builder;
 pub mod default_config;
+pub mod ib_fabric;
+pub mod network;
+pub mod network_segment;
+
+pub use crate::api::Api;
