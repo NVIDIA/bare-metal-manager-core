@@ -50,6 +50,8 @@ In NICo the Measured Boot is used to verify that the scout image remains the sam
 
 Measured Boot is most suitable for stable environments, where the measurements remain the same. If measurements change frequently the administrator will have to approve changes often. It is advised to use historical report data to establish PCR changes over time, which would help decide which PCR values can be monitored. Measured Boot is not suitable for watching changes to various firmwares outside of UEFI.
 
+Also, it is important to note that different platforms might compose PCR values differently, and PCR values are expected to differ between various platform even provided everything else is the same.
+
 ## Components
 
 In NICo ecosystem, this system has three components:
