@@ -357,7 +357,7 @@ type ComponentManager interface {
 
 | Component Type | Implementation | Provider |
 |----------------|----------------|----------|
-| Compute | `compute/nico/` | NICo |
+| Compute | `compute/nicolegacy/` | NICo |
 | NVSwitch | `nvswitch/nico/` | NICo |
 | PowerShelf | `powershelf/nico/` | NICo |
 
@@ -665,13 +665,13 @@ Stores task execution records.
 
 ```yaml
 component_managers:
-  compute: nico
+  compute: nicolegacy
   nvswitch: nico
   powershelf: nico
 
 manager_configs:
   compute:
-    nico:
+    nicolegacy:
       compute_power_delay: "2s"
 
 providers:

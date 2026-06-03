@@ -1,7 +1,17 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nico
+// Package nicolegacy is the legacy compute manager implementation that
+// dispatches power and firmware operations through NICo Core's
+// machine-centric RPCs (AdminPowerControl, SetFirmwareUpdateTimeWindow,
+// etc.) instead of going through Core's Component Manager handler.
+//
+// It is kept side-by-side with the newer compute/nico implementation
+// (which routes through Core's Component Manager) during the migration
+// period and is selected when the operator chooses
+// COMPUTE_TRAY_IMPLEMENTATION=nicolegacy. Once every Flow deployment is
+// running the new compute/nico path, this package should be removed.
+package nicolegacy
 
 import (
 	"context"
@@ -27,8 +37,9 @@ import (
 )
 
 const (
-	// ImplementationName is the name used to identify this implementation.
-	ImplementationName = "nico"
+	// ImplementationName is the name used to identify this implementation
+	// in the component manager catalog and in YAML / env configuration.
+	ImplementationName = "nicolegacy"
 
 	// healthOverrideSource is the source tag written into health-report
 	// overrides so they can be matched on removal.
@@ -68,7 +79,7 @@ func Factory(powerDelay time.Duration) componentmanager.ManagerFactory {
 		)
 		if err != nil {
 			return nil, fmt.Errorf(
-				"compute/nico requires nico provider: %w", err,
+				"compute/nicolegacy requires nico provider: %w", err,
 			)
 		}
 		return New(provider.Client(), powerDelay), nil

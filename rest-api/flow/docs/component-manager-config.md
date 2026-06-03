@@ -46,7 +46,7 @@ Available implementations:
 
 | Component Type | Available Implementations | Description |
 |----------------|---------------------------|-------------|
-| `compute` | `nico`, `mock` | Manages compute nodes |
+| `compute` | `nicolegacy`, `mock` | Manages compute nodes (default `nicolegacy` calls NICo Core's machine-centric RPCs; the new `nico` implementation routing through Core's Component Manager will be added alongside.) |
 | `nvswitch` | `nico`, `mock` | Manages NVLink switches |
 | `powershelf` | `nico`, `mock` | Manages power shelves |
 
@@ -73,7 +73,7 @@ equivalent to omitting the section for provider-backed component managers.
 ```yaml
 manager_configs:
   compute:
-    nico:
+    nicolegacy:
       compute_power_delay: "<duration>"
 ```
 
@@ -83,7 +83,7 @@ must match the selected `component_managers` implementation.
 
 | Manager | Option | Type | Default | Description |
 |---------|--------|------|---------|-------------|
-| `compute/nico` | `compute_power_delay` | duration string | `2s` | Delay between sequential power control calls for compute trays. Prevents overwhelming the power delivery system. Set to `0s` to disable. |
+| `compute/nicolegacy` | `compute_power_delay` | duration string | `2s` | Delay between sequential power control calls for compute trays. Prevents overwhelming the power delivery system. Set to `0s` to disable. |
 
 #### Provider Options
 
@@ -100,13 +100,13 @@ Duration strings use Go format: `30s`, `1m`, `2m30s`, etc.
 ```yaml
 # Equivalent to builtin.LoadConfig("")
 component_managers:
-  compute: nico
+  compute: nicolegacy
   nvswitch: nico
   powershelf: nico
 
 manager_configs:
   compute:
-    nico:
+    nicolegacy:
       compute_power_delay: "2s"
 
 providers:
@@ -150,7 +150,7 @@ This allows minimal configuration:
 
 ```yaml
 component_managers:
-  compute: nico
+  compute: nicolegacy
   nvswitch: nico
   powershelf: nico
 # nico provider auto-enabled based on implementations above
@@ -160,7 +160,7 @@ Provider entries can override settings:
 
 ```yaml
 component_managers:
-  compute: nico
+  compute: nicolegacy
   nvswitch: nico
   powershelf: nico
 

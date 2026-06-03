@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nico
+package nicolegacy
 
 import (
 	"context"
@@ -134,13 +134,13 @@ func managerYAMLNode(t *testing.T, data string) yaml.Node {
 	return *node.Content[0]
 }
 
-// TestFirmwareControl_SubTargetsAccepted verifies that the compute/nico
-// FirmwareControl path tolerates info.SubTargets without erroring. This
-// path goes through SetMachineAutoUpdate + SetFirmwareUpdateTimeWindow,
-// which has no per-sub-target selection in NICo, so the manager only logs
-// a warning and proceeds; we exercise that branch here. The actual
-// per-sub-target dispatch will be added when compute moves to NICo's
-// UpdateComponentFirmware (see comment in nico.go).
+// TestFirmwareControl_SubTargetsAccepted verifies that the
+// compute/nicolegacy FirmwareControl path tolerates info.SubTargets
+// without erroring. This path goes through SetMachineAutoUpdate +
+// SetFirmwareUpdateTimeWindow, which has no per-sub-target selection in
+// NICo, so the manager only logs a warning and proceeds; we exercise
+// that branch here. The replacement compute/nico implementation routes
+// through Core's UpdateComponentFirmware which does honour sub-targets.
 func TestFirmwareControl_SubTargetsAccepted(t *testing.T) {
 	tests := map[string]struct {
 		subTargets []string
