@@ -19,9 +19,9 @@ use librms::protos::rack_manager as rms;
 
 #[async_trait::async_trait]
 pub trait SwitchSystemImageRmsClient: Send + Sync {
-    async fn apply_switch_system_image_from_json(
+    async fn apply_switch_system_image(
         &self,
-        cmd: rms::ApplySwitchSystemImageFromJsonRequest,
+        cmd: rms::ApplySwitchSystemImageRequest,
     ) -> Result<rms::ApplySwitchSystemImageResponse, tonic::Status>;
 
     async fn get_switch_system_image_job_status(
@@ -32,11 +32,11 @@ pub trait SwitchSystemImageRmsClient: Send + Sync {
 
 #[async_trait::async_trait]
 impl SwitchSystemImageRmsClient for librms::RackManagerApi {
-    async fn apply_switch_system_image_from_json(
+    async fn apply_switch_system_image(
         &self,
-        cmd: rms::ApplySwitchSystemImageFromJsonRequest,
+        cmd: rms::ApplySwitchSystemImageRequest,
     ) -> Result<rms::ApplySwitchSystemImageResponse, tonic::Status> {
-        self.client.apply_switch_system_image_from_json(cmd).await
+        self.client.apply_switch_system_image(cmd).await
     }
 
     async fn get_switch_system_image_job_status(
@@ -60,86 +60,96 @@ pub mod test_support {
 
     /// RMS simulation for testing, similar to RedfishSim
     pub struct RmsSim {
-        fail_add_node: Arc<AtomicBool>,
+        fail_create_nodes: Arc<AtomicBool>,
         fail_inventory_get: Arc<AtomicBool>,
         registered_nodes: Arc<Mutex<Vec<rms::NodeInventoryInfo>>>,
         firmware_objects: Arc<Mutex<HashMap<String, rms::FirmwareObject>>>,
-        submitted_firmware_requests: Arc<Mutex<Vec<rms::UpdateFirmwareByDeviceListRequest>>>,
-        queued_firmware_responses: Arc<Mutex<VecDeque<rms::UpdateFirmwareByDeviceListResponse>>>,
-        submitted_firmware_object_apply_requests: Arc<Mutex<Vec<rms::ApplyFirmwareObjectRequest>>>,
+        submitted_firmware_requests: Arc<Mutex<Vec<rms::BatchUpdateFirmwareRequest>>>,
+        queued_firmware_responses: Arc<Mutex<VecDeque<rms::BatchUpdateFirmwareResponse>>>,
+        submitted_apply_stored_firmware_object_requests:
+            Arc<Mutex<Vec<rms::ApplyStoredFirmwareObjectRequest>>>,
         queued_firmware_object_apply_responses:
             Arc<Mutex<VecDeque<rms::ApplyFirmwareObjectResponse>>>,
-        submitted_firmware_object_from_json_apply_requests:
-            Arc<Mutex<Vec<rms::ApplyFirmwareObjectFromJsonRequest>>>,
+        submitted_apply_firmware_object_requests: Arc<Mutex<Vec<rms::ApplyFirmwareObjectRequest>>>,
         firmware_job_statuses: Arc<Mutex<HashMap<String, rms::GetFirmwareJobStatusResponse>>>,
         firmware_job_errors: Arc<Mutex<HashMap<String, String>>>,
         submitted_apply_switch_system_image_requests:
             Arc<Mutex<Vec<rms::ApplySwitchSystemImageRequest>>>,
-        submitted_apply_switch_system_image_from_json_requests:
-            Arc<Mutex<Vec<rms::ApplySwitchSystemImageFromJsonRequest>>>,
         queued_apply_switch_system_image_responses:
             Arc<Mutex<VecDeque<rms::ApplySwitchSystemImageResponse>>>,
         switch_system_image_job_statuses:
             Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
         switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
-        submitted_get_device_info_by_device_list_requests:
-            Arc<Mutex<Vec<rms::GetDeviceInfoByDeviceListRequest>>>,
-        queued_get_device_info_by_device_list_responses:
-            Arc<Mutex<VecDeque<Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError>>>>,
+        submitted_batch_get_node_device_info_requests:
+            Arc<Mutex<Vec<rms::BatchGetNodeDeviceInfoRequest>>>,
+        queued_batch_get_node_device_info_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError>>>>,
+        submitted_batch_get_power_state_requests: Arc<Mutex<Vec<rms::BatchGetPowerStateRequest>>>,
+        queued_batch_get_power_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchGetPowerStateResponse, RackManagerError>>>>,
         submitted_configure_scale_up_fabric_manager_requests:
             Arc<Mutex<Vec<rms::ConfigureScaleUpFabricManagerRequest>>>,
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
         >,
-        submitted_set_scale_up_fabric_state_requests:
-            Arc<Mutex<Vec<rms::SetScaleUpFabricStateRequest>>>,
-        queued_set_scale_up_fabric_state_responses:
-            Arc<Mutex<VecDeque<Result<rms::SetScaleUpFabricStateResponse, RackManagerError>>>>,
-        submitted_set_power_state_by_device_list_requests:
-            Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
-        queued_set_power_state_by_device_list_responses:
-            Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
+        submitted_batch_set_scale_up_fabric_state_requests:
+            Arc<Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>>,
+        queued_batch_set_scale_up_fabric_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>>>>,
+        submitted_batch_get_scale_up_fabric_service_status_requests:
+            Arc<Mutex<Vec<rms::BatchGetScaleUpFabricServiceStatusRequest>>>,
+        queued_batch_get_scale_up_fabric_service_status_responses: Arc<
+            Mutex<
+                VecDeque<Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError>>,
+            >,
+        >,
+        submitted_batch_set_power_state_requests: Arc<Mutex<Vec<rms::BatchSetPowerStateRequest>>>,
+        queued_batch_set_power_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchSetPowerStateResponse, RackManagerError>>>>,
     }
 
     impl Default for RmsSim {
         fn default() -> Self {
             Self {
-                fail_add_node: Arc::new(AtomicBool::new(false)),
+                fail_create_nodes: Arc::new(AtomicBool::new(false)),
                 fail_inventory_get: Arc::new(AtomicBool::new(false)),
                 registered_nodes: Arc::new(Mutex::new(Vec::new())),
                 firmware_objects: Arc::new(Mutex::new(HashMap::new())),
                 submitted_firmware_requests: Arc::new(Mutex::new(Vec::new())),
                 queued_firmware_responses: Arc::new(Mutex::new(VecDeque::new())),
-                submitted_firmware_object_apply_requests: Arc::new(Mutex::new(Vec::new())),
+                submitted_apply_stored_firmware_object_requests: Arc::new(Mutex::new(Vec::new())),
                 queued_firmware_object_apply_responses: Arc::new(Mutex::new(VecDeque::new())),
-                submitted_firmware_object_from_json_apply_requests: Arc::new(
-                    Mutex::new(Vec::new()),
-                ),
+                submitted_apply_firmware_object_requests: Arc::new(Mutex::new(Vec::new())),
                 firmware_job_statuses: Arc::new(Mutex::new(HashMap::new())),
                 firmware_job_errors: Arc::new(Mutex::new(HashMap::new())),
                 submitted_apply_switch_system_image_requests: Arc::new(Mutex::new(Vec::new())),
-                submitted_apply_switch_system_image_from_json_requests: Arc::new(Mutex::new(
-                    Vec::new(),
-                )),
                 queued_apply_switch_system_image_responses: Arc::new(Mutex::new(VecDeque::new())),
                 switch_system_image_job_statuses: Arc::new(Mutex::new(HashMap::new())),
                 switch_system_image_job_errors: Arc::new(Mutex::new(HashMap::new())),
-                submitted_get_device_info_by_device_list_requests: Arc::new(Mutex::new(Vec::new())),
-                queued_get_device_info_by_device_list_responses: Arc::new(Mutex::new(
-                    VecDeque::new(),
-                )),
+                submitted_batch_get_node_device_info_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_batch_get_node_device_info_responses: Arc::new(Mutex::new(VecDeque::new())),
+                submitted_batch_get_power_state_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_batch_get_power_state_responses: Arc::new(Mutex::new(VecDeque::new())),
                 submitted_configure_scale_up_fabric_manager_requests: Arc::new(Mutex::new(
                     Vec::new(),
                 )),
                 queued_configure_scale_up_fabric_manager_responses: Arc::new(Mutex::new(
                     VecDeque::new(),
                 )),
-                submitted_set_scale_up_fabric_state_requests: Arc::new(Mutex::new(Vec::new())),
-                queued_set_scale_up_fabric_state_responses: Arc::new(Mutex::new(VecDeque::new())),
-                submitted_set_power_state_by_device_list_requests: Arc::new(Mutex::new(Vec::new())),
-                queued_set_power_state_by_device_list_responses: Arc::new(Mutex::new(
+                submitted_batch_set_scale_up_fabric_state_requests: Arc::new(
+                    Mutex::new(Vec::new()),
+                ),
+                queued_batch_set_scale_up_fabric_state_responses: Arc::new(Mutex::new(
                     VecDeque::new(),
                 )),
+                submitted_batch_get_scale_up_fabric_service_status_requests: Arc::new(Mutex::new(
+                    Vec::new(),
+                )),
+                queued_batch_get_scale_up_fabric_service_status_responses: Arc::new(Mutex::new(
+                    VecDeque::new(),
+                )),
+                submitted_batch_set_power_state_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_batch_set_power_state_responses: Arc::new(Mutex::new(VecDeque::new())),
             }
         }
     }
@@ -158,43 +168,42 @@ pub mod test_support {
 
         fn build_mock_client(&self) -> MockRmsClient {
             MockRmsClient {
-                submitted_get_power_state_by_device_list_requests: Arc::new(Mutex::new(Vec::new())),
-                queued_get_power_state_by_device_list_responses: Arc::new(Mutex::new(
-                    VecDeque::new(),
-                )),
-                fail_add_node: self.fail_add_node.clone(),
+                fail_create_nodes: self.fail_create_nodes.clone(),
                 fail_inventory_get: self.fail_inventory_get.clone(),
                 registered_nodes: self.registered_nodes.clone(),
                 firmware_objects: self.firmware_objects.clone(),
                 submitted_firmware_requests: self.submitted_firmware_requests.clone(),
                 queued_firmware_responses: self.queued_firmware_responses.clone(),
-                submitted_firmware_object_apply_requests: self
-                    .submitted_firmware_object_apply_requests
+                submitted_apply_stored_firmware_object_requests: self
+                    .submitted_apply_stored_firmware_object_requests
                     .clone(),
                 queued_firmware_object_apply_responses: self
                     .queued_firmware_object_apply_responses
                     .clone(),
-                submitted_firmware_object_from_json_apply_requests: self
-                    .submitted_firmware_object_from_json_apply_requests
+                submitted_apply_firmware_object_requests: self
+                    .submitted_apply_firmware_object_requests
                     .clone(),
                 firmware_job_statuses: self.firmware_job_statuses.clone(),
                 firmware_job_errors: self.firmware_job_errors.clone(),
                 submitted_apply_switch_system_image_requests: self
                     .submitted_apply_switch_system_image_requests
                     .clone(),
-                submitted_apply_switch_system_image_from_json_requests: self
-                    .submitted_apply_switch_system_image_from_json_requests
-                    .clone(),
                 queued_apply_switch_system_image_responses: self
                     .queued_apply_switch_system_image_responses
                     .clone(),
                 switch_system_image_job_statuses: self.switch_system_image_job_statuses.clone(),
                 switch_system_image_job_errors: self.switch_system_image_job_errors.clone(),
-                submitted_get_device_info_by_device_list_requests: self
-                    .submitted_get_device_info_by_device_list_requests
+                submitted_batch_get_node_device_info_requests: self
+                    .submitted_batch_get_node_device_info_requests
                     .clone(),
-                queued_get_device_info_by_device_list_responses: self
-                    .queued_get_device_info_by_device_list_responses
+                queued_batch_get_node_device_info_responses: self
+                    .queued_batch_get_node_device_info_responses
+                    .clone(),
+                submitted_batch_get_power_state_requests: self
+                    .submitted_batch_get_power_state_requests
+                    .clone(),
+                queued_batch_get_power_state_responses: self
+                    .queued_batch_get_power_state_responses
                     .clone(),
                 submitted_configure_scale_up_fabric_manager_requests: self
                     .submitted_configure_scale_up_fabric_manager_requests
@@ -202,25 +211,31 @@ pub mod test_support {
                 queued_configure_scale_up_fabric_manager_responses: self
                     .queued_configure_scale_up_fabric_manager_responses
                     .clone(),
-                submitted_set_scale_up_fabric_state_requests: self
-                    .submitted_set_scale_up_fabric_state_requests
+                submitted_batch_set_scale_up_fabric_state_requests: self
+                    .submitted_batch_set_scale_up_fabric_state_requests
                     .clone(),
-                queued_set_scale_up_fabric_state_responses: self
-                    .queued_set_scale_up_fabric_state_responses
+                queued_batch_set_scale_up_fabric_state_responses: self
+                    .queued_batch_set_scale_up_fabric_state_responses
                     .clone(),
-                submitted_set_power_state_by_device_list_requests: self
-                    .submitted_set_power_state_by_device_list_requests
+                submitted_batch_get_scale_up_fabric_service_status_requests: self
+                    .submitted_batch_get_scale_up_fabric_service_status_requests
                     .clone(),
-                queued_set_power_state_by_device_list_responses: self
-                    .queued_set_power_state_by_device_list_responses
+                queued_batch_get_scale_up_fabric_service_status_responses: self
+                    .queued_batch_get_scale_up_fabric_service_status_responses
+                    .clone(),
+                submitted_batch_set_power_state_requests: self
+                    .submitted_batch_set_power_state_requests
+                    .clone(),
+                queued_batch_set_power_state_responses: self
+                    .queued_batch_set_power_state_responses
                     .clone(),
             }
         }
 
-        /// Set whether `add_node` should return an error for testing
+        /// Set whether `create_nodes` should return an error for testing
         /// if registration attempts are failing (and should retry).
-        pub fn set_fail_add_node(&self, fail: bool) {
-            self.fail_add_node.store(fail, Ordering::Relaxed);
+        pub fn set_fail_create_nodes(&self, fail: bool) {
+            self.fail_create_nodes.store(fail, Ordering::Relaxed);
         }
 
         /// Set whether `inventory_get` should return an error for
@@ -233,7 +248,7 @@ pub mod test_support {
 
         pub async fn queue_update_firmware_response(
             &self,
-            response: rms::UpdateFirmwareByDeviceListResponse,
+            response: rms::BatchUpdateFirmwareResponse,
         ) {
             self.queued_firmware_responses
                 .lock()
@@ -259,9 +274,7 @@ pub mod test_support {
                 .insert(job_id.into(), message.into());
         }
 
-        pub async fn submitted_firmware_requests(
-            &self,
-        ) -> Vec<rms::UpdateFirmwareByDeviceListRequest> {
+        pub async fn submitted_firmware_requests(&self) -> Vec<rms::BatchUpdateFirmwareRequest> {
             self.submitted_firmware_requests.lock().await.clone()
         }
 
@@ -285,16 +298,16 @@ pub mod test_support {
         pub async fn submitted_apply_firmware_object_requests(
             &self,
         ) -> Vec<rms::ApplyFirmwareObjectRequest> {
-            self.submitted_firmware_object_apply_requests
+            self.submitted_apply_firmware_object_requests
                 .lock()
                 .await
                 .clone()
         }
 
-        pub async fn submitted_apply_firmware_object_from_json_requests(
+        pub async fn submitted_apply_stored_firmware_object_requests(
             &self,
-        ) -> Vec<rms::ApplyFirmwareObjectFromJsonRequest> {
-            self.submitted_firmware_object_from_json_apply_requests
+        ) -> Vec<rms::ApplyStoredFirmwareObjectRequest> {
+            self.submitted_apply_stored_firmware_object_requests
                 .lock()
                 .await
                 .clone()
@@ -340,29 +353,42 @@ pub mod test_support {
                 .clone()
         }
 
-        pub async fn submitted_apply_switch_system_image_from_json_requests(
+        pub async fn queue_batch_get_node_device_info_response(
             &self,
-        ) -> Vec<rms::ApplySwitchSystemImageFromJsonRequest> {
-            self.submitted_apply_switch_system_image_from_json_requests
-                .lock()
-                .await
-                .clone()
-        }
-
-        pub async fn queue_get_device_info_by_device_list_response(
-            &self,
-            response: Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError>,
+            response: Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError>,
         ) {
-            self.queued_get_device_info_by_device_list_responses
+            self.queued_batch_get_node_device_info_responses
                 .lock()
                 .await
                 .push_back(response);
         }
 
-        pub async fn submitted_get_device_info_by_device_list_requests(
+        pub async fn submitted_batch_get_node_device_info_requests(
             &self,
-        ) -> Vec<rms::GetDeviceInfoByDeviceListRequest> {
-            self.submitted_get_device_info_by_device_list_requests
+        ) -> Vec<rms::BatchGetNodeDeviceInfoRequest> {
+            self.submitted_batch_get_node_device_info_requests
+                .lock()
+                .await
+                .clone()
+        }
+
+        /// Queue a `Result` to be returned on the next call to
+        /// `batch_get_power_state`.
+        pub async fn queue_batch_get_power_state_response(
+            &self,
+            response: Result<rms::BatchGetPowerStateResponse, RackManagerError>,
+        ) {
+            self.queued_batch_get_power_state_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Snapshot recorded `BatchGetPowerState` requests in call order.
+        pub async fn submitted_batch_get_power_state_requests(
+            &self,
+        ) -> Vec<rms::BatchGetPowerStateRequest> {
+            self.submitted_batch_get_power_state_requests
                 .lock()
                 .await
                 .clone()
@@ -387,45 +413,66 @@ pub mod test_support {
                 .clone()
         }
 
-        pub async fn queue_set_scale_up_fabric_state_response(
+        pub async fn queue_batch_set_scale_up_fabric_state_response(
             &self,
-            response: Result<rms::SetScaleUpFabricStateResponse, RackManagerError>,
+            response: Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>,
         ) {
-            self.queued_set_scale_up_fabric_state_responses
+            self.queued_batch_set_scale_up_fabric_state_responses
                 .lock()
                 .await
                 .push_back(response);
         }
 
-        pub async fn submitted_set_scale_up_fabric_state_requests(
+        pub async fn submitted_batch_set_scale_up_fabric_state_requests(
             &self,
-        ) -> Vec<rms::SetScaleUpFabricStateRequest> {
-            self.submitted_set_scale_up_fabric_state_requests
+        ) -> Vec<rms::BatchSetScaleUpFabricStateRequest> {
+            self.submitted_batch_set_scale_up_fabric_state_requests
+                .lock()
+                .await
+                .clone()
+        }
+
+        /// Queue a response for the next `batch_get_scale_up_fabric_service_status` call.
+        pub async fn queue_batch_get_scale_up_fabric_service_status_response(
+            &self,
+            response: Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError>,
+        ) {
+            self.queued_batch_get_scale_up_fabric_service_status_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        /// Snapshot recorded `BatchGetScaleUpFabricServiceStatus` requests in call order.
+        pub async fn submitted_batch_get_scale_up_fabric_service_status_requests(
+            &self,
+        ) -> Vec<rms::BatchGetScaleUpFabricServiceStatusRequest> {
+            self.submitted_batch_get_scale_up_fabric_service_status_requests
                 .lock()
                 .await
                 .clone()
         }
 
         /// Queue a `Result` to be returned on the next call to
-        /// `set_power_state_by_device_list`. Used by power-shelf maintenance
+        /// `batch_set_power_state`. Used by power-shelf maintenance
         /// tests to drive both the success and failure paths of the
-        /// caller-supplied `SetPowerStateByDeviceList` RPC.
-        pub async fn queue_set_power_state_by_device_list_response(
+        /// caller-supplied `BatchSetPowerState` RPC.
+        pub async fn queue_batch_set_power_state_response(
             &self,
-            response: Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>,
+            response: Result<rms::BatchSetPowerStateResponse, RackManagerError>,
         ) {
-            self.queued_set_power_state_by_device_list_responses
+            self.queued_batch_set_power_state_responses
                 .lock()
                 .await
                 .push_back(response);
         }
 
-        /// Snapshot the recorded `SetPowerStateByDeviceList` requests, in
+        /// Snapshot the recorded `BatchSetPowerState` requests, in
         /// the order they were received.
-        pub async fn submitted_set_power_state_by_device_list_requests(
+        pub async fn submitted_batch_set_power_state_requests(
             &self,
-        ) -> Vec<rms::SetPowerStateByDeviceListRequest> {
-            self.submitted_set_power_state_by_device_list_requests
+        ) -> Vec<rms::BatchSetPowerStateRequest> {
+            self.submitted_batch_set_power_state_requests
                 .lock()
                 .await
                 .clone()
@@ -434,81 +481,69 @@ pub mod test_support {
 
     #[derive(Debug, Clone)]
     pub struct MockRmsClient {
-        fail_add_node: Arc<AtomicBool>,
+        fail_create_nodes: Arc<AtomicBool>,
         fail_inventory_get: Arc<AtomicBool>,
         registered_nodes: Arc<Mutex<Vec<rms::NodeInventoryInfo>>>,
         firmware_objects: Arc<Mutex<HashMap<String, rms::FirmwareObject>>>,
-        submitted_firmware_requests: Arc<Mutex<Vec<rms::UpdateFirmwareByDeviceListRequest>>>,
-        queued_firmware_responses: Arc<Mutex<VecDeque<rms::UpdateFirmwareByDeviceListResponse>>>,
-        submitted_firmware_object_apply_requests: Arc<Mutex<Vec<rms::ApplyFirmwareObjectRequest>>>,
+        submitted_firmware_requests: Arc<Mutex<Vec<rms::BatchUpdateFirmwareRequest>>>,
+        queued_firmware_responses: Arc<Mutex<VecDeque<rms::BatchUpdateFirmwareResponse>>>,
+        submitted_apply_stored_firmware_object_requests:
+            Arc<Mutex<Vec<rms::ApplyStoredFirmwareObjectRequest>>>,
         queued_firmware_object_apply_responses:
             Arc<Mutex<VecDeque<rms::ApplyFirmwareObjectResponse>>>,
-        submitted_firmware_object_from_json_apply_requests:
-            Arc<Mutex<Vec<rms::ApplyFirmwareObjectFromJsonRequest>>>,
+        submitted_apply_firmware_object_requests: Arc<Mutex<Vec<rms::ApplyFirmwareObjectRequest>>>,
         firmware_job_statuses: Arc<Mutex<HashMap<String, rms::GetFirmwareJobStatusResponse>>>,
         firmware_job_errors: Arc<Mutex<HashMap<String, String>>>,
         submitted_apply_switch_system_image_requests:
             Arc<Mutex<Vec<rms::ApplySwitchSystemImageRequest>>>,
-        submitted_apply_switch_system_image_from_json_requests:
-            Arc<Mutex<Vec<rms::ApplySwitchSystemImageFromJsonRequest>>>,
         queued_apply_switch_system_image_responses:
             Arc<Mutex<VecDeque<rms::ApplySwitchSystemImageResponse>>>,
         switch_system_image_job_statuses:
             Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
         switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
-        submitted_get_power_state_by_device_list_requests:
-            Arc<Mutex<Vec<rms::GetPowerStateByDeviceListRequest>>>,
-        queued_get_power_state_by_device_list_responses:
-            Arc<Mutex<VecDeque<Result<rms::GetPowerStateByDeviceListResponse, RackManagerError>>>>,
-        submitted_get_device_info_by_device_list_requests:
-            Arc<Mutex<Vec<rms::GetDeviceInfoByDeviceListRequest>>>,
-        queued_get_device_info_by_device_list_responses:
-            Arc<Mutex<VecDeque<Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError>>>>,
+        submitted_batch_get_node_device_info_requests:
+            Arc<Mutex<Vec<rms::BatchGetNodeDeviceInfoRequest>>>,
+        queued_batch_get_node_device_info_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError>>>>,
+        submitted_batch_get_power_state_requests: Arc<Mutex<Vec<rms::BatchGetPowerStateRequest>>>,
+        queued_batch_get_power_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchGetPowerStateResponse, RackManagerError>>>>,
         submitted_configure_scale_up_fabric_manager_requests:
             Arc<Mutex<Vec<rms::ConfigureScaleUpFabricManagerRequest>>>,
         queued_configure_scale_up_fabric_manager_responses: Arc<
             Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
         >,
-        submitted_set_scale_up_fabric_state_requests:
-            Arc<Mutex<Vec<rms::SetScaleUpFabricStateRequest>>>,
-        queued_set_scale_up_fabric_state_responses:
-            Arc<Mutex<VecDeque<Result<rms::SetScaleUpFabricStateResponse, RackManagerError>>>>,
-        submitted_set_power_state_by_device_list_requests:
-            Arc<Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>>,
-        queued_set_power_state_by_device_list_responses:
-            Arc<Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>>,
+        submitted_batch_set_scale_up_fabric_state_requests:
+            Arc<Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>>,
+        queued_batch_set_scale_up_fabric_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>>>>,
+        submitted_batch_get_scale_up_fabric_service_status_requests:
+            Arc<Mutex<Vec<rms::BatchGetScaleUpFabricServiceStatusRequest>>>,
+        queued_batch_get_scale_up_fabric_service_status_responses: Arc<
+            Mutex<
+                VecDeque<Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError>>,
+            >,
+        >,
+        submitted_batch_set_power_state_requests: Arc<Mutex<Vec<rms::BatchSetPowerStateRequest>>>,
+        queued_batch_set_power_state_responses:
+            Arc<Mutex<VecDeque<Result<rms::BatchSetPowerStateResponse, RackManagerError>>>>,
     }
 
     #[async_trait::async_trait]
     impl RmsApi for MockRmsClient {
-        async fn get_power_state_by_device_list(
+        async fn batch_get_node_device_info(
             &self,
-            cmd: rms::GetPowerStateByDeviceListRequest,
-        ) -> Result<rms::GetPowerStateByDeviceListResponse, RackManagerError> {
-            self.submitted_get_power_state_by_device_list_requests
+            cmd: rms::BatchGetNodeDeviceInfoRequest,
+        ) -> Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError> {
+            self.submitted_batch_get_node_device_info_requests
                 .lock()
                 .await
                 .push(cmd);
-            self.queued_get_power_state_by_device_list_responses
+            self.queued_batch_get_node_device_info_responses
                 .lock()
                 .await
                 .pop_front()
-                .unwrap_or(Ok(rms::GetPowerStateByDeviceListResponse::default()))
-        }
-
-        async fn get_device_info_by_device_list(
-            &self,
-            cmd: rms::GetDeviceInfoByDeviceListRequest,
-        ) -> Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError> {
-            self.submitted_get_device_info_by_device_list_requests
-                .lock()
-                .await
-                .push(cmd);
-            self.queued_get_device_info_by_device_list_responses
-                .lock()
-                .await
-                .pop_front()
-                .unwrap_or(Ok(rms::GetDeviceInfoByDeviceListResponse::default()))
+                .unwrap_or(Ok(rms::BatchGetNodeDeviceInfoResponse::default()))
         }
         async fn get_node_device_info(
             &self,
@@ -516,16 +551,16 @@ pub mod test_support {
         ) -> Result<rms::GetNodeDeviceInfoResponse, RackManagerError> {
             Ok(rms::GetNodeDeviceInfoResponse::default())
         }
-        async fn get_device_info_by_node_type(
+        async fn list_node_device_info_by_node_type(
             &self,
-            _cmd: rms::GetDeviceInfoByNodeTypeRequest,
-        ) -> Result<rms::GetDeviceInfoByNodeTypeResponse, RackManagerError> {
-            Ok(rms::GetDeviceInfoByNodeTypeResponse::default())
+            _cmd: rms::ListNodeDeviceInfoByNodeTypeRequest,
+        ) -> Result<rms::ListNodeDeviceInfoByNodeTypeResponse, RackManagerError> {
+            Ok(rms::ListNodeDeviceInfoByNodeTypeResponse::default())
         }
-        async fn update_firmware_by_device_list(
+        async fn batch_update_firmware(
             &self,
-            cmd: rms::UpdateFirmwareByDeviceListRequest,
-        ) -> Result<rms::UpdateFirmwareByDeviceListResponse, RackManagerError> {
+            cmd: rms::BatchUpdateFirmwareRequest,
+        ) -> Result<rms::BatchUpdateFirmwareResponse, RackManagerError> {
             self.submitted_firmware_requests.lock().await.push(cmd);
             Ok(self
                 .queued_firmware_responses
@@ -546,19 +581,19 @@ pub mod test_support {
         ) -> Result<rms::SetPowerStateResponse, RackManagerError> {
             Ok(rms::SetPowerStateResponse::default())
         }
-        async fn set_power_state_by_device_list(
+        async fn batch_set_power_state(
             &self,
-            cmd: rms::SetPowerStateByDeviceListRequest,
-        ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
-            self.submitted_set_power_state_by_device_list_requests
+            cmd: rms::BatchSetPowerStateRequest,
+        ) -> Result<rms::BatchSetPowerStateResponse, RackManagerError> {
+            self.submitted_batch_set_power_state_requests
                 .lock()
                 .await
                 .push(cmd);
-            self.queued_set_power_state_by_device_list_responses
+            self.queued_batch_set_power_state_responses
                 .lock()
                 .await
                 .pop_front()
-                .unwrap_or(Ok(rms::SetPowerStateByDeviceListResponse::default()))
+                .unwrap_or(Ok(rms::BatchSetPowerStateResponse::default()))
         }
         async fn get_power_state(
             &self,
@@ -566,48 +601,63 @@ pub mod test_support {
         ) -> Result<rms::GetPowerStateResponse, RackManagerError> {
             Ok(rms::GetPowerStateResponse::default())
         }
+
+        async fn batch_get_power_state(
+            &self,
+            cmd: rms::BatchGetPowerStateRequest,
+        ) -> Result<rms::BatchGetPowerStateResponse, RackManagerError> {
+            self.submitted_batch_get_power_state_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_batch_get_power_state_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::BatchGetPowerStateResponse::default()))
+        }
+
         async fn sequence_rack_power(
             &self,
             _cmd: rms::SequenceRackPowerRequest,
         ) -> Result<rms::SequenceRackPowerResponse, RackManagerError> {
             Ok(rms::SequenceRackPowerResponse::default())
         }
-        async fn get_all_inventory(
+        async fn list_node_inventory(
             &self,
-            _cmd: rms::GetAllInventoryRequest,
-        ) -> Result<rms::GetAllInventoryResponse, RackManagerError> {
+        ) -> Result<rms::ListNodeInventoryResponse, RackManagerError> {
             if self.fail_inventory_get.load(Ordering::Relaxed) {
                 return Err(RackManagerError::ApiInvocationError(
                     tonic::Status::unavailable("mock RMS inventory_get failure"),
                 ));
             }
             let nodes = self.registered_nodes.lock().await.clone();
-            Ok(rms::GetAllInventoryResponse {
-                nodes,
-                ..Default::default()
-            })
+            Ok(rms::ListNodeInventoryResponse { nodes })
         }
-        async fn add_node(
+        async fn create_nodes(
             &self,
-            cmd: rms::AddNodeRequest,
-        ) -> Result<rms::AddNodeResponse, RackManagerError> {
-            if self.fail_add_node.load(Ordering::Relaxed) {
+            cmd: rms::CreateNodesRequest,
+        ) -> Result<rms::CreateNodesResponse, RackManagerError> {
+            if self.fail_create_nodes.load(Ordering::Relaxed) {
                 return Err(RackManagerError::ApiInvocationError(
-                    tonic::Status::unavailable("mock RMS add_node failure"),
+                    tonic::Status::unavailable("mock RMS create_nodes failure"),
                 ));
             }
             // Track registered nodes so inventory_get can find them,
             // just like a real RMS would.
             let mut registered = self.registered_nodes.lock().await;
-            for node in cmd.node_info {
-                registered.push(librms::protos::rack_manager::NodeInventoryInfo {
-                    node_id: node.node_id.clone(),
-                    rack_id: node.rack_id.clone(),
-                    r#type: node.r#type.unwrap_or(0),
-                    ..Default::default()
-                });
+            if let Some(nodes) = cmd.nodes {
+                for node in nodes.nodes {
+                    registered.push(librms::protos::rack_manager::NodeInventoryInfo {
+                        node_id: node.node_id.clone(),
+                        rack_id: node.rack_id.clone(),
+                        r#type: node.r#type.unwrap_or(0),
+                        ..Default::default()
+                    });
+                }
             }
-            Ok(rms::AddNodeResponse::default())
+
+            Ok(rms::CreateNodesResponse::default())
         }
         async fn update_node(
             &self,
@@ -615,11 +665,11 @@ pub mod test_support {
         ) -> Result<rms::UpdateNodeResponse, RackManagerError> {
             Ok(rms::UpdateNodeResponse::default())
         }
-        async fn remove_node(
+        async fn delete_node(
             &self,
-            _cmd: rms::RemoveNodeRequest,
-        ) -> Result<rms::RemoveNodeResponse, RackManagerError> {
-            Ok(rms::RemoveNodeResponse::default())
+            _cmd: rms::DeleteNodeRequest,
+        ) -> Result<rms::DeleteNodeResponse, RackManagerError> {
+            Ok(rms::DeleteNodeResponse::default())
         }
         async fn get_rack_power_on_sequence(
             &self,
@@ -633,10 +683,7 @@ pub mod test_support {
         ) -> Result<rms::SetRackPowerOnSequenceResponse, RackManagerError> {
             Ok(rms::SetRackPowerOnSequenceResponse::default())
         }
-        async fn list_racks(
-            &self,
-            _cmd: rms::ListRacksRequest,
-        ) -> Result<rms::ListRacksResponse, RackManagerError> {
+        async fn list_racks(&self) -> Result<rms::ListRacksResponse, RackManagerError> {
             Ok(rms::ListRacksResponse::default())
         }
         async fn get_node_firmware_inventory(
@@ -654,23 +701,26 @@ pub mod test_support {
         async fn add_firmware_object(
             &self,
             cmd: rms::AddFirmwareObjectRequest,
-        ) -> Result<rms::FirmwareObject, RackManagerError> {
-            let value =
-                serde_json::from_str::<serde_json::Value>(&cmd.config_json).map_err(|e| {
+        ) -> Result<rms::AddFirmwareObjectResponse, RackManagerError> {
+            #[derive(serde::Deserialize)]
+            struct FirmwareObjectConfig {
+                #[serde(rename = "Id")]
+                id: String,
+            }
+
+            let config =
+                serde_json::from_str::<FirmwareObjectConfig>(&cmd.config_json).map_err(|e| {
                     RackManagerError::ApiInvocationError(tonic::Status::invalid_argument(format!(
                         "invalid config_json: {e}"
                     )))
                 })?;
-            let id = value
-                .get("Id")
-                .and_then(serde_json::Value::as_str)
-                .filter(|id| !id.is_empty())
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    RackManagerError::ApiInvocationError(tonic::Status::invalid_argument(
-                        "config_json must contain non-empty Id",
-                    ))
-                })?;
+            if config.id.is_empty() {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::invalid_argument("config_json must contain non-empty Id"),
+                ));
+            }
+            let id = config.id;
+
             let mut objects = self.firmware_objects.lock().await;
             let is_default = cmd.set_default
                 || !objects.values().any(|existing| {
@@ -692,13 +742,16 @@ pub mod test_support {
                 }
             }
             objects.insert(id, object.clone());
-            Ok(object)
+            Ok(rms::AddFirmwareObjectResponse {
+                object: Some(object),
+            })
         }
         async fn get_firmware_object(
             &self,
             cmd: rms::GetFirmwareObjectRequest,
-        ) -> Result<rms::FirmwareObject, RackManagerError> {
-            self.firmware_objects
+        ) -> Result<rms::GetFirmwareObjectResponse, RackManagerError> {
+            let object = self
+                .firmware_objects
                 .lock()
                 .await
                 .get(&cmd.id)
@@ -708,7 +761,11 @@ pub mod test_support {
                         "firmware object {} not found",
                         cmd.id
                     )))
-                })
+                })?;
+
+            Ok(rms::GetFirmwareObjectResponse {
+                object: Some(object),
+            })
         }
         async fn list_firmware_objects(
             &self,
@@ -730,17 +787,19 @@ pub mod test_support {
         async fn delete_firmware_object(
             &self,
             cmd: rms::DeleteFirmwareObjectRequest,
-        ) -> Result<rms::OperationResponse, RackManagerError> {
+        ) -> Result<rms::DeleteFirmwareObjectResponse, RackManagerError> {
             self.firmware_objects.lock().await.remove(&cmd.id);
-            Ok(rms::OperationResponse {
-                status: rms::ReturnCode::Success as i32,
-                ..Default::default()
+            Ok(rms::DeleteFirmwareObjectResponse {
+                response: Some(rms::OperationResponse {
+                    status: rms::ReturnCode::Success as i32,
+                    ..Default::default()
+                }),
             })
         }
         async fn set_default_firmware_object(
             &self,
             cmd: rms::SetDefaultFirmwareObjectRequest,
-        ) -> Result<rms::FirmwareObject, RackManagerError> {
+        ) -> Result<rms::SetDefaultFirmwareObjectResponse, RackManagerError> {
             let mut objects = self.firmware_objects.lock().await;
             let hardware_type = objects
                 .get(&cmd.object_id)
@@ -756,16 +815,36 @@ pub mod test_support {
                     object.is_default = object.id == cmd.object_id;
                 }
             }
-            Ok(objects
-                .get(&cmd.object_id)
-                .cloned()
-                .expect("firmware object existence validated above"))
+            let Some(object) = objects.get(&cmd.object_id).cloned() else {
+                return Err(RackManagerError::ApiInvocationError(
+                    tonic::Status::not_found(format!(
+                        "firmware object {} not found",
+                        cmd.object_id
+                    )),
+                ));
+            };
+
+            Ok(rms::SetDefaultFirmwareObjectResponse {
+                object: Some(object),
+            })
         }
+
+        async fn apply_stored_firmware_object(
+            &self,
+            cmd: rms::ApplyStoredFirmwareObjectRequest,
+        ) -> Result<rms::ApplyStoredFirmwareObjectResponse, RackManagerError> {
+            self.submitted_apply_stored_firmware_object_requests
+                .lock()
+                .await
+                .push(cmd);
+            Ok(rms::ApplyStoredFirmwareObjectResponse::default())
+        }
+
         async fn apply_firmware_object(
             &self,
             cmd: rms::ApplyFirmwareObjectRequest,
         ) -> Result<rms::ApplyFirmwareObjectResponse, RackManagerError> {
-            self.submitted_firmware_object_apply_requests
+            self.submitted_apply_firmware_object_requests
                 .lock()
                 .await
                 .push(cmd);
@@ -776,36 +855,20 @@ pub mod test_support {
                 .pop_front()
                 .unwrap_or_default())
         }
-        async fn apply_firmware_object_from_json(
+        async fn update_switch_system_image(
             &self,
-            cmd: rms::ApplyFirmwareObjectFromJsonRequest,
-        ) -> Result<rms::ApplyFirmwareObjectResponse, RackManagerError> {
-            self.submitted_firmware_object_from_json_apply_requests
-                .lock()
-                .await
-                .push(cmd);
-            Ok(self
-                .queued_firmware_object_apply_responses
-                .lock()
-                .await
-                .pop_front()
-                .unwrap_or_default())
+            _cmd: rms::UpdateSwitchSystemImageRequest,
+        ) -> Result<rms::UpdateSwitchSystemImageResponse, RackManagerError> {
+            Ok(rms::UpdateSwitchSystemImageResponse::default())
         }
-        async fn apply_switch_system_image_from_json(
+
+        async fn apply_stored_switch_system_image(
             &self,
-            cmd: rms::ApplySwitchSystemImageFromJsonRequest,
-        ) -> Result<rms::ApplySwitchSystemImageResponse, RackManagerError> {
-            self.submitted_apply_switch_system_image_from_json_requests
-                .lock()
-                .await
-                .push(cmd);
-            Ok(self
-                .queued_apply_switch_system_image_responses
-                .lock()
-                .await
-                .pop_front()
-                .unwrap_or_default())
+            _cmd: rms::ApplyStoredSwitchSystemImageRequest,
+        ) -> Result<rms::ApplyStoredSwitchSystemImageResponse, RackManagerError> {
+            Ok(rms::ApplyStoredSwitchSystemImageResponse::default())
         }
+
         async fn apply_switch_system_image(
             &self,
             cmd: rms::ApplySwitchSystemImageRequest,
@@ -827,23 +890,23 @@ pub mod test_support {
         ) -> Result<rms::GetFirmwareObjectHistoryResponse, RackManagerError> {
             Ok(rms::GetFirmwareObjectHistoryResponse::default())
         }
-        async fn list_firmware_on_switch(
+        async fn list_switch_firmware(
             &self,
-            _cmd: rms::ListFirmwareOnSwitchCommand,
-        ) -> Result<rms::ListFirmwareOnSwitchResponse, RackManagerError> {
-            Ok(rms::ListFirmwareOnSwitchResponse::default())
+            _cmd: rms::ListSwitchFirmwareRequest,
+        ) -> Result<rms::ListSwitchFirmwareResponse, RackManagerError> {
+            Ok(rms::ListSwitchFirmwareResponse::default())
         }
-        async fn push_firmware_to_switch(
+        async fn push_switch_firmware(
             &self,
-            _cmd: rms::PushFirmwareToSwitchCommand,
-        ) -> Result<rms::PushFirmwareToSwitchResponse, RackManagerError> {
-            Ok(rms::PushFirmwareToSwitchResponse::default())
+            _cmd: rms::PushSwitchFirmwareRequest,
+        ) -> Result<rms::PushSwitchFirmwareResponse, RackManagerError> {
+            Ok(rms::PushSwitchFirmwareResponse::default())
         }
-        async fn upgrade_firmware_on_switch(
+        async fn upgrade_switch_firmware(
             &self,
-            _cmd: rms::UpgradeFirmwareOnSwitchCommand,
-        ) -> Result<rms::UpgradeFirmwareOnSwitchResponse, RackManagerError> {
-            Ok(rms::UpgradeFirmwareOnSwitchResponse::default())
+            _cmd: rms::UpgradeSwitchFirmwareRequest,
+        ) -> Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError> {
+            Ok(rms::UpgradeSwitchFirmwareResponse::default())
         }
         async fn configure_scale_up_fabric_manager(
             &self,
@@ -859,19 +922,43 @@ pub mod test_support {
                 .pop_front()
                 .unwrap_or(Ok(rms::ConfigureScaleUpFabricManagerResponse::default()))
         }
-        async fn set_scale_up_fabric_state(
+        async fn batch_set_scale_up_fabric_state(
             &self,
-            cmd: rms::SetScaleUpFabricStateRequest,
-        ) -> Result<rms::SetScaleUpFabricStateResponse, RackManagerError> {
-            self.submitted_set_scale_up_fabric_state_requests
+            cmd: rms::BatchSetScaleUpFabricStateRequest,
+        ) -> Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError> {
+            self.submitted_batch_set_scale_up_fabric_state_requests
                 .lock()
                 .await
                 .push(cmd);
-            self.queued_set_scale_up_fabric_state_responses
+            self.queued_batch_set_scale_up_fabric_state_responses
                 .lock()
                 .await
                 .pop_front()
-                .unwrap_or(Ok(rms::SetScaleUpFabricStateResponse::default()))
+                .unwrap_or(Ok(rms::BatchSetScaleUpFabricStateResponse::default()))
+        }
+        async fn batch_get_scale_up_fabric_service_status(
+            &self,
+            cmd: rms::BatchGetScaleUpFabricServiceStatusRequest,
+        ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError> {
+            self.submitted_batch_get_scale_up_fabric_service_status_requests
+                .lock()
+                .await
+                .push(cmd);
+
+            self.queued_batch_get_scale_up_fabric_service_status_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(
+                    rms::BatchGetScaleUpFabricServiceStatusResponse::default(),
+                ))
+        }
+
+        async fn get_scale_up_fabric_state(
+            &self,
+            _cmd: rms::GetScaleUpFabricStateRequest,
+        ) -> Result<rms::GetScaleUpFabricStateResponse, RackManagerError> {
+            Ok(rms::GetScaleUpFabricStateResponse::default())
         }
         async fn fetch_switch_system_image(
             &self,
@@ -891,32 +978,42 @@ pub mod test_support {
         ) -> Result<rms::ListSwitchSystemImagesResponse, RackManagerError> {
             Ok(rms::ListSwitchSystemImagesResponse::default())
         }
-        async fn enable_scale_up_fabric_telemetry_interface(
+        async fn set_scale_up_fabric_telemetry_interface_state(
             &self,
-            _cmd: rms::EnableScaleUpFabricTelemetryInterfaceRequest,
-        ) -> Result<rms::EnableScaleUpFabricTelemetryInterfaceResponse, RackManagerError> {
-            Ok(rms::EnableScaleUpFabricTelemetryInterfaceResponse::default())
+            _cmd: rms::SetScaleUpFabricTelemetryInterfaceStateRequest,
+        ) -> Result<rms::SetScaleUpFabricTelemetryInterfaceStateResponse, RackManagerError>
+        {
+            Ok(rms::SetScaleUpFabricTelemetryInterfaceStateResponse::default())
         }
-        async fn version(&self) -> Result<(), RackManagerError> {
-            Ok(())
-        }
-        async fn poll_job_status(
+        async fn get_switch_system_image_job_status(
             &self,
-            _cmd: rms::PollJobStatusCommand,
-        ) -> Result<rms::PollJobStatusResponse, RackManagerError> {
-            Ok(rms::PollJobStatusResponse::default())
+            cmd: rms::GetSwitchSystemImageJobStatusRequest,
+        ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError> {
+            self.switch_system_image_job_status(cmd)
+                .await
+                .map_err(RackManagerError::ApiInvocationError)
         }
-        async fn update_node_firmware_async(
-            &self,
-            _cmd: rms::UpdateNodeFirmwareRequest,
-        ) -> Result<rms::UpdateNodeFirmwareResponse, RackManagerError> {
-            Ok(rms::UpdateNodeFirmwareResponse::default())
+
+        async fn get_version(&self) -> Result<rms::GetVersionResponse, RackManagerError> {
+            Ok(rms::GetVersionResponse::default())
         }
-        async fn update_firmware_by_node_type_async(
+        async fn poll_switch_firmware_job_status(
             &self,
-            _cmd: rms::UpdateFirmwareByNodeTypeRequest,
-        ) -> Result<rms::UpdateFirmwareByNodeTypeAsyncResponse, RackManagerError> {
-            Ok(rms::UpdateFirmwareByNodeTypeAsyncResponse::default())
+            _cmd: rms::PollSwitchFirmwareJobStatusRequest,
+        ) -> Result<rms::PollSwitchFirmwareJobStatusResponse, RackManagerError> {
+            Ok(rms::PollSwitchFirmwareJobStatusResponse::default())
+        }
+        async fn update_firmware(
+            &self,
+            _cmd: rms::UpdateFirmwareRequest,
+        ) -> Result<rms::UpdateFirmwareResponse, RackManagerError> {
+            Ok(rms::UpdateFirmwareResponse::default())
+        }
+        async fn batch_update_firmware_by_node_type(
+            &self,
+            _cmd: rms::BatchUpdateFirmwareByNodeTypeRequest,
+        ) -> Result<rms::BatchUpdateFirmwareByNodeTypeResponse, RackManagerError> {
+            Ok(rms::BatchUpdateFirmwareByNodeTypeResponse::default())
         }
         async fn get_firmware_job_status(
             &self,
@@ -951,11 +1048,11 @@ pub mod test_support {
 
     #[async_trait::async_trait]
     impl SwitchSystemImageRmsClient for MockRmsClient {
-        async fn apply_switch_system_image_from_json(
+        async fn apply_switch_system_image(
             &self,
-            cmd: rms::ApplySwitchSystemImageFromJsonRequest,
+            cmd: rms::ApplySwitchSystemImageRequest,
         ) -> Result<rms::ApplySwitchSystemImageResponse, tonic::Status> {
-            self.submitted_apply_switch_system_image_from_json_requests
+            self.submitted_apply_switch_system_image_requests
                 .lock()
                 .await
                 .push(cmd);
@@ -968,6 +1065,15 @@ pub mod test_support {
         }
 
         async fn get_switch_system_image_job_status(
+            &self,
+            cmd: rms::GetSwitchSystemImageJobStatusRequest,
+        ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, tonic::Status> {
+            self.switch_system_image_job_status(cmd).await
+        }
+    }
+
+    impl MockRmsClient {
+        async fn switch_system_image_job_status(
             &self,
             cmd: rms::GetSwitchSystemImageJobStatusRequest,
         ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, tonic::Status> {

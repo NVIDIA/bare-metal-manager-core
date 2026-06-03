@@ -6022,7 +6022,7 @@ message FirmwareUpgradeActivity {
 message NvosUpdateActivity {
   reserved 1;
   reserved "firmware_object_id";
-  // SOT JSON string passed to RMS ApplySwitchSystemImageFromJSON.
+  // SOT JSON string passed to RMS ApplySwitchSystemImage.
   // Required for nvos-update activity.
   string config_json = 2;
   // Used only by the backend for artifact download when config_json is set.
