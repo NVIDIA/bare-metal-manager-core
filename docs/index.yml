@@ -14,6 +14,7 @@ navigation:
 
     - page: Home
       path: index.md
+      icon: home
 
     - section: Overview
       contents:
@@ -61,10 +62,12 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
-        - page: Host Validation
-          path: provisioning/host-validation.md
+        - page: Machine Validation
+          path: provisioning/machine-validation.md
         - page: SKU Validation
           path: provisioning/sku-validation.md
+        - page: Measured Boot Attestation
+          path: provisioning/attestation_and_security.md
 
     - section: DPU Management
       contents:
@@ -121,6 +124,12 @@ navigation:
 
     - section: Operations
       contents:
+        - page: Network Isolation
+          path: manuals/network_isolation.md
+        - page: Network Security Groups
+          path: manuals/networking/network_security_groups.md
+        - page: InfiniBand Partitioning
+          path: manuals/networking/infiniband_partitioning.md
         - page: nicocli Reference
           path: manuals/nicocli-reference.md
         - page: NVLink Partitioning
@@ -225,4 +234,8 @@ navigation:
 
   - tab: api
     layout:
+    - page: Getting Started
+      path: openapi/getting_started.md
+      icon: flower
     - api: API Reference
+      tag-description-pages: true

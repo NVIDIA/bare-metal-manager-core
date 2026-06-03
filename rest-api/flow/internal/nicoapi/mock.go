@@ -1,24 +1,11 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nicoapi
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
@@ -31,18 +18,27 @@ type mockClient struct {
 	machineInterfaces           map[string]MachineInterface
 	expectedSwitches            map[string]ExpectedSwitchInfo // keyed by BMC MAC
 	leakingMachineIds           []string
+	leakingSwitchIds            []string
 	firmwareUpdateTimeWindowErr error // If set, SetFirmwareUpdateTimeWindow will return this error
 	adminPowerControlErr        error // If set, AdminPowerControl will return this error
 	desiredFirmwareVersions     []*pb.DesiredFirmwareVersionEntry
+	// Topology lookups exercised by the rack-assignment safety check. Tests
+	// populate these via Set...RackId / Set...HostMachineIds helpers.
+	switchRackIDs        map[string]string // switch ID → rack ID
+	powerShelfRackIDs    map[string]string // power shelf ID → rack ID
+	hostMachinesByRackID map[string][]string
 }
 
 // NewMockClient returns a "GRPC" client that returns mock values so it can be used in unit tests.
 func NewMockClient() Client {
 	return &mockClient{
-		machines:          map[string]MachineDetail{},
-		powerStates:       map[string]PowerState{},
-		machineInterfaces: map[string]MachineInterface{},
-		expectedSwitches:  map[string]ExpectedSwitchInfo{},
+		machines:             map[string]MachineDetail{},
+		powerStates:          map[string]PowerState{},
+		machineInterfaces:    map[string]MachineInterface{},
+		expectedSwitches:     map[string]ExpectedSwitchInfo{},
+		switchRackIDs:        map[string]string{},
+		powerShelfRackIDs:    map[string]string{},
+		hostMachinesByRackID: map[string][]string{},
 	}
 }
 
@@ -62,8 +58,16 @@ func (c *mockClient) GetLeakingMachineIds(ctx context.Context) ([]string, error)
 	return c.leakingMachineIds, nil
 }
 
+func (c *mockClient) GetLeakingSwitchIds(ctx context.Context) ([]string, error) {
+	return c.leakingSwitchIds, nil
+}
+
 func (c *mockClient) SetLeakingMachineIds(ids []string) {
 	c.leakingMachineIds = ids
+}
+
+func (c *mockClient) SetLeakingSwitchIds(ids []string) {
+	c.leakingSwitchIds = ids
 }
 
 func (c *mockClient) GetPowerStates(ctx context.Context, machineIds []string) (ret []MachinePowerState, err error) {
@@ -124,6 +128,62 @@ func (c *mockClient) FindMachinesByIds(ctx context.Context, machineIds []string)
 		}
 	}
 	return result, nil
+}
+
+func (c *mockClient) FindHostMachineIdsByRack(_ context.Context, rackID string) ([]string, error) {
+	if rackID == "" {
+		return nil, errors.New("rack ID is required")
+	}
+	ids := c.hostMachinesByRackID[rackID]
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out, nil
+}
+
+func (c *mockClient) FindSwitchRackIDs(_ context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(switchIds))
+	for _, id := range switchIds {
+		if rid, ok := c.switchRackIDs[id]; ok && rid != "" {
+			out[id] = rid
+		}
+	}
+	return out, nil
+}
+
+func (c *mockClient) FindPowerShelfRackIDs(_ context.Context, shelfIds []string) (map[string]string, error) {
+	if len(shelfIds) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(shelfIds))
+	for _, id := range shelfIds {
+		if rid, ok := c.powerShelfRackIDs[id]; ok && rid != "" {
+			out[id] = rid
+		}
+	}
+	return out, nil
+}
+
+// SetSwitchRackID records the rack assignment for a switch (mock only).
+func (c *mockClient) SetSwitchRackID(switchID, rackID string) {
+	c.switchRackIDs[switchID] = rackID
+}
+
+// SetPowerShelfRackID records the rack assignment for a power shelf (mock only).
+func (c *mockClient) SetPowerShelfRackID(shelfID, rackID string) {
+	c.powerShelfRackIDs[shelfID] = rackID
+}
+
+// SetRackHostMachineIDs records which host machines a rack contains (mock only).
+func (c *mockClient) SetRackHostMachineIDs(rackID string, machineIDs []string) {
+	out := make([]string, len(machineIDs))
+	copy(out, machineIDs)
+	c.hostMachinesByRackID[rackID] = out
 }
 
 func (c *mockClient) GetMachinePositionInfo(ctx context.Context, machineIds []string) ([]MachinePosition, error) {

@@ -151,12 +151,15 @@
 <a name="v1-AddComponentRequest"></a>
 
 ### AddComponentRequest
-AddComponent - add a single component to an existing rack
+AddComponent - ingest a single component into the inventory. The component
+may optionally be attached to an existing rack via component.rack_id; when
+rack_id is omitted the component is stored without a rack assignment and
+can be moved into a rack later via PatchComponent.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| component | [Component](#v1-Component) |  | Required: the component to add; component.rack_id must be set |
+| component | [Component](#v1-Component) |  | Required: the component to add. component.rack_id is optional. |
 
 
 
@@ -276,6 +279,7 @@ AddTaskScheduleScopeResponse returns the newly created scope entries.
 | target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) |  | Target racks for bring-up |
 | description | [string](#string) |  | optional task description |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, allow the bring-up sequence (which may power-cycle hosts and reset rack-scoped components) to proceed even if any host in scope is still in the Assigned/* lifecycle state. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -408,7 +412,7 @@ An empty list means no conflicts were detected.
 | component_id | [string](#string) |  | Component ID assigned by the component manager service |
 | expected | [Component](#v1-Component) |  | Populated when type is MISSING |
 | actual | [Component](#v1-Component) |  |  |
-| field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is DRIFT |
+| field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is MISMATCH |
 | id | [UUID](#v1-UUID) |  | Flow internal component UUID |
 
 
@@ -729,14 +733,15 @@ scope entries. In-flight tasks are not cancelled.
 
 ### ExternalRef
 ExternalRef identifies a component by its external system ID.
-The component type determines which external system to query
-(e.g., COMPUTE -&gt; NICo, POWERSHELF -&gt; PSM)
+All component types are routed through Core (NICo); the ID is the
+identifier expected by NICo for that component type (e.g. machine_id
+for compute, PMC MAC for power shelf).
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ComponentType](#v1-ComponentType) |  | Component type determines the source system |
-| id | [string](#string) |  | ID in that system (e.g., NICo machine_id, PSM PMC MAC) |
+| id | [string](#string) |  | ID expected by NICo for this component type |
 
 
 
@@ -1259,14 +1264,19 @@ Results are ordered by creation time ascending.
 <a name="v1-ListTasksRequest"></a>
 
 ### ListTasksRequest
+ListTasks - list Tasks with optional filters.
 
+Filters compose with AND: a Task is returned only if it satisfies every
+set filter. Unset optional fields are not applied; with no filter set
+every Task is returned subject to pagination.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| rack_id | [UUID](#v1-UUID) | optional |  |
-| active_only | [bool](#bool) |  |  |
+| rack_id | [UUID](#v1-UUID) | optional | Restrict to Tasks created against this rack. |
+| active_only | [bool](#bool) |  | Restrict to non-terminal Tasks (Waiting, Pending, Running). |
 | pagination | [Pagination](#v1-Pagination) | optional |  |
+| component_id | [UUID](#v1-UUID) | optional | Restrict to Tasks that target this component UUID, regardless of component type. A rack_id &#43; component_id combination that references a component not on the given rack is not an error; it yields an empty result. |
 
 
 
@@ -1491,6 +1501,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-off even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1509,6 +1520,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-on even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1528,6 +1540,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the reset even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1841,17 +1854,18 @@ form &#34;&lt;schedule name&gt; — &lt;RFC3339 timestamp&gt;&#34;.
 | operation | [string](#string) |  |  |
 | rack_id | [UUID](#v1-UUID) |  |  |
 | component_uuids | [UUID](#v1-UUID) | repeated |  |
-| description | [string](#string) |  |  |
+| description | [string](#string) |  | description is provided by the client when the task is created. |
 | executor_type | [TaskExecutorType](#v1-TaskExecutorType) |  |  |
 | execution_id | [string](#string) |  |  |
 | status | [TaskStatus](#v1-TaskStatus) |  |  |
-| message | [string](#string) |  |  |
+| message | [string](#string) |  | message is brief text tied to status (not execution progress). |
 | queue_expires_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional | queue_expires_at is set only for waiting tasks; absent for all other statuses. |
 | created_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | finished_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional |  |
 | applied_rule_id | [UUID](#v1-UUID) | optional |  |
 | updated_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | started_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional |  |
+| report | [string](#string) |  | report is a versioned JSON document with structured execution progress. |
 
 
 
@@ -2039,6 +2053,8 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 | description | [string](#string) |  | optional: task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| sub_targets | [string](#string) | repeated | Optional subset of firmware sub-parts to update within each tray selected by target_spec, e.g. [&#34;bmc&#34;, &#34;nvos&#34;] for switch trays or [&#34;psu&#34;] for powershelf trays. Named &#34;sub_targets&#34; (not &#34;components&#34;) to avoid colliding with OperationTargetSpec.components, which selects tray INSTANCES rather than sub-parts of a tray. Names are lowercase. Empty or omitted means update everything in the bundle (current default behavior). Unknown names are rejected by the downstream component manager. |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the firmware update even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. The flag is intended for operator-supervised maintenance windows where the tenant impact has been acknowledged out-of-band; setting it bypasses the safety gate that would otherwise block disruptive operations against tenanted hardware. The bypass is recorded in the server log. |
 
 
 
@@ -2053,7 +2069,7 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) | optional | Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all drifts. |
+| target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) | optional | Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all diffs. |
 | filters | [Filter](#v1-Filter) | repeated | Filter conditions for component queries |
 | pagination | [Pagination](#v1-Pagination) | optional |  |
 | order_by | [OrderBy](#v1-OrderBy) | optional |  |
@@ -2077,7 +2093,7 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 
 Expected by Flow but not found in the component manager service |
 | unexpected_count | [int32](#int32) |  | Found in the component manager service but not expected by Flow |
-| drift_count | [int32](#int32) |  |  |
+| mismatch_count | [int32](#int32) |  | In both but with field differences |
 | match_count | [int32](#int32) |  |  |
 
 
@@ -2149,7 +2165,7 @@ ComponentOrderByField represents the supported order by field types for componen
 | ---- | ------ | ----------- |
 | COMPONENT_TYPE_UNKNOWN | 0 |  |
 | COMPONENT_TYPE_COMPUTE | 1 |  |
-| COMPONENT_TYPE_NVLSWITCH | 2 |  |
+| COMPONENT_TYPE_NVSWITCH | 2 |  |
 | COMPONENT_TYPE_POWERSHELF | 3 |  |
 | COMPONENT_TYPE_TORSWITCH | 4 |  |
 | COMPONENT_TYPE_UMS | 5 |  |
@@ -2180,7 +2196,7 @@ ConflictStrategy controls how a task behaves when a conflict is detected.
 | DIFF_TYPE_UNKNOWN | 0 |  |
 | DIFF_TYPE_MISSING | 1 | Expected by Flow but not found in the component manager service |
 | DIFF_TYPE_UNEXPECTED | 2 | Found in the component manager service but not expected by Flow |
-| DIFF_TYPE_DRIFT | 3 | In both but with field differences |
+| DIFF_TYPE_MISMATCH | 3 | In both but with field differences |
 
 
 

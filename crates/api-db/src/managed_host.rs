@@ -48,20 +48,21 @@ pub async fn load_all(
     txn: impl DbReader<'_>,
     options: LoadSnapshotOptions,
 ) -> Result<Vec<ManagedHostStateSnapshot>, DatabaseError> {
-    let query = managed_host_snapshots_query(&options);
-    Ok(sqlx::query_as(&format!(
-        r#"{query} WHERE NOT starts_with(m.id, '{}')"#,
-        MachineType::Dpu.id_prefix(),
-    ))
-    .fetch_all(txn)
-    .await
-    .map_err(|e| DatabaseError::new("managed_host::load_all", e))?
-    .into_iter()
-    .map(|mut snapshot: ManagedHostStateSnapshot| {
-        snapshot.derive_aggregate_health(options.host_health_config);
-        snapshot
-    })
-    .collect())
+    let mut query = sqlx::QueryBuilder::new(managed_host_snapshots_query(&options).to_string());
+    query.push(" WHERE NOT starts_with(m.id, ");
+    query.push_bind(MachineType::Dpu.id_prefix());
+    query.push(")");
+    Ok(query
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("managed_host::load_all", e))?
+        .into_iter()
+        .map(|mut snapshot: ManagedHostStateSnapshot| {
+            snapshot.derive_aggregate_health(options.host_health_config);
+            snapshot
+        })
+        .collect())
 }
 
 /// Loads ManagedHost snapshots from the database for all enumerated machines
@@ -108,22 +109,21 @@ where
 
     // Perf optimization: If we're only requesting one ID, do `WHERE m.id = $1`. In practice on a db
     // with lots of hosts, this reduces the query time from ~20ms down to ~0.7ms.
-    let query: String; // make sure it lives long enough
-    let sqlx_query = if host_ids.len() == 1 {
-        query = format!("{} WHERE m.id = $1", managed_host_snapshots_query(&options));
-        sqlx::query_as(&query).bind(&host_ids[0])
+    let mut query = sqlx::QueryBuilder::new(managed_host_snapshots_query(&options).to_string());
+    if host_ids.len() == 1 {
+        query.push(" WHERE m.id = ");
+        query.push_bind(&host_ids[0]);
     } else {
-        query = format!(
-            "{} WHERE m.id = ANY($1)",
-            managed_host_snapshots_query(&options)
-        );
-        sqlx::query_as(&query).bind(host_ids)
-    };
+        query.push(" WHERE m.id = ANY(");
+        query.push_bind(host_ids);
+        query.push(")");
+    }
 
     // Index snapshots into a HashMap by their machine_id, while calling derive_aggregate_health on
     // each. It's mut because we are going to re-index by the ID's that the user requested, which
     // may be different from the managed_host ID.
-    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> = sqlx_query
+    let mut snapshots_by_host_id: HashMap<MachineId, ManagedHostStateSnapshot> = query
+        .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("managed_host::load_by_machine_ids", e))?

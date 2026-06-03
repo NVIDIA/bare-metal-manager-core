@@ -21,7 +21,21 @@ use model::machine_validation::MachineValidationResult;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
-use crate::{DatabaseError, DatabaseResult, ObjectFilter, machine_validation_suites};
+use crate::{
+    ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
+    machine_validation_suites,
+};
+
+#[derive(Copy, Clone)]
+pub struct MachineValidationIdColumn;
+impl ColumnInfo<'_> for MachineValidationIdColumn {
+    type TableType = MachineValidationResult;
+    type ColumnType = MachineValidationId;
+
+    fn column_name(&self) -> &'static str {
+        "machine_validation_id"
+    }
+}
 
 pub async fn find_by_machine_id<DB>(
     txn: &mut DB,
@@ -35,19 +49,21 @@ where
         // Fetch all validation_id from machine_validation table
         let machine_validation = crate::machine_validation::find_by(
             &mut *txn,
-            ObjectFilter::List(&[machine_id.to_string()]),
-            "machine_id",
+            ObjectColumnFilter::List(
+                super::machine_validation::MachineIdColumn,
+                std::slice::from_ref(machine_id),
+            ),
         )
         .await?;
 
-        let mut columns = Vec::new();
-        for item in machine_validation {
-            columns.push(item.id.to_string());
-        }
+        let machine_validation_ids = machine_validation
+            .into_iter()
+            .map(|v| v.id)
+            .collect::<Vec<_>>();
+
         return find_by(
             &mut *txn,
-            ObjectFilter::List(&columns),
-            "machine_validation_id",
+            ObjectColumnFilter::List(MachineValidationIdColumn, &machine_validation_ids),
         )
         .await;
     };
@@ -77,63 +93,30 @@ where
         machine.on_demand_machine_validation_id.unwrap_or_default();
     find_by(
         &mut *txn,
-        ObjectFilter::List(&[
-            cleanup_machine_validation_id.to_string(),
-            discovery_machine_validation_id.to_string(),
-            on_demand_machine_validation_id.to_string(),
-        ]),
-        "machine_validation_id",
+        ObjectColumnFilter::List(
+            MachineValidationIdColumn,
+            &[
+                cleanup_machine_validation_id,
+                discovery_machine_validation_id,
+                on_demand_machine_validation_id,
+            ],
+        ),
     )
     .await
 }
 
-async fn find_by(
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineValidationResult>>(
     txn: impl DbReader<'_>,
-    filter: ObjectFilter<'_, String>,
-    column: &str,
+    filter: ObjectColumnFilter<'a, C>,
 ) -> Result<Vec<MachineValidationResult>, DatabaseError> {
-    let base_query =
-        "SELECT * FROM machine_validation_results result {where} ORDER BY result.start_time"
-            .to_owned();
-
-    let custom_results = match filter {
-        ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
-            .fetch_all(txn)
-            .await
-            .map_err(|e| DatabaseError::new("machine_validation_results All", e))?,
-        ObjectFilter::One(id) => {
-            let query = base_query
-                .replace("{where}", &format!("WHERE result.{column}='{id}'"))
-                .replace("{column}", column);
-            sqlx::query_as(&query)
-                .fetch_all(txn)
-                .await
-                .map_err(|e| DatabaseError::new("machine_validation_results One", e))?
-        }
-        ObjectFilter::List(list) => {
-            if list.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            let mut columns = String::new();
-            for item in list {
-                if !columns.is_empty() {
-                    columns.push(',');
-                }
-                columns.push('\'');
-                columns.push_str(item);
-                columns.push('\'');
-            }
-            let query = base_query
-                .replace("{where}", &format!("WHERE result.{column} IN ({columns})"))
-                .replace("{column}", column);
-
-            sqlx::query_as(&query)
-                .fetch_all(txn)
-                .await
-                .map_err(|e| DatabaseError::new("machine_validation_results List", e))?
-        }
-    };
+    let mut query =
+        FilterableQueryBuilder::new("SELECT * FROM machine_validation_results").filter(&filter);
+    query.push(" ORDER BY start_time");
+    let custom_results = query
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("machine_validation_results find_by", e))?;
 
     Ok(custom_results)
 }
@@ -186,8 +169,7 @@ pub async fn validate_current_context(
 ) -> DatabaseResult<Option<String>> {
     let db_results = find_by(
         txn,
-        ObjectFilter::List(&[id.to_string()]),
-        "machine_validation_id",
+        ObjectColumnFilter::List(MachineValidationIdColumn, std::slice::from_ref(id)),
     )
     .await?;
 
@@ -205,8 +187,10 @@ pub async fn find_by_validation_id(
 ) -> DatabaseResult<Vec<MachineValidationResult>> {
     find_by(
         txn,
-        ObjectFilter::List(&[validation_id.to_string()]),
-        "machine_validation_id",
+        ObjectColumnFilter::List(
+            MachineValidationIdColumn,
+            std::slice::from_ref(validation_id),
+        ),
     )
     .await
 }

@@ -166,6 +166,76 @@ NICo REST      (infra-controller-rest/helm/charts/nico-rest)
   └── nico-rest-site-agent (StatefulSet, bootstrap via site-manager)
 ```
 
+## DPU compatibility DNS (`.forge` zone) — REQUIRED for DPU bring-up
+
+Existing DPU agent binaries deployed in the field are hardcoded to resolve a
+handful of legacy hostnames in the `.forge` zone:
+
+| Hostname | Port | Used by | Points at |
+|---|---|---|---|
+| `carbide-api.forge` | 443 | DPU agents, CLI, PXE, DHCP — gRPC/TLS to NICo API | `nico-api` external VIP |
+| `carbide-pxe.forge` | 80 | DPU agents (hardcoded in agent binary) — HTTP boot artifacts | `nico-pxe` VIP |
+| `carbide-static-pxe.forge` | 80 | Host PXE loader (hardcoded in boot images) | `nico-pxe` VIP |
+| `carbide-ntp.forge` | 123 | DPU agents (hardcoded in agent binary) — NTP/UDP | `nico-ntp` VIPs (one per replica) |
+| `unbound.forge` | 53 | DPUs (distributed via DHCP option 6) — DNS | unbound VIP |
+| `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
+| `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
+
+Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
+these names stay hardcoded in the binary for now. The deployment is responsible
+for resolving them. Two ways to do that:
+
+### Option A — built-in unbound (recommended for new sites)
+
+1. In `values/nico-core.yaml`, enable the `unbound` block and uncomment the
+   `localData:` example. Each entry takes a `name` and an `addresses` list —
+   fill the addresses with the VIPs you've already assigned to the
+   corresponding service above (those live in the same file under each
+   chart's `externalService.annotations.metallb.universe.tf/loadBalancerIPs`).
+2. Assign a MetalLB VIP to unbound itself (so DPUs can reach it via DHCP
+   option 6). Add it as another `externalService` entry the same way.
+3. Re-run `setup.sh`. The chart deploys unbound with the `.forge` zone
+   pre-populated; DPUs reach it via DHCP-served DNS.
+4. Verify with `helm-prereqs/health-check.sh` — the `.forge DNS Endpoint
+   Reference` section reports per-record status.
+
+### Option B — external DNS
+
+If your site already has DNS infrastructure for the OOB management network,
+serve the `.forge` zone there. Point each hostname at the corresponding
+MetalLB VIP in `values/nico-core.yaml`. The cluster has no opinion on which
+DNS server provides the records; only that the DPUs can resolve them.
+
+Without one of these in place, DPU bring-up will hang on PXE / NTP / API
+lookups even though every cluster-side helm chart shows healthy.
+
+### TLS cert SAN coverage (paired with the DNS records above)
+
+Once DNS resolves `carbide-api.forge` to the nico-api VIP, the TLS handshake
+still has to validate the server cert against that hostname. The chart's
+default cert SAN list only covers `nico-api.<release-ns>.svc.cluster.local`
+and the short DNS name — connections to `carbide-api.forge` would fail TLS
+verification. To accept the legacy hostnames, add them to
+`certificate.extraDnsNames` for each affected chart in
+`values/nico-core.yaml`:
+
+| Chart | Required extraDnsNames |
+|---|---|
+| `nico-api` | `carbide-api.forge`, `carbide-api.forge-system.svc.cluster.local`, plus the external hostname clients use (matches `nico-api.hostname`) |
+| `nico-pxe` | `carbide-pxe.forge`, `carbide-static-pxe.forge`, `carbide-pxe.forge-system.svc.cluster.local` |
+
+The example `values/nico-core.yaml` in this directory has these entries
+pre-populated under each chart's `certificate.extraDnsNames` block. They're
+issued by `vault-nico-issuer` (set up by `nico-prereqs` in Phase 5) and
+rotated on the usual cert-manager schedule.
+
+If you're migrating from an existing forged-kustomize site and want the
+DPUs already in the field (which have certs in the `forge.local` trust
+domain) to keep authenticating, also override
+`global.spiffe.trustDomain` to `forge.local` in your values. See the
+[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
+for the in-place upgrade caveats.
+
 ## Health check
 
 After setup completes, run the read-only health check from the repo root:

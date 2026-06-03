@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -369,7 +355,7 @@ func TestGenericComponentStepWorkflow_BringUpAndWait(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	mockBringUpControl := func(ctx context.Context, target common.Target) error {
+	mockBringUpControl := func(_ context.Context, _ common.Target, _ operations.BringUpTaskInfo) error {
 		return nil
 	}
 	mockGetBringUpStatus := func(ctx context.Context, target common.Target) (*activitypkg.GetBringUpStatusResult, error) {
@@ -381,7 +367,7 @@ func TestGenericComponentStepWorkflow_BringUpAndWait(t *testing.T) {
 	env.RegisterActivityWithOptions(mockGetBringUpStatus,
 		activity.RegisterOptions{Name: activitypkg.NameGetBringUpStatus})
 
-	env.OnActivity(mockBringUpControl, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(mockBringUpControl, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	env.OnActivity(mockGetBringUpStatus, mock.Anything, mock.Anything).Return(
 		&activitypkg.GetBringUpStatusResult{
 			States: map[string]operations.MachineBringUpState{

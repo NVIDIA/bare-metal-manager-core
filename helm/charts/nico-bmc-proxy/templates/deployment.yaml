@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-bmc-proxy
+  name: {{ include "nico-bmc-proxy.name" . }}
   namespace: {{ include "nico-bmc-proxy.namespace" . }}
   labels:
     {{- include "nico-bmc-proxy.labels" . | nindent 4 }}
   annotations:
-    {{- toYaml .Values.annotations | nindent 4 }}
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   strategy:
@@ -22,16 +22,16 @@ spec:
       labels:
         {{- include "nico-bmc-proxy.labels" . | nindent 8 }}
       annotations:
-        kubectl.kubernetes.io/default-container: nico-bmc-proxy
+        kubectl.kubernetes.io/default-container: {{ include "nico-bmc-proxy.name" . }}
     spec:
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
-      serviceAccountName: {{ .Values.serviceAccountName }}
+      serviceAccountName: {{ include "nico-bmc-proxy.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nico-bmc-proxy
+        - name: {{ include "nico-bmc-proxy.name" . }}
           image: "{{ include "nico-bmc-proxy.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           command:
@@ -117,9 +117,9 @@ spec:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           volumeMounts:
             # Mount at both legacy and renamed paths so chart works with either image variant.
-            - name: nico-bmc-proxy-config-files
+            - name: {{ include "nico-bmc-proxy.name" . }}-config-files
               mountPath: /etc/forge/carbide-bmc-proxy
-            - name: nico-bmc-proxy-config-files
+            - name: {{ include "nico-bmc-proxy.name" . }}-config-files
               mountPath: /etc/nico/nico-bmc-proxy
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
@@ -133,12 +133,12 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        - name: nico-bmc-proxy-config-files
+        - name: {{ include "nico-bmc-proxy.name" . }}-config-files
           configMap:
-            name: nico-bmc-proxy-config-files
+            name: {{ include "nico-bmc-proxy.name" . }}-config-files
         - name: spiffe
           secret:
-            secretName: nico-bmc-proxy-certificate
+            secretName: {{ include "nico-bmc-proxy.name" . }}-certificate
         - name: nico-roots
           secret:
             secretName: nico-roots

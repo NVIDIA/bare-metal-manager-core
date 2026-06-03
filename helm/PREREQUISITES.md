@@ -38,6 +38,7 @@ Can be used to synchronize secrets from Vault into Kubernetes automatically. Thi
 If you want Prometheus metrics collection, install the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator) (or [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)). This provides the `ServiceMonitor` and `PodMonitor` CRDs used by NICo services.
 
 - Service monitors are **disabled by default**. To enable them, set `serviceMonitor.enabled: true` in each subchart's values (or in the umbrella chart).
+- **nico-hardware-health** also exposes an optional `telemetryServiceMonitor` (disabled by default) that scrapes `/telemetry` for per-machine sensor gauge data (temperature, power, fans, etc.) from the Prometheus sink. Use `serviceMonitor` for `/metrics` operational metrics only.
 - NICo functions normally without the Prometheus Operator installed.
 
 ---

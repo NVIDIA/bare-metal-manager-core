@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package common
 
@@ -2041,7 +2027,7 @@ func TestMatchInstanceTypeCapabilitiesForMachines(t *testing.T) {
 	icap2 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), nil, nil)
 	assert.NotNil(t, icap2)
 
-	icap3 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr("DPU"), nil)
+	icap3 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 	assert.NotNil(t, icap3)
 
 	mc1 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cdb.GetUUIDPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
@@ -2053,7 +2039,7 @@ func TestMatchInstanceTypeCapabilitiesForMachines(t *testing.T) {
 	mcap1 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0Hz"), cdb.GetStrPtr("32GB"), nil, cdb.GetIntPtr(4), nil, nil)
 	assert.NotNil(t, mcap1)
 
-	mcap3 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr("DPU"), nil)
+	mcap3 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 	assert.NotNil(t, mcap3)
 
 	mc2 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cdb.GetUUIDPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)

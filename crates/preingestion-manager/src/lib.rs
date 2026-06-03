@@ -42,7 +42,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState, TimeSyncResetPhase,
+    ExploredEndpoint, InitialResetPhase, NicMode, PowerDrainState, PreingestionState,
+    TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -61,10 +62,6 @@ const NOT_FOUND: u16 = 404;
 /// Fallback timeout for BFB copy. SSH layer has 30-min timeout that should fire first;
 /// this catches edge cases where the task dies without reporting.
 const BFB_COPY_TIMEOUT_MINS: i64 = 35;
-
-/// BF2 fallback timeout. SSH layer uses 80-min timeout for BF2 (SFTP capped at ~325 KB/s
-/// with 128 KiB buffer; 1 MiB buffer fails immediately on BF2 BMCs).
-const BFB_COPY_TIMEOUT_MINS_BF2: i64 = 85;
 
 /// Minimum wait time before checking if BFB installation completed.
 const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
@@ -278,6 +275,59 @@ async fn one_endpoint(
     static_info: Arc<PreingestionManagerStatic>,
 ) -> PreingestionManagerResult<EndpointResult> {
     tracing::debug!("Preingestion on endpoint {:?}", endpoint);
+
+    // BFB-related preingestion doesn't work for a DPU running in NIC
+    // mode -- the Arm OS doesn't boot, so the `in_bfb_installation_wait`
+    // call to `check_dpu_console_install_complete` (which literally greps
+    // the microcom for strings) never succeeds, and we eventually will
+    // hit SLA and fail.
+    //
+    // Soo, we need to skip past a couple of BFB states:
+    // - BfbRecoveryNeeded -- don't even enter to begin with.
+    // - BfbInstallationWait -- if we've gotten to this point,
+    //   but we're in NIC mode, just transition ahead (we'll be=
+    //   waiting forever otherwise).
+    //
+    // ..but, intentionally leave `BfbPlatformPowercycle` and
+    // `BfbCopyInProgress` alone (if they're in it). They're
+    // mid-flight states where skipping risks leaving
+    // the host powered off, or leaving the spawned SSH copy
+    // task orphaned. Existing timeouts will surface if something
+    // fails, but that's fine -- those should succeed regardless
+    // of NIC mode or DPU mode.
+    //
+    // This basically just mirrors the `in_bfb_platform_powercycle`
+    // post-install handling, letting the site-explorer pairing and
+    // remediation loops to continue on.
+    let endpoint_host_bmc_ip = match &endpoint.preingestion_state {
+        PreingestionState::BfbRecoveryNeeded { host_bmc_ip, .. }
+        | PreingestionState::BfbInstallationWait { host_bmc_ip, .. } => Some(*host_bmc_ip),
+        _ => None,
+    };
+    if let Some(host_bmc_ip) = endpoint_host_bmc_ip
+        && endpoint.report.nic_mode() == Some(NicMode::Nic)
+    {
+        tracing::info!(
+            address = %endpoint.address,
+            %host_bmc_ip,
+            from_state = ?endpoint.preingestion_state,
+            "DPU is in NIC mode; skipping BFB preingestion path and marking complete",
+        );
+        db.with_txn(|txn| {
+            async move {
+                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).await?;
+                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
+                    .await?;
+                db::explored_endpoints::set_pause_remediation(host_bmc_ip, false, txn).await?;
+                Ok::<(), DatabaseError>(())
+            }
+            .boxed()
+        })
+        .await??;
+        return Ok(EndpointResult {
+            delayed_upgrade: false,
+        });
+    }
 
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
@@ -1960,7 +2010,6 @@ impl PreingestionManagerStatic {
             }
         };
 
-        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
         let bmc_credential_key = CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::BmcRoot {
                 bmc_mac_address: interface.mac_address,
@@ -1982,10 +2031,10 @@ impl PreingestionManagerStatic {
         tokio::spawn(async move {
             let _permit = permit;
 
-            tracing::info!(%address, is_bf2, "starting BFB copy to DPU rshim");
+            tracing::info!(%address, "starting BFB copy to DPU rshim");
 
             let result = bfb_rshim_copier
-                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key, is_bf2)
+                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key)
                 .await;
 
             match result {
@@ -2013,12 +2062,7 @@ impl PreingestionManagerStatic {
     ) -> Result<(), DatabaseError> {
         let address = endpoint.address.to_string();
 
-        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
-        let timeout_mins = if is_bf2 {
-            BFB_COPY_TIMEOUT_MINS_BF2
-        } else {
-            BFB_COPY_TIMEOUT_MINS
-        };
+        let timeout_mins = BFB_COPY_TIMEOUT_MINS;
 
         let elapsed_mins = Utc::now().signed_duration_since(*started_at).num_minutes();
         if elapsed_mins > timeout_mins {

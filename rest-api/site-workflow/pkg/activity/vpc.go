@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -35,7 +21,7 @@ import (
 // The pattern is elsewhere as well, but it seems like we could condense them since
 // Manage*Inventory.config has a property that holds a *client.NICoCoreAtomicClient.
 type ManageVPC struct {
-	NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 }
 
 // ManageVPCInventory is an activity wrapper for VPC inventory collection and publishing
@@ -44,9 +30,9 @@ type ManageVPCInventory struct {
 }
 
 // NewManageVPC returns a new ManageVPC client
-func NewManageVPC(nicoClient *cClient.NICoCoreAtomicClient) ManageVPC {
+func NewManageVPC(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) ManageVPC {
 	return ManageVPC{
-		NICoCoreAtomicClient: nicoClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }
 
@@ -72,16 +58,18 @@ func NewManageVPCInventory(config ManageInventoryConfig) ManageVPCInventory {
 	}
 }
 
-func vpcFindIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient) ([]*cwssaws.VpcId, error) {
-	idList, err := nicoClient.NICo().FindVpcIds(ctx, &cwssaws.VpcSearchFilter{})
+func vpcFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.VpcId, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	idList, err := grpcServiceClient.FindVpcIds(ctx, &cwssaws.VpcSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return idList.GetVpcIds(), nil
 }
 
-func vpcFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, ids []*cwssaws.VpcId) ([]*cwssaws.Vpc, error) {
-	list, err := nicoClient.NICo().FindVpcsByIds(ctx, &cwssaws.VpcsByIdsRequest{
+func vpcFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.VpcId) ([]*cwssaws.Vpc, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	list, err := grpcServiceClient.FindVpcsByIds(ctx, &cwssaws.VpcsByIdsRequest{
 		VpcIds: ids,
 	})
 	if err != nil {
@@ -94,15 +82,15 @@ func vpcFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, ids [
 // instancePagedInventoryPostProcess will attach NSG propagation
 // information for the inventory page of VPCs.
 // This will only be called for pages with inventory.
-func vpcPagedInventoryPostProcess(ctx context.Context, nicoClient *cClient.NICoCoreClient, inventory *cwssaws.VPCInventory) (*cwssaws.VPCInventory, error) {
-
+func vpcPagedInventoryPostProcess(ctx context.Context, grpcClient *cClient.CoreGrpcClient, inventory *cwssaws.VPCInventory) (*cwssaws.VPCInventory, error) {
 	vpcIds := make([]string, len(inventory.GetVpcs()))
 
 	for i, vpc := range inventory.GetVpcs() {
 		vpcIds[i] = vpc.GetId().GetValue()
 	}
 
-	propList, err := nicoClient.NICo().GetNetworkSecurityGroupPropagationStatus(ctx, &cwssaws.GetNetworkSecurityGroupPropagationStatusRequest{
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	propList, err := grpcServiceClient.GetNetworkSecurityGroupPropagationStatus(ctx, &cwssaws.GetNetworkSecurityGroupPropagationStatusRequest{
 		VpcIds: vpcIds,
 	})
 
@@ -163,16 +151,16 @@ func (mv *ManageVPC) CreateVpcOnSite(ctx context.Context, request *cwssaws.VpcCr
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mv.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return nil, cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mv.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	controllerVpc, err := rpcClient.CreateVpc(ctx, request)
+	controllerVpc, err := grpcServiceClient.CreateVpc(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create VPC using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create VPC using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -203,16 +191,16 @@ func (mv *ManageVPC) UpdateVpcOnSite(ctx context.Context, request *cwssaws.VpcUp
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mv.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mv.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateVpc(ctx, request)
+	_, err = grpcServiceClient.UpdateVpc(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update VPC using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update VPC using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -242,16 +230,16 @@ func (mv *ManageVPC) DeleteVpcOnSite(ctx context.Context, request *cwssaws.VpcDe
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mv.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mv.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.DeleteVpc(ctx, request)
+	_, err = grpcServiceClient.DeleteVpc(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete VPC using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete VPC using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -280,16 +268,16 @@ func (mv *ManageVPC) UpdateVpcVirtualizationOnSite(ctx context.Context, request 
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mv.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mv.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateVpcVirtualization(ctx, request)
+	_, err = grpcServiceClient.UpdateVpcVirtualization(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update VPC virtualization using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update VPC virtualization using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 

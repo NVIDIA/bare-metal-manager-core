@@ -61,7 +61,8 @@ serde_json = { workspace = true }
 serde_regex = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
+  "runtime-tokio",
+  "tls-rustls",
   "mac_address",
   "ipnetwork",
   "uuid",

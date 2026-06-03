@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nico
 
@@ -31,6 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
@@ -55,6 +42,9 @@ type Manager struct {
 	// avoid overwhelming the power delivery system when commanding
 	// multiple compute trays. 0 means no delay.
 	powerDelay time.Duration
+	// assignment guards mutating operations from running while any target
+	// machine still has an instance attached (ManagedHostState::Assigned).
+	assignment *nicoprovider.AssignmentChecker
 }
 
 // New creates a new NICo-based compute Manager instance.
@@ -62,6 +52,7 @@ func New(nicoClient nicoapi.Client, powerDelay time.Duration) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
 		powerDelay: powerDelay,
+		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
 	}
 }
 
@@ -87,9 +78,20 @@ func Factory(powerDelay time.Duration) componentmanager.ManagerFactory {
 // Descriptor returns the NICo compute manager descriptor.
 func Descriptor() cmcatalog.Descriptor {
 	return cmcatalog.Descriptor{
-		Type:              devicetypes.ComponentTypeCompute,
-		Implementation:    ImplementationName,
+		DescriptorIdentity: cmcatalog.DescriptorIdentity{
+			Type:           devicetypes.ComponentTypeCompute,
+			Implementation: ImplementationName,
+		},
 		RequiredProviders: []string{nicoprovider.ProviderName},
+		Capabilities: capability.CapabilitySet{
+			capability.CapabilityBringUpControl,
+			capability.CapabilityBringUpStatus,
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
 	}
 }
 
@@ -152,6 +154,15 @@ func (m *Manager) PowerControl(
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	// Refuse to power-cycle a host that is currently attached to an
+	// instance. The poll blocks until Core reports the host has left the
+	// Assigned state, or returns an error at the deadline. The operator
+	// may set OverrideAssignmentCheck to bypass this gate for supervised
+	// maintenance; the bypass is logged inside ensureMachinesOperable.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
 	}
 
 	// Map common.PowerOperation to nicoapi.SystemPowerControl
@@ -315,6 +326,7 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 	log.Debug().
 		Str("components", target.String()).
 		Str("target_version", info.TargetVersion).
+		Strs("sub_targets", info.SubTargets).
 		Msg("Scheduling firmware update for compute via NICo")
 
 	if m.nicoClient == nil {
@@ -323,6 +335,28 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	// Block firmware upgrade while any target host is still attached to an
+	// instance: BMC/host firmware updates power-cycle the machine. The
+	// operator may set OverrideAssignmentCheck to bypass this gate for
+	// supervised maintenance; the bypass is logged inside
+	// ensureMachinesOperable.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
+	}
+
+	if len(info.SubTargets) > 0 {
+		// SetFirmwareUpdateTimeWindow + SetMachineAutoUpdate (the path used
+		// here for compute trays) do not expose per-sub-target selection;
+		// auto-update will install whatever is in the desired bundle. Log
+		// the requested subset so the limitation is visible until we can
+		// route this through UpdateComponentFirmware (planned alongside the
+		// version → FW Object identifier migration).
+		log.Warn().
+			Str("components", target.String()).
+			Strs("sub_targets", info.SubTargets).
+			Msg("compute firmware sub-target selection is not yet honored; whole bundle will be applied")
 	}
 
 	desiredEntries, err := m.nicoClient.GetDesiredFirmwareVersions(ctx)
@@ -722,6 +756,7 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 func (m *Manager) BringUpControl(
 	ctx context.Context,
 	target common.Target,
+	info operations.BringUpTaskInfo,
 ) error {
 	log.Debug().
 		Str("components", target.String()).
@@ -733,6 +768,15 @@ func (m *Manager) BringUpControl(
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	// Opening the power-on gate can trigger an actual power transition,
+	// so the same assignment-state safety check that guards PowerControl
+	// applies here. OverrideAssignmentCheck propagates from the parent
+	// BringUp request when the operator elects to bypass; the bypass is
+	// logged inside ensureMachinesOperable.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
 	}
 
 	for _, componentID := range target.ComponentIDs {
@@ -803,6 +847,30 @@ func nicoToBringUpState(
 	default:
 		return operations.MachineBringUpStateNotDiscovered
 	}
+}
+
+// ensureMachinesOperable is the per-Manager policy gate for disruptive
+// operations on the given machines. The default policy refuses to proceed
+// while any target host is still in Core's Assigned/* lifecycle state.
+//
+// When overrideAssignmentCheck is true the gate is short-circuited and the
+// operation runs against the current set of machines unconditionally. The
+// override is intended for operator-supervised maintenance windows where
+// tenant impact has been acknowledged out-of-band; authorisation is
+// enforced upstream and is not re-checked here. A warning is emitted with
+// the machine IDs so the bypass is auditable from the worker log alone.
+func (m *Manager) ensureMachinesOperable(
+	ctx context.Context,
+	machineIDs []string,
+	overrideAssignmentCheck bool,
+) error {
+	if overrideAssignmentCheck {
+		log.Warn().
+			Strs("machine_ids", machineIDs).
+			Msg("Assignment safety check bypassed by override_assignment_check on compute operation")
+		return nil
+	}
+	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)
 }
 
 // isAlreadyInDesiredStateError returns true when NICo reports that the

@@ -26,7 +26,7 @@ Common labels
 helm.sh/chart: {{ include "nico-ssh-console-rs.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: site-controller
-app.kubernetes.io/name: nico-ssh-console-rs
+app.kubernetes.io/name: {{ include "nico-ssh-console-rs.name" . }}
 app.kubernetes.io/component: ssh-console-rs
 {{- end }}
 
@@ -34,7 +34,7 @@ app.kubernetes.io/component: ssh-console-rs
 Selector labels
 */}}
 {{- define "nico-ssh-console-rs.selectorLabels" -}}
-app.kubernetes.io/name: nico-ssh-console-rs
+app.kubernetes.io/name: {{ include "nico-ssh-console-rs.name" . }}
 app.kubernetes.io/component: ssh-console-rs
 {{- end }}
 
@@ -51,19 +51,31 @@ Certificate spec
 {{- define "nico-ssh-console-rs.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
-commonName: {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
+commonName: {{ printf "%s.%s.svc.cluster.local" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
 dnsNames:
-  - {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
-{{- if not (eq (toString (.cert.includeShortDnsName | default true)) "false") }}
-  - {{ printf "%s.%s" .cert.serviceName .namespace }}
+{{- if .cert.dnsNames }}
+{{- range .cert.dnsNames }}
+  - {{ . }}
+{{- end }}
+{{- else }}
+  - {{ printf "%s.%s.svc.cluster.local" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
+{{- if ne (toString .cert.includeShortDnsName) "false" }}
+  - {{ printf "%s.%s" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
 {{- end }}
 {{- range .cert.extraDnsNames | default list }}
   - {{ . }}
 {{- end }}
+{{- end }}
 uris:
-  - {{ printf "spiffe://%s/%s/sa/%s" .global.spiffe.trustDomain .namespace .cert.serviceName }}
+{{- if .cert.uris }}
+{{- range .cert.uris }}
+  - {{ . }}
+{{- end }}
+{{- else }}
+  - {{ printf "spiffe://%s/%s/sa/%s" .global.spiffe.trustDomain (.cert.identityNamespace | default .namespace) (.cert.spiffeServiceName | default .cert.serviceName | default .svcName) }}
 {{- range .cert.extraUris | default list }}
   - {{ . }}
+{{- end }}
 {{- end }}
 privateKey:
   algorithm: {{ .global.certificate.privateKey.algorithm }}

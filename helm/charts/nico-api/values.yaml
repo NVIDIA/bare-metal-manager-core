@@ -33,10 +33,9 @@ global:
 namespaceOverride: ""
 
 replicas: 1
-serviceAccountName: nico-api
 automountServiceAccountToken: true
 annotations:
-  configmap.reloader.stakater.com/reload: "nico-api-config-files,nico-api-site-config-files"
+  configmap.reloader.stakater.com/reload: '{{ include "nico-api.name" . }}-config-files,{{ include "nico-api.name" . }}-site-config-files'
 
 resources:
   limits:
@@ -74,7 +73,14 @@ service:
 
 certificate:
   ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on global.namespace
-  serviceName: nico-api
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
   extraDnsNames: []
   extraUris: []
 
@@ -136,6 +142,15 @@ serviceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 25s
+
+auth:
+  ## Namespace component accepted in service (/<ns>/sa/) and machine
+  ## (/<ns>/machine/) SPIFFE IDs. Empty = deploy namespace; forge-system for legacy.
+  namespace: ""
+  ## SPIFFE service-id principals granted the dhcp / dns roles in the casbin policy.
+  principals:
+    dhcp: nico-dhcp
+    dns: nico-dns
 
 ## Config files -- can be overridden with custom content
 configFiles:

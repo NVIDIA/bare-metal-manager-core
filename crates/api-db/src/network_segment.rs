@@ -16,7 +16,6 @@
  */
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::ops::Deref;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
@@ -24,7 +23,6 @@ use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
-use lazy_static::lazy_static;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::network_segment::{
@@ -63,11 +61,12 @@ impl ColumnInfo<'_> for VpcColumn {
     }
 }
 
-const NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE: &str = r#"
+macro_rules! network_segment_snapshot_query {
+    () => {
+        r#"
      SELECT
         ns.*,
         COALESCE(prefixes_agg.json, '[]'::json) AS prefixes
-        __HISTORY_SELECT__
      FROM network_segments ns
      LEFT JOIN LATERAL (
         SELECT np.segment_id,
@@ -76,24 +75,34 @@ const NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE: &str = r#"
         WHERE np.segment_id = ns.id
         GROUP BY np.segment_id
      ) AS prefixes_agg ON true
-     __HISTORY_JOIN__
-"#;
+"#
+    };
+}
 
-lazy_static! {
-    static ref NETWORK_SEGMENT_SNAPSHOT_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
-        .replace("__HISTORY_SELECT__", "")
-        .replace("__HISTORY_JOIN__", "");
-
-    static ref NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY: String = NETWORK_SEGMENT_SNAPSHOT_QUERY_TEMPLATE
-        .replace("__HISTORY_JOIN__", r#"
-            LEFT JOIN LATERAL (
-                SELECT h.segment_id,
-                    json_agg(json_build_object('segment_id', h.segment_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
-                FROM network_segment_state_history h
-                WHERE h.segment_id = ns.id
-                GROUP BY h.segment_id
-            ) AS history_agg ON true"#)
-        .replace("__HISTORY_SELECT__", ", COALESCE(history_agg.json, '[]'::json) AS history");
+macro_rules! network_segment_snapshot_with_history_query {
+    () => {
+        r#"
+     SELECT
+        ns.*,
+        COALESCE(prefixes_agg.json, '[]'::json) AS prefixes,
+        COALESCE(history_agg.json, '[]'::json) AS history
+     FROM network_segments ns
+     LEFT JOIN LATERAL (
+        SELECT np.segment_id,
+            json_agg(np.*) AS json
+        FROM network_prefixes np
+        WHERE np.segment_id = ns.id
+        GROUP BY np.segment_id
+     ) AS prefixes_agg ON true
+     LEFT JOIN LATERAL (
+        SELECT h.segment_id,
+            json_agg(json_build_object('segment_id', h.segment_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
+        FROM network_segment_state_history h
+        WHERE h.segment_id = ns.id
+        GROUP BY h.segment_id
+     ) AS history_agg ON true
+"#
+    };
 }
 
 pub async fn persist(
@@ -165,18 +174,16 @@ pub async fn for_vpc(
     txn: impl DbReader<'_>,
     vpc_id: VpcId,
 ) -> Result<Vec<NetworkSegment>, DatabaseError> {
-    lazy_static! {
-        static ref query: String = format!(
-            "{} WHERE ns.vpc_id=$1::uuid",
-            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-        );
-    }
+    static QUERY: &str = concat!(
+        network_segment_snapshot_query!(),
+        " WHERE ns.vpc_id=$1::uuid"
+    );
     let results: Vec<NetworkSegment> = {
-        sqlx::query_as(&query)
+        sqlx::query_as(QUERY)
             .bind(vpc_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::query(&query, e))?
+            .map_err(|e| DatabaseError::query(QUERY, e))?
     };
 
     Ok(results)
@@ -201,9 +208,9 @@ pub async fn for_relay_all(
     txn: &mut PgConnection,
     relays: &[IpAddr],
 ) -> DatabaseResult<Vec<NetworkSegment>> {
-    lazy_static! {
-        static ref query: String = format!(
-            r#"{}
+    static QUERY: &str = concat!(
+        network_segment_snapshot_query!(),
+        r#"
                 WHERE EXISTS (
                     SELECT 1
                     FROM network_prefixes
@@ -214,10 +221,8 @@ pub async fn for_relay_all(
                     )
                 )
                 ORDER BY ns.id"#,
-            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-        );
-    }
-    let results = sqlx::query_as(&query)
+    );
+    let results = sqlx::query_as(QUERY)
         .bind(
             relays
                 .iter()
@@ -226,7 +231,7 @@ pub async fn for_relay_all(
         )
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
 
     Ok(results)
 }
@@ -238,9 +243,9 @@ pub async fn for_segment_type_all(
     relays: &[IpAddr],
     segment_type: NetworkSegmentType,
 ) -> DatabaseResult<Vec<NetworkSegment>> {
-    lazy_static! {
-        static ref query: String = format!(
-            r#"{}
+    static QUERY: &str = concat!(
+        network_segment_snapshot_query!(),
+        r#"
                 WHERE EXISTS (
                     SELECT 1
                     FROM network_prefixes
@@ -252,11 +257,9 @@ pub async fn for_segment_type_all(
                 )
                 AND $2 = ns.network_segment_type
                 ORDER BY ns.id"#,
-            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-        );
-    }
+    );
 
-    let results = sqlx::query_as(&query)
+    let results = sqlx::query_as(QUERY)
         .bind(
             relays
                 .iter()
@@ -266,7 +269,7 @@ pub async fn for_segment_type_all(
         .bind(segment_type)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::new(&query, e))?;
+        .map_err(|e| DatabaseError::new(QUERY, e))?;
 
     Ok(results)
 }
@@ -505,9 +508,9 @@ where
     for<'db> &'db mut DB: DbReader<'db>,
 {
     let mut query = FilterableQueryBuilder::new(if search_config.include_history {
-        NETWORK_SEGMENT_SNAPSHOT_WITH_HISTORY_QUERY.deref()
+        network_segment_snapshot_with_history_query!()
     } else {
-        NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
+        network_segment_snapshot_query!()
     })
     .filter(&filter);
 
@@ -765,15 +768,12 @@ pub async fn find_by_name(
     txn: &mut PgConnection,
     name: &str,
 ) -> Result<NetworkSegment, DatabaseError> {
-    lazy_static! {
-        static ref query: String =
-            format!("{} WHERE name = $1", NETWORK_SEGMENT_SNAPSHOT_QUERY.deref());
-    }
-    sqlx::query_as(&query)
+    static QUERY: &str = concat!(network_segment_snapshot_query!(), " WHERE name = $1");
+    sqlx::query_as(QUERY)
         .bind(name)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
 /// Well-known name for the static assignments "anchor segment",
@@ -788,19 +788,17 @@ pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment
 
 /// Returns all admin network segments.
 pub async fn admin(txn: &mut PgConnection) -> Result<Vec<NetworkSegment>, DatabaseError> {
-    lazy_static! {
-        static ref query: String = format!(
-            "{} WHERE network_segment_type = 'admin' ORDER BY ns.id",
-            NETWORK_SEGMENT_SNAPSHOT_QUERY.deref()
-        );
-    }
-    let segments: Vec<NetworkSegment> = sqlx::query_as(&query)
+    static QUERY: &str = concat!(
+        network_segment_snapshot_query!(),
+        " WHERE network_segment_type = 'admin' ORDER BY ns.id",
+    );
+    let segments: Vec<NetworkSegment> = sqlx::query_as(QUERY)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
 
     if segments.is_empty() {
-        return Err(DatabaseError::query(&query, sqlx::Error::RowNotFound));
+        return Err(DatabaseError::query(QUERY, sqlx::Error::RowNotFound));
     }
 
     Ok(segments)

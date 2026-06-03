@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -35,7 +21,7 @@ import (
 
 type ManageInventoryConfig struct {
 	SiteID                uuid.UUID
-	NICoCoreAtomicClient  *cClient.NICoCoreAtomicClient
+	CoreGrpcAtomicClient  *cClient.CoreGrpcAtomicClient
 	TemporalPublishClient tClient.Client
 	TemporalPublishQueue  string
 	SitePageSize          int
@@ -45,14 +31,14 @@ type ManageInventoryConfig struct {
 type manageInventoryImpl[K any, R any, P any] struct {
 	itemType               string
 	config                 ManageInventoryConfig
-	internalFindIDs        func(context.Context, *cClient.NICoCoreClient) ([]K, error)
-	internalFindByIDs      func(context.Context, *cClient.NICoCoreClient, []K) ([]R, error)
+	internalFindIDs        func(context.Context, *cClient.CoreGrpcClient) ([]K, error)
+	internalFindByIDs      func(context.Context, *cClient.CoreGrpcClient, []K) ([]R, error)
 	internalPagedInventory func([]K, []R, *pagedInventoryInput) P
 	// post-processing function that can optionally be used to attach additional inventory data
 	// based on the data in the inventory.  This will only be called for pages with inventory.
-	internalPagedInventoryPostProcess func(context.Context, *cClient.NICoCoreClient, P) (P, error)
+	internalPagedInventoryPostProcess func(context.Context, *cClient.CoreGrpcClient, P) (P, error)
 	// fallback function to get all the items when pagination is not supported
-	internalFindFallback func(ctx context.Context, client *cClient.NICoCoreClient) ([]K, []R, error)
+	internalFindFallback func(ctx context.Context, client *cClient.CoreGrpcClient) ([]K, []R, error)
 }
 
 type pagedInventoryInput struct {
@@ -103,24 +89,24 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 
 	// define workflow name
 	workflowName := fmt.Sprintf("Update%sInventory", impl.itemType)
-	// get nico client
-	nicoClient := impl.config.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// get Core gRPC client
+	grpcClient := impl.config.CoreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
 
 	// find IDs
-	allIDs, err := impl.internalFindIDs(ctx, nicoClient)
+	allIDs, err := impl.internalFindIDs(ctx, grpcClient)
 	if err != nil {
 		if grpcStatus, ok := status.FromError(err); ok {
 			if grpcStatus.Code() == codes.Unimplemented {
 				log.Info().Msg("Using fallback API to get inventory")
-				if err = impl.collectAndPublishFallback(ctx, logger, nicoClient, workflowName, workflowOptions); err == nil {
+				if err = impl.collectAndPublishFallback(ctx, logger, grpcClient, workflowName, workflowOptions); err == nil {
 					return err
 				}
 			}
 		}
-		logger.Warn().Err(err).Msg("Failed to retrieve IDs using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to retrieve IDs using Core gRPC API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
 		pagedInput := buildPagedInventoryInput(0, impl.config.CloudPageSize)
 		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED
@@ -154,9 +140,9 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	sitePagedIDs := cClient.SliceToChunks(allIDs, impl.config.SitePageSize)
 	for sitePage, siteItemIDs := range sitePagedIDs {
 		// find items by IDs
-		siteItems, err := impl.internalFindByIDs(ctx, nicoClient, siteItemIDs)
+		siteItems, err := impl.internalFindByIDs(ctx, grpcClient, siteItemIDs)
 		if err != nil {
-			logger.Warn().Err(err).Int("Site Page", sitePage+1).Msg("Failed to retrieve using Site Controller API")
+			logger.Warn().Err(err).Int("Site Page", sitePage+1).Msg("Failed to retrieve using Core gRPC API")
 			return err
 		}
 
@@ -183,7 +169,7 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 
 			// Handle any requested post processing
 			if impl.internalPagedInventoryPostProcess != nil {
-				inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, nicoClient, inventoryPage)
+				inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, grpcClient, inventoryPage)
 				if err != nil {
 					return err
 				}
@@ -203,11 +189,11 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 }
 
 func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.Context, logger *zerolog.Logger,
-	nicoClient *cClient.NICoCoreClient, workflowName string, workflowOptions tClient.StartWorkflowOptions) error {
+	grpcClient *cClient.CoreGrpcClient, workflowName string, workflowOptions tClient.StartWorkflowOptions) error {
 	if impl.internalFindFallback == nil {
 		return errors.New("no fallback find function defined")
 	}
-	allIDs, siteItems, err := impl.internalFindFallback(ctx, nicoClient)
+	allIDs, siteItems, err := impl.internalFindFallback(ctx, grpcClient)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve using Site Controller fallback API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
@@ -253,7 +239,7 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 
 		// Handle any requested post processing
 		if impl.internalPagedInventoryPostProcess != nil {
-			inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, nicoClient, inventoryPage)
+			inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, grpcClient, inventoryPage)
 			if err != nil {
 				return err
 			}

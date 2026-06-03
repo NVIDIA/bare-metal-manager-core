@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -35,7 +21,7 @@ var ProtoToAPIBMCTypeName = map[flowv1.BMCType]string{
 var ProtoToAPIRackComponentTypeName = map[flowv1.ComponentType]string{
 	flowv1.ComponentType_COMPONENT_TYPE_UNKNOWN:    "Unknown",
 	flowv1.ComponentType_COMPONENT_TYPE_COMPUTE:    "Compute",
-	flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH:  "NVLSwitch",
+	flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH:   "NVSwitch",
 	flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF: "PowerShelf",
 	flowv1.ComponentType_COMPONENT_TYPE_TORSWITCH:  "TORSwitch",
 	flowv1.ComponentType_COMPONENT_TYPE_UMS:        "UMS",
@@ -47,7 +33,7 @@ var ProtoToAPIDiffTypeName = map[flowv1.DiffType]string{
 	flowv1.DiffType_DIFF_TYPE_UNKNOWN:    "Unknown",
 	flowv1.DiffType_DIFF_TYPE_MISSING:    "Missing",
 	flowv1.DiffType_DIFF_TYPE_UNEXPECTED: "Unexpected",
-	flowv1.DiffType_DIFF_TYPE_DRIFT:      "Drift",
+	flowv1.DiffType_DIFF_TYPE_MISMATCH:   "Mismatch",
 }
 
 // enumOr returns mapped value or fallback when key is missing from mapping.
@@ -485,7 +471,7 @@ type APIRackValidationResult struct {
 	TotalDiffs      int32               `json:"totalDiffs"`
 	MissingCount    int32               `json:"missingCount"`
 	UnexpectedCount int32               `json:"unexpectedCount"`
-	DriftCount      int32               `json:"driftCount"`
+	MismatchCount   int32               `json:"mismatchCount"`
 	MatchCount      int32               `json:"matchCount"`
 }
 
@@ -498,7 +484,7 @@ func (r *APIRackValidationResult) FromProto(protoResp *flowv1.ValidateComponents
 	r.TotalDiffs = protoResp.GetTotalDiffs()
 	r.MissingCount = protoResp.GetMissingCount()
 	r.UnexpectedCount = protoResp.GetUnexpectedCount()
-	r.DriftCount = protoResp.GetDriftCount()
+	r.MismatchCount = protoResp.GetMismatchCount()
 	r.MatchCount = protoResp.GetMatchCount()
 
 	r.Diffs = make([]*APIComponentDiff, 0, len(protoResp.GetDiffs()))

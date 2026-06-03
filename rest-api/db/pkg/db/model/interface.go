@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -25,9 +11,9 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/google/uuid"
-
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
 
@@ -71,60 +57,94 @@ var (
 	}
 )
 
+// InterfaceInlineRoutingProfile is the DB representation of interface-local routing options.
+type InterfaceInlineRoutingProfile struct {
+	AllowedAnycastPrefixes []string `json:"allowedAnycastPrefixes"`
+}
+
+// ToProto converts this interface routing profile into its workflow proto representation.
+func (irp *InterfaceInlineRoutingProfile) ToProto() *cwssaws.InstanceInterfaceRoutingProfile {
+	if irp == nil {
+		return nil
+	}
+	profile := &cwssaws.InstanceInterfaceRoutingProfile{
+		AllowedAnycastPrefixes: make([]*cwssaws.PrefixFilterPolicyEntry, 0, len(irp.AllowedAnycastPrefixes)),
+	}
+	for _, prefix := range irp.AllowedAnycastPrefixes {
+		profile.AllowedAnycastPrefixes = append(profile.AllowedAnycastPrefixes, &cwssaws.PrefixFilterPolicyEntry{Prefix: prefix})
+	}
+	return profile
+}
+
+// FromProto populates this routing profile from its workflow proto representation.
+func (irp *InterfaceInlineRoutingProfile) FromProto(proto *cwssaws.InstanceInterfaceRoutingProfile) {
+	if proto == nil {
+		*irp = InterfaceInlineRoutingProfile{}
+		return
+	}
+	irp.AllowedAnycastPrefixes = make([]string, 0, len(proto.GetAllowedAnycastPrefixes()))
+	for _, entry := range proto.GetAllowedAnycastPrefixes() {
+		irp.AllowedAnycastPrefixes = append(irp.AllowedAnycastPrefixes, entry.GetPrefix())
+	}
+}
+
 // Interface table maintains association between an instance and a subnet
 type Interface struct {
 	bun.BaseModel `bun:"table:interface,alias:ifc"`
 
-	ID                 uuid.UUID         `bun:"type:uuid,pk"`
-	InstanceID         uuid.UUID         `bun:"instance_id,type:uuid,notnull"`
-	Instance           *Instance         `bun:"rel:belongs-to,join:instance_id=id"`
-	SubnetID           *uuid.UUID        `bun:"subnet_id,type:uuid"`
-	Subnet             *Subnet           `bun:"rel:belongs-to,join:subnet_id=id"`
-	VpcPrefixID        *uuid.UUID        `bun:"vpc_prefix_id,type:uuid"`
-	VpcPrefix          *VpcPrefix        `bun:"rel:belongs-to,join:vpc_prefix_id=id"`
-	MachineInterfaceID *uuid.UUID        `bun:"machine_interface_id,type:uuid"`
-	MachineInterface   *MachineInterface `bun:"rel:belongs-to,join:machine_interface_id=id"`
-	Device             *string           `bun:"device"`
-	DeviceInstance     *int              `bun:"device_instance"`
-	IsPhysical         bool              `bun:"is_physical,notnull"`
-	VirtualFunctionID  *int              `bun:"virtual_function_id"`
-	RequestedIpAddress *string           `bun:"requested_ip_address"`
-	MacAddress         *string           `bun:"mac_address"`
-	IPAddresses        []string          `bun:"ip_addresses,type:text[]"`
-	Status             string            `bun:"status,notnull"`
-	Created            time.Time         `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated            time.Time         `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted            *time.Time        `bun:"deleted,soft_delete"`
-	CreatedBy          uuid.UUID         `bun:"type:uuid,notnull"`
+	ID                   uuid.UUID                      `bun:"type:uuid,pk"`
+	InstanceID           uuid.UUID                      `bun:"instance_id,type:uuid,notnull"`
+	Instance             *Instance                      `bun:"rel:belongs-to,join:instance_id=id"`
+	SubnetID             *uuid.UUID                     `bun:"subnet_id,type:uuid"`
+	Subnet               *Subnet                        `bun:"rel:belongs-to,join:subnet_id=id"`
+	VpcPrefixID          *uuid.UUID                     `bun:"vpc_prefix_id,type:uuid"`
+	VpcPrefix            *VpcPrefix                     `bun:"rel:belongs-to,join:vpc_prefix_id=id"`
+	MachineInterfaceID   *uuid.UUID                     `bun:"machine_interface_id,type:uuid"`
+	MachineInterface     *MachineInterface              `bun:"rel:belongs-to,join:machine_interface_id=id"`
+	Device               *string                        `bun:"device"`
+	DeviceInstance       *int                           `bun:"device_instance"`
+	IsPhysical           bool                           `bun:"is_physical,notnull"`
+	VirtualFunctionID    *int                           `bun:"virtual_function_id"`
+	RequestedIpAddress   *string                        `bun:"requested_ip_address"`
+	MacAddress           *string                        `bun:"mac_address"`
+	IPAddresses          []string                       `bun:"ip_addresses,type:text[]"`
+	InlineRoutingProfile *InterfaceInlineRoutingProfile `bun:"inline_routing_profile,type:jsonb"`
+	Status               string                         `bun:"status,notnull"`
+	Created              time.Time                      `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated              time.Time                      `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted              *time.Time                     `bun:"deleted,soft_delete"`
+	CreatedBy            uuid.UUID                      `bun:"type:uuid,notnull"`
 }
 
 // InterfaceCreateInput input parameters for Create method
 type InterfaceCreateInput struct {
-	InstanceID         uuid.UUID
-	SubnetID           *uuid.UUID
-	VpcPrefixID        *uuid.UUID
-	IsPhysical         bool
-	Device             *string
-	DeviceInstance     *int
-	VirtualFunctionID  *int
-	RequestedIpAddress *string
-	Status             string
-	CreatedBy          uuid.UUID
+	InstanceID           uuid.UUID
+	SubnetID             *uuid.UUID
+	VpcPrefixID          *uuid.UUID
+	IsPhysical           bool
+	Device               *string
+	DeviceInstance       *int
+	VirtualFunctionID    *int
+	RequestedIpAddress   *string
+	InlineRoutingProfile *InterfaceInlineRoutingProfile
+	Status               string
+	CreatedBy            uuid.UUID
 }
 
 // InterfaceUpdateInput input parameters for Update method
 type InterfaceUpdateInput struct {
-	InterfaceID        uuid.UUID
-	InstanceID         *uuid.UUID
-	SubnetID           *uuid.UUID
-	VpcPrefixID        *uuid.UUID
-	Device             *string
-	DeviceInstance     *int
-	VirtualFunctionID  *int
-	RequestedIpAddress *string
-	MacAddress         *string
-	IpAddresses        []string
-	Status             *string
+	InterfaceID          uuid.UUID
+	InstanceID           *uuid.UUID
+	SubnetID             *uuid.UUID
+	VpcPrefixID          *uuid.UUID
+	Device               *string
+	DeviceInstance       *int
+	VirtualFunctionID    *int
+	RequestedIpAddress   *string
+	InlineRoutingProfile *InterfaceInlineRoutingProfile
+	MacAddress           *string
+	IpAddresses          []string
+	Status               *string
 }
 
 // InterfaceFilterInput input parameters for Filter method
@@ -141,8 +161,9 @@ type InterfaceFilterInput struct {
 
 // InterfaceClearInput input parameters for Clear method
 type InterfaceClearInput struct {
-	InterfaceID        uuid.UUID
-	RequestedIpAddress bool
+	InterfaceID          uuid.UUID
+	RequestedIpAddress   bool
+	InlineRoutingProfile bool
 }
 
 var _ bun.BeforeAppendModelHook = (*Interface)(nil)
@@ -432,6 +453,10 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "requested_ip_address", *input.RequestedIpAddress)
 		}
 	}
+	if input.InlineRoutingProfile != nil {
+		is.InlineRoutingProfile = input.InlineRoutingProfile
+		updatedFields = append(updatedFields, "inline_routing_profile")
+	}
 	if input.MacAddress != nil {
 		is.MacAddress = input.MacAddress
 		updatedFields = append(updatedFields, "mac_address")
@@ -554,17 +579,18 @@ func (ifcd InterfaceSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx, input
 
 	for _, input := range inputs {
 		is := Interface{
-			ID:                 uuid.New(),
-			InstanceID:         input.InstanceID,
-			SubnetID:           input.SubnetID,
-			VpcPrefixID:        input.VpcPrefixID,
-			Device:             input.Device,
-			DeviceInstance:     input.DeviceInstance,
-			VirtualFunctionID:  input.VirtualFunctionID,
-			RequestedIpAddress: input.RequestedIpAddress,
-			IsPhysical:         input.IsPhysical,
-			Status:             input.Status,
-			CreatedBy:          input.CreatedBy,
+			ID:                   uuid.New(),
+			InstanceID:           input.InstanceID,
+			SubnetID:             input.SubnetID,
+			VpcPrefixID:          input.VpcPrefixID,
+			Device:               input.Device,
+			DeviceInstance:       input.DeviceInstance,
+			VirtualFunctionID:    input.VirtualFunctionID,
+			RequestedIpAddress:   input.RequestedIpAddress,
+			InlineRoutingProfile: input.InlineRoutingProfile,
+			IsPhysical:           input.IsPhysical,
+			Status:               input.Status,
+			CreatedBy:            input.CreatedBy,
 		}
 		interfaces = append(interfaces, is)
 		ids = append(ids, is.ID)
@@ -627,6 +653,10 @@ func (ifcd InterfaceSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Interfac
 	if input.RequestedIpAddress {
 		i.RequestedIpAddress = nil
 		updatedFields = append(updatedFields, "requested_ip_address")
+	}
+	if input.InlineRoutingProfile {
+		i.InlineRoutingProfile = nil
+		updatedFields = append(updatedFields, "inline_routing_profile")
 	}
 
 	if len(updatedFields) > 0 {

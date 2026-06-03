@@ -14,26 +14,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// TODO - Change this to LRU Cache - https://docs.rs/lru/latest/lru/
-//! TTL-expiring cache of negative DNS responses (NXDomain / Refused).
+//! TTL-expiring, LRU-bounded cache of negative DNS responses.
 //!
-//! Caching negatives keeps repeated lookups for the same non-existent name from querying
-//! the api server.
+//! Caching negatives keeps repeated lookups for the same name from re-querying
+//! the api server. Two classes of negative are cached with different lifetimes:
+//!
+//! * *authoritative* negatives (NXDomain, Refused) — stable answers, cached for
+//!   the full `ttl`; and
+//! * *transient* failures (ServFail) — a momentary upstream error, cached only
+//!   for the short `transient_ttl` so a client retry storm collapses into one
+//!   upstream call per name per window without outliving the api server's
+//!   recovery (RFC 2308 §7.1, RFC 9520).
+//!
 //! Two mechanisms keep memory bounded:
 //!
-//! * a hard cap on the number of live entries (`max_entries`): once full, a new
-//!   name is refused rather than admitted, so a flood of *distinct* non-existent
-//!   names cannot grow the HashMap without limit — the time-based sweep alone cannot
-//!   contain this because it only removes *expired* entries; and
+//! * an LRU capacity bound (`max_entries`): inserting into a full cache evicts
+//!   the *least-recently-used* entry rather than refusing the newcomer, so a
+//!   flood of distinct names keeps the hot working set cached instead of
+//!   pinning whichever names happened to arrive first; and
 //! * a periodic sweep ([`NegativeCache::evict_expired`]) that drops entries past
-//!   their TTL and returns the backing allocation after a burst subsides.
+//!   their TTL, reclaiming capacity that expired-but-not-yet-re-queried entries
+//!   would otherwise hold.
 
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tokio::sync::RwLock;
-use trust_dns_resolver::proto::op::ResponseCode;
-use trust_dns_server::proto::rr::RecordType;
+use hickory_resolver::proto::op::ResponseCode;
+use hickory_server::proto::rr::RecordType;
+use lru::LruCache;
 
 /// Identifies a cached negative response: the queried name and record type.
 #[derive(Hash, Debug, Eq, PartialEq, Clone)]
@@ -50,78 +59,110 @@ struct NegativeEntry {
 
 #[derive(Debug)]
 pub(crate) struct NegativeCache {
-    entries: RwLock<HashMap<CacheKey, NegativeEntry>>,
+    // A plain `std::sync::Mutex`, not an async one: every critical section is a
+    // handful of synchronous map operations and the guard is never held across
+    // an `.await`. (`LruCache::get` bumps recency, so even the read path needs
+    // `&mut`, ruling out an `RwLock`.) Using the sync mutex also lets the
+    // observable metrics gauge read the length from a synchronous callback.
+    entries: Mutex<LruCache<CacheKey, NegativeEntry>>,
+    /// Lifetime for authoritative negatives (NXDomain, Refused).
     ttl: Duration,
-    max_entries: usize,
+    /// Lifetime for transient failures (ServFail); kept short on purpose.
+    transient_ttl: Duration,
 }
 
 impl NegativeCache {
-    pub(crate) fn new(ttl: Duration, max_entries: usize) -> Self {
+    pub(crate) fn new(ttl: Duration, transient_ttl: Duration, max_entries: usize) -> Self {
+        // A zero capacity would evict every entry the instant it was inserted,
+        // defeating the cache, and `NonZeroUsize::new(0)` is `None` — floor it
+        // at 1 rather than panic on a misconfigured bound.
+        let capacity = NonZeroUsize::new(max_entries).unwrap_or(NonZeroUsize::MIN);
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: Mutex::new(LruCache::new(capacity)),
             ttl,
-            max_entries,
+            transient_ttl,
         }
     }
 
-    /// The configured maximum number of entries possible in the cache
-    pub(crate) fn max_entries(&self) -> usize {
-        self.max_entries
+    /// The lifetime for an entry given whether the negative is `transient`.
+    /// Authoritative negatives live for the full `ttl`; a transient failure is
+    /// held only for the short `transient_ttl` so it does not outlive the
+    /// upstream's recovery. The caller classifies transience (see the DNS
+    /// handler), since it cannot be derived from the response code alone.
+    // TODO: RFC 9520 RECOMMENDS exponential/linear backoff that lengthens the
+    // cached-failure lifetime for *persistent* failures.
+    fn ttl_for(&self, transient: bool) -> Duration {
+        if transient {
+            self.transient_ttl
+        } else {
+            self.ttl
+        }
     }
 
-    /// Returns the cached response code for `key` if a non-expired entry exists.
+    /// The number of cache entries currently held, including any that have expired but
+    /// not yet been swept. Backs the cache-occupancy metrics gauge.
+    pub(crate) fn entry_count(&self) -> usize {
+        self.entries
+            .lock()
+            .expect("negative cache mutex poisoned")
+            .len()
+    }
+
+    /// Returns the cached response code for `key` if a non-expired entry exists,
+    /// marking it most-recently-used.
     ///
-    /// An entry that has expired but has not yet been swept is treated as absent, so
-    /// a stale negative is never served in the window between expiry and the
-    /// next [`Self::evict_expired`].
-    pub(crate) async fn get(&self, key: &CacheKey) -> Option<ResponseCode> {
-        let entries = self.entries.read().await;
-        entries
+    /// An entry that has expired but has not yet been swept is treated as absent
+    /// and dropped on the spot, so a stale negative is never served and the
+    /// expired entry stops counting against the capacity bound.
+    pub(crate) fn get(&self, key: &CacheKey) -> Option<ResponseCode> {
+        let mut entries = self.entries.lock().expect("negative cache mutex poisoned");
+        let code = entries
             .get(key)
             .filter(|entry| entry.expires_at > Instant::now())
-            .map(|entry| entry.reason_code)
+            .map(|entry| entry.reason_code);
+        // Either the key was absent (no-op) or it was present but expired; in
+        // the latter case remove it so it neither serves nor occupies a slot.
+        if code.is_none() {
+            entries.pop(key);
+        }
+        code
     }
 
-    /// Records a negative `code` for `key`, honoring the entry-count cap.
+    /// Records a negative `code` for `key`. `transient` selects the entry's
+    /// lifetime (see [`Self::ttl_for`]).
     ///
-    /// Returns `true` if the entry was stored. A *new* key is refused once the
-    /// cache holds `max_entries` entries. A key that is *already present* is
-    /// always refreshed.
-    pub(crate) async fn record(&self, key: CacheKey, code: ResponseCode) -> bool {
-        let mut entries = self.entries.write().await;
-        if entries.len() >= self.max_entries && !entries.contains_key(&key) {
-            return false;
+    /// The cache always admits the entry: inserting into a full cache evicts the
+    /// least-recently-used entry. Returns `true` when such a capacity eviction
+    /// occurred (a *different* key was pushed out to make room), and `false`
+    /// when the entry fit without eviction or merely refreshed an existing key.
+    pub(crate) fn record(&self, key: CacheKey, code: ResponseCode, transient: bool) -> bool {
+        let entry = NegativeEntry {
+            reason_code: code,
+            expires_at: Instant::now() + self.ttl_for(transient),
+        };
+        let mut entries = self.entries.lock().expect("negative cache mutex poisoned");
+        // `push` returns the displaced (key, value): the same key on an in-place
+        // refresh, or a *different* key when a full cache evicted its LRU entry
+        // to admit this one.
+        match entries.push(key.clone(), entry) {
+            Some((displaced_key, _)) => displaced_key != key,
+            None => false,
         }
-        entries.insert(
-            key,
-            NegativeEntry {
-                reason_code: code,
-                expires_at: Instant::now() + self.ttl,
-            },
-        );
-        true
     }
 
     /// Removes expired entries and returns the number evicted.
-    // `HashMap::retain` removes entries but never shrinks the backing
-    // allocation, so without the `shrink_to_fit` the peak capacity reached
-    // during a burst would be held indefinitely. Once capacity exceeds 4x the
-    // live entry count, the memory is handed back to the allocator.
-    pub(crate) async fn evict_expired(&self) -> usize {
-        let mut entries = self.entries.write().await;
-        let before = entries.len();
-        entries.retain(|_, entry| entry.expires_at > Instant::now());
-        let evicted = before - entries.len();
-
-        if entries.capacity() > 4 * entries.len() {
-            entries.shrink_to_fit();
+    pub(crate) fn evict_expired(&self) -> usize {
+        let now = Instant::now();
+        let mut entries = self.entries.lock().expect("negative cache mutex poisoned");
+        let expired: Vec<CacheKey> = entries
+            .iter()
+            .filter(|(_, entry)| entry.expires_at <= now)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in &expired {
+            entries.pop(key);
         }
-        evicted
-    }
-
-    #[cfg(test)]
-    async fn len(&self) -> usize {
-        self.entries.read().await.len()
+        expired.len()
     }
 }
 
@@ -136,67 +177,73 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn refuses_new_keys_once_full() {
-        let cache = NegativeCache::new(Duration::from_secs(120), 2);
-        assert!(
-            cache
-                .record(key("a.example.com."), ResponseCode::NXDomain)
-                .await
-        );
-        assert!(
-            cache
-                .record(key("b.example.com."), ResponseCode::NXDomain)
-                .await
+    #[test]
+    fn evicts_least_recently_used_when_full() {
+        let cache = NegativeCache::new(Duration::from_secs(120), Duration::from_secs(5), 2);
+        cache.record(key("a.example.com."), ResponseCode::NXDomain, false);
+        cache.record(key("b.example.com."), ResponseCode::NXDomain, false);
+
+        // Touch `a`, making `b` the least-recently-used entry.
+        assert_eq!(
+            cache.get(&key("a.example.com.")),
+            Some(ResponseCode::NXDomain)
         );
 
-        assert!(
-            !cache
-                .record(key("c.example.com."), ResponseCode::NXDomain)
-                .await
+        // Admitting `c` reports an eviction and pushes out `b`, not `a`.
+        let evicted = cache.record(key("c.example.com."), ResponseCode::NXDomain, false);
+        assert!(evicted);
+        assert_eq!(cache.entry_count(), 2);
+        assert_eq!(cache.get(&key("b.example.com.")), None);
+        assert_eq!(
+            cache.get(&key("a.example.com.")),
+            Some(ResponseCode::NXDomain)
         );
-        assert_eq!(cache.len().await, 2);
+        assert_eq!(
+            cache.get(&key("c.example.com.")),
+            Some(ResponseCode::NXDomain)
+        );
     }
 
-    #[tokio::test]
-    async fn refreshes_existing_key_when_full() {
-        let cache = NegativeCache::new(Duration::from_secs(120), 2);
-        cache
-            .record(key("a.example.com."), ResponseCode::NXDomain)
-            .await;
-        cache
-            .record(key("b.example.com."), ResponseCode::NXDomain)
-            .await;
+    #[test]
+    fn refreshes_existing_key_without_eviction_when_full() {
+        let cache = NegativeCache::new(Duration::from_secs(120), Duration::from_secs(5), 2);
+        cache.record(key("a.example.com."), ResponseCode::NXDomain, false);
+        cache.record(key("b.example.com."), ResponseCode::NXDomain, false);
 
-        assert!(
-            cache
-                .record(key("a.example.com."), ResponseCode::NXDomain)
-                .await
-        );
-        assert_eq!(cache.len().await, 2);
+        let evicted = cache.record(key("a.example.com."), ResponseCode::NXDomain, false);
+        assert!(!evicted);
+        assert_eq!(cache.entry_count(), 2);
     }
 
-    #[tokio::test]
-    async fn get_returns_none_for_expired_entry() {
+    #[test]
+    fn get_returns_none_for_expired_entry() {
         // A zero TTL means every entry is already expired when read back.
-        let cache = NegativeCache::new(Duration::from_secs(0), 16);
-        cache
-            .record(key("gone.example.com."), ResponseCode::NXDomain)
-            .await;
-        assert_eq!(cache.get(&key("gone.example.com.")).await, None);
+        let cache = NegativeCache::new(Duration::from_secs(0), Duration::from_secs(0), 16);
+        cache.record(key("gone.example.com."), ResponseCode::NXDomain, false);
+        assert_eq!(cache.get(&key("gone.example.com.")), None);
     }
 
-    #[tokio::test]
-    async fn evict_expired_drops_only_expired_entries() {
-        let cache = NegativeCache::new(Duration::from_secs(0), 16);
-        cache
-            .record(key("a.example.com."), ResponseCode::NXDomain)
-            .await;
-        cache
-            .record(key("b.example.com."), ResponseCode::Refused)
-            .await;
+    #[test]
+    fn evict_expired_drops_only_expired_entries() {
+        let cache = NegativeCache::new(Duration::from_secs(0), Duration::from_secs(0), 16);
+        cache.record(key("a.example.com."), ResponseCode::NXDomain, false);
+        cache.record(key("b.example.com."), ResponseCode::Refused, false);
 
-        assert_eq!(cache.evict_expired().await, 2);
-        assert_eq!(cache.len().await, 0);
+        assert_eq!(cache.evict_expired(), 2);
+        assert_eq!(cache.entry_count(), 0);
+    }
+
+    #[test]
+    fn servfail_uses_transient_ttl_not_authoritative_ttl() {
+        let cache = NegativeCache::new(Duration::from_secs(120), Duration::from_secs(0), 16);
+
+        cache.record(key("fail.example.com."), ResponseCode::ServFail, true);
+        assert_eq!(cache.get(&key("fail.example.com.")), None);
+
+        cache.record(key("gone.example.com."), ResponseCode::NXDomain, false);
+        assert_eq!(
+            cache.get(&key("gone.example.com.")),
+            Some(ResponseCode::NXDomain)
+        );
     }
 }

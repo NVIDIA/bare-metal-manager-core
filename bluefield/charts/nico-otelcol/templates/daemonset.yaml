@@ -86,6 +86,9 @@ spec:
             - name: journal
               mountPath: /var/log/journal
               readOnly: true
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
             - name: doca-logs
               mountPath: /var/log/doca
               readOnly: true
@@ -102,6 +105,41 @@ spec:
             - name: config-fragments
               mountPath: /etc/otelcol-contrib/config-fragments
               readOnly: true
+        - name: node-exporter
+          image: "{{ .Values.nodeExporter.image.repository }}:{{ .Values.nodeExporter.image.tag }}"
+          imagePullPolicy: {{ .Values.nodeExporter.image.pullPolicy }}
+          args:
+            # Bind to loopback only: the collector scrapes localhost:{{ .Values.nodeExporter.port }}
+            # from within this (hostNetwork) pod, and we don't want node-exporter
+            # reachable on the host's external interfaces.
+            - --web.listen-address=127.0.0.1:{{ .Values.nodeExporter.port }}
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/kubelet/.+)($|/)
+          {{- with .Values.nodeExporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: host-root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -109,6 +147,10 @@ spec:
         - name: journal
           hostPath:
             path: /var/log/journal
+            type: DirectoryOrCreate
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
             type: DirectoryOrCreate
         - name: doca-logs
           hostPath:
@@ -134,6 +176,15 @@ spec:
           hostPath:
             path: /etc/otelcol-contrib/config-fragments
             type: DirectoryOrCreate
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-root
+          hostPath:
+            path: /
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

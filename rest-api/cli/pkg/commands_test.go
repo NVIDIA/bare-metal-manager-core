@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package cli
 
@@ -132,6 +118,15 @@ func TestOperationAction(t *testing.T) {
 		{"batch-update-expected-machines", "batch-update"},
 		{"get-metadata", "get"},
 		{"get-user", "get"},
+		{"update-identity-config", "update"},
+		{"get-identity-config", "get"},
+		{"delete-identity-config", "delete"},
+		{"update-token-delegation", "update"},
+		{"get-token-delegation", "get"},
+		{"delete-token-delegation", "delete"},
+		{"get-jwks", "get"},
+		{"get-spiffe-jwks", "get"},
+		{"get-openid-configuration", "get"},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +155,15 @@ func TestExtractResourceSuffix(t *testing.T) {
 		{"batch-update-expected-machines", "expected-machines"},
 		{"get-site-status-history", "site-status-history"},
 		{"get-instance-status-history", "instance-status-history"},
+		{"update-identity-config", "identity-config"},
+		{"get-identity-config", "identity-config"},
+		{"delete-identity-config", "identity-config"},
+		{"update-token-delegation", "token-delegation"},
+		{"get-token-delegation", "token-delegation"},
+		{"delete-token-delegation", "token-delegation"},
+		{"get-jwks", "jwks"},
+		{"get-spiffe-jwks", "spiffe-jwks"},
+		{"get-openid-configuration", "openid-configuration"},
 	}
 
 	for _, tt := range tests {

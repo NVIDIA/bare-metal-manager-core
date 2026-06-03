@@ -19,8 +19,8 @@
 
 # Map the nico-dhcp SPIFFE ID to the nico-dhcp role.
 # FIXME: verify that this is how these SPIFFE service identifiers look in reality.
-g, spiffe-service-id/nico-dhcp, nico-dhcp
-g, spiffe-service-id/nico-dns, nico-dns
+g, spiffe-service-id/{{ .Values.auth.principals.dhcp }}, nico-dhcp
+g, spiffe-service-id/{{ .Values.auth.principals.dns }}, nico-dns
 g, spiffe-machine-id, machine
 
 # Allow the nico-dhcp role to call its methods.

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package task
 
@@ -36,11 +22,12 @@ import (
 // -- Operation: The operation to be performed by the task.
 // -- RackID: The rack this task operates on (1 task = 1 rack).
 // -- Attributes: Flexible metadata including targeted components by type.
-// -- Description: The description of the task provided by the user.
+// -- Description: User-provided description at task creation.
 // -- ExecutorType: The type of executor to be used for the task.
 // -- ExecutionID: The identifier of the execution of the task.
 // -- Status: The status of the task.
-// -- Message: Status message or error details.
+// -- Message: Brief text tied to status (not execution progress).
+// -- Report: Structured JSON progress document (task.report).
 // -- AppliedRuleID: The ID of the operation rule that was applied (if any).
 type Task struct {
 	ID            uuid.UUID
@@ -52,6 +39,7 @@ type Task struct {
 	ExecutionID   string
 	Status        taskcommon.TaskStatus
 	Message       string
+	Report        json.RawMessage
 	AppliedRuleID *uuid.UUID // The ID of the operation rule that was applied
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -149,10 +137,26 @@ type TaskStatusUpdate struct {
 	ID      uuid.UUID
 	Status  taskcommon.TaskStatus
 	Message string
+	// Report, when non-empty, replaces the stored report document. An
+	// empty value leaves the stored report untouched.
+	Report json.RawMessage
+}
+
+// TaskReportUpdate replaces the stored report with the supplied snapshot
+// without changing status or message. Empty snapshots are dropped to
+// avoid clearing the stored report by accident.
+type TaskReportUpdate struct {
+	ID     uuid.UUID
+	Report json.RawMessage
 }
 
 // TaskStatusUpdater is implemented by any store that can persist task status changes.
 type TaskStatusUpdater interface {
 	// UpdateTaskStatus persists the status change described by arg.
 	UpdateTaskStatus(ctx context.Context, arg *TaskStatusUpdate) error
+}
+
+// TaskReportUpdater persists in-flight report snapshots (best-effort).
+type TaskReportUpdater interface {
+	UpdateTaskReport(ctx context.Context, arg *TaskReportUpdate) error
 }

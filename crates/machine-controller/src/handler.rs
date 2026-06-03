@@ -73,12 +73,13 @@ use model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
     HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
     InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport,
-    PerformPowerOperation, PowerDrainState, PowerState, ReprovisionState, RetryInfo,
-    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
-    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
+    dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
@@ -4442,7 +4443,7 @@ fn post_cleanup_state(cleanup_context: CleanupContext) -> ManagedHostState {
     match cleanup_context {
         CleanupContext::Deprovision => ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::UpdatingInventory(BomValidatingContext {
-                machine_validation_context: Some("Cleanup".to_string()),
+                machine_validation_context: Some(MachineValidationContext::Cleanup),
                 ..BomValidatingContext::default()
             }),
         },
@@ -5100,7 +5101,7 @@ impl StateHandler for HostMachineStateHandler {
                                         bom_validating_state: BomValidating::MatchingSku(
                                             BomValidatingContext {
                                                 machine_validation_context: Some(
-                                                    "Discovery".to_string(),
+                                                    MachineValidationContext::Discovery,
                                                 ),
                                                 ..BomValidatingContext::default()
                                             },
@@ -5160,7 +5161,7 @@ impl StateHandler for HostMachineStateHandler {
                                     bom_validating_state: BomValidating::MatchingSku(
                                         BomValidatingContext {
                                             machine_validation_context: Some(
-                                                "Discovery".to_string(),
+                                                MachineValidationContext::Discovery,
                                             ),
                                             reboot_retry_count: None,
                                         },
@@ -5223,6 +5224,20 @@ impl StateHandler for HostMachineStateHandler {
                                 };
                                 Ok(StateHandlerOutcome::transition(next_state))
                             } else {
+                                // The DPU can only come up while the host is
+                                // powered on.
+                                if is_host_powered_off(mh_snapshot, ctx).await? {
+                                    tracing::error!(
+                                        machine_id = %mh_snapshot.host_snapshot.id,
+                                        "Host is powered off while waiting for DPU to report UP."
+                                    );
+
+                                    // TODO: power the host back on as a workaround. Lets wait and see if we can root cause why a host was powere off here.
+                                    return Err(StateHandlerError::GenericError(eyre!(
+                                        "Host {} is powered off while waiting for DPU to report UP",
+                                        mh_snapshot.host_snapshot.id
+                                    )));
+                                }
                                 Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
                             }
                         }
@@ -5232,7 +5247,7 @@ impl StateHandler for HostMachineStateHandler {
                                     bom_validating_state: BomValidating::MatchingSku(
                                         BomValidatingContext {
                                             machine_validation_context: Some(
-                                                "Discovery".to_string(),
+                                                MachineValidationContext::Discovery,
                                             ),
                                             ..BomValidatingContext::default()
                                         },
@@ -8758,6 +8773,19 @@ pub async fn host_power_state(
         .get_power_state()
         .await
         .map_err(|e| redfish_error("get_power_state", e))
+}
+
+/// Returns true if the host's current Redfish power state is `Off`.
+async fn is_host_powered_off(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
+    let power_state = host_power_state(redfish_client.as_ref()).await?;
+    Ok(power_state == libredfish::PowerState::Off)
 }
 
 fn requires_manual_firmware_upgrade(

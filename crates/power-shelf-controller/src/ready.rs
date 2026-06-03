@@ -83,7 +83,7 @@ async fn poll_rms_power_state(
     let Some(rms_client) = ctx.services.rms_client.as_ref() else {
         tracing::debug!(
             power_shelf_id = %power_shelf_id,
-            "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; RMS client not configured",
+            "PowerShelf Ready: skipping RMS BatchGetPowerState; RMS client not configured",
         );
         return None;
     };
@@ -91,7 +91,7 @@ async fn poll_rms_power_state(
     let Some(rack_id) = state.rack_id.as_ref() else {
         tracing::debug!(
             power_shelf_id = %power_shelf_id,
-            "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; power shelf has no rack association",
+            "PowerShelf Ready: skipping RMS BatchGetPowerState; power shelf has no rack association",
         );
         return None;
     };
@@ -111,44 +111,44 @@ async fn poll_rms_power_state(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id,
                 cause = %cause,
-                "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; unable to build NodeSet",
+                "PowerShelf Ready: skipping RMS BatchGetPowerState; unable to build NodeSet",
             );
             return None;
         }
     };
 
-    let request = rms::GetPowerStateByDeviceListRequest {
+    let request = rms::BatchGetPowerStateRequest {
         nodes: Some(rms::NodeSet {
-            devices: vec![device],
+            nodes: vec![device],
         }),
-        ..Default::default()
     };
 
     let rack_id_str = rack_id.to_string();
-    let response = match rms_client.get_power_state_by_device_list(request).await {
+    let response = match rms_client.batch_get_power_state(request).await {
         Ok(response) => response,
         Err(error) => {
-            let error = rack_manager_error("get_power_state_by_device_list", error);
+            let error = rack_manager_error("batch_get_power_state", error);
             tracing::warn!(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id_str,
                 error = %error,
-                "RMS GetPowerStateByDeviceList transport error",
+                "RMS BatchGetPowerState transport error",
             );
             return None;
         }
     };
 
     let batch = response.response.clone().unwrap_or_default();
-    if !(batch.status == rms::ReturnCode::Success as i32 && batch.failed_nodes == 0) {
+    let stats = batch.stats.unwrap_or_default();
+    if !(batch.status == rms::ReturnCode::Success as i32 && stats.failed_nodes == 0) {
         tracing::warn!(
             power_shelf_id = %power_shelf_id,
             rack_id = %rack_id_str,
             batch_status = batch.status,
-            successful_nodes = batch.successful_nodes,
-            failed_nodes = batch.failed_nodes,
+            successful_nodes = stats.successful_nodes,
+            failed_nodes = stats.failed_nodes,
             message = %batch.message,
-            "RMS GetPowerStateByDeviceList returned non-Success result",
+            "RMS BatchGetPowerState returned non-Success result",
         );
         return None;
     }
@@ -156,13 +156,13 @@ async fn poll_rms_power_state(
     tracing::info!(
         power_shelf_id = %power_shelf_id,
         rack_id = %rack_id_str,
-        successful_nodes = batch.successful_nodes,
+        successful_nodes = stats.successful_nodes,
         pstates = ?response
             .node_power_states
             .iter()
             .map(|node| (node.node_id.as_str(), node.pstate.as_str()))
             .collect::<Vec<_>>(),
-        "RMS GetPowerStateByDeviceList succeeded",
+        "RMS BatchGetPowerState succeeded",
     );
 
     persist_observed_power_state(power_shelf_id, state, ctx, &response.node_power_states).await
@@ -189,7 +189,7 @@ async fn persist_observed_power_state(
     else {
         tracing::debug!(
             power_shelf_id = %power_shelf_id,
-            "RMS GetPowerStateByDeviceList: no NodePowerState echoed for this power shelf; skipping status update",
+            "RMS BatchGetPowerState: no NodePowerState echoed for this power shelf; skipping status update",
         );
         return None;
     };

@@ -57,7 +57,9 @@ pub struct FirmwareGlobal {
     #[serde(default = "FirmwareGlobal::concurrency_limit_default")]
     pub concurrency_limit: usize,
     /// Local directory where firmware binaries are stored.
-    /// Default is `/opt/carbide/firmware`.
+    /// Default probes `/opt/nico/firmware` first (helm-chart layout), then
+    /// falls back to `/opt/carbide/firmware` (forged kustomize layout) if
+    /// the first doesn't exist. A deployer can pin either explicitly.
     #[serde(default = "FirmwareGlobal::firmware_directory_default")]
     pub firmware_directory: PathBuf,
     /// Delay before retrying a failed host firmware
@@ -134,6 +136,12 @@ impl FirmwareGlobal {
         16
     }
     pub fn firmware_directory_default() -> PathBuf {
+        // Prefer the helm-chart layout (`/opt/nico/firmware`); fall back to
+        // the forged-kustomize layout (`/opt/carbide/firmware`) if the
+        // nico-style directory doesn't exist on disk yet.
+        if std::path::Path::new("/opt/nico/firmware").exists() {
+            return PathBuf::from("/opt/nico/firmware");
+        }
         PathBuf::from("/opt/carbide/firmware")
     }
     pub fn host_firmware_upgrade_retry_interval_default() -> Duration {

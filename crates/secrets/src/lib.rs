@@ -36,6 +36,9 @@ pub mod key_encryption;
 pub mod local_credentials;
 pub mod memory_credentials;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 use credentials::{
     CompositeCredentialManager, CredentialManager, CredentialReader, CredentialWriter,
 };

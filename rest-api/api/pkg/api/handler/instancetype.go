@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -45,15 +31,12 @@ import (
 	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	mutil "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
 )
 
@@ -246,7 +229,7 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 
 		// Get Machine capabilities for the Instance Type
-		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Machine capabilities for Instance Type")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine capabilities for Instance Type", nil)
@@ -259,147 +242,21 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		id := it.ID.String()
-		createInstanceTypeRequest := &cwssaws.CreateInstanceTypeRequest{
-			Id: &id,
-		}
+		// Attach the loaded capabilities to the entity so
+		// `apiRequest.ToProto(it)` can serialise them. The entity owns
+		// the Index-sort that NICo's update semantics require; per-cap
+		// wire mapping lives on `(*MachineCapability).ToProto` and the
+		// type / device-type / numeric-bounds rules were enforced by
+		// `apiRequest.Validate`.
+		it.AttachCapabilities(mcs)
 
-		capabilities := make([]*cwssaws.InstanceTypeMachineCapabilityFilterAttributes, len(mcs))
-
-		// Sort the capabilities list.  NICo will deny later updates
-		// if an InstanceType is associated with machines and a change
-		// in capabilities is attempted, so we'll sort here and
-		// in the update handler so that users can update metadata
-		// as long as capabilities are the same, and order matters.
-		slices.SortFunc(mcs, func(a, b cdbm.MachineCapability) int {
-			if a.Index < b.Index {
-				return -1
-			}
-
-			if a.Index > b.Index {
-				return 1
-			}
-
-			return 0
-		})
-
-		for i, machineCap := range mcs {
-			count, derr := util.GetIntPtrToUint32Ptr(machineCap.Count)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Count value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Count value for MachineCapability", nil)
-			}
-
-			cores, derr := util.GetIntPtrToUint32Ptr(machineCap.Cores)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Cores value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Cores value for MachineCapability", nil)
-			}
-
-			threads, derr := util.GetIntPtrToUint32Ptr(machineCap.Threads)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Threads value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Threads value for MachineCapability", nil)
-			}
-
-			var capType cwssaws.MachineCapabilityType
-
-			switch machineCap.Type {
-			case cdbm.MachineCapabilityTypeCPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_CPU
-			case cdbm.MachineCapabilityTypeMemory:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY
-			case cdbm.MachineCapabilityTypeGPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_GPU
-			case cdbm.MachineCapabilityTypeStorage:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE
-			case cdbm.MachineCapabilityTypeNetwork:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK
-			case cdbm.MachineCapabilityTypeInfiniBand:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND
-			case cdbm.MachineCapabilityTypeDPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_DPU
-			default:
-				logger.Error().Msg("unsupported MachineCapabilityType requested")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Unsupported MachineCapabilityType requested", nil)
-			}
-
-			// Validate device type for network capabilities
-			var deviceType *cwssaws.MachineCapabilityDeviceType
-			if machineCap.DeviceType != nil {
-				switch machineCap.Type {
-				case cdbm.MachineCapabilityTypeNetwork:
-					// For Network Capability, we only support DPU
-					if *machineCap.DeviceType != cdbm.MachineCapabilityDeviceTypeDPU {
-						logger.Error().Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for Network Capability")
-						return cutil.NewAPIError(http.StatusBadRequest, "Unsupported Device Type specified for Network Capability "+*machineCap.DeviceType, nil)
-					}
-					deviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU.Enum()
-				case cdbm.MachineCapabilityTypeGPU:
-					// For GPU Capability, we only support NVLink
-					if *machineCap.DeviceType != cdbm.MachineCapabilityDeviceTypeNVLink {
-						logger.Error().Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for GPU Capability")
-						return cutil.NewAPIError(http.StatusBadRequest, "Unsupported Device Type specified for GPU Capability "+*machineCap.DeviceType, nil)
-					}
-					deviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK.Enum()
-				default:
-					logger.Error().Str("Capability Type", machineCap.Type).Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for Capability Type")
-					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Unsupported Device Type: %s specified for Capability type %s", *machineCap.DeviceType, machineCap.Type), nil)
-				}
-			}
-
-			var inactiveDevices *cwssaws.Uint32List
-
-			if machineCap.InactiveDevices != nil {
-				if machineCap.Type != cdbm.MachineCapabilityTypeInfiniBand {
-					logger.Error().Str("Capability Type", machineCap.Type).Msg("InactiveDevices specified for non-InfiniBand Capability Type")
-					return cutil.NewAPIError(http.StatusBadRequest, "InactiveDevices specified for non-InfiniBand Capability Type", nil)
-				}
-
-				inactiveDevices = &cwssaws.Uint32List{}
-				for _, inactiveDevice := range machineCap.InactiveDevices {
-					inactiveDevices.Items = append(inactiveDevices.Items, uint32(inactiveDevice))
-				}
-			}
-
-			capabilities[i] = &cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-				CapabilityType:   capType,
-				Name:             &machineCap.Name,
-				Frequency:        machineCap.Frequency,
-				Capacity:         machineCap.Capacity,
-				Vendor:           machineCap.Vendor,
-				Count:            count,
-				HardwareRevision: machineCap.HardwareRevision,
-				Cores:            cores,
-				Threads:          threads,
-				InactiveDevices:  inactiveDevices,
-				DeviceType:       deviceType,
-			}
-		}
-
-		createInstanceTypeRequest.InstanceTypeAttributes = &cwssaws.InstanceTypeAttributes{
-			DesiredCapabilities: capabilities,
-		}
+		createInstanceTypeRequest := apiRequest.ToProto(it)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-type-create-" + it.ID.String(),
 			TaskQueue:                queue.SiteTaskQueue,
 			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
 		}
-
-		// InstanceType metadata info
-		metadata := &cwssaws.Metadata{
-			Name: it.Name,
-		}
-
-		// Include description if present
-		if it.Description != nil {
-			metadata.Description = *it.Description
-		}
-
-		metadata.Labels = mutil.ProtobufLabelsFromAPILabels(it.Labels)
-
-		createInstanceTypeRequest.Metadata = metadata
 
 		logger.Info().Msg("triggering InstanceType create workflow")
 
@@ -453,11 +310,18 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous create InstanceType workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to create Instance Type, DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to create Instance Type, DB transaction error")
 	}
 
 	// Create API response
@@ -1191,12 +1055,13 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 			// Create a map to track capabilities that already exist
 			// in the DB so we can compare against the incoming request.
 			existingMacCapMap := map[string]*cdbm.MachineCapability{}
-			for _, mc := range existingMcs {
-				existingMacCapMap[mc.Type+"-"+mc.Name] = &mc
+			for i := range existingMcs {
+				mc := &existingMcs[i]
+				existingMacCapMap[mc.MapKey()] = mc
 			}
 
 			for pos, reqMacCap := range apiRequest.MachineCapabilities {
-				capKey := reqMacCap.Type + "-" + reqMacCap.Name
+				capKey := reqMacCap.MapKey()
 
 				existingCap := existingMacCapMap[capKey]
 				// The incoming requested capability doesn't exist at all currently,
@@ -1280,7 +1145,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 
 		// Get the most up-to-date capabilities for the instance type
-		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Machine capabilities for Instance Type")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine capabilities for Instance Type", nil)
@@ -1303,150 +1168,29 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateInstanceTypeRequest := &cwssaws.UpdateInstanceTypeRequest{
-			Id: it.ID.String(),
-		}
-
-		capabilities := make([]*cwssaws.InstanceTypeMachineCapabilityFilterAttributes, len(mcs))
-
-		// Sort the capabilities list.  NICo will deny updates
-		// if an InstanceType is associated with machines and a change
-		// in capabilities is attempted, and order matters.
-
+		// Sort the capabilities list and attach to the entity. NICo will
+		// deny updates if an InstanceType is associated with machines and
+		// a change in capabilities is attempted, and order matters. Once
+		// sorted, the slice is hung off `it.Capabilities` so
+		// `apiRequest.ToProto(it)` can read it via the entity's
+		// canonical `ToProto`; per-capability wire mapping lives on
+		// `(*MachineCapability).ToProto` and the type / device-type /
+		// numeric-bounds rules were enforced by `apiRequest.Validate`.
 		slices.SortFunc(mcs, func(a, b cdbm.MachineCapability) int {
-			if a.Index < b.Index {
-				return -1
-			}
-
-			if a.Index > b.Index {
-				return 1
-			}
-
-			return 0
+			return a.Index - b.Index
 		})
-
-		for i, machineCap := range mcs {
-
-			count, derr := util.GetIntPtrToUint32Ptr(machineCap.Count)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Count value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Count value for MachineCapability", nil)
-			}
-
-			cores, derr := util.GetIntPtrToUint32Ptr(machineCap.Cores)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Cores value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Cores value for MachineCapability", nil)
-			}
-
-			threads, derr := util.GetIntPtrToUint32Ptr(machineCap.Threads)
-			if derr != nil {
-				logger.Error().Err(derr).Msg("invalid Threads value for MachineCapability")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Invalid Threads value for MachineCapability", nil)
-			}
-
-			var capType cwssaws.MachineCapabilityType
-
-			switch machineCap.Type {
-			case cdbm.MachineCapabilityTypeCPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_CPU
-			case cdbm.MachineCapabilityTypeMemory:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY
-			case cdbm.MachineCapabilityTypeGPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_GPU
-			case cdbm.MachineCapabilityTypeStorage:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE
-			case cdbm.MachineCapabilityTypeNetwork:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK
-			case cdbm.MachineCapabilityTypeInfiniBand:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND
-			case cdbm.MachineCapabilityTypeDPU:
-				capType = cwssaws.MachineCapabilityType_CAP_TYPE_DPU
-			default:
-				logger.Error().Msg("unsupported MachineCapabilityType requested")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Unsupported MachineCapabilityType requested", nil)
-			}
-
-			// Update device type for network capabilities if provided
-			// Since we are validating the device type in the API model,
-			// we can safely set the device type to DPU for network capabilities
-			// as currently we only support DPU device type for network capabilities.
-			// Similarly, for GPU capabilities, we only support NVLink device type.
-			var deviceType *cwssaws.MachineCapabilityDeviceType
-			if machineCap.DeviceType != nil {
-				switch machineCap.Type {
-				case cdbm.MachineCapabilityTypeNetwork:
-					// For Network Capability, we only support DPU
-					if *machineCap.DeviceType != cdbm.MachineCapabilityDeviceTypeDPU {
-						logger.Error().Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for Network Capability")
-						return cutil.NewAPIError(http.StatusBadRequest, "Unsupported Device Type specified for Network Capability "+*machineCap.DeviceType, nil)
-					}
-					deviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU.Enum()
-				case cdbm.MachineCapabilityTypeGPU:
-					// For GPU Capability, we only support NVLink
-					if *machineCap.DeviceType != cdbm.MachineCapabilityDeviceTypeNVLink {
-						logger.Error().Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for GPU Capability")
-						return cutil.NewAPIError(http.StatusBadRequest, "Unsupported Device Type specified for GPU Capability "+*machineCap.DeviceType, nil)
-					}
-					deviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK.Enum()
-				default:
-					logger.Error().Str("Capability Type", machineCap.Type).Str("Device Type", *machineCap.DeviceType).Msg("unsupported Device Type specified for Capability Type")
-					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Unsupported Device Type: %s specified for Capability type %s", *machineCap.DeviceType, machineCap.Type), nil)
-				}
-			}
-
-			var inactiveDevices *cwssaws.Uint32List
-
-			if machineCap.InactiveDevices != nil {
-				if machineCap.Type != cdbm.MachineCapabilityTypeInfiniBand {
-					logger.Error().Str("Capability Type", machineCap.Type).Msg("InactiveDevices specified for non-InfiniBand Capability Type")
-					return cutil.NewAPIError(http.StatusBadRequest, "InactiveDevices specified for non-InfiniBand Capability Type", nil)
-				}
-
-				inactiveDevices = &cwssaws.Uint32List{}
-				for _, inactiveDevice := range machineCap.InactiveDevices {
-					inactiveDevices.Items = append(inactiveDevices.Items, uint32(inactiveDevice))
-				}
-			}
-
-			capabilities[i] = &cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-				CapabilityType:   capType,
-				Name:             &machineCap.Name,
-				Frequency:        machineCap.Frequency,
-				Capacity:         machineCap.Capacity,
-				Vendor:           machineCap.Vendor,
-				Count:            count,
-				HardwareRevision: machineCap.HardwareRevision,
-				Cores:            cores,
-				Threads:          threads,
-				InactiveDevices:  inactiveDevices,
-				DeviceType:       deviceType,
-			}
+		it.Capabilities = make([]*cdbm.MachineCapability, len(mcs))
+		for i := range mcs {
+			it.Capabilities[i] = &mcs[i]
 		}
 
-		updateInstanceTypeRequest.InstanceTypeAttributes = &cwssaws.InstanceTypeAttributes{
-			DesiredCapabilities: capabilities,
-		}
+		updateInstanceTypeRequest := apiRequest.ToProto(it)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-type-update-" + it.ID.String(),
 			TaskQueue:                queue.SiteTaskQueue,
 			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
 		}
-
-		// InstanceType metadata info
-		metadata := &cwssaws.Metadata{
-			Name: it.Name,
-		}
-
-		// Include description if present
-		if it.Description != nil {
-			metadata.Description = *it.Description
-		}
-
-		metadata.Labels = mutil.ProtobufLabelsFromAPILabels(it.Labels)
-
-		updateInstanceTypeRequest.Metadata = metadata
 
 		logger.Info().Msg("triggering InstanceType update workflow")
 
@@ -1513,11 +1257,18 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update InstanceType workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to update Instance Type, DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to update Instance Type, DB transaction error")
 	}
 
 	ait := model.NewAPIInstanceType(it, ssds, mcs, nil, nil)
@@ -1710,9 +1461,7 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteInstanceTypeRequest := &cwssaws.DeleteInstanceTypeRequest{
-			Id: it.ID.String(),
-		}
+		deleteInstanceTypeRequest := it.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-type-delete-" + it.ID.String(),
@@ -1780,11 +1529,18 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous delete InstanceType workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to delete Instance Type, DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to delete Instance Type, DB transaction error")
 	}
 
 	// Create response

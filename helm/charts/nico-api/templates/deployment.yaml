@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-api
+  name: {{ include "nico-api.name" . }}
   namespace: {{ include "nico-api.namespace" . }}
   labels:
     {{- include "nico-api.labels" . | nindent 4 }}
   annotations:
-    {{- toYaml .Values.annotations | nindent 4 }}
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   strategy:
@@ -19,10 +19,10 @@ spec:
       labels:
         {{- include "nico-api.labels" . | nindent 8 }}
       annotations:
-        kubectl.kubernetes.io/default-container: nico-api
+        kubectl.kubernetes.io/default-container: {{ include "nico-api.name" . }}
     spec:
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
-      serviceAccountName: {{ .Values.serviceAccountName }}
+      serviceAccountName: {{ include "nico-api.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -51,7 +51,7 @@ spec:
         {{- end }}
       {{- end }}
       containers:
-        - name: nico-api
+        - name: {{ include "nico-api.name" . }}
           image: "{{ include "nico-api.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           securityContext:
@@ -160,13 +160,13 @@ spec:
             # Mount config + secrets at both legacy /etc/forge,/var/run/secrets/forge-roots,/opt/carbide
             # and renamed /etc/nico,/var/run/secrets/nico-roots,/opt/nico paths so the chart works
             # whether the binary inside the image looks up its files under forge/carbide or nico names.
-            - name: nico-api-config-files
+            - name: {{ include "nico-api.name" . }}-config-files
               mountPath: /etc/forge/carbide-api
-            - name: nico-api-config-files
+            - name: {{ include "nico-api.name" . }}-config-files
               mountPath: /etc/nico/nico-api
-            - name: nico-api-site-config-files
+            - name: {{ include "nico-api.name" . }}-site-config-files
               mountPath: /etc/forge/carbide-api/site
-            - name: nico-api-site-config-files
+            - name: {{ include "nico-api.name" . }}-site-config-files
               mountPath: /etc/nico/nico-api/site
             - name: persistence
               mountPath: /mnt/persistence
@@ -193,17 +193,17 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
-        - name: nico-api-config-files
+        - name: {{ include "nico-api.name" . }}-config-files
           configMap:
-            name: nico-api-config-files
-        - name: nico-api-site-config-files
+            name: {{ include "nico-api.name" . }}-config-files
+        - name: {{ include "nico-api.name" . }}-site-config-files
           configMap:
-            name: nico-api-site-config-files
+            name: {{ include "nico-api.name" . }}-site-config-files
         - name: persistence
           emptyDir: {}
         - name: spiffe
           secret:
-            secretName: nico-api-certificate
+            secretName: {{ include "nico-api.name" . }}-certificate
         - name: nico-roots
           secret:
             secretName: nico-roots

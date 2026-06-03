@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package sshkeygroup
 
@@ -409,7 +395,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 
 						serr = mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cdb.GetStrPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cdb.GetStrPtr("SSHKeyGroup is missing on Site"))
 						if serr != nil {
-							slogger.Error().Err(err).Msg("failed to update SSH Key Group Site Association status detail in DB")
+							slogger.Error().Err(serr).Msg("failed to update SSH Key Group Site Association status detail in DB")
 						}
 
 						updatedSkgMap[skgID] = true
@@ -427,7 +413,7 @@ func (mskg ManageSSHKeyGroup) UpdateSSHKeyGroupsInDB(ctx context.Context, siteID
 			// but the status is not synced, so we need to sync it
 			serr := mskg.updateSSHKeyGroupSiteAssociationStatusInDB(ctx, nil, skgsa.ID, cdb.GetStrPtr(cdbm.SSHKeyGroupSiteAssociationStatusSynced), cdb.GetStrPtr("SSH Key Group has successfully been synced with Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update SSH Key Group status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update SSH Key Group status detail in DB")
 			}
 
 			updatedSkgMap[skgID] = true

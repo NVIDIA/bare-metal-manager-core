@@ -15,12 +15,12 @@ use rpc::protos::forge::{
 use super::{RackData, TrayData};
 use crate::error::RvsError;
 
-/// NICC gRPC client wrapper -- translates gRPC responses into IR types.
-pub struct NiccClient {
+/// NICo gRPC client wrapper -- translates gRPC responses into IR types.
+pub struct NicoClient {
     inner: ForgeApiClient,
 }
 
-impl NiccClient {
+impl NicoClient {
     /// Construct from API config.
     pub fn new(api_config: &ApiConfig<'_>) -> Self {
         Self {
@@ -28,7 +28,7 @@ impl NiccClient {
         }
     }
 
-    /// Fetch all racks from NICC -> Vec<RackData>.
+    /// Fetch all racks from NICo -> Vec<RackData>.
     pub async fn get_racks(&self) -> Result<Vec<RackData>, RvsError> {
         let response = self.inner.get_rack(GetRackRequest { id: None }).await?;
         response.rack.into_iter().map(RackData::try_from).collect()
@@ -74,10 +74,9 @@ impl NiccClient {
     }
 
     /// Allocate a validation instance on a single machine.
-    #[allow(dead_code)]
     ///
     /// The OS is identified by `os_uri` from the scenario file. Until RVS can
-    /// resolve the URI to a NICC OS image UUID, `os_image_id` is stubbed with
+    /// resolve the URI to a NICo OS image UUID, `os_image_id` is stubbed with
     /// a nil UUID - the call will fail in production until this is wired up.
     pub async fn allocate_machine_instance(
         &self,
@@ -92,7 +91,7 @@ impl NiccClient {
                 machine_id: Some(machine_id),
                 config: Some(InstanceConfig {
                     os: Some(InstanceOperatingSystemConfig {
-                        // TODO[#416]: resolve os_uri to a NICC OS image UUID via ListOsImage /
+                        // TODO[#416]: resolve os_uri to a NICo OS image UUID via ListOsImage /
                         //       an external registry lookup. For now, nil UUID is a known
                         //       stub that will be replaced once image resolution is wired.
                         variant: Some(instance_operating_system_config::Variant::OsImageId(
@@ -122,7 +121,6 @@ impl NiccClient {
     }
 
     /// Fetch current state of instances by their IDs.
-    #[allow(dead_code)]
     pub async fn get_instances(&self, instance_ids: &[String]) -> Result<Vec<Instance>, RvsError> {
         let ids = instance_ids
             .iter()

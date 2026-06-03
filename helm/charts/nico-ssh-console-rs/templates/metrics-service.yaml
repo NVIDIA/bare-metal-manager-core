@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nico-ssh-console-rs-metrics
+  name: {{ include "nico-ssh-console-rs.name" . }}-metrics
   namespace: {{ include "nico-ssh-console-rs.namespace" . }}
   labels:
     {{- include "nico-ssh-console-rs.labels" . | nindent 4 }}
-    app: nico-ssh-console-rs
-    app.kubernetes.io/metrics: nico-ssh-console-rs
+    app: {{ include "nico-ssh-console-rs.name" . }}
+    app.kubernetes.io/metrics: {{ include "nico-ssh-console-rs.name" . }}
 spec:
   selector:
     {{- include "nico-ssh-console-rs.selectorLabels" . | nindent 4 }}

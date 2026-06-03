@@ -45,6 +45,7 @@ impl MetricsEmitter for SwitchMetricsEmitter {
         register_health_gauges::<_, (), _>(
             "carbide_switches",
             "switch_id",
+            "Switches",
             meter,
             shared_metrics,
             |m| &m.health,

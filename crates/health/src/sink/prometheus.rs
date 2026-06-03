@@ -34,11 +34,10 @@ impl PrometheusSink {
         metrics_manager: Arc<MetricsManager>,
         metrics_prefix: &str,
     ) -> Result<Self, HealthError> {
-        let collector_registry =
-            Arc::new(metrics_manager.create_collector_registry(
-                "sink_prometheus_collector".to_string(),
-                metrics_prefix,
-            )?);
+        let collector_registry = Arc::new(metrics_manager.create_telemetry_collector_registry(
+            "sink_prometheus_collector".to_string(),
+            metrics_prefix,
+        )?);
         Ok(Self {
             collector_registry,
             stream_metrics: DashMap::new(),

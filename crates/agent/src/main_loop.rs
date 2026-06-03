@@ -674,6 +674,7 @@ impl MainLoop {
                         {
                             ethernet_virtualization::update_traffic_intercept_bridging(
                                 &conf,
+                                self.hbn_device_names.clone(),
                                 self.agent_config.hbn.skip_reload,
                             )
                             .await

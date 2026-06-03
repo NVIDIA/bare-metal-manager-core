@@ -35,7 +35,7 @@ use crate::measured_boot::interface::common;
 ///
 /// The intent is bundle operations can call this to see what reports
 /// match the bundle.
-pub fn where_pcr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &[PcrRegisterValue]) {
+pub fn where_pcr_pairs(query: &mut QueryBuilder<Postgres>, values: &[PcrRegisterValue]) {
     query.push("where (pcr_register, sha_any) in (");
     for (pair_index, value) in values.iter().enumerate() {
         query.push("(");
@@ -60,23 +60,18 @@ pub async fn match_latest_reports(
             sqlx::Error::Protocol(String::from("empty values list")),
         ));
     }
-    let columns = [
-        "measurement_reports.report_id",
-        "measurement_reports.machine_id",
-        "measurement_reports.ts",
-    ]
-    .join(", ");
 
     let pcr_register_len = values.len();
 
-    let mut query: QueryBuilder<'_, Postgres> = QueryBuilder::new(format!(
-        "select {columns} from measurement_reports
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
+        "select measurement_reports.report_id, measurement_reports.machine_id, measurement_reports.ts
+        from measurement_reports
         join
             measurement_reports_values
                 on measurement_reports.report_id=measurement_reports_values.report_id
         join
             (select distinct on (machine_id) * from measurement_reports order by machine_id,ts desc) as latest_reports
-                on measurement_reports_values.report_id=latest_reports.report_id "));
+                on measurement_reports_values.report_id=latest_reports.report_id ");
     where_pcr_pairs(&mut query, values);
 
     query.push("group by measurement_reports.report_id ");

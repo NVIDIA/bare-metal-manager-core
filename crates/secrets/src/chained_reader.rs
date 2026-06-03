@@ -50,10 +50,11 @@ mod tests {
     use serial_test::serial;
 
     use super::*;
-    use crate::credentials::{CredentialType, TestCredentialManager};
+    use crate::credentials::CredentialType;
     use crate::local_credentials::{
         EnvCredentials, EnvCredentialsConfig, FileCredentialsConfig, FileCredentialsWatcher,
     };
+    use crate::test_support::credentials::TestCredentialManager;
 
     #[tokio::test]
     async fn empty_chain_returns_none() {

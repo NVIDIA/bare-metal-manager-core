@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package elektra
 
@@ -38,7 +24,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/nico"
+	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/coregrpc"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/conftypes"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/elektratypes"
 	"github.com/rs/zerolog/log"
@@ -102,17 +88,17 @@ type bootstrapSecretData struct {
 
 // checkGrpcState checks the state of the NICo gRPC connection
 func checkGrpcState(stats *workflowtypes.MgrState) {
-	fail := int(nico.ManagerAccess.Data.EB.Managers.NICo.State.GrpcFail.Load())
+	fail := int(coregrpc.ManagerAccess.Data.EB.Managers.CoreGrpc.State.GrpcFail.Load())
 	if wflowGrpcFail != fail {
 		log.Info().Msgf("wflowGrpcFail: %v, state fail: %v ", wflowGrpcFail, fail)
 		panic("wflowGrpcFail ctr incorrect")
 	}
-	succ := int(nico.ManagerAccess.Data.EB.Managers.NICo.State.GrpcSucc.Load())
+	succ := int(coregrpc.ManagerAccess.Data.EB.Managers.CoreGrpc.State.GrpcSucc.Load())
 	if wflowGrpcSucc != succ {
 		log.Info().Msgf("wflowGrpcSucc: %v, state succ %v", wflowGrpcSucc, succ)
 		panic("wflowGrpcSucc ctr incorrect")
 	}
-	state := uint64(nico.ManagerAccess.Data.EB.Managers.NICo.State.HealthStatus.Load())
+	state := uint64(coregrpc.ManagerAccess.Data.EB.Managers.CoreGrpc.State.HealthStatus.Load())
 	if uint64(computils.CompHealthy) != state {
 		log.Info().Msgf("state %v ", state)
 		panic("Component not in Healthy State")
@@ -248,6 +234,7 @@ func SetupTestBootstrapSecret(t *testing.T, conf *conftypes.Config) string {
 	siteManagerCACertPath := SetupTestCA(t, "/tmp/site-manager/certs/ca.crt")
 	// Read the Site Manager CA cert
 	siteManagerCACert, err := os.ReadFile(siteManagerCACertPath)
+
 	assert.NoError(t, err)
 
 	data := bootstrapSecretData{
@@ -288,8 +275,8 @@ func TestInitElektra(t *testing.T) {
 	if testElektra != nil {
 		return
 	}
-	os.Setenv("NICO_CERT_CHECK_INTERVAL", "1") // set this to check if certs were rotated every second to help with unit tests
-	defer os.Unsetenv("NICO_CERT_CHECK_INTERVAL")
+	os.Setenv("CORE_GRPC_CERT_CHECK_INTERVAL", "1") // set this to check if certs were rotated every second to help with unit tests
+	defer os.Unsetenv("CORE_GRPC_CERT_CHECK_INTERVAL")
 
 	// Initialize test Site Agent
 	log.Info().Msg("Elektra: Initializing test Site Agent")
@@ -306,14 +293,14 @@ func TestInitElektra(t *testing.T) {
 	}
 
 	// Config has been initialized here
-	// Generate NICo CA and client certs
-	nicoCACertPath := SetupTestCA(t, testElektraTypes.Conf.NICo.ServerCAPath)
-	nicoKeyPath, nicoCertPath := SetupTestCerts(t, testElektraTypes.Conf.NICo.ClientCertPath, testElektraTypes.Conf.NICo.ClientKeyPath,
-		nicoCACertPath)
+	// Generate Core gRPC CA and client certs
+	coreGrpcCACertPath := SetupTestCA(t, testElektraTypes.Conf.CoreGrpc.ServerCAPath)
+	coreGrpcKeyPath, coreGrpcCertPath := SetupTestCerts(t, testElektraTypes.Conf.CoreGrpc.ClientCertPath, testElektraTypes.Conf.CoreGrpc.ClientKeyPath,
+		coreGrpcCACertPath)
 
-	assert.Equal(t, nicoCACertPath, testElektraTypes.Conf.NICo.ServerCAPath)
-	assert.Equal(t, nicoKeyPath, testElektraTypes.Conf.NICo.ClientKeyPath)
-	assert.Equal(t, nicoCertPath, testElektraTypes.Conf.NICo.ClientCertPath)
+	assert.Equal(t, coreGrpcCACertPath, testElektraTypes.Conf.CoreGrpc.ServerCAPath)
+	assert.Equal(t, coreGrpcKeyPath, testElektraTypes.Conf.CoreGrpc.ClientKeyPath)
+	assert.Equal(t, coreGrpcCertPath, testElektraTypes.Conf.CoreGrpc.ClientCertPath)
 
 	// Generate and set Temporal access certs
 	temporalCACertPath := SetupTestCA(t, testElektraTypes.Conf.Temporal.GetTemporalCACertFullPath())

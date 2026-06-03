@@ -1,24 +1,11 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +20,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
@@ -172,9 +160,9 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetRackTask", flowRequest)
+	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetTask", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetRackTask workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetTask workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Task retrieval workflow", nil)
 	}
 
@@ -183,10 +171,10 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("task-get-%s", taskID), err, "Task", "GetRackTask")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("task-get-%s", taskID), err, "Task", "GetTask")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetRackTask workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTask workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task retrieval workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -348,9 +336,9 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "CancelRackTask", flowRequest)
+	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "CancelTask", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CancelRackTask workflow")
+		logger.Error().Err(err).Msg("failed to schedule CancelTask workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Task cancellation workflow", nil)
 	}
 
@@ -359,10 +347,10 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "CancelRackTask")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "CancelTask")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CancelRackTask workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from CancelTask workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task cancellation workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -370,4 +358,372 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusAccepted, apiTask)
+}
+
+// ~~~~~ List Tasks Handlers ~~~~~ //
+
+// GetRackTasksHandler is the API Handler for listing Tasks targeting a Rack.
+type GetRackTasksHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewGetRackTasksHandler initializes a new GetRackTasksHandler.
+func NewGetRackTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetRackTasksHandler {
+	return GetRackTasksHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Retrieve all Tasks for a Rack
+// @Description List Tasks targeting the given Rack, with optional active-only and pagination filters.
+// @Tags rack
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param id path string true "UUID of the Rack"
+// @Param siteId query string true "ID of the Site"
+// @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param pageNumber query integer false "Page number of results returned"
+// @Param pageSize query integer false "Number of results per page"
+// @Success 200 {array} model.APIRackTask
+// @Router /v2/org/{org}/nico/rack/{id}/task [get]
+func (h GetRackTasksHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("RackTasks", "List", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	rackID := c.Param("id")
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("rack_id", rackID), logger)
+	if _, err := uuid.Parse(rackID); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rack ID specified in URL", nil)
+	}
+
+	var apiRequest model.APIGetTasksRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	if dbUser == nil {
+		logger.Error().Msg("invalid User object found in request context")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+	}
+
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+	}
+
+	site, err := common.GetSiteFromIDString(ctx, nil, apiRequest.SiteID, h.dbSession)
+	if err != nil {
+		if errors.Is(err, common.ErrInvalidID) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
+		}
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request does not exist", nil)
+		}
+		logger.Error().Err(err).Msg("error retrieving Site from DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
+	}
+
+	if site.InfrastructureProviderID != infrastructureProvider.ID {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	siteConfig := &cdbm.SiteConfig{}
+	if site.Config != nil {
+		siteConfig = site.Config
+	}
+	if !siteConfig.Flow {
+		logger.Warn().Msg("site does not have NICo Flow enabled")
+		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
+	}
+
+	pageRequest := pagination.PageRequest{}
+	if err := c.Bind(&pageRequest); err != nil {
+		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
+	}
+	if err := pageRequest.Validate(nil); err != nil {
+		logger.Warn().Err(err).Msg("error validating pagination request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
+	}
+
+	stc, err := h.scp.GetClientByID(site.ID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+	}
+
+	flowRequest := &flowv1.ListTasksRequest{
+		RackId:     &flowv1.UUID{Id: rackID},
+		ActiveOnly: apiRequest.ActiveOnly,
+	}
+	if pageRequest.Offset != nil && pageRequest.Limit != nil {
+		flowRequest.Pagination = &flowv1.Pagination{
+			Offset: int32(*pageRequest.Offset),
+			Limit:  int32(*pageRequest.Limit),
+		}
+	}
+
+	workflowID := fmt.Sprintf("tasks-rack-get-%s-%s", rackID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTasks", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule workflow to retrieve all Rack Tasks")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule workflow to retrieve all Rack Tasks", nil)
+	}
+
+	var flowResponse flowv1.ListTasksResponse
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "GetTasks")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTasks workflow for Rack")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
+	}
+
+	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
+	for _, t := range flowResponse.GetTasks() {
+		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+	}
+
+	total := int(flowResponse.GetTotal())
+	pageResponse := pagination.NewPageResponse(*pageRequest.PageNumber, *pageRequest.PageSize, total, pageRequest.OrderByStr)
+	pageHeader, err := json.Marshal(pageResponse)
+	if err != nil {
+		logger.Error().Err(err).Msg("error marshaling pagination response")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create pagination response", nil)
+	}
+	c.Response().Header().Set(pagination.ResponseHeaderName, string(pageHeader))
+
+	logger.Info().Int("Count", len(apiTasks)).Int("Total", total).Msg("finishing API handler")
+	return c.JSON(http.StatusOK, apiTasks)
+}
+
+// GetTrayTasksHandler is the API Handler for listing Tasks targeting a Tray.
+type GetTrayTasksHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewGetTrayTasksHandler initializes a new GetTrayTasksHandler.
+func NewGetTrayTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetTrayTasksHandler {
+	return GetTrayTasksHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Retrieve all Tasks for a Tray
+// @Description List Tasks targeting the given Tray (matched as a component UUID on Flow), with optional active-only and pagination filters.
+// @Tags tray
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param id path string true "UUID of the Tray"
+// @Param siteId query string true "ID of the Site"
+// @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param pageNumber query integer false "Page number of results returned"
+// @Param pageSize query integer false "Number of results per page"
+// @Success 200 {array} model.APIRackTask
+// @Router /v2/org/{org}/nico/tray/{id}/task [get]
+func (h GetTrayTasksHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TrayTasks", "List", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	trayID := c.Param("id")
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("tray_id", trayID), logger)
+	if _, err := uuid.Parse(trayID); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Tray ID specified in URL", nil)
+	}
+
+	var apiRequest model.APIGetTasksRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	if dbUser == nil {
+		logger.Error().Msg("invalid User object found in request context")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+	}
+
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+	}
+
+	site, err := common.GetSiteFromIDString(ctx, nil, apiRequest.SiteID, h.dbSession)
+	if err != nil {
+		if errors.Is(err, common.ErrInvalidID) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
+		}
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request does not exist", nil)
+		}
+		logger.Error().Err(err).Msg("error retrieving Site from DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
+	}
+
+	if site.InfrastructureProviderID != infrastructureProvider.ID {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	siteConfig := &cdbm.SiteConfig{}
+	if site.Config != nil {
+		siteConfig = site.Config
+	}
+	if !siteConfig.Flow {
+		logger.Warn().Msg("site does not have NICo Flow enabled")
+		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
+	}
+
+	pageRequest := pagination.PageRequest{}
+	if err := c.Bind(&pageRequest); err != nil {
+		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
+	}
+	if err := pageRequest.Validate(nil); err != nil {
+		logger.Warn().Err(err).Msg("error validating pagination request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
+	}
+
+	stc, err := h.scp.GetClientByID(site.ID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+	}
+
+	flowRequest := &flowv1.ListTasksRequest{
+		ComponentId: &flowv1.UUID{Id: trayID},
+		ActiveOnly:  apiRequest.ActiveOnly,
+	}
+	if pageRequest.Offset != nil && pageRequest.Limit != nil {
+		flowRequest.Pagination = &flowv1.Pagination{
+			Offset: int32(*pageRequest.Offset),
+			Limit:  int32(*pageRequest.Limit),
+		}
+	}
+
+	workflowID := fmt.Sprintf("tasks-tray-get-%s-%s", trayID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTasks", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule workflow to retrieve all Tray Tasks")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule workflow to retrieve all Tray Tasks", nil)
+	}
+
+	var flowResponse flowv1.ListTasksResponse
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Task", "GetTasks")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTasks workflow for Tray")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
+	}
+
+	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
+	for _, t := range flowResponse.GetTasks() {
+		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+	}
+
+	total := int(flowResponse.GetTotal())
+	pageResponse := pagination.NewPageResponse(*pageRequest.PageNumber, *pageRequest.PageSize, total, pageRequest.OrderByStr)
+	pageHeader, err := json.Marshal(pageResponse)
+	if err != nil {
+		logger.Error().Err(err).Msg("error marshaling pagination response")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create pagination response", nil)
+	}
+	c.Response().Header().Set(pagination.ResponseHeaderName, string(pageHeader))
+
+	logger.Info().Int("Count", len(apiTasks)).Int("Total", total).Msg("finishing API handler")
+	return c.JSON(http.StatusOK, apiTasks)
 }

@@ -1,25 +1,9 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
-	"errors"
-	"fmt"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -27,6 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // APIInstanceTypeCreateRequest is the data structure to capture user request to create a new InstanceType
@@ -42,12 +27,12 @@ type APIInstanceTypeCreateRequest struct {
 	// ControllerMachineType is the Site Controller assigned Machine type
 	ControllerMachineType *string `json:"controllerMachineType"`
 	// MachineCapabilities is the list of Machine Capabilities to match
-	MachineCapabilities []APIMachineCapability `json:"machineCapabilities"`
+	MachineCapabilities APIMachineCapabilities `json:"machineCapabilities"`
 }
 
 // Validate ensure the values passed in request are acceptable
-func (itcr APIInstanceTypeCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&itcr,
+func (itcr *APIInstanceTypeCreateRequest) Validate() error {
+	return validation.ValidateStruct(itcr,
 		validation.Field(&itcr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
@@ -57,53 +42,28 @@ func (itcr APIInstanceTypeCreateRequest) Validate() error {
 		validation.Field(&itcr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&itcr.Labels, validation.By(util.ValidateLabels)),
+		validation.Field(&itcr.MachineCapabilities),
 	)
+}
 
-	if err != nil {
-		return err
+// ToProto builds the workflow request that asks a Site to create this
+// InstanceType. `it` is the just-persisted DB record with its
+// `Capabilities` slice pre-loaded by the handler; its `ToProto()` is
+// the source of the canonical wire fields (Id/Metadata/Attributes
+// including the desired-capabilities filter).
+//
+// The method trusts that the request has already been Validated. The
+// per-capability wire rules (device type / InactiveDevices / numeric
+// bounds) are enforced by `Validate` so this method stays a pure
+// mapper.
+func (itcr *APIInstanceTypeCreateRequest) ToProto(it *cdbm.InstanceType) *cwssaws.CreateInstanceTypeRequest {
+	itProto := it.ToProto()
+	return &cwssaws.CreateInstanceTypeRequest{
+		Id:                     &itProto.Id,
+		Metadata:               itProto.Metadata,
+		InstanceTypeAttributes: itProto.Attributes,
 	}
-
-	if err := util.ValidateLabels(itcr.Labels); err != nil {
-		return err
-	}
-
-	if itcr.MachineCapabilities != nil {
-		err = validation.Validate(itcr.MachineCapabilities)
-		if err != nil {
-			return err
-		}
-
-		mcNameMap := map[string]bool{}
-		for _, mc := range itcr.MachineCapabilities {
-			capKey := mc.Type + "-" + mc.Name
-
-			if !cdbm.MachineCapabilityTypeChoiceMap[mc.Type] {
-				return validation.Errors{
-					"machineCapabilities": errors.New("requested Capability type is not valid: " + mc.Type),
-				}
-			}
-
-			// Validate device type for network capabilities
-			if mc.Type == cdbm.MachineCapabilityTypeNetwork && mc.DeviceType != nil {
-				if !cdbm.MachineCapabilityDeviceTypeChoiceMap[*mc.DeviceType] {
-					return validation.Errors{
-						"machineCapabilities": errors.New("requested device type  `" + *mc.DeviceType + "`  for Capability type `" + mc.Type + "` is not valid"),
-					}
-				}
-			}
-
-			_, found := mcNameMap[capKey]
-			if found {
-				return validation.Errors{
-					"machineCapabilities": fmt.Errorf("requested Capability type `%s` cannot contain duplicate Capability name: %s", mc.Type, mc.Name),
-				}
-			}
-			mcNameMap[capKey] = true
-		}
-
-	}
-
-	return nil
 }
 
 // APIInstanceTypeUpdateRequest is the data structure to capture user request to update an Instance Type
@@ -115,63 +75,37 @@ type APIInstanceTypeUpdateRequest struct {
 	// Labels is the labels of the Instance Type
 	Labels map[string]string `json:"labels"`
 	// MachineCapabilities is the list of Machine Capabilities to match
-	MachineCapabilities []APIMachineCapability `json:"machineCapabilities"`
+	MachineCapabilities APIMachineCapabilities `json:"machineCapabilities"`
 }
 
 // Validate ensure the values passed in request are acceptable
-func (itur APIInstanceTypeUpdateRequest) Validate() error {
-	err := validation.ValidateStruct(&itur,
+func (itur *APIInstanceTypeUpdateRequest) Validate() error {
+	return validation.ValidateStruct(itur,
 		validation.Field(&itur.Name,
 			// length validation rule accepts empty string as valid, hence, required is needed
 			validation.When(itur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(itur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(itur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
+		validation.Field(&itur.Labels, validation.By(util.ValidateLabels)),
+		validation.Field(&itur.MachineCapabilities),
 	)
-	if err != nil {
-		return err
+}
+
+// ToProto builds the workflow request that pushes this Update's
+// merged-into-DB state to a Site. `it` is the post-merge DB record
+// with its `Capabilities` slice pre-loaded by the handler; its
+// `ToProto()` is the source of the canonical wire fields
+// (Id/Metadata/Attributes including desired-capabilities filter) so
+// unchanged fields stay populated.
+//
+// The method trusts that the request has already been Validated.
+func (itur *APIInstanceTypeUpdateRequest) ToProto(it *cdbm.InstanceType) *cwssaws.UpdateInstanceTypeRequest {
+	itProto := it.ToProto()
+	return &cwssaws.UpdateInstanceTypeRequest{
+		Id:                     itProto.Id,
+		Metadata:               itProto.Metadata,
+		InstanceTypeAttributes: itProto.Attributes,
 	}
-
-	if err := util.ValidateLabels(itur.Labels); err != nil {
-		return err
-	}
-
-	if itur.MachineCapabilities != nil {
-		err = validation.Validate(itur.MachineCapabilities)
-		if err != nil {
-			return err
-		}
-
-		mcNameMap := map[string]bool{}
-		for _, mc := range itur.MachineCapabilities {
-
-			capKey := mc.Type + "-" + mc.Name
-
-			if !cdbm.MachineCapabilityTypeChoiceMap[mc.Type] {
-				return validation.Errors{
-					"machineCapabilities": errors.New("requested Capability type is not valid: " + mc.Type),
-				}
-			}
-
-			// Validate device type for network capabilities
-			if mc.Type == cdbm.MachineCapabilityTypeNetwork && mc.DeviceType != nil {
-				if !cdbm.MachineCapabilityDeviceTypeChoiceMap[*mc.DeviceType] {
-					return validation.Errors{
-						"machineCapabilities": errors.New("requested device type  `" + *mc.DeviceType + "`  for Capability type `" + mc.Type + "` is not valid"),
-					}
-				}
-			}
-
-			_, found := mcNameMap[capKey]
-			if found {
-				return validation.Errors{
-					"machineCapabilities": fmt.Errorf("requested Capability type `%s` cannot contain duplicate Capability name: %s", mc.Type, mc.Name),
-				}
-			}
-			mcNameMap[capKey] = true
-		}
-	}
-
-	return nil
 }
 
 // APIInstanceType is the data structure to capture API representation of an Instance Type

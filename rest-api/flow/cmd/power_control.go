@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
@@ -41,7 +27,7 @@ Specify exactly ONE of the following options:
 
 Component types (required for rack-ids/rack-names):
   --type compute     : Compute nodes
-  --type nvlswitch   : NVL switches
+  --type nvswitch   : NVSwitches
   --type powershelf  : Power shelves
 
 Power operations:
@@ -92,7 +78,7 @@ func init() {
 	powerControlCmd.Flags().StringVar(&powerControlRackIDs, "rack-ids", "", "Comma-separated list of rack UUIDs")
 	powerControlCmd.Flags().StringVar(&powerControlRackNames, "rack-names", "", "Comma-separated list of rack names")
 	powerControlCmd.Flags().StringVar(&powerControlComponentIDs, "component-ids", "", "Comma-separated list of component IDs")
-	powerControlCmd.Flags().StringVarP(&powerControlComponentType, "type", "t", "", "Component type: compute, nvlswitch, powershelf (required for rack-ids/rack-names)")
+	powerControlCmd.Flags().StringVarP(&powerControlComponentType, "type", "t", "", "Component type: compute, nvswitch, powershelf (required for rack-ids/rack-names)")
 	powerControlCmd.Flags().StringVar(&powerControlOp, "op", "", "Power operation: on, off, force-off, reset, force-reset, ac-powercycle")
 
 	powerControlCmd.MarkFlagRequired("op") //nolint
@@ -158,7 +144,7 @@ func doPowerControl() {
 	// Parse and validate component type (required for rack-ids/rack-names)
 	componentType := parseComponentTypeToTypes(powerControlComponentType)
 	if (hasRackIDs || hasRackNames) && componentType == types.ComponentTypeUnknown {
-		log.Fatal().Msg("--type is required when using --rack-ids or --rack-names (compute, nvlswitch, powershelf)")
+		log.Fatal().Msg("--type is required when using --rack-ids or --rack-names (compute, nvswitch, powershelf)")
 	}
 
 	// Parse power operation

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package leakdetection
 
@@ -65,7 +51,7 @@ func TestSubmitPowerOffTask_Success(t *testing.T) {
 	mgr := &mockManager{}
 	machineID := "machine-abc-123"
 
-	err := submitPowerOffTask(ctx, mgr, machineID)
+	err := submitPowerOffTask(ctx, mgr, machineID, devicetypes.ComponentTypeCompute)
 	require.NoError(t, err)
 	require.Len(t, mgr.requests, 1)
 
@@ -92,7 +78,7 @@ func TestSubmitPowerOffTask_NoTasksCreated(t *testing.T) {
 	ctx := context.Background()
 	mgr := &mockManager{returnNoTaskID: true}
 
-	err := submitPowerOffTask(ctx, mgr, "machine-xyz")
+	err := submitPowerOffTask(ctx, mgr, "machine-xyz", devicetypes.ComponentTypeCompute)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create any power-off tasks")
 }
@@ -101,7 +87,7 @@ func TestSubmitPowerOffTask_SubmitError(t *testing.T) {
 	ctx := context.Background()
 	mgr := &mockManager{submitErr: errors.New("submit failed")}
 
-	err := submitPowerOffTask(ctx, mgr, "machine-xyz")
+	err := submitPowerOffTask(ctx, mgr, "machine-xyz", devicetypes.ComponentTypeCompute)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "submit failed")
 }
@@ -142,4 +128,20 @@ func TestRunLeakDetectionOne_ContinuesOnSubmitError(t *testing.T) {
 
 	// Verify all machines were attempted despite errors
 	require.Len(t, mgr.requests, 2)
+}
+
+func TestRunLeakDetectionOne_SubmitsTaskPerSwitch(t *testing.T) {
+	ctx := context.Background()
+	mgr := &mockManager{}
+
+	switches := []string{"switch-1", "switch-2", "switch-3"}
+	nicoClient := nicoapi.NewMockClient()
+	nicoClient.SetLeakingSwitchIds(switches)
+
+	runLeakDetectionOne(ctx, nicoClient, mgr)
+
+	require.Len(t, mgr.requests, 3)
+	for i, s := range switches {
+		assert.Equal(t, s, mgr.requests[i].TargetSpec.Components[0].External.ID)
+	}
 }

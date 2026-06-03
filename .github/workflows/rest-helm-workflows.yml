@@ -46,8 +46,7 @@ jobs:
     name: Push Helm Charts
     needs:
       - validate-charts
-    # TEMP: disabled until REST image tag scheme is verified clean
-    if: false
+    if: ${{ !cancelled() && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && needs.validate-charts.result == 'success' && !contains(github.ref, 'pull-request/') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

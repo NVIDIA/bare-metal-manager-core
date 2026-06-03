@@ -151,16 +151,18 @@ pub async fn for_object(
     table_id: StateHistoryTableId,
     object_id: &impl std::fmt::Display,
 ) -> DatabaseResult<Vec<StateHistoryRecord>> {
-    let query = format!(
-        "SELECT state::TEXT, state_version, timestamp FROM {} WHERE {}::TEXT=$1 ORDER BY id ASC",
-        table_id.sql_table(),
-        table_id.object_id_column()
-    );
-    sqlx::query_as::<_, StateHistoryRecord>(&query)
-        .bind(object_id.to_string())
+    let mut query = sqlx::QueryBuilder::new("SELECT state::TEXT, state_version, timestamp FROM ");
+    query.push(table_id.sql_table());
+    query.push(" WHERE ");
+    query.push(table_id.object_id_column());
+    query.push("::TEXT = ");
+    query.push_bind(object_id.to_string());
+    query.push(" ORDER BY id ASC");
+    query
+        .build_query_as::<StateHistoryRecord>()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query("state_history::for_object", e))
 }
 
 /// Store a state history record for an object.
@@ -176,20 +178,25 @@ where
     for<'q> &'q ID: Encode<'q, Postgres> + Type<Postgres>,
     S: Serialize + Sync,
 {
-    let query = format!(
-        "INSERT INTO {} ({}, state, state_version)
-        VALUES ($1, $2, $3)
+    let mut query = sqlx::QueryBuilder::new("INSERT INTO ");
+    query.push(table_id.sql_table());
+    query.push(" (");
+    query.push(table_id.object_id_column());
+    query.push(", state, state_version) VALUES (");
+    query.push_bind(object_id);
+    query.push(", ");
+    query.push_bind(sqlx::types::Json(state));
+    query.push(", ");
+    query.push_bind(state_version);
+    query.push(
+        ")
         RETURNING state::TEXT, state_version, timestamp",
-        table_id.sql_table(),
-        table_id.object_id_column()
     );
-    sqlx::query_as::<_, StateHistoryRecord>(&query)
-        .bind(object_id)
-        .bind(sqlx::types::Json(state))
-        .bind(state_version)
+    query
+        .build_query_as::<StateHistoryRecord>()
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query("state_history::persist", e))
 }
 
 /// Rename all history entries using one object ID into using another object ID.
@@ -199,19 +206,23 @@ pub async fn update_object_ids(
     old_object_id: &impl std::fmt::Display,
     new_object_id: &impl std::fmt::Display,
 ) -> DatabaseResult<()> {
-    let query = format!(
-        "UPDATE {} SET {}=$1::{} WHERE {}::TEXT=$2",
-        table_id.sql_table(),
-        table_id.object_id_column(),
-        table_id.object_id_sql_type(),
-        table_id.object_id_column()
-    );
-    sqlx::query(&query)
-        .bind(new_object_id.to_string())
-        .bind(old_object_id.to_string())
+    let mut query = sqlx::QueryBuilder::new("UPDATE ");
+    query.push(table_id.sql_table());
+    query.push(" SET ");
+    query.push(table_id.object_id_column());
+    query.push(" = ");
+    query.push_bind(new_object_id.to_string());
+    query.push("::");
+    query.push(table_id.object_id_sql_type());
+    query.push(" WHERE ");
+    query.push(table_id.object_id_column());
+    query.push("::TEXT = ");
+    query.push_bind(old_object_id.to_string());
+    query
+        .build()
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query("state_history::update_object_ids", e))?;
 
     Ok(())
 }
@@ -222,15 +233,16 @@ pub async fn delete_by_object_id(
     table_id: StateHistoryTableId,
     object_id: &impl std::fmt::Display,
 ) -> DatabaseResult<u64> {
-    let query = format!(
-        "DELETE FROM {} WHERE {}::TEXT = $1",
-        table_id.sql_table(),
-        table_id.object_id_column()
-    );
-    let result = sqlx::query(&query)
-        .bind(object_id.to_string())
+    let mut query = sqlx::QueryBuilder::new("DELETE FROM ");
+    query.push(table_id.sql_table());
+    query.push(" WHERE ");
+    query.push(table_id.object_id_column());
+    query.push("::TEXT = ");
+    query.push_bind(object_id.to_string());
+    let result = query
+        .build()
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query("state_history::delete_by_object_id", e))?;
     Ok(result.rows_affected())
 }

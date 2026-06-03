@@ -19,6 +19,20 @@ use carbide_uuid::vpc::VpcId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+List all VPCs:
+    $ carbide-admin-cli vpc show
+
+Show details for one VPC
+    $ carbide-admin-cli vpc show 12345678-1234-5678-90ab-cdef01234567
+
+Filter by tenant org
+    $ carbide-admin-cli vpc show --tenant-org-id fds34511233a
+
+Filter by label:
+    $ carbide-admin-cli vpc show --label-key env --label-value prod
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),

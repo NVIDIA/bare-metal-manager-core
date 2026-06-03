@@ -12,7 +12,6 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::NvSwitchManager;
 use crate::power_shelf_manager::PowerShelfManager;
-use crate::state_controller::{StateControllerNvSwitch, StateControllerPowerShelf};
 
 /// Holds the configured backend implementations for each component type.
 #[derive(Debug, Clone)]
@@ -101,23 +100,6 @@ pub async fn build_component_manager(
         }
     };
 
-    // If nv_switch_use_state_controller is enabled, then build a state
-    // controller integrated backend for switches, wrapping the configured
-    // "backend" within our StateControllerNvSwitch backend. This allows
-    // Component Manager API calls to flow into our state controller aware
-    // backend, and then allows the state controller to have .direct()
-    // access to the actual backend (e.g. nsm, rms, etc).
-    let nv_switch = if config.nv_switch_use_state_controller {
-        let db = db.clone().ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "nv_switch_use_state_controller is true but database pool is not configured".into(),
-            )
-        })?;
-        Arc::new(StateControllerNvSwitch::new(db, nv_switch)) as Arc<dyn NvSwitchManager>
-    } else {
-        nv_switch
-    };
-
     let power_shelf: Arc<dyn PowerShelfManager> = match config.power_shelf_backend.as_str() {
         "psm" => {
             let endpoint = config.psm.as_ref().ok_or_else(|| {
@@ -150,24 +132,6 @@ pub async fn build_component_manager(
                 "unknown power_shelf_backend: {other}"
             )));
         }
-    };
-
-    // If power_shelf_use_state_controller is enabled, then build a state
-    // controller integrated backend for power shelves, wrapping the configured
-    // "backend" within our StateControllerPowerShelf backend. This allows
-    // Component Manager API calls to flow into our state controller aware
-    // backend, and then allows the state controller to have .direct()
-    // access to the actual backend (e.g. psm, rms, etc).
-    let power_shelf = if config.power_shelf_use_state_controller {
-        let db = db.clone().ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "power_shelf_use_state_controller is true but database pool is not configured"
-                    .into(),
-            )
-        })?;
-        Arc::new(StateControllerPowerShelf::new(db, power_shelf)) as Arc<dyn PowerShelfManager>
-    } else {
-        power_shelf
     };
 
     let compute_tray: Arc<dyn ComputeTrayManager> = match config.compute_tray_backend {
@@ -280,43 +244,5 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
-    }
-
-    #[tokio::test]
-    async fn build_state_controller_switch_requires_db() {
-        let config = ComponentManagerConfig {
-            nv_switch_backend: "mock".into(),
-            power_shelf_backend: "mock".into(),
-            compute_tray_backend: Backend::Mock,
-            nv_switch_use_state_controller: true,
-            ..Default::default()
-        };
-        let err = build_component_manager(&config, None, None, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            ComponentManagerError::InvalidArgument(msg)
-                if msg.contains("nv_switch_use_state_controller") && msg.contains("database pool")
-        ));
-    }
-
-    #[tokio::test]
-    async fn build_state_controller_power_shelf_requires_db() {
-        let config = ComponentManagerConfig {
-            nv_switch_backend: "mock".into(),
-            power_shelf_backend: "mock".into(),
-            compute_tray_backend: Backend::Mock,
-            power_shelf_use_state_controller: true,
-            ..Default::default()
-        };
-        let err = build_component_manager(&config, None, None, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            ComponentManagerError::InvalidArgument(msg)
-                if msg.contains("power_shelf_use_state_controller") && msg.contains("database pool")
-        ));
     }
 }

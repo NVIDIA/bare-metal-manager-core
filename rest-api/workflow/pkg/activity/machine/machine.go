@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package machine
 
@@ -120,6 +106,9 @@ const (
 	// Machine health attributes
 	MachinePreventAllocations             = "PreventAllocations"
 	MachinePreventAllocationStatusMessage = "Machine has one or more health probe alerts that prevents allocation"
+	MachineDPUFirmwareUpdateAlertID       = "HostUpdateInProgress"
+	MachineDPUFirmwareUpdateAlertTarget   = "DpuFirmware"
+	MachineDPUFirmwareUpdateStatusMessage = "Machine DPU firmware update is in progress"
 )
 
 // ManageMachine is an activity wrapper for Machine management tasks that allows injecting DB access
@@ -169,7 +158,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			Status:            &status,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(mm.dbSession)
@@ -184,13 +173,14 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			InventoryReceived: &curTime,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 	}
 
 	// Get all machines for Site to allow faster lookups
 	mDAO := cdbm.NewMachineDAO(mm.dbSession)
-	filterInput := cdbm.MachineFilterInput{SiteID: &siteID}
+
+	filterInput := cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{site.ID}}
 
 	existingMachines, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -789,10 +779,23 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 	for _, gpuCap := range controllerCapsGpu {
 		mapId := fmt.Sprintf(`%s:%s`, cdbm.MachineCapabilityTypeGPU, gpuCap.Name)
 
-		// Set the device type to DPU if it's a DPU network capability
-		deviceType := cdb.GetStrPtr("")
-		if gpuCap.DeviceType != nil && *gpuCap.DeviceType == cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK {
-			deviceType = cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink)
+		// Set the device type to NVLink if it's an NVLink GPU capability.
+		// Unknown wire values are coerced to the empty string with a
+		// warning logged — preserve the explicit `default` branch so
+		// schema drift is surfaced rather than silently swallowed.
+		// TODO: support other GPU device-type variants as the wire enum
+		// grows; currently only NVLink is recognized.
+		var deviceType *cdbm.MachineCapabilityDeviceType
+		dtEmpty := cdbm.MachineCapabilityDeviceType("")
+		deviceType = &dtEmpty
+		if gpuCap.DeviceType != nil {
+			switch *gpuCap.DeviceType {
+			case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
+				dt := cdbm.MachineCapabilityDeviceTypeNVLink
+				deviceType = &dt
+			default:
+				logger.Warn().Str("DeviceType", gpuCap.DeviceType.String()).Msg("unsupported MachineCapabilityDeviceType for GPU capability; defaulting to empty")
+			}
 		}
 
 		siteCapMap[mapId] = &cdbm.MachineCapability{
@@ -860,10 +863,23 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 	for _, netCap := range controllerCapsNetwork {
 		mapId := fmt.Sprintf(`%s:%s`, cdbm.MachineCapabilityTypeNetwork, netCap.Name)
 
-		// Set the device type to DPU if it's a DPU network capability
-		deviceType := cdb.GetStrPtr("")
-		if netCap.DeviceType != nil && *netCap.DeviceType == cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU {
-			deviceType = cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU)
+		// Set the device type to DPU if it's a DPU network capability.
+		// Unknown wire values are coerced to the empty string with a
+		// warning logged — preserve the explicit `default` branch so
+		// schema drift is surfaced rather than silently swallowed.
+		// TODO: support other Network device-type variants as the wire
+		// enum grows; currently only DPU is recognized.
+		var deviceType *cdbm.MachineCapabilityDeviceType
+		dtEmpty := cdbm.MachineCapabilityDeviceType("")
+		deviceType = &dtEmpty
+		if netCap.DeviceType != nil {
+			switch *netCap.DeviceType {
+			case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
+				dt := cdbm.MachineCapabilityDeviceTypeDPU
+				deviceType = &dt
+			default:
+				logger.Warn().Str("DeviceType", netCap.DeviceType.String()).Msg("unsupported MachineCapabilityDeviceType for Network capability; defaulting to empty")
+			}
 		}
 
 		siteCapMap[mapId] = &cdbm.MachineCapability{
@@ -981,6 +997,7 @@ func getNICoMachineStatus(controllerMachine *cwssaws.Machine, logger zerolog.Log
 	hasTenant := (controllerMachineStatePrefix == controllerMachineStatePrefixAssigned)
 	hasPreventAlerts := false
 	hasMaintenanceDegraded := false
+	hasDPUFirmwareUpdateInProgress := false
 
 	if controllerMachine.Health != nil && controllerMachine.Health.Alerts != nil {
 		for _, alert := range controllerMachine.Health.Alerts {
@@ -994,6 +1011,11 @@ func getNICoMachineStatus(controllerMachine *cwssaws.Machine, logger zerolog.Log
 			// Check for Maintenance+Degraded alert
 			if alert.Id == "Maintenance" && alert.Target != nil && *alert.Target == "Degraded" {
 				hasMaintenanceDegraded = true
+			}
+			if alert.Id == MachineDPUFirmwareUpdateAlertID &&
+				alert.Target != nil &&
+				*alert.Target == MachineDPUFirmwareUpdateAlertTarget {
+				hasDPUFirmwareUpdateInProgress = true
 			}
 		}
 	}
@@ -1009,6 +1031,9 @@ func getNICoMachineStatus(controllerMachine *cwssaws.Machine, logger zerolog.Log
 		if controllerMachine.MaintenanceReference != nil {
 			statusMessage = fmt.Sprintf("%s: %s", statusMessage, *controllerMachine.MaintenanceReference)
 		}
+	} else if hasDPUFirmwareUpdateInProgress {
+		machineStatus = cdbm.MachineStatusInitializing
+		statusMessage = MachineDPUFirmwareUpdateStatusMessage
 	} else if hasPreventAlerts {
 		// Has Prevent alerts
 		machineStatus = cdbm.MachineStatusError

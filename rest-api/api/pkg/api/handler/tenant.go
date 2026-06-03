@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -162,58 +147,55 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gcth.dbSession)
 
-	var tn *cdbm.Tenant
-
-	tns, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current Tenant", nil)
-	}
-
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, gcth.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current Tenant", nil)
-	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	var serr error
-	if len(tns) == 0 {
-		// Create Tenant
-		tn, serr = tnDAO.CreateFromParams(ctx, tx, userOrgDetails.Name, &userOrgDetails.DisplayName, org, nil, nil, dbUser)
-		if serr != nil {
-			logger.Error().Err(serr).Msg("error creating Tenant DB entity")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
+	tn, err := cdb.WithTxResult(ctx, gcth.dbSession, func(tx *cdb.Tx) (*cdbm.Tenant, error) {
+		// Acquire an advisory lock on the org to serialize concurrent
+		// get-or-create attempts against the same Tenant.
+		derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(org), nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to acquire advisory lock for Tenant get-or-create")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current Tenant, unable to acquire lock", nil)
 		}
 
-		// Update Tenant Accounts if needed
-		err = updateTenantAccounts(ctx, gcth.dbSession, tx, logger, tn)
-		if err != nil {
-			logger.Error().Err(err).Msg("error updating Tenant Accounts")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant, could not update Tenant Accounts", nil)
+		// Re-read inside the tx so the existence check and any create/update
+		// happen against the same locked snapshot.
+		tns, derr := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error retrieving Tenant for this org")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current Tenant", nil)
 		}
-	} else {
-		// Update Tenant if needed
-		tn = &tns[0]
-		if tn.OrgDisplayName == nil || *tn.OrgDisplayName != userOrgDetails.DisplayName {
-			tn, serr = tnDAO.UpdateFromParams(ctx, tx, tn.ID, nil, nil, cdb.GetStrPtr(userOrgDetails.DisplayName), nil)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error updating Tenant DB entity")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
+
+		if len(tns) == 0 {
+			// Create Tenant
+			created, derr := tnDAO.CreateFromParams(ctx, tx, userOrgDetails.Name, &userOrgDetails.DisplayName, org, nil, nil, dbUser)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error creating Tenant DB entity")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
 			}
-		}
-	}
 
-	// Commit transaction
-	err = tx.Commit()
+			// Update Tenant Accounts if needed
+			derr = updateTenantAccounts(ctx, gcth.dbSession, tx, logger, created)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating Tenant Accounts")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant, could not update Tenant Accounts", nil)
+			}
+			return created, nil
+		}
+
+		// Update Tenant if needed
+		existing := &tns[0]
+		if existing.OrgDisplayName == nil || *existing.OrgDisplayName != userOrgDetails.DisplayName {
+			updated, derr := tnDAO.UpdateFromParams(ctx, tx, existing.ID, nil, nil, cdb.GetStrPtr(userOrgDetails.DisplayName), nil)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating Tenant DB entity")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
+			}
+			return updated, nil
+		}
+		return existing, nil
+	})
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing subnet transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Tenant", nil)
+		return common.HandleTxError(c, logger, err, "Failed to retrieve current Tenant, DB transaction error")
 	}
-	// Set committed so, deferred cleanup functions will do nothing
-	txCommitted = true
 
 	// Create response
 	apiInstance := model.NewAPITenant(tn)

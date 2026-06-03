@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,6 +12,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAPIInterface(t *testing.T) {
@@ -72,6 +59,125 @@ func TestNewAPIInterface(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testing.T) {
+	tests := []struct {
+		name                       string
+		req                        APIInterfaceCreateOrUpdateRequest
+		wantErr                    bool
+		wantErrorContains          []string
+		wantAllowedAnycastPrefixes []string
+		wantNonNilPrefixes         bool
+	}{
+		{
+			name: "VPC Prefix interface accepts IPv4 and IPv6 anycast prefixes",
+			req: APIInterfaceCreateOrUpdateRequest{
+				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{
+					AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+				},
+			},
+			wantAllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+		},
+		{
+			name: "explicit empty routing profile stays non-nil with empty anycast prefixes",
+			req: APIInterfaceCreateOrUpdateRequest{
+				VpcPrefixID:          cdb.GetStrPtr(uuid.NewString()),
+				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{},
+			},
+			wantAllowedAnycastPrefixes: []string{},
+			wantNonNilPrefixes:         true,
+		},
+		{
+			name: "invalid anycast prefix returns field-specific error",
+			req: APIInterfaceCreateOrUpdateRequest{
+				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{
+					AllowedAnycastPrefixes: []string{"not-a-prefix"},
+				},
+			},
+			wantErr:           true,
+			wantErrorContains: []string{"allowedAnycastPrefixes", "not-a-prefix"},
+		},
+		{
+			name: "Subnet interface rejects routing profile",
+			req: APIInterfaceCreateOrUpdateRequest{
+				SubnetID:             cdb.GetStrPtr(uuid.NewString()),
+				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{},
+			},
+			wantErr:           true,
+			wantErrorContains: []string{"inlineRoutingProfile", "cannot be specified for Subnet based Interfaces"},
+		},
+		{
+			name: "Subnet interface accepts nil routing profile",
+			req: APIInterfaceCreateOrUpdateRequest{
+				SubnetID: cdb.GetStrPtr(uuid.NewString()),
+			},
+		},
+		{
+			name: "VPC Prefix interface accepts nil routing profile",
+			req: APIInterfaceCreateOrUpdateRequest{
+				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, want := range tt.wantErrorContains {
+					assert.Contains(t, err.Error(), want)
+				}
+				return
+			}
+
+			assert.NoError(t, err)
+			if tt.req.InlineRoutingProfile != nil {
+				if tt.wantNonNilPrefixes {
+					assert.NotNil(t, tt.req.InlineRoutingProfile.AllowedAnycastPrefixes)
+				}
+				assert.Equal(t, tt.wantAllowedAnycastPrefixes, tt.req.InlineRoutingProfile.AllowedAnycastPrefixes)
+			}
+		})
+	}
+}
+
+func TestAPIInterfaceInlineRoutingProfile_ToDB(t *testing.T) {
+	var nilProfile *APIInterfaceInlineRoutingProfile
+	assert.Nil(t, nilProfile.ToDB())
+
+	emptyProfile := (&APIInterfaceInlineRoutingProfile{}).ToDB()
+	require.NotNil(t, emptyProfile)
+	assert.NotNil(t, emptyProfile.AllowedAnycastPrefixes)
+	assert.Empty(t, emptyProfile.AllowedAnycastPrefixes)
+
+	apiProfile := &APIInterfaceInlineRoutingProfile{
+		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+	}
+	dbProfile := apiProfile.ToDB()
+	require.NotNil(t, dbProfile)
+	assert.Equal(t, []string{"192.0.2.0/24", "2001:db8::/64"}, dbProfile.AllowedAnycastPrefixes)
+
+	apiProfile.AllowedAnycastPrefixes[0] = "198.51.100.0/24"
+	assert.Equal(t, []string{"192.0.2.0/24", "2001:db8::/64"}, dbProfile.AllowedAnycastPrefixes)
+}
+
+func TestAPIInterfaceInlineRoutingProfile_FromDB(t *testing.T) {
+	dbProfile := &cdbm.InterfaceInlineRoutingProfile{
+		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+	}
+	apiProfile := &APIInterfaceInlineRoutingProfile{}
+	apiProfile.FromDB(dbProfile)
+	assert.Equal(t, []string{"192.0.2.0/24", "2001:db8::/64"}, apiProfile.AllowedAnycastPrefixes)
+
+	dbProfile.AllowedAnycastPrefixes[0] = "198.51.100.0/24"
+	assert.Equal(t, []string{"192.0.2.0/24", "2001:db8::/64"}, apiProfile.AllowedAnycastPrefixes)
+
+	var nilProfile *APIInterfaceInlineRoutingProfile
+	nilProfile.FromDB(dbProfile)
 }
 
 func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {

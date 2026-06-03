@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
@@ -37,8 +23,9 @@ var (
 		Short: "Compare expected (local DB) vs actual (source system) components",
 		Long: `Compare expected components from local database against actual components from source systems.
 
-Each component type queries its own source system (e.g., NICo for Compute, PSM for PowerShelf).
-Currently only supports Compute component type.
+Each component type queries Core (NICo); Core fans out to the per-tray-type
+backend (NSM, PSM, RMS, ...) under the hood. Currently only supports Compute
+component type.
 
 Specify exactly ONE of the following options:
   --rack-ids      : Comma-separated list of rack UUIDs
@@ -178,14 +165,14 @@ func outputDiffJSON(result *client.ValidateComponentsResult) {
 		TotalDiffs      int                    `json:"total_diffs"`
 		MissingCount    int                    `json:"missing_count"`
 		UnexpectedCount int                    `json:"unexpected_count"`
-		DriftCount      int                    `json:"drift_count"`
+		MismatchCount   int                    `json:"mismatch_count"`
 		MatchCount      int                    `json:"match_count"`
 		Diffs           []*types.ComponentDiff `json:"diffs"`
 	}{
 		TotalDiffs:      result.TotalDiffs,
 		MissingCount:    result.MissingCount,
 		UnexpectedCount: result.UnexpectedCount,
-		DriftCount:      result.DriftCount,
+		MismatchCount:   result.MismatchCount,
 		MatchCount:      result.MatchCount,
 		Diffs:           result.Diffs,
 	}
@@ -206,7 +193,7 @@ func outputDiffTable(result *client.ValidateComponentsResult) {
 	fmt.Printf("  - Match: %d\n", result.MatchCount)
 	fmt.Printf("  - Missing (expected but not in source): %d\n", result.MissingCount)
 	fmt.Printf("  - Unexpected (in source but not expected): %d\n", result.UnexpectedCount)
-	fmt.Printf("  - Drift (field differences): %d\n", result.DriftCount)
+	fmt.Printf("  - Mismatch (field differences): %d\n", result.MismatchCount)
 	fmt.Println()
 
 	if len(result.Diffs) == 0 {
@@ -231,8 +218,8 @@ func outputDiffTable(result *client.ValidateComponentsResult) {
 		case types.DiffTypeUnexpected:
 			diffType = "Unexpected"
 			details = "Found in source system but not expected"
-		case types.DiffTypeDrift:
-			diffType = "Drift"
+		case types.DiffTypeMismatch:
+			diffType = "Mismatch"
 			var fieldStrs []string
 			for _, fd := range diff.FieldDiffs {
 				fieldStrs = append(fieldStrs, fmt.Sprintf("%s: %s → %s",

@@ -443,6 +443,24 @@ else
         echo ""
     fi
 
+    # Warn if the DPU compatibility .forge zone isn't being served. Existing
+    # DPU agent binaries are hardcoded to resolve carbide-pxe.forge,
+    # carbide-ntp.forge, etc. Either the built-in unbound chart serves them
+    # (enabled + localData populated with the .forge hostnames) or external
+    # DNS has to. See helm-prereqs/README.md → "DPU compatibility DNS
+    # (.forge zone)".
+    if [[ -z "${CORE_VALUES}" ]] && \
+       ! grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*[a-z-]+\.forge" \
+            "${SCRIPT_DIR}/values/nico-core.yaml" 2>/dev/null; then
+        echo "WARNING: no DPU compatibility .forge zone configured in values/nico-core.yaml."
+        echo "  DPU agents will fail to resolve carbide-pxe.forge / carbide-ntp.forge /"
+        echo "  carbide-api.forge unless your external DNS already serves those names."
+        echo "  To use the built-in unbound chart instead, enable unbound and uncomment"
+        echo "  the localData example in values/nico-core.yaml (under the unbound block)."
+        echo "  See helm-prereqs/README.md → \"DPU compatibility DNS (.forge zone)\"."
+        echo ""
+    fi
+
     echo ""
     echo "========================================================================="
     echo "  ACTION REQUIRED: Before deploying NICo Core, confirm you have updated:"

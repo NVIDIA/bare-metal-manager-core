@@ -3,16 +3,16 @@
 # =============================================================================
 #
 # This is the service-level configuration for the Rack Validation Service.
-# It controls how RVS itself runs -- networking, connection to NICC,
+# It controls how RVS itself runs -- networking, connection to NICo,
 # TLS, artifact caching, etc.
 #
 # This is NOT the scenario definition (which racks to validate and how).
-# Scenario configs are loaded separately from the path specified in
-# `scenario_config_path`.
+# Scenario configs are loaded separately from the paths specified in
+# `scenario_config_paths`.
 #
 # Environment variable overrides: all fields can be overridden with
 # CARBIDE_RVS__<SECTION>__<FIELD> (double underscore as separator).
-# For example: CARBIDE_RVS__NICC__URL=https://...
+# For example: CARBIDE_RVS__NICO__URL=https://...
 #
 # =============================================================================
 
@@ -30,23 +30,23 @@ metrics_endpoint = "[::]:9019"
 poll_interval_secs = 30
 
 # -----------------------------------------------------------------------------
-# NICC CONNECTION
+# NICo CONNECTION
 # -----------------------------------------------------------------------------
-# RVS connects to NICC (Carbide API) to query rack/partition info, request
+# RVS connects to NICo (Carbide API) to query rack/partition info, request
 # instance provisioning, and report validation results.
 
-[nicc]
+[nico]
 
-# NICC gRPC endpoint URL
+# NICo gRPC endpoint URL
 url = "https://carbide-api.forge-system.svc.cluster.local:1079"
 
-# Timeout for individual NICC RPCs
+# Timeout for individual NICo RPCs
 rpc_timeout_secs = 30
 
 # -----------------------------------------------------------------------------
 # TLS / mTLS
 # -----------------------------------------------------------------------------
-# RVS uses SPIFFE-based mTLS for communication with NICC.
+# RVS uses SPIFFE-based mTLS for communication with NICo.
 # Certificates are provisioned by cert-manager and mounted into the pod.
 
 [tls]
@@ -58,10 +58,23 @@ root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
 # -----------------------------------------------------------------------------
 # SCENARIO
 # -----------------------------------------------------------------------------
-# Path to the scenario definition file (the rack validation TOML).
+# Paths to scenario definition files (one per rack model/release).
 # Mounted into the pod as a ConfigMap.
 
-scenario_config_path = "/etc/forge/rvs/scenario.toml"
+scenario_config_paths = ["/etc/forge/rvs/scenario.toml"]
+
+# -----------------------------------------------------------------------------
+# SOT (SOURCE OF TRUTH)
+# -----------------------------------------------------------------------------
+# Path to the SOT JSON file. RVS resolves `sotpath` artifacts -- drivers and
+# packages under BoardSKUs[].Components.Software -- from this document.
+#
+# TODO: stopgap. The SOT should come from a single authoritative source, not a
+# file placed per deployment. #1861 moved firmware-object management to RMS and
+# made the SOT push-only, so NICo no longer serves it for read -- the API
+# surface likely needs extending to expose it. Until then, point at a local file.
+
+sot_path = "/etc/forge/rvs/sot.json"
 
 # -----------------------------------------------------------------------------
 # ARTIFACT CACHE
@@ -73,6 +86,9 @@ scenario_config_path = "/etc/forge/rvs/scenario.toml"
 
 # Local directory where artifacts are cached
 cache_dir = "/rvs-cache"
+
+# Port the HTTP cache server listens on (nodes pull artifacts from here)
+serve_port = 8080
 
 # Maximum time to wait for a single artifact download
 download_timeout_secs = 600

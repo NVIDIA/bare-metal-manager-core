@@ -1,24 +1,11 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package cli
 
 import (
 	"fmt"
+	"os"
 
 	cli "github.com/urfave/cli/v2"
 )
@@ -71,6 +58,12 @@ func NewApp(specData []byte) (*cli.App, error) {
 				EnvVars: []string{"NICO_ORG"},
 			},
 			&cli.StringFlag{
+				Name:    "api-name",
+				Usage:   "API path segment used in /v2/org/<org>/<name>/... routes",
+				EnvVars: []string{"NICO_API_NAME"},
+				Value:   "nico",
+			},
+			&cli.StringFlag{
 				Name:    "token",
 				Usage:   "API bearer token",
 				EnvVars: []string{"NICO_TOKEN"},
@@ -83,7 +76,7 @@ func NewApp(specData []byte) (*cli.App, error) {
 			},
 			&cli.BoolFlag{
 				Name:  "debug",
-				Usage: "Enable debug logging",
+				Usage: "Enable debug logging (full HTTP request/response, plus the NICO_* env vars in use)",
 			},
 			&cli.StringFlag{
 				Name:    "token-url",
@@ -113,11 +106,54 @@ func NewApp(specData []byte) (*cli.App, error) {
 			if cfg := c.String("config"); cfg != "" {
 				SetConfigPath(cfg)
 			}
+			if c.Bool("debug") {
+				printEnvOverridesForDebug(os.Stderr)
+			}
 			return nil
 		},
 	}
 
 	return app, nil
+}
+
+// printEnvOverridesForDebug writes the list of NICO_* env vars currently
+// set in the process environment to w, prefixed with "[debug] env:". The
+// listing reflects what nicocli will pull from the environment when it
+// applies overrides on top of the loaded config; flag-only env vars
+// (NICO_KEYCLOAK_URL, NICO_KEYCLOAK_REALM, NICO_CONFIG) are included so
+// users can see every NICO_* knob the CLI reads. Sensitive values are
+// printed in full because --debug is opt-in and is documented as logging
+// the full HTTP request and response, including the bearer token.
+func printEnvOverridesForDebug(w *os.File) {
+	overrides := EnvOverridesFromEnvironment()
+	if len(overrides) == 0 {
+		fmt.Fprintln(w, "[debug] env: no NICO_* environment variables set")
+		return
+	}
+	fmt.Fprintf(w, "[debug] env: %d NICO_* variable(s) in use\n", len(overrides))
+	for _, line := range splitLines(FormatEnvOverrides(overrides, false)) {
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(w, "[debug] env: %s\n", line)
+	}
+}
+
+// splitLines splits s on '\n' without keeping a trailing empty element,
+// so callers iterating it don't have to special-case the final newline.
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
 }
 
 func completionCommand() *cli.Command {

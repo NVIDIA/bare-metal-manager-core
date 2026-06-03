@@ -27,6 +27,7 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
+arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }

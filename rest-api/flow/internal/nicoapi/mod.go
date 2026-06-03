@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package nicoapi abstracts the GRPC interface used to communicate with nico-core-api.  New connection pools can be created with
 // NewClient to create a real client or NewMockClient which fakes everything for unit tests.
@@ -32,6 +18,7 @@ type Client interface {
 	Version(ctx context.Context) (string, error)
 	GetMachines(ctx context.Context) ([]MachineDetail, error)
 	GetLeakingMachineIds(ctx context.Context) ([]string, error)
+	GetLeakingSwitchIds(ctx context.Context) ([]string, error)
 	GetPowerStates(ctx context.Context, machineIds []string) (ret []MachinePowerState, err error)
 	SetFirmwareUpdateTimeWindow(ctx context.Context, machineIds []string, startTime, endTime time.Time) error
 	// FindInterfaces returns all machine interfaces known by nico-core-api, keyed by MAC address
@@ -47,6 +34,21 @@ type Client interface {
 
 	// FindMachinesByIds returns detailed machine information for the given machine IDs
 	FindMachinesByIds(ctx context.Context, machineIds []string) ([]MachineDetail, error)
+
+	// FindHostMachineIdsByRack returns the IDs of host (non-DPU) machines that
+	// belong to the given rack. Empty rackID is rejected. Returns nil when the
+	// rack has no host machines.
+	FindHostMachineIdsByRack(ctx context.Context, rackID string) ([]string, error)
+
+	// FindSwitchRackIDs returns the mapping from switch ID to rack ID for the
+	// given switches. A switch without a rack assignment is omitted from the
+	// result rather than reported as an empty string.
+	FindSwitchRackIDs(ctx context.Context, switchIds []string) (map[string]string, error)
+
+	// FindPowerShelfRackIDs returns the mapping from power-shelf ID to rack ID
+	// for the given shelves. A shelf without a rack assignment is omitted from
+	// the result rather than reported as an empty string.
+	FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error)
 
 	// GetMachinePositionInfo returns position information for the given machine IDs
 	GetMachinePositionInfo(ctx context.Context, machineIds []string) ([]MachinePosition, error)
@@ -126,4 +128,8 @@ type Client interface {
 	AddMachineInterface(iface MachineInterface)
 	AddExpectedSwitchInfo(info ExpectedSwitchInfo)
 	SetLeakingMachineIds(ids []string)
+	SetLeakingSwitchIds([]string)
+	SetSwitchRackID(switchID, rackID string)
+	SetPowerShelfRackID(shelfID, rackID string)
+	SetRackHostMachineIDs(rackID string, machineIDs []string)
 }

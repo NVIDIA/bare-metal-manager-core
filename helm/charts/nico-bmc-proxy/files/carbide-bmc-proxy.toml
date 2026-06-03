@@ -1,7 +1,7 @@
 listen = "[::]:1079"
 metrics_endpoint = "[::]:1080"
 database_url = "postgres://replaced-by-env-var"
-allowed_principals = ["spiffe-service-id/nico-api", "spiffe-service-id/nv-dps"]
+allowed_principals = ["spiffe-service-id/{{ .Values.auth.apiPrincipal }}", "spiffe-service-id/nv-dps"]
 
 [tls]
 identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -10,9 +10,12 @@ root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
 admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
 
 [auth.trust]
-spiffe_trust_domain = "nico.local"
-spiffe_service_base_paths = ["/nico-system/sa/", "/default/sa/"]
-spiffe_machine_base_path = "/nico-system/machine/"
+spiffe_trust_domain = "{{ .Values.global.spiffe.trustDomain }}"
+spiffe_service_base_paths = [
+  "/{{ .Values.auth.namespace | default (include "nico-bmc-proxy.namespace" .) }}/sa/",
+  "/default/sa/",
+]
+spiffe_machine_base_path = "/{{ .Values.auth.namespace | default (include "nico-bmc-proxy.namespace" .) }}/machine/"
 additional_issuer_cns = []
 
 [auth.acls]
@@ -29,7 +32,7 @@ additional_issuer_cns = []
 # `prefix*` and `*suffix` match one component by prefix or suffix. `**` matches
 # zero or more path components. Replace templated components like `{id}` with
 # `*` when deriving ACLs from endpoint documentation.
-"spiffe-service-id/nico-api" = ["/**"]
+"spiffe-service-id/{{ .Values.auth.apiPrincipal }}" = ["/**"]
 "spiffe-service-id/nv-dps" = [
   "GET /redfish/v1",
   "POST /redfish/v1/SessionService/Sessions",

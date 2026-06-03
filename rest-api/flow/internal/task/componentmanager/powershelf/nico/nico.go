@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nico
 
@@ -27,12 +13,14 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/firmwarecomponents"
 )
 
 const (
@@ -42,10 +30,18 @@ const (
 // Manager manages power shelf components via the NICo/NICo component dispatch RPCs.
 type Manager struct {
 	nicoClient nicoapi.Client
+	// assignment guards power/firmware operations on a shelf from running
+	// while any host on the shelf's rack is still attached to an instance.
+	// PowerShelves feed the entire rack, so toggling one can power-cycle
+	// every host downstream of it; the check is therefore rack-scoped.
+	assignment *nicoprovider.AssignmentChecker
 }
 
 func New(nicoClient nicoapi.Client) *Manager {
-	return &Manager{nicoClient: nicoClient}
+	return &Manager{
+		nicoClient: nicoClient,
+		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+	}
 }
 
 // Factory creates a new Manager from the provided providers.
@@ -63,9 +59,18 @@ func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.C
 // Descriptor returns the NICo PowerShelf manager descriptor.
 func Descriptor() cmcatalog.Descriptor {
 	return cmcatalog.Descriptor{
-		Type:              devicetypes.ComponentTypePowerShelf,
-		Implementation:    ImplementationName,
+		DescriptorIdentity: cmcatalog.DescriptorIdentity{
+			Type:           devicetypes.ComponentTypePowerShelf,
+			Implementation: ImplementationName,
+		},
 		RequiredProviders: []string{nicoprovider.ProviderName},
+		Capabilities: capability.CapabilitySet{
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
 	}
 }
 
@@ -88,6 +93,61 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 		pbIDs[i] = &pb.PowerShelfId{Id: id}
 	}
 	return &pb.PowerShelfIdList{Ids: pbIDs}
+}
+
+// ensureRackOperable is the per-Manager policy gate for disruptive
+// operations on the racks that own the given power shelves. The default
+// policy refuses to proceed while any host on the resolved rack(s) is
+// still in Core's Assigned/* lifecycle state, because a shelf reset
+// power-cycles every host downstream of it.
+//
+// When overrideAssignmentCheck is true the gate is short-circuited
+// without performing the rack lookup. The override is intended for
+// operator-supervised maintenance windows; authorisation is enforced
+// upstream and is not re-checked here. A warning is emitted so the
+// bypass is auditable from the worker log alone.
+//
+// Shelves not associated with a rack in Core are skipped with a warning
+// (see the equivalent NVSwitch helper for the reasoning).
+func (m *Manager) ensureRackOperable(
+	ctx context.Context,
+	shelfIDs []string,
+	overrideAssignmentCheck bool,
+) error {
+	if len(shelfIDs) == 0 {
+		return nil
+	}
+
+	if overrideAssignmentCheck {
+		log.Warn().
+			Strs("power_shelf_ids", shelfIDs).
+			Msg("Assignment safety check bypassed by override_assignment_check on PowerShelf operation")
+		return nil
+	}
+
+	rackByShelf, err := m.nicoClient.FindPowerShelfRackIDs(ctx, shelfIDs)
+	if err != nil {
+		return fmt.Errorf("look up rack for power shelves: %w", err)
+	}
+
+	rackIDs := make([]string, 0, len(rackByShelf))
+	for _, rid := range rackByShelf {
+		rackIDs = append(rackIDs, rid)
+	}
+
+	var orphan []string
+	for _, sid := range shelfIDs {
+		if _, ok := rackByShelf[sid]; !ok {
+			orphan = append(orphan, sid)
+		}
+	}
+	if len(orphan) > 0 {
+		log.Warn().
+			Strs("power_shelf_ids", orphan).
+			Msg("PowerShelf has no rack assignment; assignment safety check cannot be applied")
+	}
+
+	return m.assignment.WaitForRacksUnassigned(ctx, rackIDs)
 }
 
 // InjectExpectation registers an expected power shelf with NICo via AddExpectedPowerShelf.
@@ -128,6 +188,10 @@ func (m *Manager) PowerControl(
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
 	}
 
 	var action pb.SystemPowerControl
@@ -211,19 +275,33 @@ func (m *Manager) FirmwareControl(
 	log.Debug().
 		Str("components", target.String()).
 		Str("target_version", info.TargetVersion).
+		Strs("sub_targets", info.SubTargets).
 		Msg("Starting firmware update for PowerShelf via NICo")
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
+	}
+
+	subComponents, err := firmwarecomponents.ParseNICoPowerShelf(info.SubTargets)
+	if err != nil {
+		return err
+	}
+	if len(subComponents) == 0 {
+		// Preserve historical behavior: when the caller does not specify a
+		// subset, only PMC is updated. Once the component manager supports
+		// "update everything in the bundle" semantics we can drop this.
+		subComponents = []pb.PowerShelfComponent{pb.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC}
+	}
+
 	req := &pb.UpdateComponentFirmwareRequest{
 		Target: &pb.UpdateComponentFirmwareRequest_PowerShelves{
 			PowerShelves: &pb.UpdatePowerShelfFirmwareTarget{
 				PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
-				Components: []pb.PowerShelfComponent{
-					pb.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC,
-				},
+				Components:    subComponents,
 			},
 		},
 		TargetVersion: info.TargetVersion,
@@ -280,18 +358,4 @@ func (m *Manager) GetFirmwareStatus(
 	}
 
 	return result, nil
-}
-
-func (m *Manager) BringUpControl(
-	ctx context.Context,
-	target common.Target,
-) error {
-	return fmt.Errorf("BringUpControl not supported for PowerShelf")
-}
-
-func (m *Manager) GetBringUpStatus(
-	ctx context.Context,
-	target common.Target,
-) (map[string]operations.MachineBringUpState, error) {
-	return nil, fmt.Errorf("GetBringUpStatus not supported for PowerShelf")
 }

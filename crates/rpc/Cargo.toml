@@ -91,7 +91,8 @@ async-trait = { workspace = true }
 nonempty = { workspace = true }
 clap = { features = ["derive"], optional = true, workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
+  "runtime-tokio",
+  "tls-rustls",
   "mac_address",
   "ipnetwork",
   "uuid",

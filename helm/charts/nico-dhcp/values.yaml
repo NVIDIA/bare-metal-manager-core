@@ -27,7 +27,7 @@ namespaceOverride: ""
 
 replicas: 1
 annotations:
-  configmap.reloader.stakater.com/reload: "nico-dhcp-config"
+  configmap.reloader.stakater.com/reload: '{{ include "nico-dhcp.name" . }}-config'
 
 service:
   port: 67
@@ -35,9 +35,18 @@ service:
 metrics:
   port: 1089
 
+apiServiceName: nico-api
+
 certificate:
   ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
-  serviceName: nico-dhcp
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
   extraDnsNames: []
   extraUris: []
 
@@ -78,7 +87,7 @@ config:
           {
             "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
             "parameters": {
-              "nico-api-url": "https://nico-api.__NAMESPACE__.svc.cluster.local:1079",
+              "nico-api-url": "https://__API_HOST__.__NAMESPACE__.svc.cluster.local:1079",
               "nico-metrics-endpoint": "[::]:1089",
               "nico-nameservers": "127.0.0.1",
               "nico-ntpserver": "127.0.0.1",

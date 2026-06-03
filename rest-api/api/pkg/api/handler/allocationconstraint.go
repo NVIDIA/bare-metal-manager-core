@@ -1,24 +1,9 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -184,136 +169,23 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 
 	var dbit *cdbm.InstanceType
 	var dbParentIPBlock *cdbm.IPBlock
-	var serr error
 
 	// Check if the new constraint value is different from the existing value
 	if ac.ConstraintValue != apiRequest.ConstraintValue {
-		// Start a database transaction
-		tx, err := cdb.BeginTx(ctx, uach.dbSession, &sql.TxOptions{})
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to start transaction to update Allocation Constraint")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Allocation Constraint, DB transaction error", nil)
-		}
-		txCommitted := false
-		defer common.RollbackTx(ctx, tx, &txCommitted)
-
-		ipamStorage := ipam.NewIpamStorage(uach.dbSession.DB, tx.GetBunTx())
-
-		// Validate constraint for respective resource type
+		// Pre-flight validation reads happen outside the transaction so we
+		// don't hold a DB connection during purely-read work. The advisory
+		// lock + re-read of state that drives write decisions happens inside
+		// the closure below.
+		var existingChildIPBlock *cdbm.IPBlock
+		ipbDAO := cdbm.NewIPBlockDAO(uach.dbSession)
 		switch ac.ResourceType {
-		// Validate if tenant has Instances that affects this change
 		case cdbm.AllocationResourceTypeInstanceType:
 			// Validating Instance type
-			dbit, serr = common.GetInstanceTypeFromIDString(ctx, tx, ac.ResourceTypeID.String(), uach.dbSession)
-			if serr != nil {
-				logger.Warn().Err(serr).Str("Resource ID", ac.ResourceTypeID.String()).Msg("Failed to retrieve Instance Type for Allocation Constraint")
+			dbit, err = common.GetInstanceTypeFromIDString(ctx, nil, ac.ResourceTypeID.String(), uach.dbSession)
+			if err != nil {
+				logger.Warn().Err(err).Str("Resource ID", ac.ResourceTypeID.String()).Msg("Failed to retrieve Instance Type for Allocation Constraint")
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Instance Type for Allocation Constraint, DB error", nil)
 			}
-
-			// Acquire the shared quota lock for this tenant/site/instance-type pool.
-			// This lock is released when the transaction commits or rolls back.
-			// We start by coordinating around instance type and tenant.
-			// If the constraint update is a decrease, this is all we need to ensure we coordinate around the same
-			// lock as Instance creation.
-			// If the constraint update is an increase, we'll "upgrade" to coordination around
-			// only instance type to match allocation creation and machine/type dissociation.
-			serr = common.AcquireInstanceTypeQuotaLock(ctx, tx, a.TenantID, dbit.ID)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("Failed to acquire advisory lock on Instance Type quota pool")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
-			}
-
-			// Get the current tenant's allocation IDs for the allocation site.
-			// We'll use them to scope the aggregate capacity calculation.
-			allocationIDs, serr := common.GetAllocationIDsForTenantAtSite(ctx, tx, uach.dbSession, a.InfrastructureProviderID, a.TenantID, a.SiteID)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving Allocations for Tenant at Site")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations for Tenant at Site, DB error", nil)
-			}
-
-			// Get all matching constraints for the tenant/site aggregate pool.
-			allocConstraints, _, serr := acDAO.GetAll(
-				ctx,
-				tx,
-				allocationIDs,
-				cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType),
-				[]uuid.UUID{dbit.ID},
-				cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
-				nil,
-				nil,
-				nil,
-				cdb.GetIntPtr(paginator.TotalLimit),
-				nil,
-			)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving Allocation Constraints for Instance Type")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Instance Type, DB error", nil)
-			}
-
-			// Sum up all the constraints so we can see what effect changes to the current
-			// allocation constraint will have on the total pool.
-			sumConstraints := apiRequest.ConstraintValue
-			for _, constraint := range allocConstraints {
-				// We exclude the constraint of the request because that's
-				// what's being changed, so the current value in the DB isn't
-				// relevant, and we've already added the requested new value
-				// into the sum.
-				if constraint.ID != ac.ID {
-					sumConstraints += constraint.ConstraintValue
-				}
-			}
-
-			// If the request is reducing the constraint value, make sure the total
-			// pool does not fall below what has already been allocated.
-			if apiRequest.ConstraintValue < ac.ConstraintValue {
-				// Validate if any Instances exist for this Instance Type.
-				inDAO := cdbm.NewInstanceDAO(uach.dbSession)
-				_, instanceCount, serr := inDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{
-					TenantIDs:       []uuid.UUID{a.TenantID},
-					SiteIDs:         []uuid.UUID{a.SiteID},
-					InstanceTypeIDs: []uuid.UUID{dbit.ID},
-				}, paginator.PageInput{}, nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("error retrieving Instances for Allocation Constraint's Instance Type")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instances for Allocation Constraint's Instance Type, DB error", nil)
-				}
-
-				if instanceCount > sumConstraints {
-					logger.Warn().Msg("updating this Allocation Constraint as requested would reduce the total allocated Machines below the active Instance count for the Instance Type")
-					return cutil.NewAPIErrorResponse(
-						c,
-						http.StatusBadRequest,
-						fmt.Sprintf(
-							"Updating this Allocation Constraint as specified would result in %d total Machines for Instance Type: %s allocated to Tenant, less than Tenant's active Instance count: %d for the Instance Type",
-							sumConstraints,
-							dbit.Name,
-							instanceCount,
-						),
-						nil,
-					)
-				}
-			} else if ac.ConstraintType == cdbm.AllocationConstraintTypeReserved && apiRequest.ConstraintValue > ac.ConstraintValue {
-				// If the new value being requested is greater than the current one,
-				// check whether there are enough machines to support the increased pool size.
-				// We need to "upgrade" our lock to coordinate around only InstanceType here.
-				serr = tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(dbit.ID.String()), nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("Failed to acquire advisory lock on Instance Type quota pool")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
-				}
-
-				ok, serr := common.CheckMachinesForInstanceTypeAllocation(ctx, tx, uach.dbSession, logger, dbit.ID, apiRequest.ConstraintValue-ac.ConstraintValue)
-				if serr != nil {
-					logger.Error().Err(serr).Str("InstanceTypeID", ac.ResourceTypeID.String()).Msg("error checking available Machines for Instance Type Allocation")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check Machine availability for the Instance Type associated with Allocation Constraint", nil)
-				}
-				if !ok {
-					logger.Warn().Str("InstanceTypeID", ac.ResourceTypeID.String()).Msg("Machines unavailable for Instance Type associated with Allocation Constraint")
-					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "New constraint value cannot be satisfied due to Machine availability", nil)
-				}
-			}
-
-		// validate if tenant has subnet based on IPBlock
 		case cdbm.AllocationResourceTypeIPBlock:
 			if ac.DerivedResourceID == nil {
 				logger.Error().Msg("Allocation Constraint does not have a Derived Resource ID")
@@ -321,10 +193,9 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 			}
 
 			// get parent IPBlock
-			ipbDAO := cdbm.NewIPBlockDAO(uach.dbSession)
-			dbParentIPBlock, serr = ipbDAO.GetByID(ctx, tx, ac.ResourceTypeID, nil)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving IP Block for Allocation Constraint")
+			dbParentIPBlock, err = ipbDAO.GetByID(ctx, nil, ac.ResourceTypeID, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("error retrieving IP Block for Allocation Constraint")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IP Block for Allocation Constraint, DB error", nil)
 			}
 
@@ -333,117 +204,236 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 			}
 
 			// get childIPBlock
-			existingChildIPBlock, serr := ipbDAO.GetByID(ctx, tx, *ac.DerivedResourceID, nil)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving Child IP Block for Allocation Constraint")
+			existingChildIPBlock, err = ipbDAO.GetByID(ctx, nil, *ac.DerivedResourceID, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("error retrieving Child IP Block for Allocation Constraint")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant IP Block for Allocation Constraint, DB error", nil)
 			}
+		}
 
-			// Acquire an advisory lock on the Tenant and DerivedIPBlock ID on which subnets are being created
-			// this lock is released when the transaction commits or rollsback
-			serr = tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(fmt.Sprintf("%s-%s", a.TenantID.String(), existingChildIPBlock.ID.String())), nil)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("Failed to acquire advisory lock on Tenant and Derived IP Block")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
-			}
+		updatedac, err = cdb.WithTxResult(ctx, uach.dbSession, func(tx *cdb.Tx) (*cdbm.AllocationConstraint, error) {
+			ipamStorage := ipam.NewIpamStorage(uach.dbSession.DB, tx.GetBunTx())
 
-			subnetFilter := cdbm.SubnetFilterInput{
-				TenantIDs: []uuid.UUID{a.TenantID},
-			}
+			// Validate constraint for respective resource type
+			switch ac.ResourceType {
+			// Validate if tenant has Instances that affects this change
+			case cdbm.AllocationResourceTypeInstanceType:
+				// Acquire the shared quota lock for this tenant/site/instance-type pool.
+				// This lock is released when the transaction commits or rolls back.
+				// We start by coordinating around instance type and tenant.
+				// If the constraint update is a decrease, this is all we need to ensure we coordinate around the same
+				// lock as Instance creation.
+				// If the constraint update is an increase, we'll "upgrade" to coordination around
+				// only instance type to match allocation creation and machine/type dissociation.
+				derr := common.AcquireInstanceTypeQuotaLock(ctx, tx, a.TenantID, dbit.ID)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("Failed to acquire advisory lock on Instance Type quota pool")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
+				}
 
-			if existingChildIPBlock.ProtocolVersion == cdbm.IPBlockProtocolVersionV4 {
-				subnetFilter.IPv4BlockIDs = []uuid.UUID{existingChildIPBlock.ID}
-			} else if existingChildIPBlock.ProtocolVersion == cdbm.IPBlockProtocolVersionV6 {
-				subnetFilter.IPv6BlockIDs = []uuid.UUID{existingChildIPBlock.ID}
-			}
+				// Get the current tenant's allocation IDs for the allocation site.
+				// We'll use them to scope the aggregate capacity calculation.
+				allocationIDs, derr := common.GetAllocationIDsForTenantAtSite(ctx, tx, uach.dbSession, a.InfrastructureProviderID, a.TenantID, a.SiteID)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error retrieving Allocations for Tenant at Site")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocations for Tenant at Site, DB error", nil)
+				}
 
-			// Check if the tenant has Subnets using this IP Block
-			subnetDAO := cdbm.NewSubnetDAO(uach.dbSession)
-			_, sCount, serr := subnetDAO.GetAll(ctx, tx, subnetFilter, paginator.PageInput{}, []string{})
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving Subnets associated with Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for Subnets associated with Allocation Constraint, DB error", nil)
-			}
-			if sCount > 0 {
-				logger.Warn().Msg("Subnets present for Allocation Constraint, cannot update Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnets exist for Allocation Constraint, cannot update constraint value", nil)
-			}
+				// Get all matching constraints for the tenant/site aggregate pool.
+				allocConstraints, _, derr := acDAO.GetAll(
+					ctx,
+					tx,
+					allocationIDs,
+					cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType),
+					[]uuid.UUID{dbit.ID},
+					cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
+					nil,
+					nil,
+					nil,
+					cdb.GetIntPtr(paginator.TotalLimit),
+					nil,
+				)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error retrieving Allocation Constraints for Instance Type")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Instance Type, DB error", nil)
+				}
 
-			// Check if the tenant has VPC Prefixes using this IP Block
-			vpcPrefixDAO := cdbm.NewVpcPrefixDAO(uach.dbSession)
-			vpcPrefixFilter := cdbm.VpcPrefixFilterInput{
-				TenantIDs:  []uuid.UUID{a.TenantID},
-				IpBlockIDs: []uuid.UUID{existingChildIPBlock.ID},
-			}
-			_, vpCount, serr := vpcPrefixDAO.GetAll(ctx, tx, vpcPrefixFilter, paginator.PageInput{}, []string{})
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving VPC Prefixes associated with Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for VPC Prefixes associated with Allocation Constraint, DB error", nil)
-			}
-			if vpCount > 0 {
-				logger.Warn().Msg("VPC Prefixes present for Allocation Constraint, cannot update Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC Prefixes exist for Allocation Constraint, cannot update constraint value", nil)
-			}
+				// Sum up all the constraints so we can see what effect changes to the current
+				// allocation constraint will have on the total pool.
+				sumConstraints := apiRequest.ConstraintValue
+				for _, constraint := range allocConstraints {
+					// We exclude the constraint of the request because that's
+					// what's being changed, so the current value in the DB isn't
+					// relevant, and we've already added the requested new value
+					// into the sum.
+					if constraint.ID != ac.ID {
+						sumConstraints += constraint.ConstraintValue
+					}
+				}
 
-			// We must delete or cleanup the existing child prefix IPAM entry when we successfully update the constraint value by creating new child prefix entry in IPAM
-			existingChildCidr := ipam.GetCidrForIPBlock(ctx, existingChildIPBlock.Prefix, existingChildIPBlock.PrefixLength)
-			err = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, uach.dbSession, ipamStorage, dbParentIPBlock, existingChildCidr)
-			if err != nil {
-				logger.Error().Err(err).Msg("unable to delete child IPAM entry for updated Allocation Constraint")
-				if !errors.Is(err, ipam.ErrPrefixDoesNotExistForIPBlock) {
-					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to delete existing IPAM entry for Allocation Constraint's Tenant IP Block. Details: %s", err.Error()), nil)
+				// If the request is reducing the constraint value, make sure the total
+				// pool does not fall below what has already been allocated.
+				if apiRequest.ConstraintValue < ac.ConstraintValue {
+					// Validate if any Instances exist for this Instance Type.
+					inDAO := cdbm.NewInstanceDAO(uach.dbSession)
+					_, instanceCount, derr := inDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{
+						TenantIDs:       []uuid.UUID{a.TenantID},
+						SiteIDs:         []uuid.UUID{a.SiteID},
+						InstanceTypeIDs: []uuid.UUID{dbit.ID},
+					}, paginator.PageInput{}, nil)
+					if derr != nil {
+						logger.Error().Err(derr).Msg("error retrieving Instances for Allocation Constraint's Instance Type")
+						return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Instances for Allocation Constraint's Instance Type, DB error", nil)
+					}
+
+					if instanceCount > sumConstraints {
+						logger.Warn().Msg("updating this Allocation Constraint as requested would reduce the total allocated Machines below the active Instance count for the Instance Type")
+						return nil, cutil.NewAPIError(
+							http.StatusBadRequest,
+							fmt.Sprintf(
+								"Updating this Allocation Constraint as specified would result in %d total Machines for Instance Type: %s allocated to Tenant, less than Tenant's active Instance count: %d for the Instance Type",
+								sumConstraints,
+								dbit.Name,
+								instanceCount,
+							),
+							nil,
+						)
+					}
+				} else if ac.ConstraintType == cdbm.AllocationConstraintTypeReserved && apiRequest.ConstraintValue > ac.ConstraintValue {
+					// If the new value being requested is greater than the current one,
+					// check whether there are enough machines to support the increased pool size.
+					// We need to "upgrade" our lock to coordinate around only InstanceType here.
+					derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(dbit.ID.String()), nil)
+					if derr != nil {
+						logger.Error().Err(derr).Msg("Failed to acquire advisory lock on Instance Type quota pool")
+						return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
+					}
+
+					ok, derr := common.CheckMachinesForInstanceTypeAllocation(ctx, tx, uach.dbSession, logger, dbit.ID, apiRequest.ConstraintValue-ac.ConstraintValue)
+					if derr != nil {
+						logger.Error().Err(derr).Str("InstanceTypeID", ac.ResourceTypeID.String()).Msg("error checking available Machines for Instance Type Allocation")
+						return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to check Machine availability for the Instance Type associated with Allocation Constraint", nil)
+					}
+					if !ok {
+						logger.Warn().Str("InstanceTypeID", ac.ResourceTypeID.String()).Msg("Machines unavailable for Instance Type associated with Allocation Constraint")
+						return nil, cutil.NewAPIError(http.StatusBadRequest, "New constraint value cannot be satisfied due to Machine availability", nil)
+					}
+				}
+
+			// validate if tenant has subnet based on IPBlock
+			case cdbm.AllocationResourceTypeIPBlock:
+				// Acquire an advisory lock on the Tenant and DerivedIPBlock ID on which subnets are being created
+				// this lock is released when the transaction commits or rollsback
+				derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(fmt.Sprintf("%s-%s", a.TenantID.String(), existingChildIPBlock.ID.String())), nil)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("Failed to acquire advisory lock on Tenant and Derived IP Block")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to acquire resource lock to update Allocation Constraint", nil)
+				}
+
+				// Re-read the child IP Block inside the transaction after acquiring
+				// the advisory lock so subsequent checks and writes operate on a
+				// consistent snapshot of its Prefix/PrefixLength/ProtocolVersion.
+				existingChildIPBlock, derr = ipbDAO.GetByID(ctx, tx, *ac.DerivedResourceID, nil)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error re-reading Child IP Block for Allocation Constraint inside transaction")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant IP Block for Allocation Constraint, DB error", nil)
+				}
+
+				subnetFilter := cdbm.SubnetFilterInput{
+					TenantIDs: []uuid.UUID{a.TenantID},
+				}
+
+				if existingChildIPBlock.ProtocolVersion == cdbm.IPBlockProtocolVersionV4 {
+					subnetFilter.IPv4BlockIDs = []uuid.UUID{existingChildIPBlock.ID}
+				} else if existingChildIPBlock.ProtocolVersion == cdbm.IPBlockProtocolVersionV6 {
+					subnetFilter.IPv6BlockIDs = []uuid.UUID{existingChildIPBlock.ID}
+				}
+
+				// Check if the tenant has Subnets using this IP Block
+				subnetDAO := cdbm.NewSubnetDAO(uach.dbSession)
+				_, sCount, derr := subnetDAO.GetAll(ctx, tx, subnetFilter, paginator.PageInput{}, []string{})
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error retrieving Subnets associated with Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to check for Subnets associated with Allocation Constraint, DB error", nil)
+				}
+				if sCount > 0 {
+					logger.Warn().Msg("Subnets present for Allocation Constraint, cannot update Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusBadRequest, "Subnets exist for Allocation Constraint, cannot update constraint value", nil)
+				}
+
+				// Check if the tenant has VPC Prefixes using this IP Block
+				vpcPrefixDAO := cdbm.NewVpcPrefixDAO(uach.dbSession)
+				vpcPrefixFilter := cdbm.VpcPrefixFilterInput{
+					TenantIDs:  []uuid.UUID{a.TenantID},
+					IpBlockIDs: []uuid.UUID{existingChildIPBlock.ID},
+				}
+				_, vpCount, derr := vpcPrefixDAO.GetAll(ctx, tx, vpcPrefixFilter, paginator.PageInput{}, []string{})
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error retrieving VPC Prefixes associated with Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to check for VPC Prefixes associated with Allocation Constraint, DB error", nil)
+				}
+				if vpCount > 0 {
+					logger.Warn().Msg("VPC Prefixes present for Allocation Constraint, cannot update Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusBadRequest, "VPC Prefixes exist for Allocation Constraint, cannot update constraint value", nil)
+				}
+
+				// We must delete or cleanup the existing child prefix IPAM entry when we successfully update the constraint value by creating new child prefix entry in IPAM
+				existingChildCidr := ipam.GetCidrForIPBlock(ctx, existingChildIPBlock.Prefix, existingChildIPBlock.PrefixLength)
+				derr = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, uach.dbSession, ipamStorage, dbParentIPBlock, existingChildCidr)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("unable to delete child IPAM entry for updated Allocation Constraint")
+					if !errors.Is(derr, ipam.ErrPrefixDoesNotExistForIPBlock) {
+						return nil, cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to delete existing IPAM entry for Allocation Constraint's Tenant IP Block. Details: %s", derr.Error()), nil)
+					}
+				}
+
+				// Allocate a child prefix in IPAM for updated constraint value
+				newChildPrefix, derr := ipam.CreateChildIpamEntryForIPBlock(ctx, tx, uach.dbSession, ipamStorage, dbParentIPBlock, apiRequest.ConstraintValue)
+				if derr != nil {
+					// printing parent prefix usage to debug the child prefix failure
+					parentPrefix, sserr := ipamStorage.ReadPrefix(ctx, dbParentIPBlock.Prefix, ipam.GetIpamNamespaceForIPBlock(ctx, dbParentIPBlock.RoutingType, dbParentIPBlock.InfrastructureProviderID.String(), dbParentIPBlock.SiteID.String()))
+					if sserr == nil {
+						logger.Info().Str("IP Block ID", dbParentIPBlock.ID.String()).Str("IPBlockPrefix", dbParentIPBlock.Prefix).Msgf("%+v\n", parentPrefix.Usage())
+					}
+
+					logger.Warn().Err(derr).Msg("unable to create child IPAM entry for updated Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Failed to create updated IPAM entry for Allocation Constraint's Tenant IP Block. Details: %s", derr.Error()), nil)
+				}
+				logger.Info().Str("ChildCIDR", newChildPrefix.Cidr).Msg("created child CIDR")
+
+				// Create an IP Block corresponding to the child prefix
+				newPrefix, newBlockSize, derr := ipam.ParseCidrIntoPrefixAndBlockSize(newChildPrefix.Cidr)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("unable to parse CIDR for new Tenant IP Block for Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to parse CIDR for Allocation Constraint's Tenant IP Block. Details: %s", derr.Error()), nil)
+				}
+
+				// Update existing IP Block with new prefix, block size
+				_, derr = ipbDAO.Update(
+					ctx,
+					tx,
+					cdbm.IPBlockUpdateInput{
+						IPBlockID:    existingChildIPBlock.ID,
+						Prefix:       cdb.GetStrPtr(newPrefix),
+						PrefixLength: cdb.GetIntPtr(newBlockSize),
+					},
+				)
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error updating existing Tenant IP Block with new prefix/length for Allocation Constraint")
+					return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant IP Block with new prefix/length for Allocation Constraint, DB error", nil)
 				}
 			}
 
-			// Allocate a child prefix in IPAM for updated constraint value
-			newChildPrefix, serr := ipam.CreateChildIpamEntryForIPBlock(ctx, tx, uach.dbSession, ipamStorage, dbParentIPBlock, apiRequest.ConstraintValue)
-			if serr != nil {
-				// printing parent prefix usage to debug the child prefix failure
-				parentPrefix, sserr := ipamStorage.ReadPrefix(ctx, dbParentIPBlock.Prefix, ipam.GetIpamNamespaceForIPBlock(ctx, dbParentIPBlock.RoutingType, dbParentIPBlock.InfrastructureProviderID.String(), dbParentIPBlock.SiteID.String()))
-				if sserr == nil {
-					logger.Info().Str("IP Block ID", dbParentIPBlock.ID.String()).Str("IPBlockPrefix", dbParentIPBlock.Prefix).Msgf("%+v\n", parentPrefix.Usage())
-				}
-
-				logger.Warn().Err(serr).Msg("unable to create child IPAM entry for updated Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to create updated IPAM entry for Allocation Constraint's Tenant IP Block. Details: %s", serr.Error()), nil)
+			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cdb.GetIntPtr(apiRequest.ConstraintValue), nil)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating Allocation Constraint in DB")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Allocation Constraint with new constraint value, DB error", nil)
 			}
-			logger.Info().Str("ChildCIDR", newChildPrefix.Cidr).Msg("created child CIDR")
-
-			// Create an IP Block corresponding to the child prefix
-			newPrefix, newBlockSize, serr := ipam.ParseCidrIntoPrefixAndBlockSize(newChildPrefix.Cidr)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("unable to parse CIDR for new Tenant IP Block for Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to parse CIDR for Allocation Constraint's Tenant IP Block. Details: %s", serr.Error()), nil)
-			}
-
-			// Update existing IP Block with new prefix, block size
-			_, serr = ipbDAO.Update(
-				ctx,
-				tx,
-				cdbm.IPBlockUpdateInput{
-					IPBlockID:    existingChildIPBlock.ID,
-					Prefix:       cdb.GetStrPtr(newPrefix),
-					PrefixLength: cdb.GetIntPtr(newBlockSize),
-				},
-			)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error updating existing Tenant IP Block with new prefix/length for Allocation Constraint")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Tenant IP Block with new prefix/length for Allocation Constraint, DB error", nil)
-			}
-		}
-
-		updatedac, err = acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cdb.GetIntPtr(apiRequest.ConstraintValue), nil)
+			return newac, nil
+		})
 		if err != nil {
-			logger.Error().Err(err).Msg("error updating Allocation Constraint in DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Allocation Constraint with new constraint value, DB error", nil)
+			return common.HandleTxError(c, logger, err, "Failed to update Allocation Constraint, DB transaction error")
 		}
-
-		err = tx.Commit()
-		if err != nil {
-			logger.Error().Err(err).Msg("error committing transaction to update Allocation Constraint")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Allocation Constraint, DB transaction error", nil)
-		}
-		txCommitted = true
 	}
 
 	// Create response

@@ -218,14 +218,14 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
-    let mut docs = "# NCX Infra Controller (NICo) core metrics\n\n".to_string();
+    let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
     use std::fmt::Write;
 
     use askama_escape::Escaper;
 
     writeln!(
         &mut docs,
-        "This file contains a list of metrics exported by NCX Infra Controller (NICo). \
+        "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
         Metrics for workflows which are not exercised by the test are missing."
     )
@@ -249,7 +249,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         write!(&mut docs, "</td>").unwrap();
         writeln!(&mut docs, "</tr>").unwrap();
     }
-    writeln!(&mut docs, "<table>").unwrap();
+    writeln!(&mut docs, "</table>").unwrap();
 
     let path = std::path::Path::new(METRIC_DOC_PATH);
     assert!(

@@ -126,8 +126,7 @@ jobs:
       target_registry: ${{ needs.prepare.outputs.target_registry }}
       branch_name: ${{ needs.prepare.outputs.branch_name }}
       is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
-      # TEMP: disabled until REST image tag scheme is verified clean
-      push_enabled: false
+      push_enabled: ${{ github.event_name != 'workflow_dispatch' && !contains(github.ref, 'pull-request/') }}
       release_tag: ${{ needs.prepare.outputs.release_tag }}
     secrets:
       NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}

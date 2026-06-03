@@ -18,7 +18,7 @@ flow rack create --file examples/rack-create-example.json
 **JSON format notes:**
 - `info.id` — optional UUID; a new one is generated if omitted
 - `location.datacenter` — matches the `datacenter` field (not `data_center`)
-- `components[].type` — one of: `compute`, `nvlswitch`, `powershelf`,
+- `components[].type` — one of: `compute`, `nvswitch`, `powershelf`,
   `torswitch`, `ums`, `cdu`
 - `components[].position` — uses snake_case keys: `slot_id`, `tray_index`,
   `host_id`

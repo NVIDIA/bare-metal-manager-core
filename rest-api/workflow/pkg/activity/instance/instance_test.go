@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package instance
 
@@ -307,6 +293,10 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	ibInterface3 := util.TestBuildInfiniBandInterface(t, dbSession, instance1.ID, site.ID, partition1.ID, "MT2910 Family [ConnectX-7]", 2, true, nil, cdbm.InfiniBandInterfaceStatusDeleting, false)
 	assert.NotNil(t, ibInterface3)
 
+	// Make Deleting InfiniBand row old enough to pass IsTimeWithinStaleInventoryThreshold deferral during inventory reconcile
+	_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibInterface3.ID.String())
+	assert.NoError(t, err)
+
 	// NVLink Interfaces
 	nvlinkInterface1 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cdb.GetStrPtr(""), 0, nil, nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlinkInterface1)
@@ -484,7 +474,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		},
 	)
 	assert.Nil(t, err)
-	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cdb.GetBoolPtr(true)}})
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
@@ -580,6 +570,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	macAddress := "2F-FC-34-AE-9C-2A"
 	ipAddresses := []string{"200.32.11.190", "51aa:f78b:ffb0:1c58:7bee:b9e7:bf35:0962"}
 	requestedIpAddress := "10.0.0.15"
+	routingProfilePrefixes := []string{"192.0.2.0/24", "2001:db8::/64"}
 
 	// Instance 10 is already set to Error/marked as missing, no new status details is created for it when it's reported missing again
 	instance10, err := instanceDAO.Create(
@@ -652,6 +643,13 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	// Replicate the bug fix test
 	ifcvpc0 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, true, cdb.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc0)
+	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
+		InterfaceID: ifcvpc0.ID,
+		InlineRoutingProfile: &cdbm.InterfaceInlineRoutingProfile{
+			AllowedAnycastPrefixes: []string{"198.51.100.0/24"},
+		},
+	})
+	assert.Nil(t, err)
 
 	ifcvpc0_1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, false, cdb.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, db.GetIntPtr(1), &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc0_1)
@@ -753,7 +751,13 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 
 	ifcvpc_pending := util.TestBuildInterface(t, dbSession, &instance15.ID, nil, &vpcPrefix2.ID, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc_pending)
-	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifcvpc_pending.ID, RequestedIpAddress: &requestedIpAddress})
+	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
+		InterfaceID:        ifcvpc_pending.ID,
+		RequestedIpAddress: &requestedIpAddress,
+		InlineRoutingProfile: &cdbm.InterfaceInlineRoutingProfile{
+			AllowedAnycastPrefixes: []string{"198.51.100.0/24"},
+		},
+	})
 	assert.Nil(t, err)
 
 	// Instance 16 starts with an initial TPM EK certificate and gets updated with a new certificate value
@@ -869,6 +873,11 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	ibInterface18_3 := util.TestBuildInfiniBandInterface(t, dbSession, instance18.ID, site.ID, partition1.ID, "MT2910 Family [ConnectX-7]", 2, true, nil, cdbm.InfiniBandInterfaceStatusDeleting, false)
 	assert.NotNil(t, ibInterface18_3)
 
+	for _, ibd := range []*cdbm.InfiniBandInterface{ibInterface18_1, ibInterface18_2, ibInterface18_3} {
+		_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibd.ID.String())
+		assert.NoError(t, err)
+	}
+
 	// Build DPU Extension Services and Deployments for testing
 	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-1", site, tenant, "ovs-offload", cdb.GetStrPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
 	assert.NotNil(t, dpuExtensionService1)
@@ -912,6 +921,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 							},
 						},
 					},
+					// InfiniBand config/status keys must align with reconcile map: controller IB partition id + device + device instance
 					Infiniband: &cwsv1.InstanceInfinibandConfig{
 						IbInterfaces: []*cwsv1.InstanceIBInterfaceConfig{
 							{
@@ -1079,6 +1089,12 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 								},
 								Device:    cdb.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								IpAddress: &requestedIpAddress,
+								RoutingProfile: &cwsv1.InstanceInterfaceRoutingProfile{
+									AllowedAnycastPrefixes: []*cwsv1.PrefixFilterPolicyEntry{
+										{Prefix: routingProfilePrefixes[0]},
+										{Prefix: routingProfilePrefixes[1]},
+									},
+								},
 							},
 							{
 								FunctionType:     cwsv1.InterfaceFunctionType_VIRTUAL_FUNCTION,
@@ -1683,6 +1699,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		deletingInterfaces                    []*cdbm.Interface
 		readyInterfaces                       []*cdbm.Interface
 		clearedRequestedIpInterfaces          []*cdbm.Interface
+		clearedInlineRoutingProfileInterfaces []*cdbm.Interface
 		vpcPrefixInterfaces                   []*cdbm.Interface
 		multiDPUInterfaces                    []*cdbm.Interface
 		deletedInfiniBandInterfaces           []*cdbm.InfiniBandInterface
@@ -1704,34 +1721,35 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 			expectErr:         true,
 		},
 		{
-			name:                            "test Instance inventory processing success including VPC prefix interfaces",
-			siteID:                          site.ID,
-			clientPoolSiteID:                site.ID.String(),
-			clientPoolClient:                mtc1,
-			instanceInventory:               instanceInventory,
-			updatedVpcPrefixInstance:        instance11,
-			updatedInstance:                 instance1,
-			deletingInstance:                instance5,
-			updatedMultiDPUInstance:         instance11,
-			deletedInstances:                []*cdbm.Instance{instance2, instance8},
-			missingInstances:                []*cdbm.Instance{instance3, instance4, instance10},
-			restoredInstance:                instance6,
-			unpairedInstances:               []*cdbm.Instance{instance7},
-			bootCompletedInstances:          []*cdbm.Instance{instance9},
-			unchangedInstances:              []*cdbm.Instance{instance13, instance14},
-			deletingInterfaces:              []*cdbm.Interface{ifcvpc_deleting},
-			readyInterfaces:                 []*cdbm.Interface{ifcvpc_pending},
-			clearedRequestedIpInterfaces:    []*cdbm.Interface{ifcvpc_pending},
-			deletedInfiniBandInterfaces:     []*cdbm.InfiniBandInterface{ibInterface3, ibInterface18_1, ibInterface18_2, ibInterface18_3},
-			readyInfiniBandInterfaces:       []*cdbm.InfiniBandInterface{ibInterface1, ibInterface2},
-			multiDPUInterfaces:              []*cdbm.Interface{ifcvpc0, ifcvpc1, ifcvpc0_1, ifcvpc1_1},
-			vpcPrefixInterfaces:             []*cdbm.Interface{ifcvpc0, ifcvpc1, ifcvpc0_1, ifcvpc1_1},
-			updatedDpuExtServiceDeployments: []*cdbm.DpuExtensionServiceDeployment{dpuExtServiceDeployment1},
-			deletedDpuExtServiceDeployments: []*cdbm.DpuExtensionServiceDeployment{dpuExtServiceDeployment2},
-			readyNVLinkInterfaces:           []*cdbm.NVLinkInterface{nvlinkInterface1, nvlinkInterface2},
-			deletedNVLinkInterfaces:         []*cdbm.NVLinkInterface{nvlinkInterface3},
-			tpmCertificateUpdatedInstance:   instance16,
-			expectErr:                       false,
+			name:                                  "test Instance inventory processing success including VPC prefix interfaces",
+			siteID:                                site.ID,
+			clientPoolSiteID:                      site.ID.String(),
+			clientPoolClient:                      mtc1,
+			instanceInventory:                     instanceInventory,
+			updatedVpcPrefixInstance:              instance11,
+			updatedInstance:                       instance1,
+			deletingInstance:                      instance5,
+			updatedMultiDPUInstance:               instance11,
+			deletedInstances:                      []*cdbm.Instance{instance2, instance8},
+			missingInstances:                      []*cdbm.Instance{instance3, instance4, instance10},
+			restoredInstance:                      instance6,
+			unpairedInstances:                     []*cdbm.Instance{instance7},
+			bootCompletedInstances:                []*cdbm.Instance{instance9},
+			unchangedInstances:                    []*cdbm.Instance{instance13, instance14},
+			deletingInterfaces:                    []*cdbm.Interface{ifcvpc_deleting},
+			readyInterfaces:                       []*cdbm.Interface{ifcvpc_pending},
+			clearedRequestedIpInterfaces:          []*cdbm.Interface{ifcvpc_pending},
+			clearedInlineRoutingProfileInterfaces: []*cdbm.Interface{ifcvpc_pending},
+			deletedInfiniBandInterfaces:           []*cdbm.InfiniBandInterface{ibInterface3, ibInterface18_1, ibInterface18_2, ibInterface18_3},
+			readyInfiniBandInterfaces:             []*cdbm.InfiniBandInterface{ibInterface1, ibInterface2},
+			multiDPUInterfaces:                    []*cdbm.Interface{ifcvpc0, ifcvpc1, ifcvpc0_1, ifcvpc1_1},
+			vpcPrefixInterfaces:                   []*cdbm.Interface{ifcvpc0, ifcvpc1, ifcvpc0_1, ifcvpc1_1},
+			updatedDpuExtServiceDeployments:       []*cdbm.DpuExtensionServiceDeployment{dpuExtServiceDeployment1},
+			deletedDpuExtServiceDeployments:       []*cdbm.DpuExtensionServiceDeployment{dpuExtServiceDeployment2},
+			readyNVLinkInterfaces:                 []*cdbm.NVLinkInterface{nvlinkInterface1, nvlinkInterface2},
+			deletedNVLinkInterfaces:               []*cdbm.NVLinkInterface{nvlinkInterface3},
+			tpmCertificateUpdatedInstance:         instance16,
+			expectErr:                             false,
 		},
 		{
 			name:             "test Instance inventory processing success with nil TPM certificate update",
@@ -1965,6 +1983,8 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 				assert.True(t, ifcvpc.IsPhysical)
 				require.NotNil(t, ifcvpc.RequestedIpAddress)
 				assert.Equal(t, requestedIpAddress, *ifcvpc.RequestedIpAddress)
+				require.NotNil(t, ifcvpc.InlineRoutingProfile)
+				assert.Equal(t, routingProfilePrefixes, ifcvpc.InlineRoutingProfile.AllowedAnycastPrefixes)
 				assert.Equal(t, macAddress, *ifcvpc.MacAddress)
 				assert.Equal(t, ipAddresses, ifcvpc.IPAddresses)
 				assert.Equal(t, cdbm.InterfaceStatusReady, ifcvpc.Status)
@@ -2130,6 +2150,12 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 				inteface, err := ifcDAO.GetByID(ctx, nil, ifc.ID, nil)
 				assert.Nil(t, err)
 				assert.Nil(t, inteface.RequestedIpAddress)
+			}
+
+			for _, ifc := range tc.clearedInlineRoutingProfileInterfaces {
+				inteface, err := ifcDAO.GetByID(ctx, nil, ifc.ID, nil)
+				assert.Nil(t, err)
+				assert.Nil(t, inteface.InlineRoutingProfile)
 			}
 
 			if tc.deletedInfiniBandInterfaces != nil {

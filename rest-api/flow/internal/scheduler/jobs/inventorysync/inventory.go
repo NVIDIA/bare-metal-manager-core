@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package inventorysync
 
@@ -31,48 +17,28 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nsmapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/psmapi"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
 const driftFieldSerialNumber = "serial_number"
 
 // runInventoryOne is a single iteration for RunInventory.
-// It syncs each resource type against its external source, collects all drifts,
-// and persists them in one shot.
+// It syncs each resource type against Core (NICo), collects all drifts, and
+// persists them in one shot.
 func runInventoryOne(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-	psmClient psmapi.Client,
-	nsmClient nsmapi.Client,
-	cmConfig cmconfig.Config,
 ) {
 	var allDrifts []model.ComponentDrift
 
-	// Sync machines against NICo
 	machineDrifts := syncMachines(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, machineDrifts...)
 
-	// Sync NVL switches: dispatch based on configured component manager
-	var nvlSwitchDrifts []model.ComponentDrift
-	if cmConfig.ComponentManagers[devicetypes.ComponentTypeNVLSwitch] == nicoprovider.ProviderName {
-		nvlSwitchDrifts = syncNVSwitchesNICo(ctx, pool, nicoClient)
-	} else {
-		nvlSwitchDrifts = syncNVSwitches(ctx, pool, nicoClient, nsmClient)
-	}
-	allDrifts = append(allDrifts, nvlSwitchDrifts...)
+	nvSwitchDrifts := syncNVSwitchesNICo(ctx, pool, nicoClient)
+	allDrifts = append(allDrifts, nvSwitchDrifts...)
 
-	// Sync powershelves: dispatch based on configured component manager
-	var powershelfDrifts []model.ComponentDrift
-	if cmConfig.ComponentManagers[devicetypes.ComponentTypePowerShelf] == nicoprovider.ProviderName {
-		powershelfDrifts = syncPowershelvesNICo(ctx, pool, nicoClient)
-	} else {
-		powershelfDrifts = syncPowershelves(ctx, pool, nicoClient, psmClient)
-	}
+	powershelfDrifts := syncPowershelvesNICo(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, powershelfDrifts...)
 
 	// Persist all drifts atomically (replace entire table)
@@ -480,453 +446,23 @@ func compareMachineFieldsForDrift(
 }
 
 // ---------------------------------------------------------------------------
-// syncNVSwitches: sync NVLSwitch components against NSM
+// syncNVSwitchesNICo: sync NVSwitch components via Core (NICo)
 // ---------------------------------------------------------------------------
 //
-// NSM API calls (1-2 round-trips):
-//   - GetNVSwitches: get registered switches (firmware_version direct-write)
-//   - RegisterNVSwitches: register un-registered DHCPed switches
-//
-// NICo API calls (2 round-trips):
-//   - GetAllExpectedSwitches: get credentials + NVOS MAC from metadata
-//   - FindInterfaces: check which BMCs/NVOS hosts have DHCPed
-//
-// Flow:
-//  1. DB: get all NVLSwitch components with BMCs
-//  2. NSM GetNVSwitches: get registered switches
-//  3. NICo GetAllExpectedSwitches: get credentials and NVOS MAC (metadata label "host_mac_address")
-//  4. NICo FindInterfaces: check which BMCs/NVOS hosts have DHCPed
-//  5. Direct-write: firmware_version (from NSM)
-//  6. Register un-registered DHCPed switches with NSM (BMC + NVOS subsystems)
-//  7. Return drifts (missing_in_actual for unregistered switches)
-
-func syncNVSwitches(
-	ctx context.Context,
-	pool *cdb.Session,
-	nicoClient nicoapi.Client,
-	nsmClient nsmapi.Client,
-) []model.ComponentDrift {
-	if nsmClient == nil {
-		log.Debug().Msg("NSM client not available, skipping NVSwitch sync")
-		return nil
-	}
-
-	log.Debug().Msg("Syncing NV switches...")
-
-	// Step 1: Get all NVLSwitch components with their BMCs
-	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVLSwitch)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve NVLSwitch components from db: %v", err)
-		return nil
-	}
-
-	if len(expectedSwitches) == 0 {
-		return nil
-	}
-
-	// Build map from BMC MAC to component.
-	// Each NVLSwitch should have exactly one BMC.
-	expectedByBmcMac := make(map[string]*model.Component)
-	for i := range expectedSwitches {
-		sw := &expectedSwitches[i]
-		if len(sw.BMCs) != 1 {
-			log.Error().Msgf("NVLSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
-			continue
-		}
-
-		bmcMacAddr, err := net.ParseMAC(sw.BMCs[0].MacAddress)
-		if err != nil || bmcMacAddr == nil {
-			log.Error().Msgf("NVLSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
-			continue
-		}
-
-		expectedByBmcMac[bmcMacAddr.String()] = sw
-	}
-
-	// Step 2: Get registered switches from NSM
-	registeredSwitches, err := nsmClient.GetNVSwitches(ctx, nil)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve registered switches from NSM: %v", err)
-		return nil
-	}
-
-	registeredByMac := make(map[string]nsmapi.NVSwitchTray)
-	for _, sw := range registeredSwitches {
-		if sw.BMCMACAddress != "" {
-			registeredByMac[utils.NormalizeMAC(sw.BMCMACAddress)] = sw
-		}
-	}
-
-	// Step 3: Get expected switches from NICo for NVOS MAC metadata
-	nicoByBmcMac, err := nicoClient.GetAllExpectedSwitches(ctx)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve expected switches from nico-core-api: %v", err)
-		return nil
-	}
-
-	// Step 4: Get machine interfaces from NICo to check DHCP status
-	interfacesByMac, err := nicoClient.FindInterfaces(ctx)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve interfaces from nico-core-api: %v", err)
-		return nil
-	}
-
-	// Steps 5-7: Process each expected NVLSwitch
-	now := time.Now()
-	var drifts []model.ComponentDrift
-	var toRegister []nsmapi.RegisterNVSwitchRequest
-
-	for bmcMac, nvswitch := range expectedByBmcMac {
-		nvswitchID := nvswitch.ID.String()
-
-		// Already registered with NSM — direct-write external_id and firmware_version
-		if registeredSW, isRegistered := registeredByMac[bmcMac]; isRegistered {
-			needsUpdate := false
-
-			if registeredSW.UUID != "" && (nvswitch.ComponentID == nil || *nvswitch.ComponentID != registeredSW.UUID) {
-				nsmUUID := registeredSW.UUID
-				nvswitch.ComponentID = &nsmUUID
-				needsUpdate = true
-				log.Info().Msgf("NVLSwitch %s (BMC %s): setting external_id to NSM UUID %s", nvswitchID, bmcMac, nsmUUID)
-			}
-
-			if registeredSW.BMCFirmware != "" && nvswitch.FirmwareVersion != registeredSW.BMCFirmware {
-				nvswitch.FirmwareVersion = registeredSW.BMCFirmware
-				needsUpdate = true
-				log.Info().Msgf("NVLSwitch %s (BMC %s): updating firmware version to %s", nvswitchID, bmcMac, registeredSW.BMCFirmware)
-			}
-
-			if needsUpdate {
-				if err := nvswitch.Patch(ctx, pool.DB); err != nil {
-					log.Error().Msgf("NVLSwitch %s (BMC %s): unable to update: %v", nvswitchID, bmcMac, err)
-				}
-			}
-
-			// Drift detection: compare chassis serial from NSM against expected serial in DB
-			if registeredSW.ChassisSerial != "" && nvswitch.SerialNumber != registeredSW.ChassisSerial {
-				compID := nvswitch.ID
-				drifts = append(drifts, model.ComponentDrift{
-					ComponentID: &compID,
-					ExternalID:  &registeredSW.UUID,
-					DriftType:   model.DriftTypeMismatch,
-					Diffs: []model.FieldDiff{{
-						FieldName:     driftFieldSerialNumber,
-						ExpectedValue: nvswitch.SerialNumber,
-						ActualValue:   registeredSW.ChassisSerial,
-					}},
-					CheckedAt: now,
-				})
-			}
-
-			continue
-		}
-
-		// Not registered with NSM — check if BMC has DHCPed
-		bmcIface, found := interfacesByMac[bmcMac]
-		if !found || len(bmcIface.Addresses) == 0 {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): BMC has not DHCPed yet", nvswitchID, bmcMac)
-			compID := nvswitch.ID
-			drifts = append(drifts, model.ComponentDrift{
-				ComponentID: &compID,
-				ExternalID:  nil,
-				DriftType:   model.DriftTypeMissingInActual,
-				Diffs:       []model.FieldDiff{},
-				CheckedAt:   now,
-			})
-			continue
-		}
-
-		if len(bmcIface.Addresses) > 1 {
-			log.Error().Msgf("NVLSwitch %s (BMC %s): multiple IP addresses assigned (%v), skipping registration", nvswitchID, bmcMac, bmcIface.Addresses)
-			continue
-		}
-
-		bmcIP := bmcIface.Addresses[0]
-
-		nicoES, hasNICoInfo := nicoByBmcMac[bmcMac]
-		if !hasNICoInfo {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): not found in NICo expected switches, skipping registration", nvswitchID, bmcMac)
-			continue
-		}
-
-		nvosMacRaw, hasNvosMac := nicoES.Metadata["host_mac_address"]
-		if !hasNvosMac || nvosMacRaw == "" {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): no host_mac_address in NICo metadata, skipping registration", nvswitchID, bmcMac)
-			continue
-		}
-		nvosMac := utils.NormalizeMAC(nvosMacRaw)
-
-		nvosIface, nvosFound := interfacesByMac[nvosMac]
-		if !nvosFound || len(nvosIface.Addresses) == 0 {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): NVOS %s has not DHCPed yet, skipping registration", nvswitchID, bmcMac, nvosMac)
-			compID := nvswitch.ID
-			drifts = append(drifts, model.ComponentDrift{
-				ComponentID: &compID,
-				ExternalID:  nil,
-				DriftType:   model.DriftTypeMissingInActual,
-				Diffs:       []model.FieldDiff{},
-				CheckedAt:   now,
-			})
-			continue
-		}
-
-		if len(nvosIface.Addresses) > 1 {
-			log.Error().Msgf("NVLSwitch %s (BMC %s): NVOS %s has multiple IP addresses (%v), skipping registration", nvswitchID, bmcMac, nvosMac, nvosIface.Addresses)
-			continue
-		}
-
-		nvosIP := nvosIface.Addresses[0]
-
-		log.Info().Msgf("NVLSwitch %s (BMC %s, IP %s) + NVOS %s (IP %s): registering with NSM", nvswitchID, bmcMac, bmcIP, nvosMac, nvosIP)
-
-		toRegister = append(toRegister, nsmapi.RegisterNVSwitchRequest{
-			BMCMACAddress:  bmcMac,
-			BMCIPAddress:   bmcIP,
-			NVOSMACAddress: nvosMac,
-			NVOSIPAddress:  nvosIP,
-		})
-	}
-
-	// Register un-registered switches with NSM
-	if len(toRegister) > 0 {
-		responses, err := nsmClient.RegisterNVSwitches(ctx, toRegister)
-		if err != nil {
-			log.Error().Msgf("Unable to register NVLSwitches with NSM: %v", err)
-		} else {
-			for _, resp := range responses {
-				if resp.Status != nsmapi.StatusSuccess {
-					log.Error().Msgf("Failed to register NVLSwitch with NSM (uuid=%s): %s", resp.UUID, resp.Error)
-				} else if resp.IsNew {
-					log.Info().Msgf("Successfully registered new NVLSwitch with NSM (uuid=%s)", resp.UUID)
-				} else {
-					log.Debug().Msgf("NVLSwitch was already registered with NSM (uuid=%s)", resp.UUID)
-				}
-			}
-		}
-	}
-
-	log.Info().Msgf("NVLSwitch sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
-	return drifts
-}
-
-// ---------------------------------------------------------------------------
-// syncPowershelves: sync PowerShelf components against PSM
-// ---------------------------------------------------------------------------
-//
-// Flow:
-//  1. DB: get all PowerShelf components with BMCs
-//  2. PSM GetPowershelves: get registered powershelves
-//  3. NICo FindInterfaces: check which PMCs have DHCPed
-//  4. Direct-write: firmware_version, power_state (from PSM)
-//  5. Register un-registered DHCPed powershelves with PSM
-//  6. Return drifts (missing_in_actual for unregistered powershelves)
-
-// Default factory credentials for powershelf BMCs
-const (
-	powershelfDefaultUsername = "root"
-	powershelfDefaultPassword = "0penBmc"
-)
-
-func syncPowershelves(
-	ctx context.Context,
-	pool *cdb.Session,
-	nicoClient nicoapi.Client,
-	psmClient psmapi.Client,
-) []model.ComponentDrift {
-	if psmClient == nil {
-		log.Debug().Msg("PSM client not available, skipping powershelf sync")
-		return nil
-	}
-
-	log.Debug().Msg("Syncing powershelves...")
-
-	// Step 1: Get all PowerShelf components with their PMCs
-	expectedPowershelves, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypePowerShelf)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve powershelf components from db: %v", err)
-		return nil
-	}
-
-	if len(expectedPowershelves) == 0 {
-		return nil
-	}
-
-	// Build map from PMC MAC to component
-	// Each powershelf should have exactly one PMC (BMC)
-	expectedByPmcMac := make(map[string]*model.Component)
-	for i := range expectedPowershelves {
-		ps := &expectedPowershelves[i]
-		if len(ps.BMCs) != 1 {
-			log.Error().Msgf("Powershelf %s has %d BMCs, expected exactly 1; skipping", ps.SerialNumber, len(ps.BMCs))
-			continue
-		}
-
-		// Validate PMC MAC address
-		pmcMacAddr, err := net.ParseMAC(ps.BMCs[0].MacAddress)
-		if err != nil || pmcMacAddr == nil {
-			log.Error().Msgf("Powershelf %s has invalid BMC MAC address %s; skipping", ps.SerialNumber, ps.BMCs[0].MacAddress)
-			continue
-		}
-
-		expectedByPmcMac[pmcMacAddr.String()] = ps
-	}
-
-	// Get list of expected PMC MACs
-	expectedPmcMacs := make([]string, 0, len(expectedByPmcMac))
-	for mac := range expectedByPmcMac {
-		expectedPmcMacs = append(expectedPmcMacs, mac)
-	}
-
-	// Step 2: Get registered powershelves from PSM
-	registeredPowershelves, err := psmClient.GetPowershelves(ctx, expectedPmcMacs)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve registered powershelves from PSM: %v", err)
-		return nil
-	}
-
-	registeredByMac := make(map[string]psmapi.PowerShelf)
-	for _, ps := range registeredPowershelves {
-		registeredByMac[utils.NormalizeMAC(ps.PMC.MACAddress)] = ps
-	}
-
-	// Step 3: Get machine interfaces from NICo to check DHCP status
-	interfacesByMac, err := nicoClient.FindInterfaces(ctx)
-	if err != nil {
-		log.Error().Msgf("Unable to retrieve interfaces from nico-core-api: %v", err)
-		return nil
-	}
-
-	// Steps 4 & 5: Process each expected powershelf
-	now := time.Now()
-	var drifts []model.ComponentDrift
-	var toRegister []psmapi.RegisterPowershelfRequest
-
-	for pmcMac, powershelf := range expectedByPmcMac {
-		// Already registered with PSM — direct-write external_id, firmware_version + power_state
-		if registeredPS, isRegistered := registeredByMac[pmcMac]; isRegistered {
-			needsUpdate := false
-
-			if powershelf.ComponentID == nil || *powershelf.ComponentID != pmcMac {
-				extID := pmcMac
-				powershelf.ComponentID = &extID
-				needsUpdate = true
-				log.Info().Msgf("Setting external_id for powershelf %s to PMC MAC", pmcMac)
-			}
-
-			// Direct-write: firmware_version
-			if registeredPS.PMC.FirmwareVersion != "" && powershelf.FirmwareVersion != registeredPS.PMC.FirmwareVersion {
-				powershelf.FirmwareVersion = registeredPS.PMC.FirmwareVersion
-				needsUpdate = true
-				log.Info().Msgf("Updating firmware version for powershelf %s to %s", pmcMac, registeredPS.PMC.FirmwareVersion)
-			}
-
-			// Direct-write: power_state (derived from PSUs)
-			// All on → On, All off → Off, Mix or no PSUs → Unknown
-			allOn := len(registeredPS.PSUs) > 0
-			allOff := len(registeredPS.PSUs) > 0
-			for _, psu := range registeredPS.PSUs {
-				if psu.PowerState {
-					allOff = false
-				} else {
-					allOn = false
-				}
-			}
-			psuPowerState := nicoapi.PowerStateUnknown
-			if allOn {
-				psuPowerState = nicoapi.PowerStateOn
-			} else if allOff {
-				psuPowerState = nicoapi.PowerStateOff
-			}
-			if powershelf.PowerState == nil || *powershelf.PowerState != psuPowerState {
-				powershelf.PowerState = &psuPowerState
-				needsUpdate = true
-				log.Info().Msgf("Updating power state for powershelf %s to %v", pmcMac, psuPowerState)
-			}
-
-			if needsUpdate {
-				if err := powershelf.Patch(ctx, pool.DB); err != nil {
-					log.Error().Msgf("Unable to update powershelf %s: %v", pmcMac, err)
-				}
-			}
-
-			// TODO: add field-level drift detection for powershelves (serial_number, etc.)
-			continue
-		}
-
-		// Not registered with PSM — check if DHCPed, register if possible
-		iface, found := interfacesByMac[pmcMac]
-		if !found || len(iface.Addresses) == 0 {
-			// PMC hasn't DHCPed yet — record as missing_in_actual
-			log.Warn().Msgf("Powershelf PMC %s has not DHCPed yet", pmcMac)
-			compID := powershelf.ID
-			drifts = append(drifts, model.ComponentDrift{
-				ComponentID: &compID,
-				ExternalID:  nil,
-				DriftType:   model.DriftTypeMissingInActual,
-				Diffs:       []model.FieldDiff{},
-				CheckedAt:   now,
-			})
-			continue
-		}
-
-		// Check for unexpected multiple IP addresses
-		if len(iface.Addresses) > 1 {
-			log.Error().Msgf("Powershelf PMC %s has multiple IP addresses assigned (%v), skipping registration", pmcMac, iface.Addresses)
-			continue
-		}
-
-		ipAddress := iface.Addresses[0]
-		log.Info().Msgf("Powershelf PMC %s has DHCPed with IP %s, registering with PSM", pmcMac, ipAddress)
-
-		toRegister = append(toRegister, psmapi.RegisterPowershelfRequest{
-			PMCMACAddress:  pmcMac,
-			PMCIPAddress:   ipAddress,
-			PMCVendor:      psmapi.PMCVendorLiteon,
-			PMCCredentials: psmapi.Credentials{Username: powershelfDefaultUsername, Password: powershelfDefaultPassword},
-		})
-	}
-
-	// Register un-registered powershelves with PSM
-	if len(toRegister) > 0 {
-		responses, err := psmClient.RegisterPowershelves(ctx, toRegister)
-		if err != nil {
-			log.Error().Msgf("Unable to register powershelves with PSM: %v", err)
-		} else {
-			for _, resp := range responses {
-				if resp.Status != psmapi.StatusSuccess {
-					log.Error().Msgf("Failed to register powershelf %s with PSM: %s", resp.PMCMACAddress, resp.Error)
-				} else if resp.IsNew {
-					log.Info().Msgf("Successfully registered new powershelf %s with PSM", resp.PMCMACAddress)
-				} else {
-					log.Debug().Msgf("Powershelf %s was already registered with PSM", resp.PMCMACAddress)
-				}
-			}
-		}
-	}
-
-	log.Info().Msgf("Powershelf sync: %d drift(s) out of %d expected", len(drifts), len(expectedPowershelves))
-	return drifts
-}
-
-// ---------------------------------------------------------------------------
-// syncNVSwitchesNICo: sync NVLSwitch components via Core (NICo)
-// ---------------------------------------------------------------------------
-//
-// Uses Core's NICo API instead of talking directly to NSM.
-// Core's NSM backend auto-registers switches, so no registration step is needed.
+// Uses Core's NICo API. Core's NSM backend auto-registers switches, so no
+// registration step is needed.
 //
 // NICo API calls (2 round-trips):
 //   - GetAllExpectedSwitchesLinked: discover Core switch IDs by BMC MAC
 //   - GetComponentInventory: get firmware, serial, power state from site explorer
 //
 // Flow:
-//  1. DB: get all NVLSwitch components with BMCs
+//  1. DB: get all NVSwitch components with BMCs
 //  2. NICo GetAllExpectedSwitchesLinked: map BMC MAC → Core SwitchId
 //  3. Direct-write external_id (Core's SwitchId) for matched components
 //  4. NICo GetComponentInventory: extract firmware_version, serial_number, power_state
 //  5. Direct-write inventory fields to DB
 //  6. Return drifts (missing_in_actual for components without a Core SwitchId)
-
 func syncNVSwitchesNICo(
 	ctx context.Context,
 	pool *cdb.Session,
@@ -934,9 +470,9 @@ func syncNVSwitchesNICo(
 ) []model.ComponentDrift {
 	log.Debug().Msg("Syncing NV switches via NICo...")
 
-	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVLSwitch)
+	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
 	if err != nil {
-		log.Error().Msgf("Unable to retrieve NVLSwitch components from db: %v", err)
+		log.Error().Msgf("Unable to retrieve NVSwitch components from db: %v", err)
 		return nil
 	}
 
@@ -948,12 +484,12 @@ func syncNVSwitchesNICo(
 	for i := range expectedSwitches {
 		sw := &expectedSwitches[i]
 		if len(sw.BMCs) != 1 {
-			log.Error().Msgf("NVLSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
+			log.Error().Msgf("NVSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
 			continue
 		}
 		bmcMacAddr, err := net.ParseMAC(sw.BMCs[0].MacAddress)
 		if err != nil || bmcMacAddr == nil {
-			log.Error().Msgf("NVLSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
+			log.Error().Msgf("NVSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
 			continue
 		}
 		expectedByBmcMac[bmcMacAddr.String()] = sw
@@ -987,10 +523,10 @@ func syncNVSwitchesNICo(
 			switchID := les.SwitchID
 			sw.ComponentID = &switchID
 			if err := sw.Patch(ctx, pool.DB); err != nil {
-				log.Error().Msgf("NVLSwitch %s (BMC %s): unable to update external_id: %v", sw.ID, bmcMac, err)
+				log.Error().Msgf("NVSwitch %s (BMC %s): unable to update external_id: %v", sw.ID, bmcMac, err)
 				continue
 			}
-			log.Info().Msgf("NVLSwitch %s (BMC %s): set external_id to Core SwitchId %s", sw.ID, bmcMac, switchID)
+			log.Info().Msgf("NVSwitch %s (BMC %s): set external_id to Core SwitchId %s", sw.ID, bmcMac, switchID)
 		}
 
 		switchIDs = append(switchIDs, &pb.SwitchId{Id: les.SwitchID})
@@ -1027,7 +563,7 @@ func syncNVSwitchesNICo(
 		}
 	}
 
-	log.Info().Msgf("NVLSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
+	log.Info().Msgf("NVSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
 	return drifts
 }
 
@@ -1035,8 +571,8 @@ func syncNVSwitchesNICo(
 // syncPowershelvesNICo: sync PowerShelf components via Core (NICo)
 // ---------------------------------------------------------------------------
 //
-// Uses Core's NICo API instead of talking directly to PSM.
-// Core's PSM backend auto-registers power shelves, so no registration step is needed.
+// Uses Core's NICo API. Core's PSM backend auto-registers power shelves, so no
+// registration step is needed.
 //
 // NICo API calls (2 round-trips):
 //   - GetAllExpectedPowerShelvesLinked: discover Core power shelf IDs by PMC MAC
@@ -1049,7 +585,6 @@ func syncNVSwitchesNICo(
 //  4. NICo GetComponentInventory: extract firmware_version, power_state
 //  5. Direct-write inventory fields to DB
 //  6. Return drifts (missing_in_actual for components without a Core PowerShelfId)
-
 func syncPowershelvesNICo(
 	ctx context.Context,
 	pool *cdb.Session,

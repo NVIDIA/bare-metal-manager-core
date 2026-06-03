@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: nico-dns
+  name: {{ include "nico-dns.name" . }}
   namespace: {{ include "nico-dns.namespace" . }}
   labels:
     {{- include "nico-dns.labels" . | nindent 4 }}
   annotations:
-    {{- toYaml .Values.annotations | nindent 4 }}
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
 spec:
-  serviceName: nico-dns
+  serviceName: {{ include "nico-dns.name" . }}
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
@@ -18,15 +18,15 @@ spec:
       labels:
         {{- include "nico-dns.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: nico-dns
+      serviceAccountName: {{ include "nico-dns.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nico-dns
+        - name: {{ include "nico-dns.name" . }}
           image: "{{ include "nico-dns.image" . }}"
-          # Picks nico-dns (--nico-url) or carbide-dns (--carbide-url) based on which binary is in the image.
+          # Picks {{ include "nico-dns.name" . }} (--nico-url) or carbide-dns (--carbide-url) based on which binary is in the image.
           command:
             - /bin/sh
             - -c
@@ -40,7 +40,7 @@ spec:
             - name: NICO_API
               valueFrom:
                 configMapKeyRef:
-                  name: {{ .Values.envFrom.nicoDnsConfig.configMapName }}
+                  name: {{ include "nico-dns.name" . }}
                   key: NICO_API
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
@@ -51,12 +51,20 @@ spec:
             capabilities:
               add:
                 - SYS_PTRACE
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: udp
               containerPort: 53
               protocol: UDP
             - name: tcp
               containerPort: 53
+              protocol: TCP
+            # Prometheus metrics endpoint; scraped via a PodMonitor (no Service).
+            - name: metrics
+              containerPort: 8053
               protocol: TCP
           volumeMounts:
             - name: spiffe
@@ -65,4 +73,4 @@ spec:
       volumes:
         - name: spiffe
           secret:
-            secretName: nico-dns-certificate
+            secretName: {{ include "nico-dns.name" . }}-certificate

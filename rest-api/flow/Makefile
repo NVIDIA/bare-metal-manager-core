@@ -1,19 +1,5 @@
-#
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 
 CURDATE := $(shell date +%s)
 
@@ -30,6 +16,9 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 	git clone https://github.com/NVIDIA/infra-controller-core.git
 	rm -f internal/nicoapi/nicoproto/*.proto
 	cp infra-controller-core/crates/rpc/proto/*.proto internal/nicoapi/nicoproto/
+	@if [ -f internal/nicoapi/nicoproto/forge.proto ] && [ ! -f internal/nicoapi/nicoproto/nico.proto ]; then \
+		mv internal/nicoapi/nicoproto/forge.proto internal/nicoapi/nicoproto/nico.proto; \
+	fi
 	rm -rf infra-controller-core
 # The protodefs are a bit unclean, and we need to make some tweaks to make them usable.
 	cd internal/nicoapi && ./tweak_protodefs.sh
@@ -38,18 +27,6 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 # Clean old generated files before regenerating
 	rm -f internal/nicoapi/gen/*.pb.go
 	cd internal/nicoapi && buf generate
-
-gen-psmapi-pb: ## Generate protobuf files for PSM client access
-	cp ../powershelf-manager/internal/proto/v1/powershelf-manager.proto internal/psmapi/psmproto/
-# Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
-	cd internal/psmapi && buf generate
-
-gen-nsmapi-pb: ## Generate protobuf files for NSM client access
-# Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
-	rm -f internal/nsmapi/gen/*.pb.go
-	cd internal/nsmapi && buf generate
 
 gen-doc: ## Generate gRPC API documentation (Markdown for GitLab, HTML for local)
 	@which protoc-gen-doc > /dev/null || go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
@@ -84,4 +61,4 @@ test-local:
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go run . db migrate
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go test -v -p 1 ./...
 
-.PHONY: gen-pb gen-psmapi-pb gen-nsmapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local
+.PHONY: gen-pb gen-nicoapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local

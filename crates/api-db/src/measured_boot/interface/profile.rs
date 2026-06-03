@@ -22,9 +22,9 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::DbPrimaryUuid;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use carbide_uuid::{DbPrimaryUuid, DbTable};
 use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{PgConnection, Postgres};
@@ -71,12 +71,9 @@ async fn insert_measurement_profile_attr_record(
     key: &String,
     value: &String,
 ) -> Result<MeasurementSystemProfileAttrRecord, DatabaseError> {
-    let query = format!(
-        "insert into {}(profile_id, key, value) values($1, $2, $3) returning *",
-        MeasurementSystemProfileAttrRecord::db_table_name()
-    );
+    let query = "insert into measurement_system_profiles_attrs(profile_id, key, value) values($1, $2, $3) returning *";
 
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(profile_id)
         .bind(key)
         .bind(value)
@@ -91,13 +88,10 @@ pub async fn rename_profile_for_profile_id(
     profile_id: MeasurementSystemProfileId,
     new_profile_name: String,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
-    let query = format!(
-        "update {} set name = $1 where {} = $2 returning *",
-        MeasurementSystemProfileRecord::db_table_name(),
-        MeasurementSystemProfileId::db_primary_uuid_name()
-    );
+    let query =
+        "update measurement_system_profiles set name = $1 where profile_id = $2 returning *";
 
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(new_profile_name)
         .bind(profile_id)
         .fetch_one(txn)
@@ -112,12 +106,9 @@ pub async fn rename_profile_for_profile_name(
     old_profile_name: String,
     new_profile_name: String,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
-    let query = format!(
-        "update {} set name = $1 where name = $2 returning *",
-        MeasurementSystemProfileRecord::db_table_name(),
-    );
+    let query = "update measurement_system_profiles set name = $1 where name = $2 returning *";
 
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(new_profile_name)
         .bind(old_profile_name)
         .fetch_one(txn)
@@ -224,7 +215,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     //     return Err(eyre::eyre!("cannot get by attrs when no attrs provided"));
     // }
 
-    let mut query: QueryBuilder<'_, Postgres> = QueryBuilder::new(format!(
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new(format!(
         "
     SELECT {t1}.{join_id}
     FROM {t1}
@@ -262,7 +253,7 @@ pub async fn get_measurement_profile_id_by_attrs(
     Ok(ids)
 }
 
-fn where_attr_pairs(query: &mut QueryBuilder<'_, Postgres>, values: &HashMap<String, String>) {
+fn where_attr_pairs(query: &mut QueryBuilder<Postgres>, values: &HashMap<String, String>) {
     query.push("where (key, value) in (");
     for (index, (key, value)) in values.iter().enumerate() {
         query.push("(");
@@ -381,12 +372,9 @@ pub async fn import_measurement_profile(
     txn: &mut PgConnection,
     profile: &MeasurementSystemProfileRecord,
 ) -> Result<MeasurementSystemProfileRecord, DatabaseError> {
-    let query = format!(
-        "insert into {}(profile_id, name, ts) values($1, $2, $3) returning *",
-        MeasurementSystemProfileRecord::db_table_name()
-    );
+    let query = "insert into measurement_system_profiles(profile_id, name, ts) values($1, $2, $3) returning *";
 
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(profile.profile_id)
         .bind(&profile.name)
         .bind(profile.ts)
@@ -421,12 +409,9 @@ pub async fn import_measurement_system_profiles_attr(
     txn: &mut PgConnection,
     bundle: &MeasurementSystemProfileAttrRecord,
 ) -> Result<MeasurementSystemProfileAttrRecord, DatabaseError> {
-    let query = format!(
-        "insert into {}(attribute_id, profile_id, key, value, ts) values($1, $2, $3, $4, $5) returning *",
-        MeasurementSystemProfileAttrRecord::db_table_name()
-    );
+    let query = "insert into measurement_system_profiles_attrs(attribute_id, profile_id, key, value, ts) values($1, $2, $3, $4, $5) returning *";
 
-    sqlx::query_as(&query)
+    sqlx::query_as(query)
         .bind(bundle.attribute_id)
         .bind(bundle.profile_id)
         .bind(&bundle.key)

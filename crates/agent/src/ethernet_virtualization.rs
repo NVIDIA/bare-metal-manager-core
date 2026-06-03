@@ -511,11 +511,7 @@ pub async fn update_nvue(
                 .as_ref()
                 .map(|b| b.vf_intercept_bridge_sf.clone())
         }),
-        host_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.host_intercept_bridge_port.clone())
-        }),
+        host_intercept_bridge_port_name: None,
         secondary_overlay_vtep_ip: nc
             .traffic_intercept_config
             .as_ref()
@@ -679,6 +675,7 @@ pub async fn update_nvue(
 // Update internal bridge configuration for traffic-intercept routing and bridging.
 pub async fn update_traffic_intercept_bridging(
     nc: &rpc::ManagedHostNetworkConfigResponse,
+    hbn_device_names: HBNDeviceNames,
     skip_post: bool,
 ) -> eyre::Result<bool> {
     // Read the traffic-intercept inputs supplied by the controller.
@@ -710,6 +707,53 @@ pub async fn update_traffic_intercept_bridging(
         )
     };
 
+    // Get the map of interface to bridge.
+    let interface_to_bridge: HashMap<String, &rpc::HostRepresentorInterceptBridging> =
+        bridge_config
+            .host_representor_intercept_bridging
+            .iter()
+            .map(|(rep, c)| (rep.clone(), c))
+            .collect();
+
+    // Now get the list of VNI to Bridge maps.
+    let physical_name = hbn_device_names.reps[0].to_string();
+    let host_representor_bridge_vni_mappings = nc
+        .tenant_interfaces
+        .iter()
+        .filter_map(|i| {
+            let name = if i.function_type == rpc::InterfaceFunctionType::Physical as i32 {
+                physical_name.replace(hbn_device_names.sf_id, "")
+            } else {
+                match i.virtual_function_id {
+                    Some(id) => hbn_device_names
+                        .build_virt(id)
+                        .replace(hbn_device_names.sf_id, ""),
+                    None => {
+                        return {
+                            // This is an error at the point of rebuilding NVUE config,
+                            // but this is us used only for signaling with OVN here.
+                            // The values only change as interfaces come and go.
+                            // If it's a new interface, it would go un-configured, and the signaling
+                            // here won't matter anyway.
+                            tracing::warn!("function ID not found for non-physical interface");
+                            None
+                        };
+                    }
+                }
+            };
+
+            interface_to_bridge.get(&name).map(|bridging| {
+                tracing::debug!("update_traffic_intercept_bridging representor={name} bridge={} vni={} gateway={}", bridging.bridge, i.vni, i.gateway);
+                traffic_intercept_bridging::TrafficInterceptBridgeMapping {
+                    bridge: bridging.bridge.clone(),
+                    patch_port: bridging.patch_port.clone(),
+                    vni: i.vni,
+                    gateway: i.gateway.clone(),
+                }
+            })
+        })
+        .collect();
+
     let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
         secondary_overlay_vtep_ip: secondary_overlay_vtep_ip.to_owned(),
         secondary_vtep_aggregate_prefixes: traffic_intercept_config
@@ -720,6 +764,7 @@ pub async fn update_traffic_intercept_bridging(
         // We use the bridge name here because the OVS will create a link/dev on the
         // DPU OS side of that name.
         vf_intercept_bridge_name: bridge_config.vf_intercept_bridge_name.clone(),
+        host_representor_bridge_vni_mappings,
     };
 
     // Write the config we're going to apply
@@ -2091,6 +2136,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_with_bridging() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, true);
+
+        network_config.traffic_intercept_config = Some(rpc::TrafficInterceptConfig {
+            additional_overlay_vtep_ip: Some("1.2.2.2".to_string()),
+            public_prefixes: vec![],
+            secondary_vtep_aggregate_prefixes: vec![],
+
+            bridging: Some(rpc::TrafficInterceptBridging {
+                internal_bridge_routing_prefix: "2.2.2.0/24".to_string(),
+                hbn_bridge: "br-hbn".to_string(),
+                vf_intercept_bridge_name: "br-beans".to_string(),
+                vf_intercept_bridge_port: "patch-br-beans-to-hbn".to_string(),
+                vf_intercept_bridge_sf: "pf0dpu5".to_string(),
+                host_representor_intercept_bridging: HashMap::from([(
+                    "pf0hpf".to_string(),
+                    rpc::HostRepresentorInterceptBridging {
+                        bridge: "br-pf0".to_string(),
+                        patch_port: "pp-pf0".to_string(),
+                    },
+                )]),
+            }),
+        });
+
+        fs::remove_file(traffic_intercept_bridging::SAVE_PATH).unwrap_or_default();
+        let has_changes = super::update_traffic_intercept_bridging(
+            &network_config,
+            HBNDeviceNames::hbn_23(),
+            true,
+        )
+        .await?;
+        assert!(
+            has_changes,
+            "update_traffic_intercept_bridging should have written the file, there should be changes"
+        );
+
+        // check startup.yaml
+        let expected = include_str!("../templates/tests/test_with_tenant_with_bridging.expected");
+        compare_diffed(traffic_intercept_bridging::SAVE_PATH, expected)?;
+
+        Ok(())
+    }
+    #[tokio::test]
     async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
         let virtualization_type = VpcVirtualizationType::Fnn;
 
@@ -2833,11 +2923,17 @@ mod tests {
             traffic_intercept_config: Some(rpc::TrafficInterceptConfig {
                 bridging: Some(rpc::TrafficInterceptBridging {
                     vf_intercept_bridge_port: "dpuVf0mg".to_string(),
-                    host_intercept_bridge_port: "dpuVf1mg".to_string(),
-                    host_intercept_bridge_name: "br-host".to_string(),
                     vf_intercept_bridge_name: "br-dpu".to_string(),
                     vf_intercept_bridge_sf: "pf0dpu5".to_string(),
                     internal_bridge_routing_prefix: "10.10.10.0/29".to_string(),
+                    hbn_bridge: "br-hbn".to_string(),
+                    host_representor_intercept_bridging: HashMap::from([(
+                        "pf0hpf".to_string(),
+                        rpc::HostRepresentorInterceptBridging {
+                            bridge: "br-pf0".to_string(),
+                            patch_port: "pp-pf0".to_string(),
+                        },
+                    )]),
                 }),
                 additional_overlay_vtep_ip: Some("10.255.254.253".to_string()),
                 public_prefixes: vec!["7.6.5.0/24".to_string()],
