@@ -28,7 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -90,7 +90,7 @@ func TestTenantIdentityHandlers_TimeoutReturns500AndTerminatesWorkflow(t *testin
 	siteIDStr := site.ID.String()
 
 	configBody, err := json.Marshal(model.APITenantIdentityConfigCreateOrUpdateRequest{
-		Enabled:         cdb.GetBoolPtr(true),
+		Enabled:         cutil.GetPtr(true),
 		DefaultAudience: "spiffe://test/aud",
 		Issuer:          "https://issuer.test/{org}",
 		TokenTtlSeconds: 3600,
@@ -445,7 +445,7 @@ func TestTenantIdentityPUT_WorkflowIDIncludesPayloadHash(t *testing.T) {
 	t.Run("PUT tenant-identity/config", func(t *testing.T) {
 		makeConfigBody := func(audience string) []byte {
 			body, err := json.Marshal(model.APITenantIdentityConfigCreateOrUpdateRequest{
-				Enabled:         cdb.GetBoolPtr(true),
+				Enabled:         cutil.GetPtr(true),
 				DefaultAudience: audience,
 				Issuer:          "https://issuer.test/" + tenantOrg,
 				TokenTtlSeconds: 3600,
@@ -569,7 +569,7 @@ func TestCreateOrUpdateTenantIdentityPUT_StatusReflectsCreateVsUpdate(t *testing
 	doConfigPUT := func(t *testing.T, audience string) *httptest.ResponseRecorder {
 		t.Helper()
 		body, err := json.Marshal(model.APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled:         cdb.GetBoolPtr(true),
+			Enabled:         cutil.GetPtr(true),
 			DefaultAudience: audience,
 			Issuer:          "https://issuer.test/" + tenantOrg,
 			TokenTtlSeconds: 3600,

@@ -9,6 +9,12 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	tclient "go.temporal.io/sdk/client"
+	tp "go.temporal.io/sdk/temporal"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -18,11 +24,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/labstack/echo/v4"
-	"github.com/rs/zerolog"
-	"go.opentelemetry.io/otel/attribute"
-	tclient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -336,8 +337,8 @@ func getMachineValidationTest(ctx context.Context, echoCtx echo.Context, logger 
 
 	// build protobuf request
 	getProtoRequest := &cwssaws.MachineValidationTestsGetRequest{
-		TestId:  cdb.GetStrPtr(testID),
-		Version: cdb.GetStrPtr(testVersion),
+		TestId:  cutil.GetPtr(testID),
+		Version: cutil.GetPtr(testVersion),
 	}
 
 	logger.Info().Msg("triggering MachineValidationTest get workflow")

@@ -184,7 +184,7 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		// Update Tenant if needed
 		existing := &tns[0]
 		if existing.OrgDisplayName == nil || *existing.OrgDisplayName != userOrgDetails.DisplayName {
-			updated, derr := tnDAO.UpdateFromParams(ctx, tx, existing.ID, nil, nil, cdb.GetStrPtr(userOrgDetails.DisplayName), nil)
+			updated, derr := tnDAO.UpdateFromParams(ctx, tx, existing.ID, nil, nil, cutil.GetPtr(userOrgDetails.DisplayName), nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Tenant DB entity")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
@@ -277,7 +277,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 
 	// Get VPC stats for this org tenant
 	vpcDAO := cdbm.NewVpcDAO(gcth.dbSession)
-	vpcStatsMap, err := vpcDAO.GetCountByStatus(ctx, nil, nil, cdb.GetUUIDPtr(tns[0].ID), nil)
+	vpcStatsMap, err := vpcDAO.GetCountByStatus(ctx, nil, nil, cutil.GetPtr(tns[0].ID), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving VPC stats for this org's tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Vpc stats", nil)
@@ -285,7 +285,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 
 	// Get Subnet stats for this org tenant
 	subnetDAO := cdbm.NewSubnetDAO(gcth.dbSession)
-	subnetStatsMap, err := subnetDAO.GetCountByStatus(ctx, nil, cdb.GetUUIDPtr(tns[0].ID), nil)
+	subnetStatsMap, err := subnetDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(tns[0].ID), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Subnet stats for this org's tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Subnet stats", nil)
@@ -293,7 +293,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 
 	// Get Instance stats for this org tenant
 	inDAO := cdbm.NewInstanceDAO(gcth.dbSession)
-	instanceStatsMap, err := inDAO.GetCountByStatus(ctx, nil, cdb.GetUUIDPtr(tns[0].ID), nil)
+	instanceStatsMap, err := inDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(tns[0].ID), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Instance stats for this org's tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instance stats", nil)
@@ -301,7 +301,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 
 	// Get TenantAccount stats for this org tenant
 	taDAO := cdbm.NewTenantAccountDAO(gcth.dbSession)
-	taStatsMap, err := taDAO.GetCountByStatus(ctx, nil, nil, cdb.GetUUIDPtr(tns[0].ID))
+	taStatsMap, err := taDAO.GetCountByStatus(ctx, nil, nil, cutil.GetPtr(tns[0].ID))
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving TenantAccount stats for this org's tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve TenantAccount stats", nil)
@@ -380,7 +380,7 @@ func updateTenantAccounts(ctx context.Context, dbSession *cdb.Session, tx *cdb.T
 	// Get all TenantAccounts for this Tenant
 	taDAO := cdbm.NewTenantAccountDAO(dbSession)
 
-	tenantAccounts, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{TenantOrgs: []string{tenant.Org}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	tenantAccounts, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{TenantOrgs: []string{tenant.Org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving TenantAccounts for Tenant")
 		return err

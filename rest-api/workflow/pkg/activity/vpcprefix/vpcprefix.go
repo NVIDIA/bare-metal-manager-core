@@ -57,7 +57,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(mvp.dbSession)
 
-	existingVpcPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingVpcPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get VPC Prefixes for Site from DB")
 		return err
@@ -102,7 +102,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if vpcPrefix.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 		}
 
 		if isMissingOnSite != nil {
@@ -115,7 +115,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 		// If VPC Prefix is not in Deleting state, then update status to Ready
 		if vpcPrefix.Status != cdbm.VpcPrefixStatusDeleting && vpcPrefix.Status != cdbm.VpcPrefixStatusReady {
-			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cdb.GetStrPtr(cdbm.VpcPrefixStatusReady), cdb.GetStrPtr("VPC Prefix has been re-detected on Site"))
+			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cwutil.GetPtr(cdbm.VpcPrefixStatusReady), cwutil.GetPtr("VPC Prefix has been re-detected on Site"))
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
 			}
@@ -179,13 +179,13 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 			}
 
 			// Set isMissingOnSite flag to true and update status, user can decide on deletion
-			_, serr := vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{VpcPrefixID: vpcPrefix.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+			_, serr := vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{VpcPrefixID: vpcPrefix.ID, IsMissingOnSite: cwutil.GetPtr(true)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB")
 				continue
 			}
 
-			serr = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cdb.GetStrPtr(cdbm.VpcPrefixStatusError), cdb.GetStrPtr("VPC Prefix is missing on Site"))
+			serr = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cwutil.GetPtr(cdbm.VpcPrefixStatusError), cwutil.GetPtr("VPC Prefix is missing on Site"))
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update VPC Prefix status detail in DB")
 			}

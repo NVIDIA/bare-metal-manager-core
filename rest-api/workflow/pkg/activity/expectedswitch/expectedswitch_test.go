@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -142,8 +143,8 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 		if i%5 == 0 {
 			ctrlExpectedSwitch.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "rack", Value: cwutil.GetPtr(fmt.Sprintf("rack-%d", i/5))},
+					{Key: "position", Value: cwutil.GetPtr(fmt.Sprintf("pos-%d", i))},
 				},
 			}
 		}
@@ -161,7 +162,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 			// Add labels to a switch that didn't have them before
 			ctrlExpectedSwitch.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "new-label", Value: cdb.GetStrPtr("new-value")},
+					{Key: "new-label", Value: cwutil.GetPtr("new-value")},
 				},
 			}
 			expectedSwitchesToUpdate = append(expectedSwitchesToUpdate, pagedExpectedSwitches[i])
@@ -169,9 +170,9 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 			// Modify existing labels
 			ctrlExpectedSwitch.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-updated-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
-					{Key: "status", Value: cdb.GetStrPtr("active")},
+					{Key: "rack", Value: cwutil.GetPtr(fmt.Sprintf("rack-updated-%d", i/5))},
+					{Key: "position", Value: cwutil.GetPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "status", Value: cwutil.GetPtr("active")},
 				},
 			}
 			expectedSwitchesToUpdate = append(expectedSwitchesToUpdate, pagedExpectedSwitches[i])
@@ -360,8 +361,8 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 							SwitchSerialNumber: "SW-SN-NEW-1",
 							Metadata: &cwssaws.Metadata{
 								Labels: []*cwssaws.Label{
-									{Key: "environment", Value: cdb.GetStrPtr("test")},
-									{Key: "datacenter", Value: cdb.GetStrPtr("dc1")},
+									{Key: "environment", Value: cwutil.GetPtr("test")},
+									{Key: "datacenter", Value: cwutil.GetPtr("dc1")},
 								},
 							},
 						},
@@ -392,7 +393,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 			// Verify updates by fetching all switches for the site
 			esDAO := cdbm.NewExpectedSwitchDAO(dbSession)
 			filterInput := cdbm.ExpectedSwitchFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}
-			allSwitches, _, gerr := esDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			allSwitches, _, gerr := esDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 			assert.NoError(t, gerr)
 
 			// Build a map of switches by ID for easy lookup
@@ -501,7 +502,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB_RaceCondition(t *testin
 
 	// Verify the switch was NOT deleted
 	filterInput := cdbm.ExpectedSwitchFilterInput{SiteIDs: []uuid.UUID{st.ID}}
-	allSwitches, _, gerr := esDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allSwitches, _, gerr := esDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	assert.NoError(t, gerr)
 
 	// Check if the recent switch still exists

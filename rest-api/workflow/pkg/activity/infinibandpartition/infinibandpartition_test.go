@@ -10,16 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun/extra/bundebug"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/uptrace/bun/extra/bundebug"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/google/uuid"
 
@@ -125,31 +126,31 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 	ibp3 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-3", st1, tn, nil, cdbm.InfiniBandPartitionStatusDeleting, false)
 	assert.NotNil(t, ibp3)
 
-	ibp4 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-4", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
+	ibp4 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-4", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
 	assert.NotNil(t, ibp4)
 
-	ibp5 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-5", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
+	ibp5 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-5", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
 	assert.NotNil(t, ibp5)
 
 	ibp6 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-6", st1, tn, nil, cdbm.InfiniBandPartitionStatusDeleting, false)
 	assert.NotNil(t, ibp6)
 
-	ibp7 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-7", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
+	ibp7 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-7", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
 	assert.NotNil(t, ibp7)
 	// Set created earlier than the inventory receipt interval
 	_, err := dbSession.DB.Exec("UPDATE infiniband_partition SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), ibp7.ID.String())
 	assert.NoError(t, err)
 
-	ibp8 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-8", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusError, true)
+	ibp8 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-8", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusError, true)
 	assert.NotNil(t, ibp8)
 
-	ibp9 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-9", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusProvisioning, false)
+	ibp9 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-9", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusProvisioning, false)
 	assert.NotNil(t, ibp9)
 
-	ibp10 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-10", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
+	ibp10 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-10", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusDeleting, false)
 	assert.NotNil(t, ibp10)
 
-	ibp11 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-11", st1, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
+	ibp11 := util.TestBuildInfiniBandPartition(t, dbSession, "test-ibp-11", st1, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
 	assert.NotNil(t, ibp11)
 	// Set created earlier than the inventory receipt interval
 	_, err = dbSession.DB.Exec("UPDATE infiniband_partition SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), ibp11.ID.String())
@@ -160,7 +161,7 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 	pagedIbps := []*cdbm.InfiniBandPartition{}
 	pagedInvIds := []string{}
 	for i := 0; i < 38; i++ {
-		ibp := util.TestBuildInfiniBandPartition(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), st2, tn, cdb.GetUUIDPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
+		ibp := util.TestBuildInfiniBandPartition(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), st2, tn, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusReady, false)
 		// Update creation timestamp to be earlier than inventory processing interval
 		_, err = dbSession.DB.Exec("UPDATE infiniband_partition SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibp.ID.String())
 		assert.NoError(t, err)
@@ -249,12 +250,12 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 							},
 							Status: &cwssaws.IBPartitionStatus{
 								State:        cwssaws.TenantState_PROVISIONING,
-								Pkey:         cdb.GetStrPtr("106"),
-								Partition:    cdb.GetStrPtr("test-ibp-1"),
+								Pkey:         cwutil.GetPtr("106"),
+								Partition:    cwutil.GetPtr("test-ibp-1"),
 								ServiceLevel: &serviceLevel,
 								RateLimit:    &rateLimit,
 								Mtu:          &mtu,
-								EnableSharp:  cdb.GetBoolPtr(false),
+								EnableSharp:  cwutil.GetPtr(false),
 							},
 						},
 						{

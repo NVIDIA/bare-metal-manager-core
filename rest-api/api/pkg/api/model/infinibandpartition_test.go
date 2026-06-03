@@ -10,10 +10,13 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPIInfiniBandPartitionCreateRequest_Validate(t *testing.T) {
@@ -29,7 +32,7 @@ func TestAPIInfiniBandPartitionCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APIInfiniBandPartitionCreateRequest{Name: "test", Description: cdb.GetStrPtr("test"), SiteID: uuid.New().String()},
+			obj:       APIInfiniBandPartitionCreateRequest{Name: "test", Description: cutil.GetPtr("test"), SiteID: uuid.New().String()},
 			expectErr: false,
 		},
 		{
@@ -39,7 +42,7 @@ func TestAPIInfiniBandPartitionCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "error when description is too long",
-			obj:       APIInfiniBandPartitionCreateRequest{Name: "test", Description: cdb.GetStrPtr(strings.Repeat("x", 1025)), SiteID: uuid.New().String()},
+			obj:       APIInfiniBandPartitionCreateRequest{Name: "test", Description: cutil.GetPtr(strings.Repeat("x", 1025)), SiteID: uuid.New().String()},
 			expectErr: true,
 		},
 	}
@@ -89,17 +92,17 @@ func TestAPIInfiniBandPartitionUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when only some fields are provided",
-			obj:       APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("updatedname")},
+			obj:       APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("updatedname")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("updatedname"), Description: cdb.GetStrPtr("updated")},
+			obj:       APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("updatedname"), Description: cutil.GetPtr("updated")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when description is too long",
-			obj:       APIInfiniBandPartitionUpdateRequest{Description: cdb.GetStrPtr(strings.Repeat("x", 1025))},
+			obj:       APIInfiniBandPartitionUpdateRequest{Description: cutil.GetPtr(strings.Repeat("x", 1025))},
 			expectErr: true,
 		},
 	}
@@ -126,7 +129,7 @@ func TestAPIInfiniBandPartitionUpdateRequest_ToProto(t *testing.T) {
 	}
 
 	t.Run("builds update request from the entity proto", func(t *testing.T) {
-		req := APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("ibp-a")}
+		req := APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("ibp-a")}
 		got := req.ToProto(ibp)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
@@ -145,7 +148,7 @@ func TestAPIInfiniBandPartitionNew(t *testing.T) {
 	dbIBP := &cdbm.InfiniBandPartition{
 		ID:          uuid.New(),
 		Name:        "test-ib-partition",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		SiteID:      uuid.New(),
 		TenantID:    uuid.New(),
 		Status:      cdbm.InfiniBandInterfaceStatusPending,
@@ -184,7 +187,7 @@ func TestNewAPIInfiniBandPartitionSummary(t *testing.T) {
 	dbIBP := &cdbm.InfiniBandPartition{
 		ID:          uuid.New(),
 		Name:        "test-ib-partition",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		SiteID:      uuid.New(),
 		TenantID:    uuid.New(),
 		Status:      cdbm.InfiniBandInterfaceStatusPending,

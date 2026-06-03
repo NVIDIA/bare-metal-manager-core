@@ -9,11 +9,14 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 )
 
 // reset the tables needed for OperatingSystemSiteAssociation tests
@@ -31,12 +34,12 @@ func TestOperatingSystemSiteAssociationSQLDAO_Create(t *testing.T) {
 	testOperatingSystemSiteAssociationSetupSchema(t, dbSession)
 
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
-	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
-	OperatingSystem2 := testBuildImageOperatingSystem(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem2 := testBuildImageOperatingSystem(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
 
 	ossd := NewOperatingSystemSiteAssociationDAO(dbSession)
 
@@ -53,7 +56,7 @@ func TestOperatingSystemSiteAssociationSQLDAO_Create(t *testing.T) {
 			desc: "create one",
 			osas: []OperatingSystemSiteAssociation{
 				{
-					OperatingSystemID: OperatingSystem1.ID, SiteID: site.ID, Version: db.GetStrPtr("1224"), Status: OperatingSystemSiteAssociationStatusSyncing, CreatedBy: user.ID,
+					OperatingSystemID: OperatingSystem1.ID, SiteID: site.ID, Version: cutil.GetPtr("1224"), Status: OperatingSystemSiteAssociationStatusSyncing, CreatedBy: user.ID,
 				},
 			},
 			expectError:        false,
@@ -103,12 +106,12 @@ func TestOperatingSystemSiteAssociationSQLDAO_GetByID(t *testing.T) {
 	defer dbSession.Close()
 	testOperatingSystemSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
 	ossad := NewOperatingSystemSiteAssociationDAO(dbSession)
-	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
 
 	ossa1, err := ossad.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: OperatingSystem1.ID,
@@ -180,7 +183,7 @@ func TestOperatingSystemSiteAssociationSQLDAO_GetAll(t *testing.T) {
 	defer dbSession.Close()
 	testOperatingSystemSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site1 := TestBuildSite(t, dbSession, ip, "test1", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
@@ -188,7 +191,7 @@ func TestOperatingSystemSiteAssociationSQLDAO_GetAll(t *testing.T) {
 	oss := []*OperatingSystem{}
 	osasd := NewOperatingSystemSiteAssociationDAO(dbSession)
 	for i := 1; i <= 25; i++ {
-		os1 := testBuildImageOperatingSystem(t, dbSession, fmt.Sprintf("test-%d", i), db.GetStrPtr(fmt.Sprintf("test-%d", i)), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+		os1 := testBuildImageOperatingSystem(t, dbSession, fmt.Sprintf("test-%d", i), cutil.GetPtr(fmt.Sprintf("test-%d", i)), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
 		oss = append(oss, os1)
 		assert.NotNil(t, os1)
 		var siteID uuid.UUID
@@ -316,8 +319,8 @@ func TestOperatingSystemSiteAssociationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
-			paramOffset:      db.GetIntPtr(10),
-			paramLimit:       db.GetIntPtr(10),
+			paramOffset:      cutil.GetPtr(10),
+			paramLimit:       cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -387,11 +390,11 @@ func TestOperatingSystemSiteAssociationSQLDAO_GenerateAndUpdateVersion(t *testin
 	ipOrg1 := "test-ip-org-1"
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", ipOrg1, ipu.ID)
 	assert.NotNil(t, ip)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe1@test.com"), db.GetStrPtr("John1"), db.GetStrPtr("Doe2"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe1@test.com"), cutil.GetPtr("John1"), cutil.GetPtr("Doe2"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	assert.NotNil(t, tn)
 
@@ -400,10 +403,10 @@ func TestOperatingSystemSiteAssociationSQLDAO_GenerateAndUpdateVersion(t *testin
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 
 	// Build OperatingSystem
-	os := testBuildImageOperatingSystem(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", &ip.ID, &tn.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	os := testBuildImageOperatingSystem(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", &ip.ID, &tn.ID, nil, false, OperatingSystemStatusReady, user.ID)
 
 	// Build OperatingSystemSiteAssociation
-	ossa1 := testBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site1.ID, db.GetStrPtr("test-version"), OperatingSystemSiteAssociationStatusSynced, tnu.ID)
+	ossa1 := testBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site1.ID, cutil.GetPtr("test-version"), OperatingSystemSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, ossa1)
 
 	skgad := NewOperatingSystemSiteAssociationDAO(dbSession)
@@ -445,7 +448,7 @@ func TestOperatingSystemSiteAssociationSQLDAO_Update(t *testing.T) {
 	defer dbSession.Close()
 	testOperatingSystemSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
@@ -453,8 +456,8 @@ func TestOperatingSystemSiteAssociationSQLDAO_Update(t *testing.T) {
 	osasd := NewOperatingSystemSiteAssociationDAO(dbSession)
 
 	// Build OperatingSystem
-	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
-	OperatingSystem2 := testBuildImageOperatingSystem(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem2 := testBuildImageOperatingSystem(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
 
 	ossa1, err := osasd.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: OperatingSystem1.ID,
@@ -488,16 +491,16 @@ func TestOperatingSystemSiteAssociationSQLDAO_Update(t *testing.T) {
 		{
 			desc:                   "can update all fields",
 			id:                     ossa1.ID,
-			paramOperatingSystemID: db.GetUUIDPtr(OperatingSystem2.ID),
-			paramVersion:           db.GetStrPtr("1234"),
-			paramSiteID:            db.GetUUIDPtr(site2.ID),
-			paramStatus:            db.GetStrPtr(OperatingSystemSiteAssociationStatusError),
+			paramOperatingSystemID: cutil.GetPtr(OperatingSystem2.ID),
+			paramVersion:           cutil.GetPtr("1234"),
+			paramSiteID:            cutil.GetPtr(site2.ID),
+			paramStatus:            cutil.GetPtr(OperatingSystemSiteAssociationStatusError),
 
-			expectedOperatingSystemID: db.GetUUIDPtr(OperatingSystem2.ID),
-			expectedVersion:           db.GetStrPtr("1234"),
-			expectedSiteID:            db.GetUUIDPtr(site2.ID),
-			expectedStatus:            db.GetStrPtr(OperatingSystemSiteAssociationStatusError),
-			IsMissingOnSite:           db.GetBoolPtr(true),
+			expectedOperatingSystemID: cutil.GetPtr(OperatingSystem2.ID),
+			expectedVersion:           cutil.GetPtr("1234"),
+			expectedSiteID:            cutil.GetPtr(site2.ID),
+			expectedStatus:            cutil.GetPtr(OperatingSystemSiteAssociationStatusError),
+			IsMissingOnSite:           cutil.GetPtr(true),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -542,12 +545,12 @@ func TestOperatingSystemSiteAssociationSQLDAO_Delete(t *testing.T) {
 	defer dbSession.Close()
 	testOperatingSystemSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
 	osasd := NewOperatingSystemSiteAssociationDAO(dbSession)
-	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
+	OperatingSystem1 := testBuildImageOperatingSystem(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", &ip.ID, &tenant.ID, nil, false, OperatingSystemStatusReady, user.ID)
 
 	ossa1, err := osasd.Create(ctx, nil, OperatingSystemSiteAssociationCreateInput{
 		OperatingSystemID: OperatingSystem1.ID,

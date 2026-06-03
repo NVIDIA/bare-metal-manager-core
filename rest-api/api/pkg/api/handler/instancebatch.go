@@ -147,7 +147,7 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 					OperatingSystemIDs: []uuid.UUID{id},
 					SiteIDs:            []uuid.UUID{siteID},
 				},
-				cdbp.PageInput{Limit: cdb.GetIntPtr(1)},
+				cdbp.PageInput{Limit: cutil.GetPtr(1)},
 				nil,
 			)
 			if err != nil {
@@ -476,7 +476,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Batch fetch Subnets from DB
 	subnetIDMap := make(map[uuid.UUID]*cdbm.Subnet)
 	if len(subnetIDs) > 0 {
-		subnets, _, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SubnetIDs: subnetIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		subnets, _, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SubnetIDs: subnetIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving Subnets from DB by IDs")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Subnets from DB by IDs", nil)
@@ -489,7 +489,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Batch fetch VPC Prefixes from DB
 	vpcPrefixIDMap := make(map[uuid.UUID]*cdbm.VpcPrefix)
 	if len(vpcPrefixIDs) > 0 {
-		vpcPrefixes, _, err := vpDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{VpcPrefixIDs: vpcPrefixIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		vpcPrefixes, _, err := vpDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{VpcPrefixIDs: vpcPrefixIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving VPC Prefixes from DB by IDs")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC Prefixes from DB by IDs", nil)
@@ -692,7 +692,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		desDAO := cdbm.NewDpuExtensionServiceDAO(bcih.dbSession)
 		desList, _, err := desDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceFilterInput{
 			DpuExtensionServiceIDs: uniqueDesIDs,
-		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving DPU Extension Services from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
@@ -920,7 +920,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// (2) Batch fetch all InfiniBand Partitions in one query
 		ibpList, _, derr := ibpDAO.GetAll(ctx, nil, cdbm.InfiniBandPartitionFilterInput{
 			InfiniBandPartitionIDs: ibpIDs,
-		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving InfiniBand Partitions from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Partitions specified in request data, DB error", nil)
@@ -1005,7 +1005,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 
 	// Validate NVLink interfaces (shared across all instances)
 	// Get GPU (NVLink) capabilities
-	itNvlCaps, itNvlCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeGPU), nil, nil, nil, nil, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	itNvlCaps, itNvlCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeGPU), nil, nil, nil, nil, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving GPU (NVLink) Machine Capabilities from DB for Instance Type")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve GPU Capabilities for Instance Type, DB error", nil)
@@ -1051,7 +1051,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 
 			nvllpList, _, derr := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{
 				NVLinkLogicalPartitionIDs: uniqueNvllpIDs,
-			}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving NVLink Logical Partitions from DB")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Logical Partitions specified in request data, DB error", nil)
@@ -1112,7 +1112,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				for deviceInstance := range *nvlCap.Count {
 					dbnvlic = append(dbnvlic, cdbm.NVLinkInterface{
 						NVLinkLogicalPartitionID: *defaultNvllpID,
-						Device:                   cdb.GetStrPtr(nvlCap.Name),
+						Device:                   cutil.GetPtr(nvlCap.Name),
 						DeviceInstance:           deviceInstance,
 					})
 				}
@@ -1186,7 +1186,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// Ensure that Tenant has an Allocation with specified Tenant InstanceType Site
 		aDAO := cdbm.NewAllocationDAO(bcih.dbSession)
 		allocationFilter := cdbm.AllocationFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{*instancetype.SiteID}}
-		allocationPage := cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}
+		allocationPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
 		tnas, _, serr := aDAO.GetAll(ctx, tx, allocationFilter, allocationPage, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving allocations for tenant")
@@ -1251,7 +1251,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				InfrastructureProviderID: machine.InfrastructureProviderID,
 				SiteID:                   machine.SiteID,
 				VpcID:                    vpc.ID,
-				MachineID:                cdb.GetStrPtr(machine.ID),
+				MachineID:                cutil.GetPtr(machine.ID),
 				OperatingSystemID:        osID,
 				IpxeScript:               apiRequest.IpxeScript,
 				AlwaysBootWithCustomIpxe: *apiRequest.AlwaysBootWithCustomIpxe,
@@ -1263,7 +1263,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				InstanceTypeID:           &apiInstanceTypeID,
 				IsUpdatePending:          false,
 				Status:                   cdbm.InstanceStatusPending,
-				PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+				PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 				CreatedBy:                dbUser.ID,
 			})
 		}
@@ -1289,7 +1289,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			updated, uerr := inDAO.Update(ctx, tx, cdbm.InstanceUpdateInput{
 				InstanceID: inst.ID,
 				InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-					ControllerInstanceID: cdb.GetUUIDPtr(inst.ID),
+					ControllerInstanceID: cutil.GetPtr(inst.ID),
 				},
 			})
 			if uerr != nil {
@@ -1454,7 +1454,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			sdInputs = append(sdInputs, cdbm.StatusDetailCreateInput{
 				EntityID: inst.ID.String(),
 				Status:   cdbm.InstanceStatusPending,
-				Message:  cdb.GetStrPtr("received instance creation request, pending"),
+				Message:  cutil.GetPtr("received instance creation request, pending"),
 			})
 		}
 
@@ -1659,7 +1659,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			if instance.InstanceTypeID != nil {
-				instanceRequest.InstanceTypeId = cdb.GetStrPtr(instance.InstanceTypeID.String())
+				instanceRequest.InstanceTypeId = cutil.GetPtr(instance.InstanceTypeID.String())
 			}
 
 			batchRequest.InstanceRequests = append(batchRequest.InstanceRequests, instanceRequest)
@@ -1778,10 +1778,10 @@ func allocateMachinesForBatch(
 	// Get all available Machines for the Instance Type
 	filterInput := cdbm.MachineFilterInput{
 		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
-		IsAssigned:      cdb.GetBoolPtr(false),
+		IsAssigned:      cutil.GetPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},
 	}
-	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve available machines")
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve available machines", nil)
@@ -1885,7 +1885,7 @@ func allocateMachinesForBatch(
 		// Machine is verified, add to batch update list
 		updateInputs = append(updateInputs, cdbm.MachineUpdateInput{
 			MachineID:  mc.ID,
-			IsAssigned: cdb.GetBoolPtr(true),
+			IsAssigned: cutil.GetPtr(true),
 		})
 		verifiedMachines = append(verifiedMachines, umc)
 	}

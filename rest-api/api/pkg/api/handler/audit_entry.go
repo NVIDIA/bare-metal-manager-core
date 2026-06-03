@@ -10,6 +10,11 @@ import (
 	"net/http"
 	"strconv"
 
+	goset "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
@@ -18,10 +23,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	goset "github.com/deckarep/golang-set/v2"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // GetAllAuditEntryHandler is the API Handler for retrieving all AuditEntries
@@ -123,7 +124,7 @@ func (gaaeh GetAllAuditEntryHandler) Handle(c echo.Context) error {
 	dbUsersMap := make(map[uuid.UUID]*cdbm.User)
 	userDAO := cdbm.NewUserDAO(gaaeh.dbSession)
 	dbUsers, _, err := userDAO.GetAll(ctx, nil, cdbm.UserFilterInput{UserIDs: userIDs.ToSlice()},
-		paginator.PageInput{Limit: cdb.GetIntPtr(paginator.TotalLimit)}, nil)
+		paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Users from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Users", nil)

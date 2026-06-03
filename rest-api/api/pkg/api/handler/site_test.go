@@ -16,6 +16,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun/extra/bundebug"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -27,21 +37,13 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	csmtypes "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/types"
-	"github.com/golang/mock/gomock"
-	"github.com/google/uuid"
-	"github.com/gorilla/mux"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
-	"github.com/uptrace/bun/extra/bundebug"
-	oteltrace "go.opentelemetry.io/otel/trace"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 	tOperatorv1 "go.temporal.io/api/operatorservice/v1"
 	tosv1mock "go.temporal.io/api/operatorservicemock/v1"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
+
+	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 )
 
 func testUpdateSite(t *testing.T, dbSession *cdb.Session, site *cdbm.Site) *cdbm.Site {
@@ -161,7 +163,7 @@ func testSiteSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -177,19 +179,19 @@ func testSiteBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruc
 	st, err := stDAO.Create(context.Background(), nil,
 		cdbm.SiteCreateInput{
 			Name:                          name,
-			DisplayName:                   cdb.GetStrPtr("Test Site"),
-			Description:                   cdb.GetStrPtr("Test Site Description"),
+			DisplayName:                   sutil.GetPtr("Test Site"),
+			Description:                   sutil.GetPtr("Test Site Description"),
 			Org:                           ip.Org,
 			InfrastructureProviderID:      ip.ID,
-			SiteControllerVersion:         cdb.GetStrPtr("1.0.0"),
-			SiteAgentVersion:              cdb.GetStrPtr("1.0.0"),
-			RegistrationToken:             cdb.GetStrPtr("1234-5678-9012-3456"),
-			RegistrationTokenExpiration:   cdb.GetTimePtr(cdb.GetCurTime()),
+			SiteControllerVersion:         sutil.GetPtr("1.0.0"),
+			SiteAgentVersion:              sutil.GetPtr("1.0.0"),
+			RegistrationToken:             sutil.GetPtr("1234-5678-9012-3456"),
+			RegistrationTokenExpiration:   sutil.GetPtr(cdb.GetCurTime()),
 			IsInfinityEnabled:             false,
-			SerialConsoleHostname:         cdb.GetStrPtr("nico.acme.com"),
+			SerialConsoleHostname:         sutil.GetPtr("nico.acme.com"),
 			IsSerialConsoleEnabled:        true,
-			SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-			SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+			SerialConsoleIdleTimeout:      sutil.GetPtr(30),
+			SerialConsoleMaxSessionLength: sutil.GetPtr(60),
 			Location:                      location,
 			Contact:                       contact,
 			Config:                        *config,
@@ -204,7 +206,7 @@ func testSiteBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruc
 func testSiteBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -219,9 +221,9 @@ func testSiteBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string,
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       sutil.GetPtr("jdoe@test.com"),
+			FirstName:   sutil.GetPtr("John"),
+			LastName:    sutil.GetPtr("Doe"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -243,7 +245,7 @@ func testSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.Site
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              sutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -267,7 +269,7 @@ func testSiteBuildMachineWithID(t *testing.T, dbSession *cdb.Session, ip uuid.UU
 		SiteID:                   site,
 		ControllerMachineID:      machineID,
 		Metadata:                 nil,
-		DefaultMacAddress:        cdb.GetStrPtr("00:1B:44:11:3A:B7"),
+		DefaultMacAddress:        sutil.GetPtr("00:1B:44:11:3A:B7"),
 		Status:                   status,
 	}
 	_, err := dbSession.DB.NewInsert().Model(m).Exec(context.Background())
@@ -294,24 +296,24 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 
 	stcr1 := &model.APISiteCreateRequest{
 		Name:                  "Test Site 1",
-		Description:           cdb.GetStrPtr("Test Site Description"),
-		SerialConsoleHostname: cdb.GetStrPtr("acme.com"),
+		Description:           sutil.GetPtr("Test Site Description"),
+		SerialConsoleHostname: sutil.GetPtr("acme.com"),
 	}
 	stcrJSON1, _ := json.Marshal(stcr1)
 
 	stcr3 := &model.APISiteCreateRequest{
 		Name:        "Test Site 3",
-		Description: cdb.GetStrPtr("Test Site Description"),
+		Description: sutil.GetPtr("Test Site Description"),
 	}
 	stcrJSON3, _ := json.Marshal(stcr3)
 	stcr4 := &model.APISiteCreateRequest{
 		Name:        "Test Site 4",
-		Description: cdb.GetStrPtr("Test Site Description"),
+		Description: sutil.GetPtr("Test Site Description"),
 	}
 	stcrJSON4, _ := json.Marshal(stcr4)
 	stcr5 := &model.APISiteCreateRequest{
 		Name:        "Test Site 5",
-		Description: cdb.GetStrPtr("Test Site Description"),
+		Description: sutil.GetPtr("Test Site Description"),
 		Location: &model.APISiteLocation{
 			City:    "San Jose",
 			State:   "CA",
@@ -321,7 +323,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 	stcrJSON5, _ := json.Marshal(stcr5)
 	stcr6 := &model.APISiteCreateRequest{
 		Name:        "Test Site 6",
-		Description: cdb.GetStrPtr("Test Site Description"),
+		Description: sutil.GetPtr("Test Site Description"),
 		Contact: &model.APISiteContact{
 			Email: "johndoe@nvidia.com",
 		},
@@ -565,7 +567,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 	st6 := testSiteBuildSite(t, dbSession, ip, "test-site-6", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true})
 
 	common.TestBuildTenantSite(t, dbSession, tn, st6, tnu)
-	common.TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st6, nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu)
+	common.TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st6, nil, sutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu)
 
 	testSiteBuildAllocation(t, dbSession, st, tn, "test-allocation", ipu)
 	common.TestBuildTenantSite(t, dbSession, tn, st, ipu)
@@ -612,13 +614,13 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Name:                          cdb.GetStrPtr("test-site-updated"),
-					Description:                   cdb.GetStrPtr("Test updated description"),
-					RenewRegistrationToken:        cdb.GetBoolPtr(true),
-					SerialConsoleHostname:         cdb.GetStrPtr("nico.acme.com"),
-					IsSerialConsoleEnabled:        cdb.GetBoolPtr(true),
-					SerialConsoleIdleTimeout:      cdb.GetIntPtr(120),
-					SerialConsoleMaxSessionLength: cdb.GetIntPtr(240),
+					Name:                          sutil.GetPtr("test-site-updated"),
+					Description:                   sutil.GetPtr("Test updated description"),
+					RenewRegistrationToken:        sutil.GetPtr(true),
+					SerialConsoleHostname:         sutil.GetPtr("nico.acme.com"),
+					IsSerialConsoleEnabled:        sutil.GetPtr(true),
+					SerialConsoleIdleTimeout:      sutil.GetPtr(120),
+					SerialConsoleMaxSessionLength: sutil.GetPtr(240),
 				},
 			},
 			csmEnabled:         true,
@@ -637,7 +639,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Capabilities: &model.APISiteCapabilitiesUpdateRequest{NativeNetworking: cdb.GetBoolPtr(false)},
+					Capabilities: &model.APISiteCapabilitiesUpdateRequest{NativeNetworking: sutil.GetPtr(false)},
 				},
 			},
 			csmEnabled:         true,
@@ -656,7 +658,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Capabilities: &model.APISiteCapabilitiesUpdateRequest{NativeNetworking: cdb.GetBoolPtr(false)},
+					Capabilities: &model.APISiteCapabilitiesUpdateRequest{NativeNetworking: sutil.GetPtr(false)},
 				},
 			},
 			csmEnabled:         true,
@@ -675,12 +677,12 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					RenewRegistrationToken: cdb.GetBoolPtr(true),
+					RenewRegistrationToken: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled: true,
 			wantErr:    false,
-			wantStatus: cdb.GetStrPtr(cdbm.SiteStatusPending),
+			wantStatus: sutil.GetPtr(cdbm.SiteStatusPending),
 		},
 		{
 			name: "test registration token renewal success for Site in Registered state",
@@ -694,12 +696,12 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					RenewRegistrationToken: cdb.GetBoolPtr(true),
+					RenewRegistrationToken: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled: true,
 			wantErr:    false,
-			wantStatus: cdb.GetStrPtr(cdbm.SiteStatusRegistered),
+			wantStatus: sutil.GetPtr(cdbm.SiteStatusRegistered),
 		},
 		{
 			name: "test Site update API endpoint failure by Tenant, configuring serial console SSH keys is no longer supported",
@@ -713,7 +715,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  tnOrg,
 				user: tnu,
 				reqData: &model.APISiteUpdateRequest{
-					IsSerialConsoleSSHKeysEnabled: cdb.GetBoolPtr(true),
+					IsSerialConsoleSSHKeysEnabled: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled:         true,
@@ -732,8 +734,8 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  tnOrg,
 				user: tnu,
 				reqData: &model.APISiteUpdateRequest{
-					Name:                   cdb.GetStrPtr("test-site-updated"),
-					IsSerialConsoleEnabled: cdb.GetBoolPtr(true),
+					Name:                   sutil.GetPtr("test-site-updated"),
+					IsSerialConsoleEnabled: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled:         true,
@@ -752,7 +754,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					IsSerialConsoleSSHKeysEnabled: cdb.GetBoolPtr(true),
+					IsSerialConsoleSSHKeysEnabled: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled:         true,
@@ -771,7 +773,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  mOrg,
 				user: mu,
 				reqData: &model.APISiteUpdateRequest{
-					Description: cdb.GetStrPtr("Updated Site description"),
+					Description: sutil.GetPtr("Updated Site description"),
 				},
 			},
 			csmEnabled: false,
@@ -789,7 +791,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Name: cdb.GetStrPtr("test-site-2"),
+					Name: sutil.GetPtr("test-site-2"),
 				},
 			},
 			csmEnabled: true,
@@ -807,7 +809,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Name: cdb.GetStrPtr("test-site"),
+					Name: sutil.GetPtr("test-site"),
 				},
 			},
 			csmEnabled: false,
@@ -825,7 +827,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Name: cdb.GetStrPtr("test-site-x"),
+					Name: sutil.GetPtr("test-site-x"),
 				},
 			},
 			csmEnabled: false,
@@ -843,10 +845,10 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Name:                   cdb.GetStrPtr("test-site-4"),
-					Description:            cdb.GetStrPtr("Test Site Description Updated"),
-					SerialConsoleHostname:  cdb.GetStrPtr("nico.acme.com"),
-					RenewRegistrationToken: cdb.GetBoolPtr(true),
+					Name:                   sutil.GetPtr("test-site-4"),
+					Description:            sutil.GetPtr("Test Site Description Updated"),
+					SerialConsoleHostname:  sutil.GetPtr("nico.acme.com"),
+					RenewRegistrationToken: sutil.GetPtr(true),
 				},
 			},
 			csmEnabled: true,
@@ -865,9 +867,9 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					IsSerialConsoleEnabled:        cdb.GetBoolPtr(true),
-					SerialConsoleIdleTimeout:      cdb.GetIntPtr(120),
-					SerialConsoleMaxSessionLength: cdb.GetIntPtr(240),
+					IsSerialConsoleEnabled:        sutil.GetPtr(true),
+					SerialConsoleIdleTimeout:      sutil.GetPtr(120),
+					SerialConsoleMaxSessionLength: sutil.GetPtr(240),
 				},
 			},
 			wantErr: true,
@@ -1470,15 +1472,15 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 			st = testSiteBuildSite(t, dbSession, ip1, fmt.Sprintf("test-site-%02d search", i), cdbm.SiteStatusRegistered, ipu1, location2, contact2, nil)
 		}
 
-		common.TestBuildStatusDetail(t, dbSession, st.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, st.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("Site is now ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, st.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, st.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("Site is now ready for use"))
 		sts = append(sts, *st)
 	}
 
 	// Second Site
 	stdemo1 := testSiteBuildSite(t, dbSession, ip2, "pdx-demo1", cdbm.SiteStatusRegistered, ipu2, nil, nil, nil)
-	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("Site is now ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("Site is now ready for use"))
 
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
@@ -1486,8 +1488,8 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusError)
 
 	stdemo2 := testSiteBuildSite(t, dbSession, ip2, "pdx-dev3", cdbm.SiteStatusRegistered, ipu2, nil, nil, nil)
-	common.TestBuildStatusDetail(t, dbSession, stdemo2.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, stdemo2.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("Site is now ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, stdemo2.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, stdemo2.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("Site is now ready for use"))
 
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo2.ID, cdbm.MachineStatusReady)
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo2.ID, cdbm.MachineStatusReady)
@@ -1497,19 +1499,19 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 	// Build Site for Service Provider
 	ss := testSiteBuildSite(t, dbSession, sip, "test-service-site", cdbm.SiteStatusRegistered, su, nil, nil, nil)
 	common.TestBuildTenantSite(t, dbSession, stn, ss, su)
-	common.TestBuildStatusDetail(t, dbSession, ss.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("request received, pending processing"))
-	common.TestBuildStatusDetail(t, dbSession, ss.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("Site is now ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, ss.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("request received, pending processing"))
+	common.TestBuildStatusDetail(t, dbSession, ss.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("Site is now ready for use"))
 
 	// Update Sites with feature flags
 	stDAO := cdbm.NewSiteDAO(dbSession)
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: cdb.GetBoolPtr(true)}, SiteID: sts[0].ID})
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: cdb.GetBoolPtr(true)}, SiteID: sts[1].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: sutil.GetPtr(true)}, SiteID: sts[0].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: sutil.GetPtr(true)}, SiteID: sts[1].ID})
 
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NetworkSecurityGroup: cdb.GetBoolPtr(true)}, SiteID: sts[2].ID})
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NetworkSecurityGroup: cdb.GetBoolPtr(true)}, SiteID: sts[3].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NetworkSecurityGroup: sutil.GetPtr(true)}, SiteID: sts[2].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NetworkSecurityGroup: sutil.GetPtr(true)}, SiteID: sts[3].ID})
 
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: cdb.GetBoolPtr(true), NetworkSecurityGroup: cdb.GetBoolPtr(true), NVLinkPartition: cdb.GetBoolPtr(true), Flow: cdb.GetBoolPtr(true)}, SiteID: sts[4].ID})
-	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: cdb.GetBoolPtr(true), NetworkSecurityGroup: cdb.GetBoolPtr(true), NVLinkPartition: cdb.GetBoolPtr(true), Flow: cdb.GetBoolPtr(true)}, SiteID: sts[5].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: sutil.GetPtr(true), NetworkSecurityGroup: sutil.GetPtr(true), NVLinkPartition: sutil.GetPtr(true), Flow: sutil.GetPtr(true)}, SiteID: sts[4].ID})
+	stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{Config: &cdbm.SiteConfigUpdateInput{NativeNetworking: sutil.GetPtr(true), NetworkSecurityGroup: sutil.GetPtr(true), NVLinkPartition: sutil.GetPtr(true), Flow: sutil.GetPtr(true)}, SiteID: sts[5].ID})
 
 	// Setup echo server/context
 	e := echo.New()
@@ -2166,8 +2168,8 @@ func TestGetAllSiteHandler_NullConfig(t *testing.T) {
 	// Create a site named "reno-qa4" (same as the bug report).
 	site := testSiteBuildSite(t, dbSession, ip, "reno-qa4", cdbm.SiteStatusRegistered, user, nil, nil, nil)
 	require.NotNil(t, site)
-	common.TestBuildStatusDetail(t, dbSession, site.ID.String(), cdbm.SiteStatusPending, cdb.GetStrPtr("pending"))
-	common.TestBuildStatusDetail(t, dbSession, site.ID.String(), cdbm.SiteStatusRegistered, cdb.GetStrPtr("registered"))
+	common.TestBuildStatusDetail(t, dbSession, site.ID.String(), cdbm.SiteStatusPending, sutil.GetPtr("pending"))
+	common.TestBuildStatusDetail(t, dbSession, site.ID.String(), cdbm.SiteStatusRegistered, sutil.GetPtr("registered"))
 
 	// Simulate the DB state that causes the bug: config column is NULL.
 	// This can happen when sites predate the config migration or when the
@@ -2290,7 +2292,7 @@ func TestDeleteSiteHandler_Handle(t *testing.T) {
 	common.TestBuildIPBlock(t, dbSession, "Test IP Block", st5, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.180.124.192", 28, cdbm.IPBlockProtocolVersionV4, ipu)
 
 	st6 := testSiteBuildSite(t, dbSession, ip, "Test Site 6", cdbm.SiteStatusRegistered, ipu, nil, nil, nil)
-	common.TestBuildInstanceType(t, dbSession, "Test Instance Type", cdb.GetUUIDPtr(uuid.New()), st6, map[string]string{
+	common.TestBuildInstanceType(t, dbSession, "Test Instance Type", sutil.GetPtr(uuid.New()), st6, map[string]string{
 		"name":        "Test Instance Type",
 		"description": "Test Instance Type Description",
 	}, ipu)
@@ -2424,7 +2426,7 @@ func TestDeleteSiteHandler_Handle(t *testing.T) {
 			wantErr:        false,
 			remainSiteCnt:  6,
 			siteMgrErr:     true,
-			siteMgrErrCode: cdb.GetIntPtr(http.StatusNotFound),
+			siteMgrErrCode: sutil.GetPtr(http.StatusNotFound),
 		},
 		{
 			name: "ok Site deletion API endpoint, sitemgr disabled",

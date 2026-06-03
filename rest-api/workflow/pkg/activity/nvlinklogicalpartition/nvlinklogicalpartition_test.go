@@ -106,7 +106,7 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 	ts1 := cwu.TestBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st1.ID, tn.ID)
 	assert.NotNil(t, ts1)
 
-	nvllp1 := cwu.TestBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test description"), st1, tn, cdbm.NVLinkLogicalPartitionStatusPending, false)
+	nvllp1 := cwu.TestBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cwutil.GetPtr("Test description"), st1, tn, cdbm.NVLinkLogicalPartitionStatusPending, false)
 	assert.NotNil(t, nvllp1)
 
 	// Set updated earlier than the inventory receipt interval (with buffer to exceed threshold)

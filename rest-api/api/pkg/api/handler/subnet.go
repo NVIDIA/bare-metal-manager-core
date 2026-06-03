@@ -270,15 +270,15 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 		// Update the controller ID for the subnet.
 		// We need this to match the subnet ID.  This was previously handled
 		// by the async cloud workflow after successful creation on site.
-		subnet, derr = sDAO.Update(ctx, tx, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: cdb.GetUUIDPtr(subnet.ID)})
+		subnet, derr = sDAO.Update(ctx, tx, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: cutil.GetPtr(subnet.ID)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("unable to update Subnet record controllerNetworkSegmentId")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed updating new subnet record", nil)
 		}
 
 		// create the status detail record
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), *cdb.GetStrPtr(cdbm.SubnetStatusPending),
-			cdb.GetStrPtr("received subnet creation request, pending"))
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), *cutil.GetPtr(cdbm.SubnetStatusPending),
+			cutil.GetPtr("received subnet creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Subnet", nil)
@@ -919,7 +919,7 @@ func (ush UpdateSubnetHandler) Handle(c echo.Context) error {
 	// get status details for the response — best-effort, the PATCH has already
 	// committed so a transient read failure here must not surface as 500.
 	sdDAO := cdbm.NewStatusDetailDAO(ush.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error retrieving Status Details for subnet after update commit")
 		ssds = nil
@@ -1046,7 +1046,7 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 
 	pageInput := paginator.PageInput{
 		Offset:  nil,
-		Limit:   cdb.GetIntPtr(0),
+		Limit:   cutil.GetPtr(0),
 		OrderBy: nil,
 	}
 

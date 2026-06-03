@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 )
@@ -289,7 +292,7 @@ func (skgsasd SSHKeyGroupSiteAssociationSQLDAO) GenerateAndUpdateVersion(ctx con
 
 	// Retrieve SSH Key Association details for calculating hash version based on SSH Key ID
 	skaDAO := NewSSHKeyAssociationDAO(skgsasd.dbSession)
-	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{dbskgsa.SSHKeyGroupID}, nil, nil, db.GetIntPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{dbskgsa.SSHKeyGroupID}, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
 	if err != nil {
 		return nil, err
 	}

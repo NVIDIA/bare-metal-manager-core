@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
-	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
@@ -186,7 +189,7 @@ func (vpsd VpcPrefixSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcPref
 
 	id := input.VpcPrefixID
 	if id == nil {
-		id = db.GetUUIDPtr(uuid.New())
+		id = cutil.GetPtr(uuid.New())
 	}
 
 	vpp := &VpcPrefix{

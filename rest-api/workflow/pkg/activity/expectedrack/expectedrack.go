@@ -8,11 +8,14 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 
@@ -69,7 +72,7 @@ func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteI
 
 	// Fetch ALL existing expected racks for site
 	filterInput := cdbm.ExpectedRackFilterInput{SiteIDs: []uuid.UUID{siteID}}
-	existingExpectedRacks, _, err := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingExpectedRacks, _, err := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get ExpectedRacks for Site from DB")
 		return err

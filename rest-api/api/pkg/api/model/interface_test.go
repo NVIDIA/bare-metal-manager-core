@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPIInterface(t *testing.T) {
@@ -23,10 +24,10 @@ func TestNewAPIInterface(t *testing.T) {
 	dbis := &cdbm.Interface{
 		ID:                 uuid.New(),
 		InstanceID:         uuid.New(),
-		SubnetID:           cdb.GetUUIDPtr(uuid.New()),
+		SubnetID:           cutil.GetPtr(uuid.New()),
 		VpcPrefixID:        nil,
-		MachineInterfaceID: cdb.GetUUIDPtr(uuid.New()),
-		RequestedIpAddress: cdb.GetStrPtr("192.0.2.10"),
+		MachineInterfaceID: cutil.GetPtr(uuid.New()),
+		RequestedIpAddress: cutil.GetPtr("192.0.2.10"),
 		Created:            time.Now(),
 		Updated:            time.Now(),
 	}
@@ -44,8 +45,8 @@ func TestNewAPIInterface(t *testing.T) {
 			want: &APIInterface{
 				ID:                 dbis.ID.String(),
 				InstanceID:         dbis.InstanceID.String(),
-				SubnetID:           cdb.GetStrPtr(dbis.SubnetID.String()),
-				RequestedIpAddress: cdb.GetStrPtr("192.0.2.10"),
+				SubnetID:           cutil.GetPtr(dbis.SubnetID.String()),
+				RequestedIpAddress: cutil.GetPtr("192.0.2.10"),
 				Status:             dbis.Status,
 				Created:            dbis.Created,
 				Updated:            dbis.Updated,
@@ -73,7 +74,7 @@ func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testi
 		{
 			name: "VPC Prefix interface accepts IPv4 and IPv6 anycast prefixes",
 			req: APIInterfaceCreateOrUpdateRequest{
-				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+				VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{
 					AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
 				},
@@ -83,7 +84,7 @@ func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testi
 		{
 			name: "explicit empty routing profile stays non-nil with empty anycast prefixes",
 			req: APIInterfaceCreateOrUpdateRequest{
-				VpcPrefixID:          cdb.GetStrPtr(uuid.NewString()),
+				VpcPrefixID:          cutil.GetPtr(uuid.NewString()),
 				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{},
 			},
 			wantAllowedAnycastPrefixes: []string{},
@@ -92,7 +93,7 @@ func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testi
 		{
 			name: "invalid anycast prefix returns field-specific error",
 			req: APIInterfaceCreateOrUpdateRequest{
-				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+				VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{
 					AllowedAnycastPrefixes: []string{"not-a-prefix"},
 				},
@@ -103,7 +104,7 @@ func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testi
 		{
 			name: "Subnet interface rejects routing profile",
 			req: APIInterfaceCreateOrUpdateRequest{
-				SubnetID:             cdb.GetStrPtr(uuid.NewString()),
+				SubnetID:             cutil.GetPtr(uuid.NewString()),
 				InlineRoutingProfile: &APIInterfaceInlineRoutingProfile{},
 			},
 			wantErr:           true,
@@ -112,13 +113,13 @@ func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testi
 		{
 			name: "Subnet interface accepts nil routing profile",
 			req: APIInterfaceCreateOrUpdateRequest{
-				SubnetID: cdb.GetStrPtr(uuid.NewString()),
+				SubnetID: cutil.GetPtr(uuid.NewString()),
 			},
 		},
 		{
 			name: "VPC Prefix interface accepts nil routing profile",
 			req: APIInterfaceCreateOrUpdateRequest{
-				VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+				VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 			},
 		},
 	}
@@ -200,15 +201,15 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		{
 			name: "test valid Interface Subnet request",
 			fields: fields{
-				SubnetID: cdb.GetStrPtr(uuid.New().String()),
+				SubnetID: cutil.GetPtr(uuid.New().String()),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test valid Interface VpcPrefix request",
 			fields: fields{
-				VpcPrefixID: cdb.GetStrPtr(uuid.New().String()),
-				IPAddress:   cdb.GetStrPtr("192.0.2.11"),
+				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
+				IPAddress:   cutil.GetPtr("192.0.2.11"),
 				IsPhysical:  true,
 			},
 			wantErr: false,
@@ -216,14 +217,14 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Interface Subnet request",
 			fields: fields{
-				SubnetID: cdb.GetStrPtr("bad-uuid"),
+				SubnetID: cutil.GetPtr("bad-uuid"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface VpcPrefix request",
 			fields: fields{
-				VpcPrefixID: cdb.GetStrPtr("bad-uuid"),
+				VpcPrefixID: cutil.GetPtr("bad-uuid"),
 				IsPhysical:  true,
 			},
 			wantErr: true,
@@ -231,75 +232,75 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Interface request",
 			fields: fields{
-				VpcPrefixID: cdb.GetStrPtr(uuid.New().String()),
-				SubnetID:    cdb.GetStrPtr(uuid.New().String()),
+				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
+				SubnetID:    cutil.GetPtr(uuid.New().String()),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test valid Interface device and deviceInterface request",
 			fields: fields{
-				VpcPrefixID:    cdb.GetStrPtr(uuid.New().String()),
+				VpcPrefixID:    cutil.GetPtr(uuid.New().String()),
 				IsPhysical:     true,
-				Device:         cdb.GetStrPtr("test-device"),
-				DeviceInstance: cdb.GetIntPtr(15),
+				Device:         cutil.GetPtr("test-device"),
+				DeviceInstance: cutil.GetPtr(15),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test invalid Interface device and deviceInterface request",
 			fields: fields{
-				VpcPrefixID:    cdb.GetStrPtr(uuid.New().String()),
+				VpcPrefixID:    cutil.GetPtr(uuid.New().String()),
 				IsPhysical:     false,
-				Device:         cdb.GetStrPtr("test-device"),
-				DeviceInstance: cdb.GetIntPtr(1),
+				Device:         cutil.GetPtr("test-device"),
+				DeviceInstance: cutil.GetPtr(1),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface device and deviceInterface request",
 			fields: fields{
-				VpcPrefixID:       cdb.GetStrPtr(uuid.New().String()),
-				IPAddress:         cdb.GetStrPtr("192.0.2.11"),
+				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
+				IPAddress:         cutil.GetPtr("192.0.2.11"),
 				IsPhysical:        false,
-				Device:            cdb.GetStrPtr("test-device"),
-				DeviceInstance:    cdb.GetIntPtr(1),
-				VirtualFunctionID: cdb.GetIntPtr(20),
+				Device:            cutil.GetPtr("test-device"),
+				DeviceInstance:    cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(20),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test valid Interface device and deviceInterface request",
 			fields: fields{
-				VpcPrefixID:       cdb.GetStrPtr(uuid.New().String()),
+				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
 				IsPhysical:        false,
-				Device:            cdb.GetStrPtr("test-device"),
-				DeviceInstance:    cdb.GetIntPtr(1),
-				VirtualFunctionID: cdb.GetIntPtr(1),
+				Device:            cutil.GetPtr("test-device"),
+				DeviceInstance:    cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(1),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface device and deviceInstance request",
 			fields: fields{
-				Device:      cdb.GetStrPtr("test-device"),
-				VpcPrefixID: cdb.GetStrPtr(uuid.New().String()),
+				Device:      cutil.GetPtr("test-device"),
+				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface device and deviceInterface request",
 			fields: fields{
-				DeviceInstance: cdb.GetIntPtr(1),
-				VpcPrefixID:    cdb.GetStrPtr(uuid.New().String()),
+				DeviceInstance: cutil.GetPtr(1),
+				VpcPrefixID:    cutil.GetPtr(uuid.New().String()),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface ipAddress with subnet request",
 			fields: fields{
-				SubnetID:  cdb.GetStrPtr(uuid.New().String()),
-				IPAddress: cdb.GetStrPtr("192.0.2.11"),
+				SubnetID:  cutil.GetPtr(uuid.New().String()),
+				IPAddress: cutil.GetPtr("192.0.2.11"),
 			},
 			wantErr:          true,
 			wantErrorMessage: "cannot be specified for Subnet based Interfaces",
@@ -307,7 +308,7 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Interface ipAddress without subnet or vpc prefix request",
 			fields: fields{
-				IPAddress: cdb.GetStrPtr("192.0.2.11"),
+				IPAddress: cutil.GetPtr("192.0.2.11"),
 			},
 			wantErr:          true,
 			wantErrorMessage: "either `subnetId` or `vpcPrefixId` must be specified",
@@ -315,33 +316,33 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Interface ipAddress with final host bit 0",
 			fields: fields{
-				VpcPrefixID: cdb.GetStrPtr(uuid.New().String()),
-				IPAddress:   cdb.GetStrPtr("192.0.2.10"),
+				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
+				IPAddress:   cutil.GetPtr("192.0.2.10"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface ipAddress request",
 			fields: fields{
-				VpcPrefixID: cdb.GetStrPtr(uuid.New().String()),
-				IPAddress:   cdb.GetStrPtr("not-an-ip"),
+				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
+				IPAddress:   cutil.GetPtr("not-an-ip"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface device and deviceInterface request",
 			fields: fields{
-				Device:         cdb.GetStrPtr("test-device"),
-				DeviceInstance: cdb.GetIntPtr(1),
+				Device:         cutil.GetPtr("test-device"),
+				DeviceInstance: cutil.GetPtr(1),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Interface device and deviceInterface request",
 			fields: fields{
-				Device:         cdb.GetStrPtr("test-device"),
-				DeviceInstance: cdb.GetIntPtr(1),
-				SubnetID:       cdb.GetStrPtr(uuid.New().String()),
+				Device:         cutil.GetPtr("test-device"),
+				DeviceInstance: cutil.GetPtr(1),
+				SubnetID:       cutil.GetPtr(uuid.New().String()),
 			},
 			wantErr: true,
 		},

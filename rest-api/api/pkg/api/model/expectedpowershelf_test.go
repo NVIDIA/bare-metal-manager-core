@@ -10,9 +10,12 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
@@ -95,7 +98,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedPowerShelfCreateRequest{
 				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword: &validPassword,
 				ShelfSerialNumber:  validShelfSerial,
 			},
@@ -105,7 +108,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedPowerShelfCreateRequest{
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword: &validPassword,
 				ShelfSerialNumber:  validShelfSerial,
 			},
@@ -118,7 +121,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
 				BmcMacAddress:      "00:11:22:33:44:55",
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 20)),
 				ShelfSerialNumber:  validShelfSerial,
 			},
 			expectErr: false,
@@ -128,7 +131,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 			obj: APIExpectedPowerShelfCreateRequest{
 				BmcMacAddress:      "00:11:22:33:44:55",
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 21)),
 				ShelfSerialNumber:  validShelfSerial,
 			},
 			expectErr: true,
@@ -220,7 +223,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				ShelfSerialNumber:  validShelfSerial,
-				BmcIpAddress:       cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -232,7 +235,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				ShelfSerialNumber:  validShelfSerial,
-				BmcIpAddress:       cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:       cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -244,7 +247,7 @@ func TestAPIExpectedPowerShelfCreateRequest_Validate(t *testing.T) {
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				ShelfSerialNumber:  validShelfSerial,
-				BmcIpAddress:       cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:       cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},
@@ -355,7 +358,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "ok when all fields are provided",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber: &validShelfSerial,
-				BmcIpAddress:      cdb.GetStrPtr("192.168.1.100"),
+				BmcIpAddress:      cutil.GetPtr("192.168.1.100"),
 				Labels:            map[string]string{"env": "production", "zone": "us-east-1"},
 			},
 			expectErr: false,
@@ -427,7 +430,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "ok when BMC username is exactly 16 characters",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber:  &validShelfSerial,
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 16)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 16)),
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
 			},
@@ -437,7 +440,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "error when BMC username is 17 characters (over limit)",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber:  &validShelfSerial,
-				DefaultBmcUsername: cdb.GetStrPtr(strings.Repeat("a", 17)),
+				DefaultBmcUsername: cutil.GetPtr(strings.Repeat("a", 17)),
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
 			},
@@ -449,7 +452,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber:  &validShelfSerial,
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 20)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 20)),
 				Labels:             map[string]string{"env": "test"},
 			},
 			expectErr: false,
@@ -459,7 +462,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber:  &validShelfSerial,
 				DefaultBmcUsername: &validUsername,
-				DefaultBmcPassword: cdb.GetStrPtr(strings.Repeat("a", 21)),
+				DefaultBmcPassword: cutil.GetPtr(strings.Repeat("a", 21)),
 				Labels:             map[string]string{"env": "test"},
 			},
 			expectErr: true,
@@ -468,7 +471,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "ok when shelf serial number is exactly 32 characters",
 			obj: APIExpectedPowerShelfUpdateRequest{
-				ShelfSerialNumber:  cdb.GetStrPtr(strings.Repeat("a", 32)),
+				ShelfSerialNumber:  cutil.GetPtr(strings.Repeat("a", 32)),
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
@@ -478,7 +481,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "error when shelf serial number is 33 characters (over limit)",
 			obj: APIExpectedPowerShelfUpdateRequest{
-				ShelfSerialNumber:  cdb.GetStrPtr(strings.Repeat("a", 33)),
+				ShelfSerialNumber:  cutil.GetPtr(strings.Repeat("a", 33)),
 				DefaultBmcUsername: &validUsername,
 				DefaultBmcPassword: &validPassword,
 				Labels:             map[string]string{"env": "test"},
@@ -490,7 +493,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv4 BmcIpAddress",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber: &validShelfSerial,
-				BmcIpAddress:      cdb.GetStrPtr("192.168.1.10"),
+				BmcIpAddress:      cutil.GetPtr("192.168.1.10"),
 			},
 			expectErr: false,
 		},
@@ -498,7 +501,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "valid IPv6 BmcIpAddress",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber: &validShelfSerial,
-				BmcIpAddress:      cdb.GetStrPtr("2001:db8::1"),
+				BmcIpAddress:      cutil.GetPtr("2001:db8::1"),
 			},
 			expectErr: false,
 		},
@@ -506,7 +509,7 @@ func TestAPIExpectedPowerShelfUpdateRequest_Validate(t *testing.T) {
 			desc: "invalid BmcIpAddress",
 			obj: APIExpectedPowerShelfUpdateRequest{
 				ShelfSerialNumber: &validShelfSerial,
-				BmcIpAddress:      cdb.GetStrPtr("not-an-ip"),
+				BmcIpAddress:      cutil.GetPtr("not-an-ip"),
 			},
 			expectErr: true,
 		},
@@ -544,7 +547,7 @@ func TestNewAPIExpectedPowerShelfEdgeCases(t *testing.T) {
 		dbEPS := &cdbm.ExpectedPowerShelf{
 			BmcMacAddress:     "",
 			ShelfSerialNumber: "",
-			BmcIpAddress:      cdb.GetStrPtr(""),
+			BmcIpAddress:      cutil.GetPtr(""),
 			Labels:            map[string]string{"": ""},
 			Created:           time.Now(),
 			Updated:           time.Now(),
@@ -631,7 +634,7 @@ func TestNewAPIExpectedPowerShelfWithSite(t *testing.T) {
 			SiteID:            siteID,
 			BmcMacAddress:     "00:11:22:33:44:55",
 			ShelfSerialNumber: "SHELF123",
-			BmcIpAddress:      cdb.GetStrPtr("192.168.1.100"),
+			BmcIpAddress:      cutil.GetPtr("192.168.1.100"),
 			Labels:            map[string]string{},
 			Site:              site,
 			Created:           time.Now(),

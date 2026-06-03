@@ -16,28 +16,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
 	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 	"github.com/stretchr/testify/mock"
 	"go.temporal.io/api/enums/v1"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
+
+	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 )
 
 func getIntPtrToUint32Ptr(i *int) *uint32 {
@@ -295,7 +297,7 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall 2",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
@@ -323,29 +325,29 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
-						Name:                 cdb.GetStrPtr("anything"),
+						Name:                 sutil.GetPtr("anything"),
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 						Priority:             55,
 					},
 					{
-						Name:                 cdb.GetStrPtr("anything"),
+						Name:                 sutil.GetPtr("anything"),
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 						Priority:             55,
 					},
 				},
@@ -370,18 +372,18 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:           "Spark VPC Firewall",
-				Description:    cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description:    sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:         st.ID.String(),
 				StatefulEgress: true,
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 						Priority:             55,
 					},
 				},
@@ -406,17 +408,17 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st2.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 						Priority:             55,
 					},
 				},
@@ -441,17 +443,17 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 					},
 				},
 			},
@@ -472,17 +474,17 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 					},
 				},
 			},
@@ -503,17 +505,17 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall 3000",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 					},
 				},
 			},
@@ -534,17 +536,17 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall 3000",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
 						Direction:            model.APINetworkSecurityGroupRuleDirectionIngress,
-						SourcePortRange:      cdb.GetStrPtr("80-81"),
-						DestinationPortRange: cdb.GetStrPtr("180-181"),
+						SourcePortRange:      sutil.GetPtr("80-81"),
+						DestinationPortRange: sutil.GetPtr("180-181"),
 						Protocol:             model.APINetworkSecurityGroupRuleProtocolTcp,
 						Action:               model.APINetworkSecurityGroupRuleActionPermit,
-						SourcePrefix:         cdb.GetStrPtr("0.0.0.0/0"),
-						DestinationPrefix:    cdb.GetStrPtr("1.1.1.1/0"),
+						SourcePrefix:         sutil.GetPtr("0.0.0.0/0"),
+						DestinationPrefix:    sutil.GetPtr("1.1.1.1/0"),
 					},
 				},
 			},
@@ -565,7 +567,7 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "Spark VPC Firewall 4000",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules: []model.APINetworkSecurityGroupRule{
 					{
@@ -592,7 +594,7 @@ func TestNetworkSecurityGroupHandler_Create(t *testing.T) {
 			},
 			requestPayload: &model.APINetworkSecurityGroupCreateRequest{
 				Name:        "",
-				Description: cdb.GetStrPtr("Security policies for machines in Spark VPC"),
+				Description: sutil.GetPtr("Security policies for machines in Spark VPC"),
 				SiteID:      st.ID.String(),
 				Rules:       []model.APINetworkSecurityGroupRule{},
 			},
@@ -767,32 +769,32 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 	rules := []*cdbm.NetworkSecurityGroupRule{
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 			},
 		},
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "3.3.3.3/24"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "2.2.2.2/24"},
 			},
@@ -826,7 +828,7 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 	// VPCs
 
 	vpc1Site1 := testVPCBuildVPC(t, dbSession, "vpc1Site1", ip, tn1, st1, nil, nil, map[string]string{}, cdbm.VpcStatusReady, tnu1)
-	vpc1Site1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	vpc1Site1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateVPC(t, dbSession, vpc1Site1)
 
 	// Instances
@@ -840,17 +842,17 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 	mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, ist1)
 	assert.NotNil(t, mcinst2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1Site1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -862,12 +864,12 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 	mci2 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc2.ID)
 	assert.NotNil(t, mci2)
 
-	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst1Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst1Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateInstance(t, dbSession, inst1Site1Vpc1)
 
-	inst2Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst2Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	inst2Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst2Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateInstance(t, dbSession, inst2Site1Vpc1)
 
 	e := echo.New()
@@ -913,7 +915,7 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 			query: url.Values{
 				"status": []string{cdbm.NetworkSecurityGroupStatusReady},
 			},
-			wantCount:        cdb.GetIntPtr(5),
+			wantCount:        sutil.GetPtr(5),
 			wantResponseCode: http.StatusOK,
 		},
 		{
@@ -931,7 +933,7 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 				"siteId": []string{st2.ID.String()},
 				"status": []string{cdbm.NetworkSecurityGroupStatusReady},
 			},
-			wantCount:        cdb.GetIntPtr(3),
+			wantCount:        sutil.GetPtr(3),
 			wantResponseCode: http.StatusOK,
 			wantFirstEntry:   nsg1Site2,
 		},
@@ -950,7 +952,7 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 				"siteId": []string{uuid.NewString()},
 				"status": []string{cdbm.NetworkSecurityGroupStatusReady},
 			},
-			wantCount:        cdb.GetIntPtr(3),
+			wantCount:        sutil.GetPtr(3),
 			wantResponseCode: http.StatusBadRequest,
 			wantFirstEntry:   nsg1Site2,
 		},
@@ -970,7 +972,7 @@ func TestNetworkSecurityGroupHandler_GetAll(t *testing.T) {
 				"siteId":   []string{"nonsense"},
 				"status":   []string{cdbm.NetworkSecurityGroupStatusReady},
 			},
-			wantCount:        cdb.GetIntPtr(3),
+			wantCount:        sutil.GetPtr(3),
 			wantResponseCode: http.StatusBadRequest,
 			wantFirstEntry:   nsg1Site2,
 		},
@@ -1171,32 +1173,32 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 	rules := []*cdbm.NetworkSecurityGroupRule{
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 			},
 		},
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "3.3.3.3/24"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "2.2.2.2/24"},
 			},
@@ -1220,7 +1222,7 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 	// VPCs
 
 	vpc1Site1 := testVPCBuildVPC(t, dbSession, "vpc1Site1", ip, tn1, st1, nil, nil, nil, cdbm.VpcStatusReady, tnu1)
-	vpc1Site1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	vpc1Site1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateVPC(t, dbSession, vpc1Site1)
 
 	// Instances
@@ -1234,17 +1236,17 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 	mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, ist1)
 	assert.NotNil(t, mcinst2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1Site1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -1256,12 +1258,12 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 	mci2 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc2.ID)
 	assert.NotNil(t, mci2)
 
-	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst1Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst1Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateInstance(t, dbSession, inst1Site1Vpc1)
 
-	inst2Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst2Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	inst2Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst2Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateInstance(t, dbSession, inst2Site1Vpc1)
 
 	e := echo.New()
@@ -1306,7 +1308,7 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 				config:         cfg,
 			},
 			query:            url.Values{},
-			wantID:           cdb.GetStrPtr(nsg1Site1.ID),
+			wantID:           sutil.GetPtr(nsg1Site1.ID),
 			wantResponseCode: http.StatusOK,
 		},
 		{
@@ -1345,7 +1347,7 @@ func TestNetworkSecurityGroupHandler_Get(t *testing.T) {
 				config:         cfg,
 			},
 			query:            url.Values{},
-			wantID:           cdb.GetStrPtr(nsg1Site1.ID),
+			wantID:           sutil.GetPtr(nsg1Site1.ID),
 			wantResponseCode: http.StatusNotFound,
 		},
 	}
@@ -1511,7 +1513,7 @@ func TestNetworkSecurityGroupHandler_Delete(t *testing.T) {
 	// VPCs
 
 	vpc1Site1 := testVPCBuildVPC(t, dbSession, "vpc1Site1", ip, tn1, st1, nil, nil, nil, cdbm.VpcStatusReady, tnu1)
-	vpc1Site1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	vpc1Site1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateVPC(t, dbSession, vpc1Site1)
 
 	// Instances
@@ -1525,17 +1527,17 @@ func TestNetworkSecurityGroupHandler_Delete(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 	mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, ist1)
 	assert.NotNil(t, mcinst2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1Site1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -1547,8 +1549,8 @@ func TestNetworkSecurityGroupHandler_Delete(t *testing.T) {
 	mci2 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc2.ID)
 	assert.NotNil(t, mci2)
 
-	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst1Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg2Site1.ID)
+	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst1Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg2Site1.ID)
 	testUpdateInstance(t, dbSession, inst1Site1Vpc1)
 
 	e := echo.New()
@@ -1842,32 +1844,32 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 	dbRules := []*cdbm.NetworkSecurityGroupRule{
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 			},
 		},
 		&cdbm.NetworkSecurityGroupRule{
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Id:             cdb.GetStrPtr(uuid.NewString()),
+				Id:             sutil.GetPtr(uuid.NewString()),
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				Priority:       55,
 				Ipv6:           false,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(55)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(56)),
-				DstPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(57)),
-				DstPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(58)),
+				SrcPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(55)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(56)),
+				DstPortStart:   getIntPtrToUint32Ptr(sutil.GetPtr(57)),
+				DstPortEnd:     getIntPtrToUint32Ptr(sutil.GetPtr(58)),
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "3.3.3.3/24"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "2.2.2.2/24"},
 			},
@@ -1931,7 +1933,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 	// VPCs
 
 	vpc1Site1 := testVPCBuildVPC(t, dbSession, "vpc1Site1", ip, tn1, st1, nil, nil, nil, cdbm.VpcStatusReady, tnu1)
-	vpc1Site1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg1Site1.ID)
+	vpc1Site1.NetworkSecurityGroupID = sutil.GetPtr(nsg1Site1.ID)
 	testUpdateVPC(t, dbSession, vpc1Site1)
 
 	// Instances
@@ -1945,17 +1947,17 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
 	assert.NotNil(t, mcinst1)
 
-	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
 	assert.NotNil(t, mc2)
 	mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, ist1)
 	assert.NotNil(t, mcinst2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1Site1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1Site1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -1967,8 +1969,8 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 	mci2 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc2.ID)
 	assert.NotNil(t, mci2)
 
-	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, cdb.GetStrPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
-	inst1Site1Vpc1.NetworkSecurityGroupID = cdb.GetStrPtr(nsg2Site1.ID)
+	inst1Site1Vpc1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1Site1.ID, sutil.GetPtr(mc1.ID), nil, nil, cdbm.InstanceStatusReady)
+	inst1Site1Vpc1.NetworkSecurityGroupID = sutil.GetPtr(nsg2Site1.ID)
 	testUpdateInstance(t, dbSession, inst1Site1Vpc1)
 
 	e := echo.New()
@@ -2069,7 +2071,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 				config:         cfg,
 			},
 			requestPayload: &model.APINetworkSecurityGroupUpdateRequest{
-				StatefulEgress: cdb.GetBoolPtr(true),
+				StatefulEgress: sutil.GetPtr(true),
 				Rules:          rules,
 			},
 			wantResponseCode: http.StatusOK,
@@ -2106,7 +2108,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 				config:         cfg,
 			},
 			requestPayload: &model.APINetworkSecurityGroupUpdateRequest{
-				Name: cdb.GetStrPtr("hello!"),
+				Name: sutil.GetPtr("hello!"),
 			},
 			wantResponseCode: http.StatusOK,
 			expectRules:      true,
@@ -2125,7 +2127,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 				config:         cfg,
 			},
 			requestPayload: &model.APINetworkSecurityGroupUpdateRequest{
-				Name: cdb.GetStrPtr(nsg1Site1.Name),
+				Name: sutil.GetPtr(nsg1Site1.Name),
 			},
 			wantResponseCode: http.StatusOK,
 		},
@@ -2143,7 +2145,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 				config:         cfg,
 			},
 			requestPayload: &model.APINetworkSecurityGroupUpdateRequest{
-				Name: cdb.GetStrPtr(nsg2Site1.Name),
+				Name: sutil.GetPtr(nsg2Site1.Name),
 			},
 			wantResponseCode: http.StatusConflict,
 		},

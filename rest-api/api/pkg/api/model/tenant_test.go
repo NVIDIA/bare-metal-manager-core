@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPITenant(t *testing.T) {
@@ -25,7 +26,7 @@ func TestNewAPITenant(t *testing.T) {
 	dbtn := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Org:            "test-org",
-		OrgDisplayName: cdb.GetStrPtr("Org Display name"),
+		OrgDisplayName: cutil.GetPtr("Org Display name"),
 		Config:         tncfg,
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -64,7 +65,7 @@ func TestNewAPITenantSummary(t *testing.T) {
 	dbtn := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Org:            "test-org",
-		OrgDisplayName: cdb.GetStrPtr("Org Display name"),
+		OrgDisplayName: cutil.GetPtr("Org Display name"),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 	}

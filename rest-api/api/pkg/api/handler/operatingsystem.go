@@ -26,7 +26,6 @@ import (
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
@@ -118,7 +117,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 	// Default TenantID to org's Tenant when nil; validate when set
 	if apiRequest.TenantID == nil {
-		apiRequest.TenantID = cdb.GetStrPtr(tenant.ID.String())
+		apiRequest.TenantID = cutil.GetPtr(tenant.ID.String())
 	} else if *apiRequest.TenantID != tenant.ID.String() {
 		logger.Warn().Str("tenantId", *apiRequest.TenantID).Msg("TenantID in request does not match org's Tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "TenantID specified in request does not match org's Tenant", nil)
@@ -188,7 +187,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 		},
 		cdbp.PageInput{
-			Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+			Limit: cutil.GetPtr(cdbp.TotalLimit),
 		},
 		nil,
 	)
@@ -284,8 +283,8 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 		// Create the status detail record for Operating System
 		sdDAO := cdbm.NewStatusDetailDAO(csh.dbSession)
-		ossd, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), *cdb.GetStrPtr(osStatus),
-			cdb.GetStrPtr(osStatusMessage))
+		ossd, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), *cutil.GetPtr(osStatus),
+			cutil.GetPtr(osStatusMessage))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
@@ -317,8 +316,8 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			}
 
 			// Create Status details
-			_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), *cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-				cdb.GetStrPtr("received Operating System Association create request, syncing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+				cutil.GetPtr("received Operating System Association create request, syncing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
@@ -340,7 +339,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 				OperatingSystemIDs: []uuid.UUID{os.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			[]string{cdbm.SiteRelationName, cdbm.OperatingSystemRelationName},
 		)
@@ -664,7 +663,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 			OperatingSystemIDs: osIDs,
 			SiteIDs:            siteIDs,
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 		[]string{cdbm.SiteRelationName},
 	)
 	if err != nil {
@@ -691,7 +690,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 			SiteIDs:   siteIDs,
 		},
 		cdbp.PageInput{
-			Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+			Limit: cutil.GetPtr(cdbp.TotalLimit),
 		},
 		nil,
 	)
@@ -861,7 +860,7 @@ func (gsh GetOperatingSystemHandler) Handle(c echo.Context) error {
 				OperatingSystemIDs: []uuid.UUID{os.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			[]string{cdbm.SiteRelationName},
 		)
@@ -879,7 +878,7 @@ func (gsh GetOperatingSystemHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			nil,
 		)
@@ -1076,7 +1075,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			cdbm.TenantSiteFilterInput{
 				TenantIDs: []uuid.UUID{tenant.ID},
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if err != nil {
@@ -1106,10 +1105,10 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 	}
 
 	// Save update status in DB
-	osStatus := db.GetStrPtr(cdbm.OperatingSystemStatusReady)
+	osStatus := cutil.GetPtr(cdbm.OperatingSystemStatusReady)
 	osStatusMessage := "Operating System has been updated and ready for use"
 	if apiRequest.IsActive != nil && !*apiRequest.IsActive {
-		osStatus = db.GetStrPtr(cdbm.OperatingSystemStatusDeactivated)
+		osStatus = cutil.GetPtr(cdbm.OperatingSystemStatusDeactivated)
 		osStatusMessage = "Operating System has been deactivated"
 		if apiRequest.DeactivationNote != nil && *apiRequest.DeactivationNote != "" {
 			osStatusMessage += ". " + *apiRequest.DeactivationNote
@@ -1119,7 +1118,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			osStatusMessage = "Operating System has been reactivated and is ready for use"
 		}
 		if os.Type == cdbm.OperatingSystemTypeImage {
-			osStatus = db.GetStrPtr(cdbm.OperatingSystemStatusSyncing)
+			osStatus = cutil.GetPtr(cdbm.OperatingSystemStatusSyncing)
 			osStatusMessage = "received Operating System update request, syncing"
 		}
 	}
@@ -1178,7 +1177,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for os from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Operating System", nil)
@@ -1195,7 +1194,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					tx,
 					cdbm.OperatingSystemSiteAssociationUpdateInput{
 						OperatingSystemSiteAssociationID: dbossa.ID,
-						Status:                           cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+						Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
 					},
 				)
 				if derr != nil {
@@ -1204,8 +1203,8 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 				}
 
 				// Create Status details
-				_, derr = sdDAO.CreateFromParams(ctx, tx, dbossa.ID.String(), *cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-					cdb.GetStrPtr("received Operating System Association update request, syncing"))
+				_, derr = sdDAO.CreateFromParams(ctx, tx, dbossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+					cutil.GetPtr("received Operating System Association update request, syncing"))
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Site Association", nil)
@@ -1298,7 +1297,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					OperatingSystemIDs: []uuid.UUID{uos.ID},
 				},
 				cdbp.PageInput{
-					Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+					Limit: cutil.GetPtr(cdbp.TotalLimit),
 				},
 				[]string{cdbm.SiteRelationName},
 			)
@@ -1491,7 +1490,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		if os.Type == cdbm.OperatingSystemTypeImage {
 
 			// Update Operating System to set status to Deleting
-			_, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os.ID, Status: cdb.GetStrPtr(cdbm.OperatingSystemStatusDeleting)})
+			_, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os.ID, Status: cutil.GetPtr(cdbm.OperatingSystemStatusDeleting)})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Operating System in DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
@@ -1500,7 +1499,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			// Create status detail
 			sdDAO := cdbm.NewStatusDetailDAO(dsh.dbSession)
 			// create a status detail record for the Operating System
-			_, derr = sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cdb.GetStrPtr("received request for deletion, pending processing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
@@ -1515,7 +1514,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 						tx,
 						cdbm.OperatingSystemSiteAssociationUpdateInput{
 							OperatingSystemSiteAssociationID: ossa.ID,
-							Status:                           cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
+							Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
 						},
 					)
 					if derr != nil {
@@ -1524,7 +1523,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// create a status detail record for the Operating System Association
-					_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), cdbm.OperatingSystemSiteAssociationStatusDeleting, cdb.GetStrPtr("received request for deletion, pending processing"))
+					_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), cdbm.OperatingSystemSiteAssociationStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
 					if derr != nil {
 						logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 						return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)

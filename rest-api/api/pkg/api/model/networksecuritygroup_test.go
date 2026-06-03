@@ -9,12 +9,15 @@ import (
 	"time"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // A helper only for tests.  Ignores potential conversion errors.
@@ -36,22 +39,22 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
 	srcPortStarts := []*uint32{
 		nil,
-		getIntPtrToUint32Ptr(cdb.GetIntPtr(50)),
+		getIntPtrToUint32Ptr(cutil.GetPtr(50)),
 	}
 
 	srcPortEnds := []*uint32{
 		nil,
-		getIntPtrToUint32Ptr(cdb.GetIntPtr(50)),
+		getIntPtrToUint32Ptr(cutil.GetPtr(50)),
 	}
 
 	dstPortStarts := []*uint32{
 		nil,
-		getIntPtrToUint32Ptr(cdb.GetIntPtr(80)),
+		getIntPtrToUint32Ptr(cutil.GetPtr(80)),
 	}
 
 	dstPortEnds := []*uint32{
 		nil,
-		getIntPtrToUint32Ptr(cdb.GetIntPtr(80)),
+		getIntPtrToUint32Ptr(cutil.GetPtr(80)),
 	}
 
 	allRules := []*cdbm.NetworkSecurityGroupRule{}
@@ -73,7 +76,7 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
 								newRule := &cdbm.NetworkSecurityGroupRule{
 									NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-										Id:             cdb.GetStrPtr(uuid.NewString()),
+										Id:             cutil.GetPtr(uuid.NewString()),
 										Direction:      d,
 										Protocol:       p,
 										Action:         a,
@@ -175,8 +178,8 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
 	srcPortRanges := []string{"80-81", "abc", "a-b", "-70", "70-"}
 	dstPortRanges := []string{"90-91", "xyz", "d-e", "-90", "90-"}
-	srcPrefixes := []*string{cdb.GetStrPtr("0.0.0.0/0"), nil}
-	dstPrefixes := []*string{cdb.GetStrPtr("1.1.1.1/0"), nil}
+	srcPrefixes := []*string{cutil.GetPtr("0.0.0.0/0"), nil}
+	dstPrefixes := []*string{cutil.GetPtr("1.1.1.1/0"), nil}
 
 	for dI, d := range directions {
 		for pI, p := range protocol {
@@ -191,8 +194,8 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 										Direction:            d,
 										Protocol:             p,
 										Action:               a,
-										SourcePortRange:      cdb.GetStrPtr(sr),
-										DestinationPortRange: cdb.GetStrPtr(dr),
+										SourcePortRange:      cutil.GetPtr(sr),
+										DestinationPortRange: cutil.GetPtr(dr),
 										SourcePrefix:         sp,
 										DestinationPrefix:    dp,
 										Priority:             prio,
@@ -238,7 +241,7 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 
 	rules := []APINetworkSecurityGroupRule{
-		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cdb.GetStrPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
+		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cutil.GetPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
 	}
 
 	tests := []struct {
@@ -254,7 +257,7 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APINetworkSecurityGroupCreateRequest{Name: "test", Description: cdb.GetStrPtr("test"), SiteID: uuid.New().String(), StatefulEgress: true, Rules: rules},
+			obj:       APINetworkSecurityGroupCreateRequest{Name: "test", Description: cutil.GetPtr("test"), SiteID: uuid.New().String(), StatefulEgress: true, Rules: rules},
 			expectErr: false,
 		},
 		{
@@ -265,7 +268,7 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 		{
 			desc:       "error when too many rules are sent",
 			obj:        APINetworkSecurityGroupCreateRequest{Name: "test", Rules: rules},
-			siteConfig: &cdbm.SiteConfig{MaxNetworkSecurityGroupRuleCount: cdb.GetIntPtr(0)},
+			siteConfig: &cdbm.SiteConfig{MaxNetworkSecurityGroupRuleCount: cutil.GetPtr(0)},
 			expectErr:  true,
 		},
 	}
@@ -283,7 +286,7 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 func TestAPINetworkSecurityGroupUpdateRequest_Validate(t *testing.T) {
 
 	rules := []APINetworkSecurityGroupRule{
-		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cdb.GetStrPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
+		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cutil.GetPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
 	}
 
 	tests := []struct {
@@ -294,18 +297,18 @@ func TestAPINetworkSecurityGroupUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when only some fields are provided",
-			obj:       APINetworkSecurityGroupUpdateRequest{Name: cdb.GetStrPtr("updatedname")},
+			obj:       APINetworkSecurityGroupUpdateRequest{Name: cutil.GetPtr("updatedname")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APINetworkSecurityGroupUpdateRequest{Name: cdb.GetStrPtr("updatedname"), Description: cdb.GetStrPtr("updated"), StatefulEgress: cdb.GetBoolPtr(true), Rules: rules},
+			obj:       APINetworkSecurityGroupUpdateRequest{Name: cutil.GetPtr("updatedname"), Description: cutil.GetPtr("updated"), StatefulEgress: cutil.GetPtr(true), Rules: rules},
 			expectErr: false,
 		},
 		{
 			desc:       "error when too many rules are sent",
-			obj:        APINetworkSecurityGroupUpdateRequest{Name: cdb.GetStrPtr("updatedname"), Description: cdb.GetStrPtr("updated"), Rules: rules},
-			siteConfig: &cdbm.SiteConfig{MaxNetworkSecurityGroupRuleCount: cdb.GetIntPtr(0)},
+			obj:        APINetworkSecurityGroupUpdateRequest{Name: cutil.GetPtr("updatedname"), Description: cutil.GetPtr("updated"), Rules: rules},
+			siteConfig: &cdbm.SiteConfig{MaxNetworkSecurityGroupRuleCount: cutil.GetPtr(0)},
 			expectErr:  true,
 		},
 	}
@@ -326,8 +329,8 @@ func TestAPINetworkSecurityGroupNew(t *testing.T) {
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(0)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(100)),
+				SrcPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(0)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(100)),
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
@@ -340,7 +343,7 @@ func TestAPINetworkSecurityGroupNew(t *testing.T) {
 		Name:           "test",
 		StatefulEgress: true,
 		Rules:          rules,
-		Description:    cdb.GetStrPtr("test"),
+		Description:    cutil.GetPtr("test"),
 		SiteID:         uuid.New(),
 		TenantID:       uuid.New(),
 		Status:         cdbm.NetworkSecurityGroupStatusReady,
@@ -383,8 +386,8 @@ func TestAPINetworkSecurityGroupNewSummary(t *testing.T) {
 			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
 				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
 				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
-				SrcPortStart:   getIntPtrToUint32Ptr(cdb.GetIntPtr(0)),
-				SrcPortEnd:     getIntPtrToUint32Ptr(cdb.GetIntPtr(100)),
+				SrcPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(0)),
+				SrcPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(100)),
 				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
@@ -397,7 +400,7 @@ func TestAPINetworkSecurityGroupNewSummary(t *testing.T) {
 		Name:           "test",
 		StatefulEgress: true,
 		Rules:          rules,
-		Description:    cdb.GetStrPtr("test"),
+		Description:    cutil.GetPtr("test"),
 		SiteID:         uuid.New(),
 		TenantID:       uuid.New(),
 		Status:         cdbm.NetworkSecurityGroupStatusReady,

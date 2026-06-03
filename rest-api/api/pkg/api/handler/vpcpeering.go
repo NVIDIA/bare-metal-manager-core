@@ -208,7 +208,7 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				SiteIDs:   []uuid.UUID{site.ID},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+			paginator.PageInput{Limit: cutil.GetPtr(1)},
 			nil,
 		)
 		if err != nil {
@@ -294,8 +294,8 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 
 		// Create a status detail record for the VPC Peering
 		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, vpcPeering.ID.String(),
-			*cdb.GetStrPtr(cdbm.VpcPeeringStatusPending),
-			cdb.GetStrPtr("Received VPC Peering creation request, pending processing"))
+			*cutil.GetPtr(cdbm.VpcPeeringStatusPending),
+			cutil.GetPtr("Received VPC Peering creation request, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating status detail for VPC Peering")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC Peering", nil)
@@ -491,7 +491,7 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 					TenantIDs: []uuid.UUID{tenant.ID},
 					SiteIDs:   []uuid.UUID{site.ID},
 				},
-				paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+				paginator.PageInput{Limit: cutil.GetPtr(1)},
 				nil,
 			)
 			if err != nil {

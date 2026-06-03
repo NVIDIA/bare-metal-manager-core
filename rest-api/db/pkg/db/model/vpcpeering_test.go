@@ -8,11 +8,14 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 )
 
 var (
@@ -288,7 +291,7 @@ func TestVpcPeeringSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:                      "GetAll with filters on IsMultiTenant",
-			isMultiTenant:             db.GetBoolPtr(true),
+			isMultiTenant:             cutil.GetPtr(true),
 			infrastructureProviderIDs: nil,
 			tenantIDs:                 nil,
 			expectError:               false,

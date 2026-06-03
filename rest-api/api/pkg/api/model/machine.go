@@ -16,10 +16,11 @@ import (
 
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	camu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	camu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
@@ -75,19 +76,19 @@ var (
 	machineHealthAttributeDeprecations = []DeprecatedEntity{
 		{
 			OldValue:     "health.observed_at",
-			NewValue:     cdb.GetStrPtr("health.observedAt"),
+			NewValue:     cutil.GetPtr("health.observedAt"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
 		{
 			OldValue:     "health.alerts.in_alert_since",
-			NewValue:     cdb.GetStrPtr("health.alerts.inAlertSince"),
+			NewValue:     cutil.GetPtr("health.alerts.inAlertSince"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
 		{
 			OldValue:     "health.alerts.tenant_message",
-			NewValue:     cdb.GetStrPtr("health.alerts.tenantMessage"),
+			NewValue:     cutil.GetPtr("health.alerts.tenantMessage"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
@@ -291,9 +292,9 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID s
 
 	alert := &cwssaws.HealthProbeAlert{
 		Id:            MachineHealthAlertIDOnlineRepair,
-		Target:        cdb.GetStrPtr(MachineTenantReportedIssueAlertID),
+		Target:        cutil.GetPtr(MachineTenantReportedIssueAlertID),
 		Message:       msg,
-		TenantMessage: cdb.GetStrPtr(fmt.Sprintf("TenantReportedIssue: %s", *mhi.Summary)),
+		TenantMessage: cutil.GetPtr(fmt.Sprintf("TenantReportedIssue: %s", *mhi.Summary)),
 		Classifications: []string{
 			MachineAlertClassificationPreventAllocations,
 			MachineAlertClassificationPreventInstanceDeletion,
@@ -542,7 +543,7 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	}
 
 	if dbm.InstanceTypeID != nil {
-		apim.InstanceTypeID = cdb.GetStrPtr(dbm.InstanceTypeID.String())
+		apim.InstanceTypeID = cutil.GetPtr(dbm.InstanceTypeID.String())
 	}
 
 	if dbm.InstanceType != nil {
@@ -550,9 +551,9 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	}
 
 	if dbins != nil {
-		apim.InstanceID = cdb.GetStrPtr(dbins.ID.String())
+		apim.InstanceID = cutil.GetPtr(dbins.ID.String())
 		apim.Instance = NewAPIInstanceSummary(dbins)
-		apim.TenantID = cdb.GetStrPtr(dbins.TenantID.String())
+		apim.TenantID = cutil.GetPtr(dbins.TenantID.String())
 		if dbins.Tenant != nil {
 			apim.Tenant = NewAPITenantSummary(dbins.Tenant)
 		}

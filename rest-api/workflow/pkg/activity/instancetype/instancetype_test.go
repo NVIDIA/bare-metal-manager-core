@@ -11,16 +11,17 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
 
 	"github.com/google/uuid"
 
@@ -91,7 +92,7 @@ func testInstanceTypeSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testInstanceTypeSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cwutil.GetPtr("Test Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -103,14 +104,14 @@ func testInstanceTypeBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.In
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test Site"),
-		Description:                 cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                 cwutil.GetPtr("Test Site"),
+		Description:                 cwutil.GetPtr("Test Site Description"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cwutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cwutil.GetPtr("1.0.0"),
+		RegistrationToken:           cwutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cwutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		IsSerialConsoleEnabled:      false,
 		Status:                      cdbm.SiteStatusPending,
@@ -128,9 +129,9 @@ func testInstanceTypeBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cwutil.GetPtr("jdoe@test.com"),
+		FirstName:   cwutil.GetPtr("John"),
+		LastName:    cwutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -149,7 +150,7 @@ func testInstanceTypeBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID
 func testInstanceTypeBuildInstanceType(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm.InfrastructureProvider, st *cdbm.Site, user *cdbm.User, status string) *cdbm.InstanceType {
 	instanceTypeDAO := cdbm.NewInstanceTypeDAO(dbSession)
 
-	instanceType, err := instanceTypeDAO.Create(context.Background(), nil, cdbm.InstanceTypeCreateInput{Name: name, Description: cdb.GetStrPtr("description"), InfrastructureProviderID: ip.ID, SiteID: &st.ID, Status: status, CreatedBy: user.ID})
+	instanceType, err := instanceTypeDAO.Create(context.Background(), nil, cdbm.InstanceTypeCreateInput{Name: name, Description: cwutil.GetPtr("description"), InfrastructureProviderID: ip.ID, SiteID: &st.ID, Status: status, CreatedBy: user.ID})
 	assert.Nil(t, err)
 
 	return instanceType
@@ -232,7 +233,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), instanceType11.ID.String())
 	assert.NoError(t, err)
 
-	instanceType8, err = instanceTypeDAO.Update(ctx, nil, cdbm.InstanceTypeUpdateInput{ID: instanceType8.ID, Status: cdb.GetStrPtr(cdbm.InstanceTypeStatusError)})
+	instanceType8, err = instanceTypeDAO.Update(ctx, nil, cdbm.InstanceTypeUpdateInput{ID: instanceType8.ID, Status: cwutil.GetPtr(cdbm.InstanceTypeStatusError)})
 	assert.NoError(t, err)
 
 	siteSharedTypesMap := map[string]*cwssaws.InstanceType{}
@@ -278,7 +279,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	}, Attributes: &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
 		{
 			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
-			Name:           cdb.GetStrPtr("xeon"),
+			Name:           cwutil.GetPtr("xeon"),
 			Count:          &count,
 		},
 	}}}
@@ -289,7 +290,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 
 	// Add some capability known to cloud but not site to
 	// an instance type known to both cloud and site
-	mc1 := testInstanceTypeBuildMachineCapability(t, dbSession, &pagedInstanceTypes[0].ID, cdbm.MachineCapabilityTypeCPU, "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz", nil, cdb.GetIntPtr(1), nil)
+	mc1 := testInstanceTypeBuildMachineCapability(t, dbSession, &pagedInstanceTypes[0].ID, cdbm.MachineCapabilityTypeCPU, "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz", nil, cwutil.GetPtr(1), nil)
 	assert.NotNil(t, mc1)
 
 	// Make sure the "site" version won't match the cloud one.
@@ -300,12 +301,12 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	pagedCtrlInstanceTypes[1].Attributes = &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
 		{
 			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
-			Name:           cdb.GetStrPtr("xeon"),
+			Name:           cwutil.GetPtr("xeon"),
 			Count:          &count,
 		},
 	}}
 
-	mc2 := testInstanceTypeBuildMachineCapability(t, dbSession, &pagedInstanceTypes[2].ID, cdbm.MachineCapabilityTypeNetwork, "MT43245 BlueField-3 integrated ConnectX-7 network controller", nil, cdb.GetIntPtr(2), nil)
+	mc2 := testInstanceTypeBuildMachineCapability(t, dbSession, &pagedInstanceTypes[2].ID, cdbm.MachineCapabilityTypeNetwork, "MT43245 BlueField-3 integrated ConnectX-7 network controller", nil, cwutil.GetPtr(2), nil)
 	assert.NotNil(t, mc2)
 
 	// Make sure the "site" version won't match the cloud one.
@@ -317,7 +318,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	pagedCtrlInstanceTypes[2].Attributes = &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
 		{
 			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK,
-			Name:           cdb.GetStrPtr("MT43245 BlueField-3 integrated ConnectX-7 network controller"),
+			Name:           cwutil.GetPtr("MT43245 BlueField-3 integrated ConnectX-7 network controller"),
 			Count:          &count,
 			DeviceType:     &deviceType,
 		},

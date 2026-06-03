@@ -69,7 +69,7 @@ func (mt ManageTenant) UpdateTenantsInDB(ctx context.Context, siteID uuid.UUID, 
 		cdbm.TenantSiteFilterInput{
 			SiteIDs: []uuid.UUID{site.ID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 		[]string{cdbm.TenantRelationName},
 	)
 	if err != nil {

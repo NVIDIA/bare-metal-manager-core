@@ -9,13 +9,16 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestNVLinkLogicalPartition_ToProto(t *testing.T) {
@@ -178,15 +181,15 @@ func TestNVLinkLogicalPartitionSQLDAO_GetByID(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -284,14 +287,14 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("janed@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("janed@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant-1", "test-tenant-org-1", tnu1.ID)
 
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jimd@test.com"), db.GetStrPtr("Jim"), db.GetStrPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jimd@test.com"), cutil.GetPtr("Jim"), cutil.GetPtr("Doe"))
 	tn2 := testBuildTenant(t, dbSession, nil, "test-tenant-2", "test-tenant-org-2", tnu2.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -314,9 +317,9 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v1-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tn.CreatedBy)
+			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v1-%v", i), cutil.GetPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tn.CreatedBy)
 		} else {
-			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v2-%v", i), db.GetStrPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusDeleting), tn.CreatedBy)
+			nvllp = testBuildNVLinkLogicalPartition(t, dbSession, nil, fmt.Sprintf("test-NVLinkLogicalPartition-batch-v2-%v", i), cutil.GetPtr(fmt.Sprintf("test-NVLinkLogicalPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusDeleting), tn.CreatedBy)
 		}
 
 		nvlinkLogicalPartitions = append(nvlinkLogicalPartitions, *nvllp)
@@ -435,7 +438,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs: nil,
 				siteIDs:   []uuid.UUID{st.ID},
 				orgs:      nil,
-				limit:     db.GetIntPtr(10),
+				limit:     cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount,
@@ -451,7 +454,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs: []uuid.UUID{tn1.ID},
 				siteIDs:   nil,
 				orgs:      nil,
-				offset:    db.GetIntPtr(5),
+				offset:    cutil.GetPtr(5),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount / 2,
@@ -515,7 +518,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-NVLinkLogicalPartition-batch-v1-"),
+				searchQuery: cutil.GetPtr("test-NVLinkLogicalPartition-batch-v1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -531,7 +534,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-NVLinkLogicalPartition-desc-batch-1-"),
+				searchQuery: cutil.GetPtr("test-NVLinkLogicalPartition-desc-batch-1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -580,7 +583,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-NVLinkLogicalPartition-batch-v1- | ready"),
+				searchQuery: cutil.GetPtr("test-NVLinkLogicalPartition-batch-v1- | ready"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -596,7 +599,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-NVLinkLogicalPartition-desc-batch-1- error"),
+				searchQuery: cutil.GetPtr("test-NVLinkLogicalPartition-desc-batch-1- error"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -612,7 +615,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-NVLinkLogicalPartition-desc-batch-3- error"),
+				searchQuery: cutil.GetPtr("test-NVLinkLogicalPartition-desc-batch-3- error"),
 			},
 			wantCount:      0,
 			wantTotalCount: 0,
@@ -628,7 +631,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(""),
+				searchQuery: cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -644,7 +647,7 @@ func TestNVLinkLogicalPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(""),
+				searchQuery: cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -742,17 +745,17 @@ func TestNVLinkLogicalPartitionSQLDAO_Create(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	nvllp := &NVLinkLogicalPartition{
 		Name:        "test-NVLinkLogicalPartition",
-		Description: db.GetStrPtr("Test NVLinkLogicalPartition"),
+		Description: cutil.GetPtr("Test NVLinkLogicalPartition"),
 		Org:         tn.Org,
 		SiteID:      st.ID,
 		TenantID:    tn.ID,
@@ -859,19 +862,19 @@ func TestNVLinkLogicalPartitionSQLDAO_Update(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	uNVLinkLogicalPartition := &NVLinkLogicalPartition{
 		Name:            "test-updated",
-		Description:     db.GetStrPtr("Test Updated"),
+		Description:     cutil.GetPtr("Test Updated"),
 		Status:          NVLinkLogicalPartitionStatusReady,
 		IsMissingOnSite: true,
 	}
@@ -988,15 +991,15 @@ func TestNVLinkLogicalPartitionSQLDAO_Delete(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -1055,15 +1058,15 @@ func TestNVLinkLogicalPartitionSQLDAO_Clear(t *testing.T) {
 	testNVLinkLogicalPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-NVLinkLogicalPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())

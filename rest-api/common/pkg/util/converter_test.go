@@ -5,8 +5,11 @@ package util
 
 import (
 	"math"
+	"reflect"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +58,42 @@ func TestUint32PtrToIntPtr(t *testing.T) {
 			assert.Equal(t, tc.want, *got)
 		})
 	}
+}
+
+func TestGetPtr(t *testing.T) {
+	t.Run("string", func(t *testing.T) {
+		s := "test"
+		got := GetPtr(s)
+		if *got != s {
+			t.Errorf("GetPtr(string) = %v, want %v", *got, s)
+		}
+	})
+	t.Run("int", func(t *testing.T) {
+		i := 10
+		got := GetPtr(i)
+		if *got != i {
+			t.Errorf("GetPtr(int) = %v, want %v", *got, i)
+		}
+	})
+	t.Run("bool", func(t *testing.T) {
+		b := true
+		got := GetPtr(b)
+		if *got != b {
+			t.Errorf("GetPtr(bool) = %v, want %v", *got, b)
+		}
+	})
+	t.Run("uuid.UUID", func(t *testing.T) {
+		u := uuid.New()
+		got := GetPtr(u)
+		if !reflect.DeepEqual(got, &u) {
+			t.Errorf("GetPtr(uuid.UUID) = %v, want %v", *got, u)
+		}
+	})
+	t.Run("time.Time", func(t *testing.T) {
+		ti := time.Now().UTC().Round(time.Microsecond)
+		got := GetPtr(ti)
+		if *got != ti {
+			t.Errorf("GetPtr(time.Time) = %v, want %v", *got, ti)
+		}
+	})
 }

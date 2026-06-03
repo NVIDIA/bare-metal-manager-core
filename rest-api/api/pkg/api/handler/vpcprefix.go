@@ -233,8 +233,8 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), *cdb.GetStrPtr(cdbm.VpcPrefixStatusReady),
-			cdb.GetStrPtr("Received VPC prefix creation request, ready"))
+		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), *cutil.GetPtr(cdbm.VpcPrefixStatusReady),
+			cutil.GetPtr("Received VPC prefix creation request, ready"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC prefix", nil)
@@ -851,7 +851,7 @@ func (ush UpdateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		fetchedSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		fetchedSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC prefix from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for VPC prefix", nil)
@@ -1044,7 +1044,7 @@ func (dsh DeleteVpcPrefixHandler) Handle(c echo.Context) error {
 	// Verify no instances are using the VPC prefix
 	ifcDAO := cdbm.NewInterfaceDAO(dsh.dbSession)
 
-	_, ifcCount, err := ifcDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{VpcPrefixID: &vpcPrefix.ID}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+	_, ifcCount, err := ifcDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{VpcPrefixID: &vpcPrefix.ID}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Interfaces for VPC prefix from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve check for active Interfaces using VPC Prefix, DB error", nil)

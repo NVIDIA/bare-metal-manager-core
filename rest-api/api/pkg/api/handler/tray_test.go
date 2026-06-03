@@ -13,16 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +21,18 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	tmocks "go.temporal.io/sdk/mocks"
+
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
 )
 
 func testTrayInitDB(t *testing.T) *cdb.Session {
@@ -124,9 +126,9 @@ func testTrayBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string,
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("test@test.com"),
-			FirstName:   cdb.GetStrPtr("Test"),
-			LastName:    cdb.GetStrPtr("User"),
+			Email:       cutil.GetPtr("test@test.com"),
+			FirstName:   cutil.GetPtr("Test"),
+			LastName:    cutil.GetPtr("User"),
 			OrgData:     OrgData,
 		},
 	)
@@ -413,7 +415,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -427,7 +429,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -441,7 +443,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents[:2], 2),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 			wantErr:        false,
 		},
 		{
@@ -455,7 +457,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -470,7 +472,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents[:2], int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -484,7 +486,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -498,7 +500,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{

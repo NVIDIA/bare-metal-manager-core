@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPIStatusDetail(t *testing.T) {
@@ -22,7 +23,7 @@ func TestNewAPIStatusDetail(t *testing.T) {
 		ID:       uuid.New(),
 		EntityID: uuid.NewString(),
 		Status:   cdbm.SiteStatusPending,
-		Message:  cdb.GetStrPtr("received request, pending processing"),
+		Message:  cutil.GetPtr("received request, pending processing"),
 		Count:    1,
 		Created:  time.Now(),
 		Updated:  time.Now(),

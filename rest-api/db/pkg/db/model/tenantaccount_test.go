@@ -12,11 +12,14 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 func testTenantAccountInitDB(t *testing.T) *db.Session {
@@ -48,9 +51,9 @@ func testTenantAccountBuildInfrastructureProvider(t *testing.T, dbSession *db.Se
 	ip := &InfrastructureProvider{
 		ID:             uuid.New(),
 		Name:           name,
-		DisplayName:    db.GetStrPtr("Test Provider"),
+		DisplayName:    cutil.GetPtr("Test Provider"),
 		Org:            "test",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -62,9 +65,9 @@ func testTenantAccountBuildTenant(t *testing.T, dbSession *db.Session, name stri
 	tenant := &Tenant{
 		ID:             uuid.New(),
 		Name:           name,
-		DisplayName:    db.GetStrPtr("Test Tenant"),
+		DisplayName:    cutil.GetPtr("Test Tenant"),
 		Org:            org,
-		OrgDisplayName: db.GetStrPtr(name + "-display"),
+		OrgDisplayName: cutil.GetPtr(name + "-display"),
 		CreatedBy:      uuid.New(),
 	}
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
@@ -75,10 +78,10 @@ func testTenantAccountBuildTenant(t *testing.T, dbSession *db.Session, name stri
 func testTenantAccountBuildUser(t *testing.T, dbSession *db.Session, starfleetID string, firstName string, lastName string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr(fmt.Sprintf("%s.%s@test.com", firstName, lastName)),
-		FirstName:   db.GetStrPtr(firstName),
-		LastName:    db.GetStrPtr(lastName),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr(fmt.Sprintf("%s.%s@test.com", firstName, lastName)),
+		FirstName:   cutil.GetPtr(firstName),
+		LastName:    cutil.GetPtr(lastName),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -180,7 +183,7 @@ func TestTenantAccountSQLDAO_Create(t *testing.T) {
 				{
 					AccountNumber:            "1213",
 					InfrastructureProviderID: ip.ID,
-					TenantID:                 db.GetUUIDPtr(uuid.New()),
+					TenantID:                 cutil.GetPtr(uuid.New()),
 					Status:                   TenantAccountStatusPending,
 					CreatedBy:                user.ID,
 				},
@@ -235,8 +238,8 @@ func TestTenantAccountSQLDAO_GetByID(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("subsid"),
-			SubscriptionTier:          db.GetStrPtr("subtier"),
+			SubscriptionID:            cutil.GetPtr("subsid"),
+			SubscriptionTier:          cutil.GetPtr("subtier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -250,8 +253,8 @@ func TestTenantAccountSQLDAO_GetByID(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("subsid"),
-			SubscriptionTier:          db.GetStrPtr("subtier"),
+			SubscriptionID:            cutil.GetPtr("subsid"),
+			SubscriptionTier:          cutil.GetPtr("subtier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -264,7 +267,7 @@ func TestTenantAccountSQLDAO_GetByID(t *testing.T) {
 		SubscriptionTier: nil,
 		TenantID:         nil,
 		TenantContactID:  &user.ID,
-		Status:           db.GetStrPtr(TenantAccountStatusReady),
+		Status:           cutil.GetPtr(TenantAccountStatusReady),
 	})
 	assert.Nil(t, err)
 	assert.NotNil(t, ta)
@@ -350,8 +353,8 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("subsid"),
-			SubscriptionTier:          db.GetStrPtr("subtier"),
+			SubscriptionID:            cutil.GetPtr("subsid"),
+			SubscriptionTier:          cutil.GetPtr("subtier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -365,8 +368,8 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("subsid"),
-			SubscriptionTier:          db.GetStrPtr("subtier"),
+			SubscriptionID:            cutil.GetPtr("subsid"),
+			SubscriptionTier:          cutil.GetPtr("subtier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -379,7 +382,7 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 		SubscriptionTier: nil,
 		TenantID:         nil,
 		TenantContactID:  &user.ID,
-		Status:           db.GetStrPtr(TenantAccountStatusReady),
+		Status:           cutil.GetPtr(TenantAccountStatusReady),
 	})
 	assert.Nil(t, err)
 	assert.NotNil(t, ta2)
@@ -418,7 +421,7 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 				TenantAccountStatusReady:   1,
 				"total":                    2,
 			},
-			reqIP:              db.GetUUIDPtr(ip.ID),
+			reqIP:              cutil.GetPtr(ip.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -439,7 +442,7 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 				TenantAccountStatusReady:   1,
 				"total":                    2,
 			},
-			reqTenant: db.GetUUIDPtr(tn.ID),
+			reqTenant: cutil.GetPtr(tn.ID),
 		},
 		{
 			name: "get tenantaccount status count by unexisted infrastructure provider with no tenantaccount returns success",
@@ -452,7 +455,7 @@ func TestTenantAccountSQLDAO_GetCountByStatus(t *testing.T) {
 			wantErr:   nil,
 			wantEmpty: true,
 			wantCount: 0,
-			reqIP:     db.GetUUIDPtr(uuid.New()),
+			reqIP:     cutil.GetPtr(uuid.New()),
 		},
 		{
 			name: "get tenantaccount status count with no filter tenantaccount returns success",
@@ -536,8 +539,8 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 					TenantOrg:                 tenant.Org,
 					InfrastructureProviderID:  ip1.ID,
 					InfrastructureProviderOrg: ip1.Org,
-					SubscriptionID:            db.GetStrPtr("subsid"),
-					SubscriptionTier:          db.GetStrPtr("subtier"),
+					SubscriptionID:            cutil.GetPtr("subsid"),
+					SubscriptionTier:          cutil.GetPtr("subtier"),
 					Status:                    TenantAccountStatusPending,
 					CreatedBy:                 createUser.ID,
 				},
@@ -553,8 +556,8 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 					TenantOrg:                 tenant.Org,
 					InfrastructureProviderID:  ip2.ID,
 					InfrastructureProviderOrg: ip2.Org,
-					SubscriptionID:            db.GetStrPtr("subsid"),
-					SubscriptionTier:          db.GetStrPtr("subtier"),
+					SubscriptionID:            cutil.GetPtr("subsid"),
+					SubscriptionTier:          cutil.GetPtr("subtier"),
 					Status:                    TenantAccountStatusPending,
 					CreatedBy:                 createUser.ID,
 				},
@@ -596,7 +599,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with whitespace-only search query returns objects",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("   "),
+				SearchQuery: cutil.GetPtr("   "),
 			},
 			includeRelations: []string{"TenantContact"},
 			expectedCount:    paginator.DefaultLimit,
@@ -624,7 +627,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with non-existent Infrastructure Provider ID filter returns no objects",
 			filter: TenantAccountFilterInput{
-				InfrastructureProviderID: db.GetUUIDPtr(uuid.New()),
+				InfrastructureProviderID: cutil.GetPtr(uuid.New()),
 			},
 			includeRelations: []string{"TenantContact"},
 			expectedCount:    0,
@@ -654,10 +657,10 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			filter: TenantAccountFilterInput{
 				InfrastructureProviderID: &ip1.ID,
 			},
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -665,9 +668,9 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			filter: TenantAccountFilterInput{
 				InfrastructureProviderID: &ip1.ID,
 			},
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -681,17 +684,17 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &tas[8], // 5th entry is "subnet-8" and would appear first on descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with status returns objects",
 			filter: TenantAccountFilterInput{
-				Statuses: []string{*db.GetStrPtr(TenantAccountStatusPending)},
+				Statuses: []string{*cutil.GetPtr(TenantAccountStatusPending)},
 			},
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
@@ -702,7 +705,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &tas[9],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc: "GetAll with order by tenant name and tenant relation",
@@ -712,7 +715,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:       &tas[9],
 			expectedCount:    20,
-			expectedTotal:    db.GetIntPtr(totalCount),
+			expectedTotal:    cutil.GetPtr(totalCount),
 			includeRelations: []string{TenantRelationName},
 		},
 		{
@@ -723,7 +726,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &tas[9],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc: "GetAll with order by tenant display name and tenant relation",
@@ -733,7 +736,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:       &tas[9],
 			expectedCount:    20,
-			expectedTotal:    db.GetIntPtr(totalCount),
+			expectedTotal:    cutil.GetPtr(totalCount),
 			includeRelations: []string{TenantRelationName},
 		},
 		{
@@ -744,7 +747,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &tas[29],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc: "GetAll with order by tenant contact email and tenant contact relation",
@@ -754,7 +757,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:       &tas[29],
 			expectedCount:    20,
-			expectedTotal:    db.GetIntPtr(totalCount),
+			expectedTotal:    cutil.GetPtr(totalCount),
 			includeRelations: []string{TenantContactRelationName},
 		},
 		{
@@ -765,7 +768,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &tas[29],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc: "GetAll with order by tenant contact full name and tenant contact relation",
@@ -775,13 +778,13 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:       &tas[29],
 			expectedCount:    20,
-			expectedTotal:    db.GetIntPtr(totalCount),
+			expectedTotal:    cutil.GetPtr(totalCount),
 			includeRelations: []string{TenantContactRelationName},
 		},
 		{
 			desc: "GetAll with search query matching account_number",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("account-number-0"),
+				SearchQuery: cutil.GetPtr("account-number-0"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -789,7 +792,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query matching tenant_org",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("test-tenant-org-29"),
+				SearchQuery: cutil.GetPtr("test-tenant-org-29"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -797,7 +800,7 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query matching tenant org_display_name",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("test-tenant-5-display"),
+				SearchQuery: cutil.GetPtr("test-tenant-5-display"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -805,16 +808,16 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query no matches",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("nonexistent-query-xyz"),
+				SearchQuery: cutil.GetPtr("nonexistent-query-xyz"),
 			},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with search query case insensitive",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("ACCOUNT-NUMBER-0"),
+				SearchQuery: cutil.GetPtr("ACCOUNT-NUMBER-0"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -822,11 +825,11 @@ func TestTenantAccountSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query combined with status filter",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("account-number"),
+				SearchQuery: cutil.GetPtr("account-number"),
 				Statuses:    []string{TenantAccountStatusPending},
 			},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 	}
@@ -891,8 +894,8 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 					TenantOrg:                 tenant.Org,
 					InfrastructureProviderID:  ip1.ID,
 					InfrastructureProviderOrg: ip1.Org,
-					SubscriptionID:            db.GetStrPtr("subsid"),
-					SubscriptionTier:          db.GetStrPtr("subtier"),
+					SubscriptionID:            cutil.GetPtr("subsid"),
+					SubscriptionTier:          cutil.GetPtr("subtier"),
 					Status:                    TenantAccountStatusPending,
 					CreatedBy:                 user.ID,
 				},
@@ -906,8 +909,8 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 					TenantOrg:                 tenant.Org,
 					InfrastructureProviderID:  ip2.ID,
 					InfrastructureProviderOrg: ip2.Org,
-					SubscriptionID:            db.GetStrPtr("subsid"),
-					SubscriptionTier:          db.GetStrPtr("subtier"),
+					SubscriptionID:            cutil.GetPtr("subsid"),
+					SubscriptionTier:          cutil.GetPtr("subtier"),
 					Status:                    TenantAccountStatusPending,
 					CreatedBy:                 user.ID,
 				},
@@ -954,7 +957,7 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with non-existent Infrastructure Provider ID filter returns no objects",
 			filter: TenantAccountFilterInput{
-				InfrastructureProviderID: db.GetUUIDPtr(uuid.New()),
+				InfrastructureProviderID: cutil.GetPtr(uuid.New()),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -979,7 +982,7 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with status returns objects",
 			filter: TenantAccountFilterInput{
-				Statuses: []string{*db.GetStrPtr(TenantAccountStatusPending)},
+				Statuses: []string{*cutil.GetPtr(TenantAccountStatusPending)},
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -987,7 +990,7 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with search query and status filter combined",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("account-number-0"),
+				SearchQuery: cutil.GetPtr("account-number-0"),
 				Statuses:    []string{TenantAccountStatusPending},
 			},
 			expectedCount: 1,
@@ -996,7 +999,7 @@ func TestTenantAccountSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with search query no matches",
 			filter: TenantAccountFilterInput{
-				SearchQuery: db.GetStrPtr("nonexistent-query-xyz"),
+				SearchQuery: cutil.GetPtr("nonexistent-query-xyz"),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -1042,8 +1045,8 @@ func TestTenantAccountSQLDAO_Update(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("SubscriptionID"),
-			SubscriptionTier:          db.GetStrPtr("SubscriptionTier"),
+			SubscriptionID:            cutil.GetPtr("SubscriptionID"),
+			SubscriptionTier:          cutil.GetPtr("SubscriptionTier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -1058,8 +1061,8 @@ func TestTenantAccountSQLDAO_Update(t *testing.T) {
 			TenantOrg:                 tn2.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("SubscriptionID"),
-			SubscriptionTier:          db.GetStrPtr("SubscriptionTier"),
+			SubscriptionID:            cutil.GetPtr("SubscriptionID"),
+			SubscriptionTier:          cutil.GetPtr("SubscriptionTier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},
@@ -1093,16 +1096,16 @@ func TestTenantAccountSQLDAO_Update(t *testing.T) {
 			ta:   ta,
 
 			paramTenantID:         nil,
-			paramSubscriptionID:   db.GetStrPtr("updatedSubscriptionID"),
-			paramSubscriptionTier: db.GetStrPtr("updatedSubscriptionTier"),
+			paramSubscriptionID:   cutil.GetPtr("updatedSubscriptionID"),
+			paramSubscriptionTier: cutil.GetPtr("updatedSubscriptionTier"),
 			paramTenantContactID:  nil,
-			paramStatus:           db.GetStrPtr(TenantAccountStatusReady),
+			paramStatus:           cutil.GetPtr(TenantAccountStatusReady),
 
 			expectedTenantID:         ta.TenantID,
-			expectedSubscriptionID:   db.GetStrPtr("updatedSubscriptionID"),
-			expectedSubscriptionTier: db.GetStrPtr("updatedSubscriptionTier"),
+			expectedSubscriptionID:   cutil.GetPtr("updatedSubscriptionID"),
+			expectedSubscriptionTier: cutil.GetPtr("updatedSubscriptionTier"),
 			expectedTenantContactID:  ta.TenantContactID,
-			expectedStatus:           db.GetStrPtr(TenantAccountStatusReady),
+			expectedStatus:           cutil.GetPtr(TenantAccountStatusReady),
 			verifyChildSpanner:       true,
 		},
 		{
@@ -1112,14 +1115,14 @@ func TestTenantAccountSQLDAO_Update(t *testing.T) {
 			paramTenantID:         nil,
 			paramSubscriptionID:   nil,
 			paramSubscriptionTier: nil,
-			paramTenantContactID:  db.GetUUIDPtr(user2.ID),
+			paramTenantContactID:  cutil.GetPtr(user2.ID),
 			paramStatus:           nil,
 
 			expectedTenantID:         ta.TenantID,
-			expectedSubscriptionID:   db.GetStrPtr("updatedSubscriptionID"),
-			expectedSubscriptionTier: db.GetStrPtr("updatedSubscriptionTier"),
-			expectedTenantContactID:  db.GetUUIDPtr(user2.ID),
-			expectedStatus:           db.GetStrPtr(TenantAccountStatusReady),
+			expectedSubscriptionID:   cutil.GetPtr("updatedSubscriptionID"),
+			expectedSubscriptionTier: cutil.GetPtr("updatedSubscriptionTier"),
+			expectedTenantContactID:  cutil.GetPtr(user2.ID),
+			expectedStatus:           cutil.GetPtr(TenantAccountStatusReady),
 		},
 		{
 			desc: "can update Tenant ID",
@@ -1132,10 +1135,10 @@ func TestTenantAccountSQLDAO_Update(t *testing.T) {
 			paramStatus:           nil,
 
 			expectedTenantID:         &tn2.ID,
-			expectedSubscriptionID:   db.GetStrPtr("SubscriptionID"),
-			expectedSubscriptionTier: db.GetStrPtr("SubscriptionTier"),
+			expectedSubscriptionID:   cutil.GetPtr("SubscriptionID"),
+			expectedSubscriptionTier: cutil.GetPtr("SubscriptionTier"),
 			expectedTenantContactID:  ta2.TenantContactID,
-			expectedStatus:           db.GetStrPtr(TenantAccountStatusPending),
+			expectedStatus:           cutil.GetPtr(TenantAccountStatusPending),
 		},
 	}
 	for _, tc := range tests {
@@ -1198,8 +1201,8 @@ func TestTenantAccountSQLDAO_Delete(t *testing.T) {
 			TenantOrg:                 tn.Org,
 			InfrastructureProviderID:  ip.ID,
 			InfrastructureProviderOrg: ip.Org,
-			SubscriptionID:            db.GetStrPtr("subsid"),
-			SubscriptionTier:          db.GetStrPtr("subtier"),
+			SubscriptionID:            cutil.GetPtr("subsid"),
+			SubscriptionTier:          cutil.GetPtr("subtier"),
 			Status:                    TenantAccountStatusPending,
 			CreatedBy:                 user.ID,
 		},

@@ -133,7 +133,7 @@ func (gamch GetAllMachineCapabilityHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid value: %v specified for hasInstanceType in query", qHasInstanceType), nil)
 		}
 
-		hasInstanceType = cdb.GetBoolPtr(hiType)
+		hasInstanceType = cutil.GetPtr(hiType)
 	}
 
 	// Get Machines
@@ -146,7 +146,7 @@ func (gamch GetAllMachineCapabilityHandler) Handle(c echo.Context) error {
 		filterInput.SiteIDs = []uuid.UUID{site.ID}
 	}
 
-	ms, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	ms, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting Machines from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machines, DB error", nil)

@@ -9,13 +9,16 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func getIntPtrToUint32Ptr(i *int) *uint32 {
@@ -58,16 +61,16 @@ func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 
 	rule := &NetworkSecurityGroupRule{
 		&cwssaws.NetworkSecurityGroupRuleAttributes{
-			Id:             db.GetStrPtr(uuid.NewString()),
+			Id:             cutil.GetPtr(uuid.NewString()),
 			Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 			Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY,
 			Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 			Priority:       55,
 			Ipv6:           false, // We have support for it in ACLs but pretty much nowhere else, so we hide this for now.
-			SrcPortStart:   getIntPtrToUint32Ptr(db.GetIntPtr(55)),
-			SrcPortEnd:     getIntPtrToUint32Ptr(db.GetIntPtr(56)),
-			DstPortStart:   getIntPtrToUint32Ptr(db.GetIntPtr(57)),
-			DstPortEnd:     getIntPtrToUint32Ptr(db.GetIntPtr(58)),
+			SrcPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(55)),
+			SrcPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(56)),
+			DstPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(57)),
+			DstPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(58)),
 			SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
 			DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 		},
@@ -94,7 +97,7 @@ func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 				Version:        "anything",
 				ID:             uuid.NewString(),
 				Name:           "test",
-				Description:    db.GetStrPtr("test"),
+				Description:    cutil.GetPtr("test"),
 				SiteID:         site.ID,
 				TenantOrg:      tenant.Org,
 				TenantID:       tenant.ID,
@@ -110,14 +113,14 @@ func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 		{
 			desc: "success - with nullable fields not set",
 			sg: NetworkSecurityGroup{
-				Version: "anything", ID: uuid.NewString(), Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
+				Version: "anything", ID: uuid.NewString(), Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
 			},
 			expectError: false,
 		},
 		{
 			desc: "failure - rule list with nil rule",
 			sg: NetworkSecurityGroup{
-				ID: uuid.NewString(), Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
+				ID: uuid.NewString(), Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
 				Rules: badRules,
 			},
 			expectError: true,
@@ -126,7 +129,7 @@ func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 		{
 			desc: "error - when foreign key fails on non-null tenant ID",
 			sg: NetworkSecurityGroup{
-				ID: uuid.NewString(), Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantID: uuid.New(), Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
+				ID: uuid.NewString(), Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantID: uuid.New(), Status: NetworkSecurityGroupStatusPending, CreatedBy: user.ID,
 			},
 			expectError: true,
 		},
@@ -136,7 +139,7 @@ func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 			got, err := sgsd.Create(
 				ctx, nil,
 				NetworkSecurityGroupCreateInput{
-					NetworkSecurityGroupID: db.GetStrPtr(tc.sg.ID),
+					NetworkSecurityGroupID: cutil.GetPtr(tc.sg.ID),
 					Name:                   tc.sg.Name,
 					Description:            tc.sg.Description,
 					SiteID:                 tc.sg.SiteID,
@@ -193,11 +196,11 @@ func TestNetworkSecurityGroupSQLDAO_GetByID(t *testing.T) {
 	user := testInstanceBuildUser(t, dbSession, "testUser")
 
 	sgsd := NewNetworkSecurityGroupDAO(dbSession)
-	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
+	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
 	assert.Nil(t, err)
 	assert.NotNil(t, sg1)
 
-	sg2, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
+	sg2, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
 	assert.Nil(t, err)
 	assert.NotNil(t, sg1)
 
@@ -281,7 +284,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 	nsgIDs := []string{}
 
 	for i := 1; i < 26; i++ {
-		sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: fmt.Sprintf("test%d", i), Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
+		sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: fmt.Sprintf("test%d", i), Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
 		assert.Nil(t, err)
 		assert.NotNil(t, sg1)
 
@@ -355,7 +358,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			desc:           "getall name filter",
 			paramSiteID:    []uuid.UUID{site.ID},
 			paramTenantOrg: []string{tenant.Org},
-			paramName:      db.GetStrPtr("test1"),
+			paramName:      cutil.GetPtr("test1"),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -387,8 +390,8 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
 
-			paramOffset: db.GetIntPtr(10),
-			paramLimit:  db.GetIntPtr(10),
+			paramOffset: cutil.GetPtr(10),
+			paramLimit:  cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -406,7 +409,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			paramSiteID:           nil,
 			paramTenantOrg:        nil,
 			paramStatus:           nil,
-			searchQuery:           db.GetStrPtr("test"),
+			searchQuery:           cutil.GetPtr("test"),
 			includeRelations:      []string{},
 			expectFirstObjectName: "test1",
 			expectError:           false,
@@ -418,7 +421,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			paramSiteID:           nil,
 			paramTenantOrg:        nil,
 			paramStatus:           nil,
-			searchQuery:           db.GetStrPtr("test"),
+			searchQuery:           cutil.GetPtr("test"),
 			includeRelations:      []string{},
 			expectFirstObjectName: "test1",
 			expectError:           false,
@@ -430,7 +433,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			paramSiteID:           nil,
 			paramTenantOrg:        nil,
 			paramStatus:           nil,
-			searchQuery:           db.GetStrPtr(NetworkSecurityGroupStatusPending),
+			searchQuery:           cutil.GetPtr(NetworkSecurityGroupStatusPending),
 			includeRelations:      []string{},
 			expectFirstObjectName: "test1",
 			expectError:           false,
@@ -442,7 +445,7 @@ func TestNetworkSecurityGroupSQLDAO_GetAll(t *testing.T) {
 			paramSiteID:           nil,
 			paramTenantOrg:        nil,
 			paramStatus:           nil,
-			searchQuery:           db.GetStrPtr("test"),
+			searchQuery:           cutil.GetPtr("test"),
 			includeRelations:      []string{},
 			expectFirstObjectName: "test1",
 			expectError:           false,
@@ -509,7 +512,7 @@ func TestNetworkSecurityGroupSQLDAO_Update(t *testing.T) {
 	}
 
 	sgsd := NewNetworkSecurityGroupDAO(dbSession)
-	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Version: db.GetStrPtr("12345"), Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
+	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Version: cutil.GetPtr("12345"), Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
 	assert.Nil(t, err)
 	assert.NotNil(t, sg1)
 
@@ -549,19 +552,19 @@ func TestNetworkSecurityGroupSQLDAO_Update(t *testing.T) {
 			desc: "can update all fields",
 			id:   sg1.ID,
 
-			paramName:           db.GetStrPtr("updatedName"),
-			paramDescription:    db.GetStrPtr("updatedDesc"),
-			paramStatus:         db.GetStrPtr(NetworkSecurityGroupStatusReady),
-			paramVersion:        db.GetStrPtr("555555"),
+			paramName:           cutil.GetPtr("updatedName"),
+			paramDescription:    cutil.GetPtr("updatedDesc"),
+			paramStatus:         cutil.GetPtr(NetworkSecurityGroupStatusReady),
+			paramVersion:        cutil.GetPtr("555555"),
 			paramStatefulEgress: &ptrTrue,
 			paramRules:          rules,
 			paramLabels:         map[string]string{"key": "value"},
 			paramUpdatedByID:    user2.ID,
 
-			expectedName:           db.GetStrPtr("updatedName"),
-			expectedDescription:    db.GetStrPtr("updatedDesc"),
-			expectedStatus:         db.GetStrPtr(NetworkSecurityGroupStatusReady),
-			expectedVersion:        db.GetStrPtr("555555"),
+			expectedName:           cutil.GetPtr("updatedName"),
+			expectedDescription:    cutil.GetPtr("updatedDesc"),
+			expectedStatus:         cutil.GetPtr(NetworkSecurityGroupStatusReady),
+			expectedVersion:        cutil.GetPtr("555555"),
 			expectedLabels:         map[string]string{"key": "value"},
 			expectedUpdatedByID:    &user2.ID,
 			expectedTenantID:       &sg1.TenantID,
@@ -645,7 +648,7 @@ func TestNetworkSecurityGroupSQLDAO_DeleteByID(t *testing.T) {
 	user := testInstanceBuildUser(t, dbSession, "testUser")
 
 	sgsd := NewNetworkSecurityGroupDAO(dbSession)
-	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: db.GetStrPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
+	sg1, err := sgsd.Create(ctx, nil, NetworkSecurityGroupCreateInput{Name: "test", Description: cutil.GetPtr("test"), SiteID: site.ID, TenantOrg: tenant.Org, TenantID: tenant.ID, Status: NetworkSecurityGroupStatusPending, CreatedByID: user.ID})
 	assert.Nil(t, err)
 	assert.NotNil(t, sg1)
 

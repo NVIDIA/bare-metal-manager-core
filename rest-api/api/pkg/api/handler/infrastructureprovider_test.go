@@ -11,21 +11,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+
+	tmocks "go.temporal.io/sdk/mocks"
+
 	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	tmocks "go.temporal.io/sdk/mocks"
 )
 
 func setupSessionAndInfrastructureProviderTables(t *testing.T) *cdb.Session {
@@ -356,10 +359,10 @@ func TestGetCurrentInfrastructureProviderStatsHandler_Handle(t *testing.T) {
 	assert.NotNil(t, ipb2)
 
 	// Build Machine
-	m1 := testMachineBuildMachine(t, dbSession, ip1.ID, site1.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusInitializing)
+	m1 := testMachineBuildMachine(t, dbSession, ip1.ID, site1.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusInitializing)
 	assert.NotNil(t, m1)
 
-	m2 := testMachineBuildMachine(t, dbSession, ip1.ID, site1.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusInitializing)
+	m2 := testMachineBuildMachine(t, dbSession, ip1.ID, site1.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusInitializing)
 	assert.NotNil(t, m2)
 
 	// Build Tenant Account

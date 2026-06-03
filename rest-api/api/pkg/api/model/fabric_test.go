@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
@@ -37,7 +39,7 @@ func TestMachine_NewAPIFabric(t *testing.T) {
 	dbf.Site = &cdbm.Site{
 		ID:                       dbf.SiteID,
 		Name:                     "test-site",
-		Description:              cdb.GetStrPtr("Test Description"),
+		Description:              cutil.GetPtr("Test Description"),
 		InfrastructureProviderID: dbf.InfrastructureProviderID,
 		Status:                   cdbm.SiteStatusRegistered,
 		Created:                  cdb.GetCurTime(),

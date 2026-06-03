@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 
@@ -46,7 +46,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 
 	ssd := cdbm.NewSkuDAO(dbSession)
-	skus, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	skus, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Equal(t, id1, skus[0].ID)
@@ -58,7 +58,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	inv2 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{{Id: id1}}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 
-	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 
@@ -66,7 +66,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	inv3 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv3))
 
-	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 0, total)
 }
@@ -101,7 +101,7 @@ func TestManageSku_InventoryStatusFailed_Skip(t *testing.T) {
 
 	// Ensure original remains and no changes happened
 	ssd := cdbm.NewSkuDAO(dbSession)
-	_, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	_, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, total)
 }
@@ -138,7 +138,7 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 		InventoryPage:   &cwssaws.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: []string{seed[0], seed[1]}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
-	_, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	_, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 3, total)
 
@@ -150,7 +150,7 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 
-	got, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(100)})
+	got, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 2, total)
 	// Remaining should be sku-1 and sku-2

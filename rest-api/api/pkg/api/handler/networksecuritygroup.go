@@ -16,6 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"go.opentelemetry.io/otel/attribute"
+	temporalClient "go.temporal.io/sdk/client"
+	tp "go.temporal.io/sdk/temporal"
+
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	common "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
@@ -30,9 +34,6 @@ import (
 	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
 	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"go.opentelemetry.io/otel/attribute"
-	temporalClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -167,7 +168,7 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	// Another case where we might want to leave this to NICo
 	// and simply return the error and map the response code from
 	// the sync call to the appropriate http status code.
-	nsgs, tot, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{Name: &apiRequest.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	nsgs, tot, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{Name: &apiRequest.Name, TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error checking for existing NetworkSecurityGroup")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for existing Network Security Group", nil)
@@ -222,7 +223,7 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 				TenantID:               tenant.ID,
 				TenantOrg:              tenant.Org,
 				SiteID:                 site.ID,
-				NetworkSecurityGroupID: cdb.GetStrPtr(networkSecurityGroupID),
+				NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupID),
 				StatefulEgress:         apiRequest.StatefulEgress,
 				Rules:                  rules,
 				Labels:                 apiRequest.Labels,
@@ -236,8 +237,8 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cdb.GetStrPtr(cdbm.NetworkSecurityGroupStatusReady),
-			cdb.GetStrPtr("processed network security group creation request"))
+		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusReady),
+			cutil.GetPtr("processed network security group creation request"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Network Security Group, DB error", nil)
@@ -545,12 +546,12 @@ func (gansgh GetAllNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		insDAO := cdbm.NewInstanceDAO(gansgh.dbSession)
 		vpcDAO := cdbm.NewVpcDAO(gansgh.dbSession)
 
-		instances, _, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: itIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		instances, _, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: itIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related Instances for Network Security Groups", nil)
 		}
 
-		vpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: itIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		vpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: itIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related VPCs for Network Security Groups", nil)
 		}
@@ -769,12 +770,12 @@ func (gansgh GetNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		insDAO := cdbm.NewInstanceDAO(gansgh.dbSession)
 		vpcDAO := cdbm.NewVpcDAO(gansgh.dbSession)
 
-		_, instanceCount, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+		_, instanceCount, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 		if err != nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related Instances for Network Security Group", nil)
 		}
 
-		_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+		_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 		if err != nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related VPCs for Network Security Group", nil)
 		}
@@ -883,7 +884,7 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	insDAO := cdbm.NewInstanceDAO(dnsgh.dbSession)
 	vpcDAO := cdbm.NewVpcDAO(dnsgh.dbSession)
 
-	_, instanceCount, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+	_, instanceCount, err := insDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related Instances for Network Security Group", nil)
 	}
@@ -892,7 +893,7 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Cannot delete NetworkSecurityGroup, one or more Instances have attached this Network Security Group", nil)
 	}
 
-	_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+	_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NetworkSecurityGroupIDs: []string{nsgID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve related VPCs for Network Security Group", nil)
 	}
@@ -912,7 +913,7 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		// Update NetworkSecurityGroup to set status to Deleting
 		unsgInput := cdbm.NetworkSecurityGroupUpdateInput{
 			NetworkSecurityGroupID: nsg.ID,
-			Status:                 cdb.GetStrPtr(cdbm.NetworkSecurityGroupStatusDeleting),
+			Status:                 cutil.GetPtr(cdbm.NetworkSecurityGroupStatusDeleting),
 		}
 		_, derr := nsgDAO.Update(ctx, tx, unsgInput)
 		if derr != nil {
@@ -933,8 +934,8 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		_, derr = sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cdb.GetStrPtr(cdbm.NetworkSecurityGroupStatusDeleting),
-			cdb.GetStrPtr("received request for deletion, pending processing"))
+		_, derr = sdDAO.CreateFromParams(ctx, tx, nsg.ID, *cutil.GetPtr(cdbm.NetworkSecurityGroupStatusDeleting),
+			cutil.GetPtr("received request for deletion, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Network Security Group", nil)
@@ -1153,7 +1154,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 
 	// If a name change is happening, check for name conflicts.
 	if apiRequest.Name != nil {
-		nsgs, tot, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{Name: apiRequest.Name, TenantOrgs: []string{nsg.TenantOrg}, SiteIDs: []uuid.UUID{nsg.SiteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		nsgs, tot, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{Name: apiRequest.Name, TenantOrgs: []string{nsg.TenantOrg}, SiteIDs: []uuid.UUID{nsg.SiteID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error checking for existing NetworkSecurityGroup")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for existing Network Security Group", nil)
@@ -1225,7 +1226,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details
-		statusDetails, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID, nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		statusDetails, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID, nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for NetworkSecurityGroup from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Network Security Group", nil)
