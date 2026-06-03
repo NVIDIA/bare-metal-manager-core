@@ -20,6 +20,20 @@ use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show validation results for a machine:
+    $ carbide-admin-cli machine-validation results show --machine 12345678-1234-5678-90ab-cdef01234567
+
+Show results for a specific validation run:
+    $ carbide-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567
+
+Show one test's result within a run (with history):
+    $ carbide-admin-cli machine-validation results show --validation-id 12345678-1234-5678-90ab-cdef01234567 \
+    --test-name gpu_bandwidth --history
+
+")]
 pub enum Args {
     #[clap(about = "Show results")]
     Show(ShowResultsOptions),

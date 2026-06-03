@@ -99,6 +99,33 @@ script = '''
 cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
 '''
 
+[tasks.gen-cli-docs]
+category = "Build"
+description = "Generate the carbide-admin-cli markdown reference into docs/cli"
+workspace = false
+# `generate-cli-docs` renders each command's man page and converts it to
+# markdown with pandoc, so the `pandoc` binary must be installed. It writes one
+# directory per top-level command under docs/cli/commands plus the four domain
+# index files (Hardware/Network/Tenant/Admin). The hand-authored pages
+# (README.md, setup.md, workflows.md, rest-cli-parity.md) are left alone.
+script = '''
+cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
+'''
+
+[tasks.check-cli-docs]
+category = "Test"
+description = "Fail if docs/cli is stale or a command is missing a domain"
+workspace = false
+# Keeps the checked-in CLI reference honest as commands are added. First the
+# domain-mapping test fails CI if a new command is not categorized in
+# cli_domains.yaml; then we regenerate and fail if the result differs from
+# what is committed (regenerate locally with `cargo make gen-cli-docs`).
+script = '''
+cargo test -p carbide-admin-cli cfg::cli_options::tests
+cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
+git diff --exit-code -- docs/cli
+'''
+
 [tasks.build-cli]
 category = "Build"
 description = "Build carbide-admin-cli locally using debian container. Ensures correct GCC version is used."

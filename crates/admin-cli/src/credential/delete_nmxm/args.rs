@@ -19,6 +19,13 @@ use clap::Parser;
 use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an NMX-M credential by username:
+    $ carbide-admin-cli credential delete-nmx-m --username admin
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "NmxM url")]
     pub username: String,

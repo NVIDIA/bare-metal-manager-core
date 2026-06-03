@@ -18,6 +18,17 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all instances using an extension service:
+    $ carbide-admin-cli extension-service show-instances --service-id 12345678-1234-5678-90ab-cdef01234567
+
+Show instances using a specific version of the service:
+    $ carbide-admin-cli extension-service show-instances --service-id 12345678-1234-5678-90ab-cdef01234567 \
+    --version 1.0
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "The extension service ID")]
     pub service_id: String,

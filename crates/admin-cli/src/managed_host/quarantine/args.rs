@@ -29,6 +29,14 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Quarantine a host (blocks all host network traffic):
+    $ carbide-admin-cli managed-host quarantine on --host 12345678-1234-5678-90ab-cdef01234567 \
+    --reason \"suspected compromise\"
+
+")]
 pub struct QuarantineOn {
     #[clap(long, required(true), help = "Managed Host ID")]
     pub host: MachineId,
@@ -55,6 +63,13 @@ impl From<QuarantineOn> for forgerpc::SetManagedHostQuarantineStateRequest {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Take a host out of quarantine:
+    $ carbide-admin-cli managed-host quarantine off --host 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct QuarantineOff {
     #[clap(long, required(true), help = "Managed Host ID")]
     pub host: MachineId,

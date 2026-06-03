@@ -58,6 +58,14 @@ pub enum CmdJournal {
 
 /// Delete is used to delete an existing journal entry.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a journal entry by ID:
+    $ carbide-admin-cli attestation measured-boot journal delete \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Delete {
     #[clap(help = "The journal ID to delete.")]
     pub journal_id: MeasurementJournalId,
@@ -65,6 +73,17 @@ pub struct Delete {
 
 /// List is used to list all journal entry IDs.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all journal entries:
+    $ carbide-admin-cli attestation measured-boot journal list
+
+List journal entries for a single machine:
+    $ carbide-admin-cli attestation measured-boot journal list \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct List {
     #[clap(help = "List journal entries for a machine ID.")]
     pub machine_id: Option<MachineId>,
@@ -73,6 +92,17 @@ pub struct List {
 /// Show is used to show a journal entry based on ID, or all entries
 /// if no ID is provided.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all journal entries:
+    $ carbide-admin-cli attestation measured-boot journal show
+
+Show one journal entry by ID:
+    $ carbide-admin-cli attestation measured-boot journal show \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Show {
     #[clap(help = "The optional journal entry ID.")]
     pub journal_id: Option<MeasurementJournalId>,
@@ -81,6 +111,18 @@ pub struct Show {
 /// Promote is used to promote a journal entry's report
 /// into a measurement bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Promote a journal entry's report into a bundle:
+    $ carbide-admin-cli attestation measured-boot journal promote \
+    12345678-1234-5678-90ab-cdef01234567
+
+Promote only specific PCR registers (indices and ranges):
+    $ carbide-admin-cli attestation measured-boot journal promote \
+    12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
+
+")]
 pub struct Promote {
     #[clap(help = "The journal entry ID to promote a report from.")]
     pub journal_id: MeasurementJournalId,

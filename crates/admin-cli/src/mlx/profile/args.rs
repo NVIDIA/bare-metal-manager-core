@@ -24,6 +24,24 @@ use rpc::protos::mlx_device as mlx_device_pb;
 
 // ProfileCommand are the profile subcommands.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all available profiles:
+    $ carbide-admin-cli mlx profile list
+
+Show a profile's details:
+    $ carbide-admin-cli mlx profile show my-profile
+
+Sync a profile to a device on a machine:
+    $ carbide-admin-cli mlx profile sync 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0 \
+    --profile-name my-profile
+
+Compare a device against a profile:
+    $ carbide-admin-cli mlx profile compare 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0 \
+    --profile-name my-profile
+
+")]
 pub enum ProfileCommand {
     #[clap(about = "Synchronize a profile to a device on a given machine")]
     Sync(ProfileSyncCommand),
