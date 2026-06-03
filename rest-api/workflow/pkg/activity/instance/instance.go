@@ -1252,12 +1252,15 @@ func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid
 				TenantOrganizationId: controllerInstance.Config.GetTenant().GetTenantOrganizationId(),
 				TenantKeysetIds:      controllerInstance.Config.GetTenant().GetTenantKeysetIds(),
 			},
-			Os:         controllerInstance.GetConfig().GetOs(),
-			Network:    controllerInstance.GetConfig().GetNetwork(),
-			Infiniband: controllerInstance.GetConfig().GetInfiniband(),
+			Os:                   controllerInstance.GetConfig().GetOs(),
+			Network:              controllerInstance.GetConfig().GetNetwork(),
+			Infiniband:           controllerInstance.GetConfig().GetInfiniband(),
+			Nvlink:               controllerInstance.GetConfig().GetNvlink(),
+			DpuExtensionServices: controllerInstance.GetConfig().GetDpuExtensionServices(),
 		},
 	}
 
+	// The error is only logged because it'll be retried on next inventory update
 	we, err := tc.ExecuteWorkflow(ctx, workflowOptions, "UpdateInstance", updateInstanceRequest)
 	if err != nil {
 		logger.Error().Err(err).Str("Controller Instance ID", controllerInstance.GetId().String()).Msg("failed to trigger workflow to update Instance Metadata")
