@@ -31,10 +31,11 @@ use tracing::instrument;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfFirmwareVersions, PowerShelfManager,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfPowerStateResult,
 };
 use crate::types::FirmwareUpdateOptions;
 
@@ -558,6 +559,84 @@ impl PowerShelfManager for RmsBackend {
                         pmc_mac: ep.pmc_mac,
                         versions: vec![],
                         error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|ep| ep.pmc_mac).collect();
+        let ids = resolve_power_shelf_identities(&self.db, &macs).await?;
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.pmc_mac) else {
+                results.push(PowerShelfPowerStateResult {
+                    pmc_mac: ep.pmc_mac,
+                    power_state: None,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_power_shelf_node_info(ep, identity);
+            let request = rms::GetPowerStateByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
+                ..Default::default()
+            };
+
+            match self.client.get_power_state_by_device_list(request).await {
+                Ok(response) => {
+                    let batch = response.response.clone().unwrap_or_default();
+                    if batch.status != rms::ReturnCode::Success as i32 || batch.failed_nodes != 0 {
+                        let summary = if batch.message.is_empty() {
+                            format!(
+                                "batch status {}, failed_nodes {}",
+                                batch.status, batch.failed_nodes
+                            )
+                        } else {
+                            batch.message.clone()
+                        };
+                        results.push(PowerShelfPowerStateResult {
+                            pmc_mac: ep.pmc_mac,
+                            power_state: None,
+                            error: Some(summary),
+                        });
+                        continue;
+                    }
+
+                    let node_id = identity.node_id.clone();
+                    let power_state = response
+                        .node_power_states
+                        .iter()
+                        .find(|node| node.node_id == node_id)
+                        .map(|node| node.pstate.to_lowercase());
+
+                    results.push(PowerShelfPowerStateResult {
+                        pmc_mac: ep.pmc_mac,
+                        power_state,
+                        error: None,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        pmc_mac = %ep.pmc_mac,
+                        error = %error,
+                        "RMS get power state failed for power shelf"
+                    );
+                    results.push(PowerShelfPowerStateResult {
+                        pmc_mac: ep.pmc_mac,
+                        power_state: None,
+                        error: Some(error.to_string()),
                     });
                 }
             }
@@ -1237,6 +1316,87 @@ impl NvSwitchManager for RmsBackend {
     #[instrument(skip(self), fields(backend = "rms"))]
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         list_firmware_object_ids(self.client.as_ref()).await
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|ep| ep.bmc_mac).collect();
+        let ids = resolve_switch_identities(&self.db, &macs).await?;
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.bmc_mac) else {
+                results.push(SwitchSlotAndTrayResult {
+                    bmc_mac: ep.bmc_mac,
+                    slot_number: None,
+                    tray_index: None,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_switch_node_info(ep, identity);
+            let request = rms::GetDeviceInfoByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
+                ..Default::default()
+            };
+
+            match self.client.get_device_info_by_device_list(request).await {
+                Ok(info) => {
+                    if info.status != rms::ReturnCode::Success as i32 {
+                        let summary = if info.message.is_empty() {
+                            format!("status {}", info.status)
+                        } else {
+                            info.message.clone()
+                        };
+                        results.push(SwitchSlotAndTrayResult {
+                            bmc_mac: ep.bmc_mac,
+                            slot_number: None,
+                            tray_index: None,
+                            error: Some(summary),
+                        });
+                        continue;
+                    }
+
+                    let Some(node_device_info) = info.node_device_info.first() else {
+                        results.push(SwitchSlotAndTrayResult {
+                            bmc_mac: ep.bmc_mac,
+                            slot_number: None,
+                            tray_index: None,
+                            error: None,
+                        });
+                        continue;
+                    };
+
+                    results.push(SwitchSlotAndTrayResult {
+                        bmc_mac: ep.bmc_mac,
+                        slot_number: node_device_info.slot_number,
+                        tray_index: node_device_info.tray_index,
+                        error: None,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        bmc_mac = %ep.bmc_mac,
+                        error = %error,
+                        "RMS get slot and tray failed for switch"
+                    );
+                    results.push(SwitchSlotAndTrayResult {
+                        bmc_mac: ep.bmc_mac,
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
     }
 }
 

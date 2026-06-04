@@ -287,6 +287,7 @@ pub struct TestEnv {
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
+    pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
     pub drop_guard: DropGuard,
     // Background tasks are spawned here, hold it so they don't get dropped.
     pub join_set: JoinSet<()>,
@@ -325,13 +326,13 @@ impl TestEnv {
     pub fn rack_state_handler_services(&self) -> RackStateHandlerServices {
         RackStateHandlerServices {
             db_pool: self.pool.clone(),
+            rms_client: self.rms_sim.as_rms_client(),
             site_config: RackConfig {
                 rms: self.config.rms.clone(),
                 rack_validation_config: self.config.rack_validation_config.clone(),
                 rack_profiles: self.config.rack_profiles.clone(),
             }
             .into(),
-            rms_client: self.rms_sim.as_rms_client(),
             switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
         }
@@ -1360,6 +1361,22 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
+    let test_component_manager = component_manager::component_manager::build_component_manager(
+        &component_manager::config::ComponentManagerConfig {
+            nv_switch_backend: "rms".into(),
+            power_shelf_backend: "rms".into(),
+            compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
+            ..Default::default()
+        },
+        rms_sim.as_rms_client(),
+        None,
+        Some(db_pool.clone()),
+        None,
+    )
+    .await
+    .ok()
+    .map(Arc::new);
+
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
@@ -1367,7 +1384,7 @@ pub async fn create_test_env_with_overrides(
         .services(
             PowerShelfStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_sim.as_rms_client(),
+                component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
             }
             .into(),
@@ -1383,7 +1400,7 @@ pub async fn create_test_env_with_overrides(
         .services(
             SwitchStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_sim.as_rms_client(),
+                component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
             }
             .into(),
@@ -1555,6 +1572,7 @@ pub async fn create_test_env_with_overrides(
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         test_credential_manager: credential_manager.clone(),
         rms_sim,
+        test_component_manager,
         drop_guard: cancel_token.drop_guard(),
         join_set,
     }

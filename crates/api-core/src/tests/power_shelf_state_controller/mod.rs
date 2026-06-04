@@ -127,7 +127,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         .services(
             PowerShelfStateHandlerServices {
                 db_pool: pool.clone(),
-                rms_client: None,
+                component_manager: None,
                 credential_manager: credential_manager.clone(),
             }
             .into(),

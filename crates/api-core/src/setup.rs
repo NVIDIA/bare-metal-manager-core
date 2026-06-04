@@ -836,6 +836,7 @@ pub async fn initialize_and_start_controllers<'a>(
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
         rms_client,
+        component_manager,
         dpf_sdk,
         credential_manager,
         ..
@@ -1229,7 +1230,7 @@ pub async fn initialize_and_start_controllers<'a>(
         .services(
             PowerShelfStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_client.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
             }
             .into(),
@@ -1269,7 +1270,7 @@ pub async fn initialize_and_start_controllers<'a>(
         .services(
             SwitchStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_client.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
             }
             .into(),

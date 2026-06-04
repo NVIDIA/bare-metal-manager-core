@@ -12,10 +12,11 @@ use crate::compute_tray_manager::{
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfFirmwareVersions, PowerShelfManager,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfPowerStateResult,
 };
 use crate::types::FirmwareUpdateOptions;
 
@@ -77,6 +78,21 @@ impl NvSwitchManager for MockNvSwitchManager {
 
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
+    }
+
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| SwitchSlotAndTrayResult {
+                bmc_mac: ep.bmc_mac,
+                slot_number: None,
+                tray_index: None,
+                error: None,
+            })
+            .collect())
     }
 }
 
@@ -145,6 +161,20 @@ impl PowerShelfManager for MockPowerShelfManager {
             .map(|ep| PowerShelfFirmwareVersions {
                 pmc_mac: ep.pmc_mac,
                 versions: vec!["mock-1.0.0".into(), "mock-2.0.0".into()],
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| PowerShelfPowerStateResult {
+                pmc_mac: ep.pmc_mac,
+                power_state: None,
                 error: None,
             })
             .collect())
