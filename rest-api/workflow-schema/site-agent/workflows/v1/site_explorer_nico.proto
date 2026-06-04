@@ -7,7 +7,7 @@ package site_explorer;
 
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 // Data that we gathered about a particular endpoint during site exploration
 message EndpointExplorationReport {

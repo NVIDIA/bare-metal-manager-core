@@ -10,11 +10,12 @@
 package proto
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -356,7 +357,7 @@ const file_fmds_nico_proto_rawDesc = "" +
 	"\n" +
 	"\b_ib_guid2Z\n" +
 	"\x11FmdsConfigService\x12E\n" +
-	"\fUpdateConfig\x12\x19.fmds.UpdateConfigRequest\x1a\x1a.fmds.UpdateConfigResponseB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\fUpdateConfig\x12\x19.fmds.UpdateConfigRequest\x1a\x1a.fmds.UpdateConfigResponseBCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_fmds_nico_proto_rawDescOnce sync.Once

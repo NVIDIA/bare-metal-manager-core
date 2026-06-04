@@ -9,8 +9,8 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationIs "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APINVLinkInterfaceCreateRequest is the data structure to capture user request to create a new NVLinkInterface

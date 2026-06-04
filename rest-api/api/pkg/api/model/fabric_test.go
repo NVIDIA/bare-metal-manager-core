@@ -9,10 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestMachine_NewAPIFabric(t *testing.T) {

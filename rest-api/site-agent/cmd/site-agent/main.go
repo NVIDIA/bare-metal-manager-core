@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/metadata"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/metadata"
 
-	components "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/elektratypes"
+	components "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/elektratypes"
 	"github.com/rs/zerolog/log"
 )
 

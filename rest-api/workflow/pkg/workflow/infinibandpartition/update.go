@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -15,9 +15,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	ibpActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/infinibandpartition"
+	ibpActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/infinibandpartition"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // UpdateInfiniBandPartitionInventory is a workflow called by Site Agent to update InfiniBandPartition inventory for a Site

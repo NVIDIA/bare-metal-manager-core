@@ -38,9 +38,9 @@ RUN VERSION=$(grep -v '^#' /workspace/VERSION | tr -d '[:space:]' 2>/dev/null ||
     BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
     GIT_COMMIT=${CI_COMMIT_SHORT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")} && \
     go build -ldflags "-extldflags '-static' \
-    -X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.Version=${VERSION}' \
-    -X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.BuildTime=${BUILD_TIME}' \
-    -X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.GitCommit=${GIT_COMMIT}'" \
+    -X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.Version=${VERSION}' \
+    -X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.BuildTime=${BUILD_TIME}' \
+    -X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.GitCommit=${GIT_COMMIT}'" \
     -o /app/flow \
     .
 

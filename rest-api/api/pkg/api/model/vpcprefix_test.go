@@ -8,14 +8,12 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	ipam "github.com/NVIDIA/infra-controller-rest/ipam"
 )
 
 func TestAPIVpcPrefixCreateRequest_Validate(t *testing.T) {

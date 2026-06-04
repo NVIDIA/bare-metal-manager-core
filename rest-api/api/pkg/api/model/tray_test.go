@@ -6,12 +6,11 @@ package model
 import (
 	"testing"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
 )
 
 func TestProtoToAPIComponentTypeName(t *testing.T) {

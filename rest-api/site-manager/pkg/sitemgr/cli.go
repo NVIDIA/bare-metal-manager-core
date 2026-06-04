@@ -9,7 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	cli "github.com/urfave/cli/v2"
 
-	"github.com/NVIDIA/infra-controller-rest/cert-manager/pkg/core"
+	"github.com/NVIDIA/infra-controller/rest-api/cert-manager/pkg/core"
 )
 
 const (

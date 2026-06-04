@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	expectedRackActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/expectedrack"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	expectedRackActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedrack"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type UpdateExpectedRackTestSuite struct {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"testing"
 
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -21,14 +22,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-
-	cam "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cerr "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cam "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 )
 
 func testCommonInitDB(t *testing.T) *cdb.Session {
@@ -130,7 +129,7 @@ func testCommonSetupSchema(t *testing.T, dbSession *cdb.Session) {
 
 func testCommonBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cerr.GetPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 	assert.NotNil(t, ip)
 	return ip
@@ -139,7 +138,7 @@ func testCommonBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session,
 func testCommonBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cerr.GetPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -165,9 +164,9 @@ func testCommonBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID strin
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cerr.GetPtr("jdoe@test.com"),
-			FirstName:   cerr.GetPtr("John"),
-			LastName:    cerr.GetPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData:     OrgData,
 		},
 	)
@@ -181,19 +180,19 @@ func testCommonBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastr
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   cerr.GetPtr("Test Site"),
-		Description:                   cerr.GetPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         cerr.GetPtr("1.0.0"),
-		SiteAgentVersion:              cerr.GetPtr("1.0.0"),
-		RegistrationToken:             cerr.GetPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   cerr.GetPtr(cdb.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             false,
-		SerialConsoleHostname:         cerr.GetPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cerr.GetPtr(30),
-		SerialConsoleMaxSessionLength: cerr.GetPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        cdbm.SiteStatusPending,
 		CreatedBy:                     user.ID,
 	})
@@ -245,9 +244,9 @@ func testCommonBuildInstanceType(t *testing.T, dbSession *cdb.Session, name stri
 	itDAO := cdbm.NewInstanceTypeDAO(dbSession)
 	it, err := itDAO.Create(context.Background(), nil, cdbm.InstanceTypeCreateInput{
 		Name:                     name,
-		DisplayName:              cerr.GetPtr(""),
-		Description:              cerr.GetPtr(""),
-		ControllerMachineType:    cerr.GetPtr("x86_64"),
+		DisplayName:              cutil.GetPtr(""),
+		Description:              cutil.GetPtr(""),
+		ControllerMachineType:    cutil.GetPtr("x86_64"),
 		InfrastructureProviderID: ip.ID,
 		SiteID:                   &site.ID,
 		Status:                   cdbm.InstanceTypeStatusReady,
@@ -273,9 +272,9 @@ func testCommonBuildMachine(t *testing.T, dbSession *cdb.Session, infrastructure
 		InstanceTypeID:           instanceTypeID,
 		ControllerMachineID:      controllerMachineID.String(),
 		ControllerMachineType:    controllerMachineType,
-		Vendor:                   cerr.GetPtr("test-vendor"),
-		ProductName:              cerr.GetPtr("test-product-name"),
-		SerialNumber:             cerr.GetPtr(uuid.NewString()),
+		Vendor:                   cutil.GetPtr("test-vendor"),
+		ProductName:              cutil.GetPtr("test-product-name"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		Metadata:                 metadata,
 		DefaultMacAddress:        defaultMacAddress,
 		Status:                   status,
@@ -471,27 +470,27 @@ func TestGetTenantFromTenantIDOrOrg(t *testing.T) {
 		},
 		{
 			name:        "error when tenant id is invalid uuid",
-			tenantID:    cerr.GetPtr("someuuid"),
+			tenantID:    cutil.GetPtr("someuuid"),
 			expectedErr: true,
 		},
 		{
 			name:        "error when tenant id not found",
-			tenantID:    cerr.GetPtr(uuid.New().String()),
+			tenantID:    cutil.GetPtr(uuid.New().String()),
 			expectedErr: true,
 		},
 		{
 			name:        "success when tenant id valid",
-			tenantID:    cerr.GetPtr(tn.ID.String()),
+			tenantID:    cutil.GetPtr(tn.ID.String()),
 			expectedErr: false,
 		},
 		{
 			name:        "error when tenant not in org",
-			orgName:     cerr.GetPtr("someOrg"),
+			orgName:     cutil.GetPtr("someOrg"),
 			expectedErr: true,
 		},
 		{
 			name:        "success when tenant in org",
-			orgName:     cerr.GetPtr("testTnOrg"),
+			orgName:     cutil.GetPtr("testTnOrg"),
 			expectedErr: false,
 		},
 	}
@@ -876,7 +875,7 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 			mcStatus = cdbm.MachineStatusReady
 		}
 
-		mc := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cerr.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, mcStatus)
+		mc := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, mcStatus)
 		assert.NotNil(t, mc)
 
 		mit := testCommonBuildMachineInstanceType(t, dbSession, mc.ID, inst1.ID)
@@ -1177,20 +1176,20 @@ func TestGetTotalAllocationConstraintValueForInstanceType(t *testing.T) {
 			name:           "success case for specific instance type",
 			allocationIDs:  []uuid.UUID{al1.ID, al2.ID},
 			instanceTypeID: &inst1.ID,
-			constraintType: cerr.GetPtr(cdbm.AllocationConstraintTypeReserved),
+			constraintType: cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 			expectCnt:      10,
 			expectErr:      false,
 		},
 		{
 			name:           "success case for specific instance type, another instancetype",
 			instanceTypeID: &inst2.ID,
-			constraintType: cerr.GetPtr(cdbm.AllocationConstraintTypeReserved),
+			constraintType: cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 			expectCnt:      1,
 			expectErr:      false,
 		},
 		{
 			name:           "success case with different constraint type",
-			constraintType: cerr.GetPtr(cdbm.AllocationConstraintTypePreemptible),
+			constraintType: cutil.GetPtr(cdbm.AllocationConstraintTypePreemptible),
 			expectCnt:      0,
 			expectErr:      false,
 		},
@@ -1364,14 +1363,14 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 
 	m1s := []*cdbm.Machine{}
 	for i := 0; i < goodMachines; i++ {
-		m := TestBuildMachine(t, dbSession, ip, site1, &it1.ID, cerr.GetPtr("x86"), cdbm.MachineStatusReady)
+		m := TestBuildMachine(t, dbSession, ip, site1, &it1.ID, cutil.GetPtr("x86"), cdbm.MachineStatusReady)
 		TestBuildMachineInstanceType(t, dbSession, m, it1)
 		m1s = append(m1s, m)
 	}
 
 	// Add some bad machines
 	for i := goodMachines; i < (goodMachines + badMachines); i++ {
-		m := TestBuildMachine(t, dbSession, ip, site1, &it1.ID, cerr.GetPtr("x86"), cdbm.MachineStatusError)
+		m := TestBuildMachine(t, dbSession, ip, site1, &it1.ID, cutil.GetPtr("x86"), cdbm.MachineStatusError)
 		TestBuildMachineInstanceType(t, dbSession, m, it1)
 		m1s = append(m1s, m)
 	}
@@ -1382,7 +1381,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 
 	m2s := []*cdbm.Machine{}
 	for i := 0; i < 20; i++ {
-		m := TestBuildMachine(t, dbSession, ip, site2, &it2.ID, cerr.GetPtr("x86"), cdbm.MachineStatusReady)
+		m := TestBuildMachine(t, dbSession, ip, site2, &it2.ID, cutil.GetPtr("x86"), cdbm.MachineStatusReady)
 		TestBuildMachineInstanceType(t, dbSession, m, it2)
 		m2s = append(m2s, m)
 	}
@@ -1395,9 +1394,9 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 	TestBuildTenantSite(t, dbSession, tn2, site2, tnu2)
 	TestBuildTenantSite(t, dbSession, tn3, site2, tnu3)
 
-	vpc1 := testCommonBuildVpc(t, dbSession, ip, tn1, site1, tnOrg1, "test-vpc-1", cerr.GetPtr(uuid.New()))
-	vpc2 := testCommonBuildVpc(t, dbSession, ip, tn2, site1, tnOrg2, "test-vpc-2", cerr.GetPtr(uuid.New()))
-	vpc3 := testCommonBuildVpc(t, dbSession, ip, tn3, site1, tnOrg3, "test-vpc-3", cerr.GetPtr(uuid.New()))
+	vpc1 := testCommonBuildVpc(t, dbSession, ip, tn1, site1, tnOrg1, "test-vpc-1", cutil.GetPtr(uuid.New()))
+	vpc2 := testCommonBuildVpc(t, dbSession, ip, tn2, site1, tnOrg2, "test-vpc-2", cutil.GetPtr(uuid.New()))
+	vpc3 := testCommonBuildVpc(t, dbSession, ip, tn3, site1, tnOrg3, "test-vpc-3", cutil.GetPtr(uuid.New()))
 
 	al1 := TestBuildAllocation(t, dbSession, site1, tn1, "test-allocation-1", ipu)
 	alc1 := TestBuildAllocationConstraint(t, dbSession, al1, it1, nil, 15, ipu)
@@ -1445,7 +1444,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 	}{
 		{
 			name:      "success case with Instance Type with Allocation and active Instances, retrieved by Tenant, case 1",
-			tenantID:  cerr.GetPtr(tn1.ID),
+			tenantID:  cutil.GetPtr(tn1.ID),
 			instances: tn1inss,
 			it:        it1,
 			expectStats: &cam.APIAllocationStats{
@@ -1460,7 +1459,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 		},
 		{
 			name:      "success case with Instance Type with Allocation and active Instances, retrieved by Tenant, case 2",
-			tenantID:  cerr.GetPtr(tn2.ID),
+			tenantID:  cutil.GetPtr(tn2.ID),
 			instances: tn2inss,
 			it:        it1,
 			expectStats: &cam.APIAllocationStats{
@@ -1475,7 +1474,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 		},
 		{
 			name:      "failure case with Instance Type with Allocation and active Instances, retrieved by Tenant, case 3",
-			tenantID:  cerr.GetPtr(tn3.ID),
+			tenantID:  cutil.GetPtr(tn3.ID),
 			instances: tn3inss,
 			it:        it1,
 			expectStats: &cam.APIAllocationStats{
@@ -1499,7 +1498,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 				Used:           len(it1inss),
 				Unused:         (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue) - len(it1inss),
 				UnusedUsable:   (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue) - len(it1inss) - badMachines,
-				MaxAllocatable: cerr.GetPtr(len(m1s) - (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue)),
+				MaxAllocatable: cutil.GetPtr(len(m1s) - (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue)),
 			},
 			expectErr: false,
 		},
@@ -1514,7 +1513,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 				Used:           0,
 				Unused:         0,
 				UnusedUsable:   0,
-				MaxAllocatable: cerr.GetPtr(len(m2s)),
+				MaxAllocatable: cutil.GetPtr(len(m2s)),
 			},
 			expectErr: false,
 		},
@@ -1592,7 +1591,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 		wantIsProviderRequest bool
 		wantProvider          *cdbm.InfrastructureProvider
 		wantTenant            *cdbm.Tenant
-		wantAPIError          *cerr.APIError
+		wantAPIError          *cutil.APIError
 	}{
 		{
 			name: "success case with Provider admin role",
@@ -1659,7 +1658,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "failure case with Provider admin specifying Tenant ID query",
@@ -1681,7 +1680,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusForbidden, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusForbidden, "test message", nil),
 		},
 		{
 			name: "success case with Tenant admin",
@@ -1725,7 +1724,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusForbidden, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusForbidden, "test message", nil),
 		},
 		{
 			name: "success case with Provider/Tenant admin specifying Provider ID query",
@@ -1791,7 +1790,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "success case with Provider/Tenant admin specifying Tenant ID query",
@@ -1833,7 +1832,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "success case with Provider/Tenant admin specifying Tenant ID query with no Provider",
@@ -1877,7 +1876,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "failure case with Provider/Tenant admin specifying Provider ID query for unassociated Provider",
@@ -1899,7 +1898,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "failure case with Provider/Tenant admin specifying unassociated Tenant ID in query",
@@ -1921,7 +1920,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "failure case with Provider admin for without associated Provider",
@@ -1941,7 +1940,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 		{
 			name: "failure case with Tenant admin for without associated Tenant",
@@ -1961,7 +1960,7 @@ func TestGetIsProviderRequest(t *testing.T) {
 			wantIsProviderRequest: false,
 			wantProvider:          nil,
 			wantTenant:            nil,
-			wantAPIError:          cerr.NewAPIError(http.StatusBadRequest, "test message", nil),
+			wantAPIError:          cutil.NewAPIError(http.StatusBadRequest, "test message", nil),
 		},
 	}
 	for _, tt := range tests {
@@ -2022,31 +2021,31 @@ func TestMatchInstanceTypeCapabilitiesForMachines(t *testing.T) {
 	inst1 := testCommonBuildInstanceType(t, dbSession, "it", site1, ip, tnuser)
 	assert.NotNil(t, inst1)
 
-	icap1 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cerr.GetPtr("3.0Hz"), cerr.GetPtr("32GB"), nil, cerr.GetPtr(4), nil, nil)
+	icap1 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0Hz"), cutil.GetPtr("32GB"), nil, cutil.GetPtr(4), nil, nil)
 	assert.NotNil(t, icap1)
 
-	icap2 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cerr.GetPtr("Mellanox Technologies"), cerr.GetPtr(2), nil, nil)
+	icap2 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), nil, nil)
 	assert.NotNil(t, icap2)
 
-	icap3 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cerr.GetPtr("Mellanox Technologies"), cerr.GetPtr(2), cerr.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	icap3 := TestCommonBuildMachineCapability(t, dbSession, nil, &inst1.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 	assert.NotNil(t, icap3)
 
-	mc1 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cerr.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+	mc1 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
 	assert.NotNil(t, mc1)
 
-	mcap2 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cerr.GetPtr("Mellanox Technologies"), cerr.GetPtr(2), nil, nil)
+	mcap2 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), nil, nil)
 	assert.NotNil(t, mcap2)
 
-	mcap1 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cerr.GetPtr("3.0Hz"), cerr.GetPtr("32GB"), nil, cerr.GetPtr(4), nil, nil)
+	mcap1 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0Hz"), cutil.GetPtr("32GB"), nil, cutil.GetPtr(4), nil, nil)
 	assert.NotNil(t, mcap1)
 
-	mcap3 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cerr.GetPtr("Mellanox Technologies"), cerr.GetPtr(2), cerr.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	mcap3 := TestCommonBuildMachineCapability(t, dbSession, &mc1.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 	assert.NotNil(t, mcap3)
 
-	mc2 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cerr.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+	mc2 := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
 	assert.NotNil(t, mc2)
 
-	mcap21 := TestCommonBuildMachineCapability(t, dbSession, &mc2.ID, nil, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cerr.GetPtr("3.0Hz"), cerr.GetPtr("32GB"), nil, cerr.GetPtr(4), nil, nil)
+	mcap21 := TestCommonBuildMachineCapability(t, dbSession, &mc2.ID, nil, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0Hz"), cutil.GetPtr("32GB"), nil, cutil.GetPtr(4), nil, nil)
 	assert.NotNil(t, mcap21)
 
 	tests := []struct {

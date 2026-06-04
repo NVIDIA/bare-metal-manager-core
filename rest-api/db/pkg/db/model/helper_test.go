@@ -10,19 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"go.opentelemetry.io/otel/trace"
-
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 )
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")

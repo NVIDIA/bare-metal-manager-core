@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )

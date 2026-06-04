@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nicopb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	nicopb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 )
 
 func TestParseNICoNVSwitch(t *testing.T) {

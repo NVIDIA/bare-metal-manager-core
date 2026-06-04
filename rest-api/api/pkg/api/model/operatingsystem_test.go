@@ -10,15 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdmu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {

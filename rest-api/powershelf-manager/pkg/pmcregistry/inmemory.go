@@ -6,9 +6,10 @@ package pmcregistry
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/pmc"
 	"net"
 	"sync"
+
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
 
 	log "github.com/sirupsen/logrus"
 )

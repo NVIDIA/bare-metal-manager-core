@@ -16,11 +16,11 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 )
 
 // ManageMachine is an activity wrapper for Machine management tasks that allows injecting DB access

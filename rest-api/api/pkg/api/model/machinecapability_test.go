@@ -6,10 +6,9 @@ package model
 import (
 	"testing"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/stretchr/testify/assert"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestMachineCapability_NewAPIMachineCapability(t *testing.T) {

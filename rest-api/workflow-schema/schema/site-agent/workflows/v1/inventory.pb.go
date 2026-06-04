@@ -10,12 +10,13 @@
 package proto
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -1974,7 +1975,7 @@ const file_inventory_proto_rawDesc = "" +
 	"\x0fInventoryStatus\x12 \n" +
 	"\x1cINVENTORY_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18INVENTORY_STATUS_SUCCESS\x10\x01\x12\x1b\n" +
-	"\x17INVENTORY_STATUS_FAILED\x10\x02B?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\x17INVENTORY_STATUS_FAILED\x10\x02BCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_inventory_proto_rawDescOnce sync.Once

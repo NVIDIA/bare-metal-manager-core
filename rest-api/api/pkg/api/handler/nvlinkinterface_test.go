@@ -12,6 +12,16 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -19,16 +29,6 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
-
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestGetAllNVLinkInterface_Handle(t *testing.T) {
@@ -88,7 +88,7 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -97,18 +97,18 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	nvlinklogicalpartitions := []*cdbm.NVLinkLogicalPartition{}
 	for i := 0; i < 3; i++ {
-		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), sutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 		assert.NotNil(t, nvlinklogicalpartition1)
 		nvlinklogicalpartitions = append(nvlinklogicalpartitions, nvlinklogicalpartition1)
 	}
@@ -116,7 +116,7 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 	nvlifcs := []*cdbm.NVLinkInterface{}
 	for i := 0; i < 25; i++ {
 		nvlinklogicalpartition := nvlinklogicalpartitions[i%3]
-		nvlifc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st1.ID, inst1.ID, nvlinklogicalpartition.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), i%4, cdbm.NVLinkInterfaceStatusProvisioning)
+		nvlifc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st1.ID, inst1.ID, nvlinklogicalpartition.ID, cutil.GetPtr(uuid.New()), cutil.GetPtr("NVIDIA GB200"), i%4, cdbm.NVLinkInterfaceStatusProvisioning)
 		assert.NotNil(t, nvlifc)
 		nvlifcs = append(nvlifcs, nvlifc)
 	}
@@ -163,11 +163,11 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                false,
-			orderBy:                sutil.GetPtr("CREATED_ASC"),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
 			expectedCount:          20,
 			expectedTotal:          25,
 			expectedInstance:       inst1,
-			expectedDeviceInstance: sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			expectedDeviceInstance: cutil.GetPtr(nvlifcs[0].DeviceInstance),
 			verifyChildSpanner:     true,
 		},
 		{
@@ -185,11 +185,11 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			wantErr:                          false,
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    9,
 			expectedTotal:                    9,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 			verifyChildSpanner:               true,
 		},
 		{
@@ -206,7 +206,7 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:          http.StatusOK,
 			},
 			wantErr:                false,
-			orderBy:                sutil.GetPtr("CREATED_ASC"),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
 			expectedCount:          1,
 			expectedTotal:          1,
 			expectedNVLinkDomainID: nvlifcs[0].NVLinkDomainID,
@@ -228,13 +228,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(1),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(1),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    10,
 			expectedTotal:                    25,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 		},
 		{
 			name: "test NVLinkInterface getall success with paging",
@@ -251,13 +251,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(1),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(1),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    9,
 			expectedTotal:                    9,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 		},
 		{
 			name: "test NVLinkInterface getall by Instance success with paging on page 2",
@@ -274,13 +274,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(2),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(2),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    10,
 			expectedTotal:                    25,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[1].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[10].DeviceInstance),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[1].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[10].DeviceInstance),
 		},
 		{
 			name: "test NVLinkInterface getall success with paging on page 2",
@@ -297,13 +297,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:                    http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(2),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(2),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    0,
 			expectedTotal:                    8,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[1].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[10].DeviceInstance),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[1].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[10].DeviceInstance),
 		},
 		{
 			name: "test NVLinkInterface getall by Instance filter  with paging bad orderby",
@@ -320,9 +320,9 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				respCode:      http.StatusBadRequest,
 			},
 			wantErr:    false,
-			pageNumber: sutil.GetPtr(2),
-			pageSize:   sutil.GetPtr(10),
-			orderBy:    sutil.GetPtr("TEST_ASC"),
+			pageNumber: cutil.GetPtr(2),
+			pageSize:   cutil.GetPtr(10),
+			orderBy:    cutil.GetPtr("TEST_ASC"),
 		},
 		{
 			name: "test NVLinkInterface getall by Instance filter, org does not have a Tenant associated",
@@ -415,13 +415,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryIncludeRelations1:           sutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
-			queryIncludeRelations2:           sutil.GetPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1:           cutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
+			queryIncludeRelations2:           cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:                    20,
 			expectedTotal:                    25,
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 			wantErr:                          false,
 		},
 		{
@@ -438,13 +438,13 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				reqUser:                     tnu1,
 				respCode:                    http.StatusOK,
 			},
-			queryIncludeRelations1:           sutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
-			queryIncludeRelations2:           sutil.GetPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1:           cutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
+			queryIncludeRelations2:           cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:                    9,
 			expectedTotal:                    9,
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 			expectedInstance:                 inst1,
 			wantErr:                          false,
 		},
@@ -462,12 +462,12 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryStatus:                      sutil.GetPtr(cdbm.NVLinkInterfaceStatusProvisioning),
+			queryStatus:                      cutil.GetPtr(cdbm.NVLinkInterfaceStatusProvisioning),
 			expectedCount:                    20,
 			expectedTotal:                    25,
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvlinklogicalpartitions[0].ID),
-			expectedDeviceInstance:           sutil.GetPtr(nvlifcs[0].DeviceInstance),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvlinklogicalpartitions[0].ID),
+			expectedDeviceInstance:           cutil.GetPtr(nvlifcs[0].DeviceInstance),
 			wantErr:                          false,
 		},
 		{
@@ -484,7 +484,7 @@ func TestGetAllNVLinkInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusBadRequest,
 			},
-			queryStatus:   sutil.GetPtr("BadStatus"),
+			queryStatus:   cutil.GetPtr("BadStatus"),
 			expectedCount: 0,
 			expectedTotal: 0,
 			wantErr:       false,
@@ -750,7 +750,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, sutil.GetPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -759,15 +759,15 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
 	subnets := []*cdbm.Subnet{}
 	for i := 11; i <= 35; i++ {
-		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, sutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 		assert.NotNil(t, subnet1)
 		subnets = append(subnets, subnet1)
 	}
@@ -775,7 +775,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnets[0].ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, sutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	ifcs := []*cdbm.Interface{}
@@ -787,21 +787,21 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 
 	ibps := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 25; i++ {
-		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, sutil.GetPtr(uuid.New()), sutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cutil.GetPtr(uuid.New()), cutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibp1)
 		ibps = append(ibps, ibp1)
 	}
 
 	ibifs := []*cdbm.InfiniBandInterface{}
 	for i := 0; i < 25; i++ {
-		ibif1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibps[i], i%4, true, sutil.GetPtr(1), sutil.GetPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
+		ibif1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibps[i], i%4, true, cutil.GetPtr(1), cutil.GetPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
 		assert.NotNil(t, ibif1)
 		ibifs = append(ibifs, ibif1)
 	}
 
 	nvllps := []*cdbm.NVLinkLogicalPartition{}
 	for i := 0; i < 3; i++ {
-		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), sutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+		nvlinklogicalpartition1 := testBuildNVLinkLogicalPartition(t, dbSession, fmt.Sprintf("test-nvlinklogicalpartition-%d", i), cutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st1, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 		assert.NotNil(t, nvlinklogicalpartition1)
 		nvllps = append(nvllps, nvlinklogicalpartition1)
 	}
@@ -809,7 +809,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 	nvlifcs := []*cdbm.NVLinkInterface{}
 	for i := 0; i < 25; i++ {
 		nvllp := nvllps[i%3]
-		nvlifc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st1.ID, inst1.ID, nvllp.ID, sutil.GetPtr(uuid.New()), sutil.GetPtr("NVIDIA GB200"), i%4, cdbm.NVLinkInterfaceStatusProvisioning)
+		nvlifc := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st1.ID, inst1.ID, nvllp.ID, cutil.GetPtr(uuid.New()), cutil.GetPtr("NVIDIA GB200"), i%4, cdbm.NVLinkInterfaceStatusProvisioning)
 		assert.NotNil(t, nvlifc)
 		nvlifcs = append(nvlifcs, nvlifc)
 	}
@@ -854,10 +854,10 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:            false,
-			orderBy:            sutil.GetPtr("CREATED_ASC"),
+			orderBy:            cutil.GetPtr("CREATED_ASC"),
 			expectedCount:      20,
 			expectedTotal:      25,
-			expectedInstanceID: sutil.GetPtr(inst1.ID),
+			expectedInstanceID: cutil.GetPtr(inst1.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -875,12 +875,12 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(1),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(1),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    10,
 			expectedTotal:                    25,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvllps[0].ID),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvllps[0].ID),
 		},
 		{
 			name: "test NVLinkInterface getall by NVLinkLogicalPartition success with paging on page 2",
@@ -897,12 +897,12 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(2),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
+			pageNumber:                       cutil.GetPtr(2),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                    10,
 			expectedTotal:                    25,
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvllps[1].ID),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvllps[1].ID),
 		},
 		{
 			name: "test NVLinkInterface getall by NVLinkLogicalPartition error with paging bad orderby",
@@ -919,10 +919,10 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusBadRequest,
 			},
 			wantErr:                          false,
-			pageNumber:                       sutil.GetPtr(2),
-			pageSize:                         sutil.GetPtr(10),
-			orderBy:                          sutil.GetPtr("TEST_ASC"),
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvllps[0].ID),
+			pageNumber:                       cutil.GetPtr(2),
+			pageSize:                         cutil.GetPtr(10),
+			orderBy:                          cutil.GetPtr("TEST_ASC"),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvllps[0].ID),
 			expectedErrorMessage:             "Failed to validate pagination request data",
 		},
 		{
@@ -1007,12 +1007,12 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryIncludeRelations1: sutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
-			queryIncludeRelations2: sutil.GetPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.NVLinkLogicalPartitionRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:          20,
 			expectedTotal:          25,
-			orderBy:                sutil.GetPtr("CREATED_ASC"),
-			expectedInstanceID:     sutil.GetPtr(inst1.ID),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
+			expectedInstanceID:     cutil.GetPtr(inst1.ID),
 			wantErr:                false,
 		},
 		{
@@ -1029,11 +1029,11 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryStatus:                      sutil.GetPtr(cdbm.InterfaceStatusProvisioning),
+			queryStatus:                      cutil.GetPtr(cdbm.InterfaceStatusProvisioning),
 			expectedCount:                    20,
 			expectedTotal:                    25,
-			orderBy:                          sutil.GetPtr("CREATED_ASC"),
-			expectedNVLinkLogicalPartitionID: sutil.GetPtr(nvllps[0].ID),
+			orderBy:                          cutil.GetPtr("CREATED_ASC"),
+			expectedNVLinkLogicalPartitionID: cutil.GetPtr(nvllps[0].ID),
 			wantErr:                          false,
 		},
 		{
@@ -1050,7 +1050,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusBadRequest,
 			},
-			queryStatus:   sutil.GetPtr("BadStatus"),
+			queryStatus:   cutil.GetPtr("BadStatus"),
 			expectedCount: 0,
 			expectedTotal: 0,
 			wantErr:       false,

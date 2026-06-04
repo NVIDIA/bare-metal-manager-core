@@ -10,11 +10,12 @@
 package proto
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -8545,7 +8546,7 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x0fGetConnInfoList\x12\x1d.nmx_c.GetConnInfoListRequest\x1a\x1e.nmx_c.GetConnInfoListResponse\"\x00\x12S\n" +
 	"\x13GetConnInfoCombined\x12!.nmx_c.GetConnInfoCombinedRequest\x1a\x17.nmx_c.ConnInfoCombined\"\x00\x12J\n" +
 	"\rGetAdminState\x12\x1b.nmx_c.GetAdminStateRequest\x1a\x1c.nmx_c.GetAdminStateResponse\x12J\n" +
-	"\rSetAdminState\x12\x1b.nmx_c.SetAdminStateRequest\x1a\x1c.nmx_c.SetAdminStateResponseB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\rSetAdminState\x12\x1b.nmx_c.SetAdminStateRequest\x1a\x1c.nmx_c.SetAdminStateResponseBCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_nmx_c_nico_proto_rawDescOnce sync.Once

@@ -7,12 +7,11 @@ import (
 	"context"
 	"testing"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 )
 
 // TestSetupSchema creates/resets the schema

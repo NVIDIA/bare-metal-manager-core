@@ -7,7 +7,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/sdk/standard/helpers"
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard/helpers"
 )
 
 const PaginationHeader = helpers.PaginationHeader

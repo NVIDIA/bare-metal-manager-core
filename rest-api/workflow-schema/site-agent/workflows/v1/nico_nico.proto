@@ -21,7 +21,7 @@ import "measured_boot_nico.proto";
 import "mlx_device_nico.proto";
 import "site_explorer_nico.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 service Forge {
   // What version of NICo is this service running? Matches `--version` command line.

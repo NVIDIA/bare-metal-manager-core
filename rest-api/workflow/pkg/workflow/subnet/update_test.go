@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	subnetActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/subnet"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	subnetActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/subnet"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
@@ -16,7 +16,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type UpdateSubnetTestSuite struct {

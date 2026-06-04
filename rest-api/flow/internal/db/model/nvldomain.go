@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )

@@ -6,7 +6,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapigrpc
+      value: github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen

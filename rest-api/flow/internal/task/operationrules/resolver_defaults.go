@@ -6,8 +6,8 @@ package operationrules
 import (
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // hardcodedRuleMap contains pre-built default rules, initialized once at startup

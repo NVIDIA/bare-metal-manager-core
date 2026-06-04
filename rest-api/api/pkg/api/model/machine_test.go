@@ -9,16 +9,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestMachine_NewAPIMachine(t *testing.T) {

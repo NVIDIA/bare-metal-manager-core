@@ -10,29 +10,27 @@ import (
 	"testing"
 	"time"
 
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	"os"
 
 	"go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"go.temporal.io/sdk/testsuite"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
@@ -82,11 +80,11 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, st2)
 
 	// Build SSHKeyGroup1
-	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cwutil.GetPtr("test1"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test1"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation1
-	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSH Keys
@@ -104,14 +102,14 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, ska2)
 
 	// Build SSHKeyGroup2
-	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cwutil.GetPtr("test2"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cutil.GetPtr("test2"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg2)
 
 	// Build SSHKeyGroupSiteAssociation1
-	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st1.ID, cwutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st1.ID, cutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa2)
 
-	_ = util.TestBuildStatusDetail(t, dbSession, skgsa2.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusSynced, cwutil.GetPtr(MsgSSHKeyGroupSynced))
+	_ = util.TestBuildStatusDetail(t, dbSession, skgsa2.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusSynced, cutil.GetPtr(MsgSSHKeyGroupSynced))
 
 	sshKey3 := util.TestBuildSSHKey(t, dbSession, "test3", tn, "test3", tnu)
 	assert.NotNil(t, sshKey3)
@@ -126,19 +124,19 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, ska5)
 
 	// Build SSHKeyGroup3
-	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cwutil.GetPtr("test3"), tn.ID, cwutil.GetPtr("122746"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
+	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cutil.GetPtr("test3"), tn.ID, cutil.GetPtr("122746"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
 	assert.NotNil(t, skg3)
 
 	// Build SSHKeyGroupSiteAssociation3
-	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st2.ID, cwutil.GetPtr("116735"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
+	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st2.ID, cutil.GetPtr("116735"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
 	assert.NotNil(t, skgsa3)
 
 	// Build SSHKeyGroup4
-	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cwutil.GetPtr("test4"), tn.ID, cwutil.GetPtr("112233"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cutil.GetPtr("test4"), tn.ID, cutil.GetPtr("112233"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg4)
 
 	// Build SSHKeyGroup5
-	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cwutil.GetPtr("test5"), tn.ID, cwutil.GetPtr("112233"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cutil.GetPtr("test5"), tn.ID, cutil.GetPtr("112233"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg5)
 
 	// Build  SSH key:group associations for SSHKeyGroup4
@@ -147,34 +145,34 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, util.TestBuildSSHKeyAssociation(t, dbSession, skg4.ID, sshKey2.ID, tnu.ID))
 
 	// Build SSHKeyGroupSiteAssociation4 - Marked as missing on site.
-	skgsa4 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st2.ID, cwutil.GetPtr("445566"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa4 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st2.ID, cutil.GetPtr("445566"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa4)
 
-	_ = util.TestBuildStatusDetail(t, dbSession, skgsa4.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusSynced, cwutil.GetPtr(MsgSSHKeyGroupSynced))
+	_ = util.TestBuildStatusDetail(t, dbSession, skgsa4.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusSynced, cutil.GetPtr(MsgSSHKeyGroupSynced))
 
 	// Pretend something went wrong and the site reported a sshkeygroup list that didn't include skgsa4/SSHKeyGroupSiteAssociation4
 	_, err := dbSession.DB.Exec("UPDATE ssh_key_group_site_association SET is_missing_on_site = ? WHERE id = ?", true, skgsa4.ID.String())
 	assert.NoError(t, err)
 
 	// Build SSHKeyGroupSiteAssociation5 - it is exists on site, but error mode in Cloud
-	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st2.ID, cwutil.GetPtr("445569"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
+	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st2.ID, cutil.GetPtr("445569"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
 	assert.NotNil(t, skgsa5)
 
-	_ = util.TestBuildStatusDetail(t, dbSession, skgsa5.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusError, cwutil.GetPtr("rpc error: code = Internal desc = Database Error: error returned from database: duplicate key value violates unique constraint \"tenant_keysets_pkey\" file=api/src/db/tenant.rs line=152 query=INSERT INTO tenant_keysets VALUES($1, $2, $3, $4) RETURNING *."))
+	_ = util.TestBuildStatusDetail(t, dbSession, skgsa5.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusError, cutil.GetPtr("rpc error: code = Internal desc = Database Error: error returned from database: duplicate key value violates unique constraint \"tenant_keysets_pkey\" file=api/src/db/tenant.rs line=152 query=INSERT INTO tenant_keysets VALUES($1, $2, $3, $4) RETURNING *."))
 
 	// Build SSHKeyGroup6 for duplicate key retry test
-	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cwutil.GetPtr("test6"), tn.ID, cwutil.GetPtr("122347"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cutil.GetPtr("test6"), tn.ID, cutil.GetPtr("122347"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg6)
 
 	// Build SSHKeyGroupSiteAssociation6 - starts in Syncing, but has duplicate key error status detail
 	// This simulates the state after first create attempt failed with duplicate key
-	skgsa6 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg6.ID, st1.ID, cwutil.GetPtr("1139"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa6 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg6.ID, st1.ID, cutil.GetPtr("1139"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa6)
 
 	// Add status detail with duplicate key error - this makes IsSSHKeyGroupCreatedOnSite return true on retry
 	// The error message contains ErrMsgSiteControllerDuplicateEntryFound so IsSSHKeyGroupCreatedOnSite returns true
 	duplicateKeyErrorMsg := fmt.Sprintf("SSHKeyGroup already exists on Site: rpc error: code = Internal desc = Database Error: error returned from database: %s \"tenant_keysets_pkey\"", util.ErrMsgSiteControllerDuplicateEntryFound)
-	_ = util.TestBuildStatusDetail(t, dbSession, skgsa6.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusError, cwutil.GetPtr(duplicateKeyErrorMsg))
+	_ = util.TestBuildStatusDetail(t, dbSession, skgsa6.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusError, cutil.GetPtr(duplicateKeyErrorMsg))
 
 	// Build SSH Key associations for skg6
 	ska6 := util.TestBuildSSHKeyAssociation(t, dbSession, skg6.ID, sshKey1.ID, tnu.ID)
@@ -183,11 +181,11 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, ska7)
 
 	// Build SSHKeyGroup7 for initial duplicate key failure test
-	skg7 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cwutil.GetPtr("test7"), tn.ID, cwutil.GetPtr("122348"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg7 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cutil.GetPtr("test7"), tn.ID, cutil.GetPtr("122348"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg7)
 
 	// Build SSHKeyGroupSiteAssociation7 - starts in Syncing, no status detail (simulates first create attempt)
-	skgsa7 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg7.ID, st1.ID, cwutil.GetPtr("1140"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa7 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg7.ID, st1.ID, cutil.GetPtr("1140"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa7)
 
 	// Build SSH Key associations for skg7
@@ -301,7 +299,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:                 skg3.ID,
 				skgsaID:               skgsa3.ID,
 				requestedVersion:      skgsa3.Version,
-				IsSSHKeyGroupDeleting: cwutil.GetPtr(true),
+				IsSSHKeyGroupDeleting: cutil.GetPtr(true),
 
 				updateRequest: &cwssaws.UpdateTenantKeysetRequest{
 					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
@@ -380,7 +378,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				siteID:           st1.ID,
 				skgID:            uuid.New(),
 				skgsaID:          uuid.New(),
-				requestedVersion: cwutil.GetPtr("1234"),
+				requestedVersion: cutil.GetPtr("1234"),
 			},
 			wantErr: true,
 		},
@@ -474,7 +472,7 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:                              skg7.ID,
 				skgsaID:                            skgsa7.ID,
 				requestedVersion:                   skgsa7.Version,
-				IsSSHKeyGroupFailedOnInitialCreate: cwutil.GetPtr(true),
+				IsSSHKeyGroupFailedOnInitialCreate: cutil.GetPtr(true),
 				// This test simulates the initial create attempt that fails with duplicate key
 				createRequest: &cwssaws.CreateTenantKeysetRequest{
 					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
@@ -627,31 +625,31 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupStatusInDB(t *testing.T) {
 	assert.NotNil(t, st5)
 
 	// Build SSHKeyGroup1
-	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cwutil.GetPtr("test1"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test1"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation1
-	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSHKeyGroup2
-	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cwutil.GetPtr("test2"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cutil.GetPtr("test2"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg2)
 
 	// Build SSHKeyGroupSiteAssociation2
-	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st2.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
+	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st2.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
 	assert.NotNil(t, skgsa2)
 
 	// Build SSHKeyGroup3
-	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cwutil.GetPtr("test3"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cutil.GetPtr("test3"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg3)
 
 	// Build SSHKeyGroupSiteAssociation3
-	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st3.ID, cwutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st3.ID, cutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa3)
 
 	// Build SSHKeyGroup4
-	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cwutil.GetPtr("test4"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
+	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cutil.GetPtr("test4"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
 	assert.NotNil(t, skg4)
 
 	// Build SSH Key for Group 4
@@ -664,7 +662,7 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupStatusInDB(t *testing.T) {
 
 	// Build Instance components
 	vpc := util.TestBuildVpc(t, dbSession, ip, st1, tn, "test-vpc")
-	mc := util.TestBuildMachine(t, dbSession, ip.ID, st1.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	mc := util.TestBuildMachine(t, dbSession, ip.ID, st1.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	al := util.TestBuildAllocation(t, dbSession, ip, tn, st1, "test-allocation")
 	it := util.TestBuildInstanceType(t, dbSession, ip, st1, "test-instance-type")
 	_ = util.TestBuildAllocationContraints(t, dbSession, al, cdbm.AllocationResourceTypeInstanceType, it.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
@@ -676,15 +674,15 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupStatusInDB(t *testing.T) {
 	assert.NotNil(t, skgia1)
 
 	// Build SSHKeyGroup5
-	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cwutil.GetPtr("test5"), tn.ID, cwutil.GetPtr("122569"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cutil.GetPtr("test5"), tn.ID, cutil.GetPtr("122569"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg5)
 
 	// Build SSHKeyGroupSiteAssociation5
-	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st1.ID, cwutil.GetPtr("113085"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st1.ID, cutil.GetPtr("113085"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa5)
 
 	// Build SSHKeyGroup6
-	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cwutil.GetPtr("test6"), tn.ID, cwutil.GetPtr("12234578"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cutil.GetPtr("test6"), tn.ID, cutil.GetPtr("12234578"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg6)
 
 	tSiteClientPool := util.TestTemporalSiteClientPool(t)
@@ -859,74 +857,74 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 	st2 := util.TestBuildSite(t, dbSession, ip, "test-site2", cdbm.SiteStatusRegistered, nil, ipu)
 
 	// Build SSHKeyGroup1
-	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cwutil.GetPtr("test1"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test1"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation1
-	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSHKeyGroup2
-	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cwutil.GetPtr("test2"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg2 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cutil.GetPtr("test2"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation2
-	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa2 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa2)
 
 	// Build SSHKeyGroup3
-	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cwutil.GetPtr("test3"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg3 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cutil.GetPtr("test3"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg3)
 
 	// Build SSHKeyGroupSiteAssociation3
-	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st.ID, cwutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
+	skgsa3 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st.ID, cutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
 	assert.NotNil(t, skgsa3)
 
 	// Build SSHKeyGroup4
-	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cwutil.GetPtr("test4"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg4 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg, cutil.GetPtr("test4"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg4)
 
 	// Build SSHKeyGroupSiteAssociation4
-	skgsa4 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st.ID, cwutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa4 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st.ID, cutil.GetPtr("1135"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa4)
 
 	// Build SSHKeyGroup5
-	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cwutil.GetPtr("test5"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg5 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg, cutil.GetPtr("test5"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg5)
 
 	// Build SSHKeyGroupSiteAssociation5
-	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st.ID, cwutil.GetPtr("1136"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
+	skgsa5 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st.ID, cutil.GetPtr("1136"), cdbm.SSHKeyGroupSiteAssociationStatusError, tnu.ID)
 	assert.NotNil(t, skgsa5)
 
 	// Build SSHKeyGroup6
-	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cwutil.GetPtr("test6"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg6 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cutil.GetPtr("test6"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg6)
 
 	// Build SSHKeyGroupSiteAssociation6
-	skgsa6 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg6.ID, st.ID, cwutil.GetPtr("1137"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa6 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg6.ID, st.ID, cutil.GetPtr("1137"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa6)
 	// Set created earlier than the inventory receipt interval
-	_, err := dbSession.DB.Exec("UPDATE ssh_key_group_site_association SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), skgsa6.ID.String())
+	_, err := dbSession.DB.Exec("UPDATE ssh_key_group_site_association SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), skgsa6.ID.String())
 	assert.NoError(t, err)
 
 	// Build SSHKeyGroup7
-	skg7 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cwutil.GetPtr("test7"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg7 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cutil.GetPtr("test7"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg7)
 
 	// Build SSHKeyGroupSiteAssociation7
-	skgsa7 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg7.ID, st.ID, cwutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa7 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg7.ID, st.ID, cutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa7)
 
 	skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(dbSession)
-	skgsa7, err = skgsaDAO.UpdateFromParams(ctx, nil, skgsa7.ID, nil, nil, nil, cwutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cwutil.GetPtr(true))
+	skgsa7, err = skgsaDAO.UpdateFromParams(ctx, nil, skgsa7.ID, nil, nil, nil, cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusError), cutil.GetPtr(true))
 	assert.NoError(t, err)
 
 	// Build SSHKeyGroup8
-	skg8 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-8", tnOrg, cwutil.GetPtr("test7"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
+	skg8 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-8", tnOrg, cutil.GetPtr("test7"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusDeleting, tnu.ID)
 	assert.NotNil(t, skg8)
 
 	// Build SSHKeyGroupSiteAssociation8
-	skgsa8 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg8.ID, st.ID, cwutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
+	skgsa8 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg8.ID, st.ID, cutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
 	assert.NotNil(t, skgsa8)
 
 	// Build Subnet inventory that is paginated
@@ -934,16 +932,16 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 	pagedSSHKeyGroups := []*cdbm.SSHKeyGroup{}
 	pagedInvSSHKeyGroupIDs := []string{}
 	for i := 0; i < 38; i++ {
-		keyGroup := util.TestBuildSSHKeyGroup(t, dbSession, fmt.Sprintf("test-sshkeygroup-paged-%d", i), tnOrg, cwutil.GetPtr("description"), tn.ID, cwutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+		keyGroup := util.TestBuildSSHKeyGroup(t, dbSession, fmt.Sprintf("test-sshkeygroup-paged-%d", i), tnOrg, cutil.GetPtr("description"), tn.ID, cutil.GetPtr("122346"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE sshkey_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), keyGroup.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE sshkey_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), keyGroup.ID.String())
 		assert.NoError(t, err)
 		pagedSSHKeyGroups = append(pagedSSHKeyGroups, keyGroup)
 		pagedInvSSHKeyGroupIDs = append(pagedInvSSHKeyGroupIDs, keyGroup.ID.String())
 
-		skgsa := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, keyGroup.ID, st2.ID, cwutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+		skgsa := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, keyGroup.ID, st2.ID, cutil.GetPtr("1138"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 		assert.NotNil(t, skgsa)
-		_, err := dbSession.DB.Exec("UPDATE ssh_key_group_site_association SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), skgsa.ID.String())
+		_, err := dbSession.DB.Exec("UPDATE ssh_key_group_site_association SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), skgsa.ID.String())
 		assert.NoError(t, err)
 	}
 
@@ -1219,11 +1217,11 @@ func TestManageSSHKeyGroup_DeleteSSHKeyGroupViaSiteAgent(t *testing.T) {
 	assert.NotNil(t, st1)
 
 	// Build SSHKeyGroup1
-	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cwutil.GetPtr("test1"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test1"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation1
-	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
+	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
 	assert.NotNil(t, skgsa1)
 
 	sshKey1 := util.TestBuildSSHKey(t, dbSession, "test1", tn, "test1", tnu)
@@ -1378,7 +1376,7 @@ func TestSSHKeyAssociationNoPaginator(t *testing.T) {
 	assert.NotNil(t, site)
 
 	// Build SSHKeyGroup
-	skg := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup", tnOrg, cwutil.GetPtr("test1"), tn.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup", tnOrg, cutil.GetPtr("test1"), tn.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg)
 
 	// Build number of ssh keys paginator + 1.
@@ -1396,7 +1394,7 @@ func TestSSHKeyAssociationNoPaginator(t *testing.T) {
 		assert.NotNil(t, ska)
 	}
 
-	skgsaVersion := cwutil.GetPtr("122345")
+	skgsaVersion := cutil.GetPtr("122345")
 	skgsa := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site.ID, skgsaVersion, cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa)
 

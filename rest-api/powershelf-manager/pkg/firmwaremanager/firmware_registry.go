@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"net"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/migrations"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/powershelf"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powershelf"
 
 	log "github.com/sirupsen/logrus"
 )

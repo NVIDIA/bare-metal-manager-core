@@ -15,16 +15,16 @@ import (
 	tWorkflowv1 "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 
-	cloudutils "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	csm "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/sitemgr"
+	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 )
 
 const (

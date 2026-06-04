@@ -16,14 +16,14 @@ import (
 
 	"github.com/uptrace/bun/extra/bundebug"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/roles"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/roles"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 )
 
 // TestInitDB init DB

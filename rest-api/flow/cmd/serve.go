@@ -17,16 +17,16 @@ import (
 	"github.com/spf13/cobra"
 	"go.temporal.io/sdk/worker"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	svc "github.com/NVIDIA/infra-controller-rest/flow/internal/service"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-	cmbuiltin "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/builtin"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	temporalmanager "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/manager"
-	pkgcerts "github.com/NVIDIA/infra-controller-rest/flow/pkg/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	svc "github.com/NVIDIA/infra-controller/rest-api/flow/internal/service"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+	cmbuiltin "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/builtin"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	temporalmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/manager"
+	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 const (

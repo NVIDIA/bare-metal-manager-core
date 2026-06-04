@@ -16,8 +16,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/migrations"
 )
 
 func main() {

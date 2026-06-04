@@ -12,8 +12,8 @@ import (
 	"github.com/Nerzal/gocloak/v13"
 	"github.com/rs/zerolog/log"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
 )
 
 const (

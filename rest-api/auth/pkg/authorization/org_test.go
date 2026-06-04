@@ -7,13 +7,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 )
 
 func TestValidateOrgMembership(t *testing.T) {

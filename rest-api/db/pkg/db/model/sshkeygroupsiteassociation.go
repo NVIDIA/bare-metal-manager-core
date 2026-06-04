@@ -10,15 +10,13 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 var (

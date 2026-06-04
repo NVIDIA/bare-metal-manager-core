@@ -15,15 +15,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dbmodel "github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	taskstore "github.com/NVIDIA/infra-controller-rest/flow/internal/task/store"
-	taskdef "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
+	taskdef "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // ─── mock implementations ─────────────────────────────────────────────────────

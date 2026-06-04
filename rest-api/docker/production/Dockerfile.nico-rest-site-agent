@@ -42,8 +42,8 @@ RUN VERSION=$(grep -v '^#' /workspace/VERSION | tr -d '[:space:]' 2>/dev/null ||
     BUILD_TIME=$(date +"%Y-%m-%d %H:%M:%S") && \
     go build \
         -ldflags "-extldflags '-static' -w -s \
-                  -X 'github.com/NVIDIA/infra-controller-rest/site-agent/pkg/metadata.Version=${VERSION}' \
-                  -X 'github.com/NVIDIA/infra-controller-rest/site-agent/pkg/metadata.BuildTime=${BUILD_TIME}'" \
+                  -X 'github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/metadata.Version=${VERSION}' \
+                  -X 'github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/metadata.BuildTime=${BUILD_TIME}'" \
         -o /app/site-agent \
         ./cmd/site-agent
 

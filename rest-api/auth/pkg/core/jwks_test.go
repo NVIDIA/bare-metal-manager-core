@@ -12,9 +12,8 @@ import (
 	"testing"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/stretchr/testify/assert"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 var (

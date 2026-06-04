@@ -4,10 +4,11 @@
 package model
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"net/url"
 	"time"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APIAuditEntry is a data structure to capture audit log information

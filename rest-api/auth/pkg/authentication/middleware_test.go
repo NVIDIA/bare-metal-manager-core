@@ -14,13 +14,15 @@ import (
 	"testing"
 	"time"
 
-	config2 "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/processors"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	config2 "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/processors"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -30,10 +32,6 @@ import (
 	"github.com/stretchr/testify/require"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 )
 
 const (

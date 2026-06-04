@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // Config represents a network endpoint with optional authentication and TLS.

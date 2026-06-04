@@ -12,10 +12,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 )
 
 // TestInventory is the main test for the inventory package

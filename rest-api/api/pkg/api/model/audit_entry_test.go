@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 )
 
 func TestNewAPIAuditEntry(t *testing.T) {

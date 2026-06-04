@@ -10,11 +10,12 @@
 package nicoapigrpc
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -465,7 +466,7 @@ const file_fmds_proto_rawDesc = "" +
 	"\b_ib_guid2Z\n" +
 	"\x11FmdsConfigService\x12E\n" +
 	"\fUpdateConfig\x12\x19.fmds.UpdateConfigRequest\x1a\x1a.fmds.UpdateConfigResponseB\x88\x01\n" +
-	"\bcom.fmdsB\tFmdsProtoP\x01ZAgithub.com/NVIDIA/infra-controller-rest/flow/internal/nicoapigrpc\xa2\x02\x03FXX\xaa\x02\x04Fmds\xca\x02\x04Fmds\xe2\x02\x10Fmds\\GPBMetadata\xea\x02\x04Fmdsb\x06proto3"
+	"\bcom.fmdsB\tFmdsProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03FXX\xaa\x02\x04Fmds\xca\x02\x04Fmds\xe2\x02\x10Fmds\\GPBMetadata\xea\x02\x04Fmdsb\x06proto3"
 
 var (
 	file_fmds_proto_rawDescOnce sync.Once

@@ -181,10 +181,10 @@ import (
 
     "go.temporal.io/sdk/workflow"
 
-    taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/activity"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
+    taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
 )
 
 // init registers the HealthCheck workflow descriptor with the package registry.

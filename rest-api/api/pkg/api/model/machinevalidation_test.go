@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/stretchr/testify/assert"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 func TestAPIMachineValidationTestCreateRequest_Validate(t *testing.T) {

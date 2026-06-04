@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/attribute"

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 )
 
 type mockClient struct {

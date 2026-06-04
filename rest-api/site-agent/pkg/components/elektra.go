@@ -6,9 +6,9 @@ package elektra
 import (
 	zlog "github.com/rs/zerolog/log"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/config"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/elektratypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/config"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/elektratypes"
 )
 
 // Interface - Managers' interface

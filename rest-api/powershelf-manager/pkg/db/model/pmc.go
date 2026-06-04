@@ -6,7 +6,8 @@ package model
 import (
 	"context"
 	"errors"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/vendor"
+
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
 
 	"github.com/uptrace/bun"
 )

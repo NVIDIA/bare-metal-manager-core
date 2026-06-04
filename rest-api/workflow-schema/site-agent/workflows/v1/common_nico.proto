@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package common;
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 message MachineId {
   string id = 1;

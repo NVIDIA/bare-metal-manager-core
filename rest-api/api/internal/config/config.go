@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	cauth "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"

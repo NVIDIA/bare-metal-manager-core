@@ -10,10 +10,9 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 )
 
 const (

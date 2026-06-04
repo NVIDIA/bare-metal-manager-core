@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/nvswitch"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/redfish"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/nvswitch"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/redfish"
 
 	log "github.com/sirupsen/logrus"
 )

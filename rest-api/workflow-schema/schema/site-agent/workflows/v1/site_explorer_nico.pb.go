@@ -10,12 +10,13 @@
 package proto
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 )
 
 const (
@@ -2246,7 +2247,7 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\x16InternalLockdownStatus\x12\v\n" +
 	"\aENABLED\x10\x00\x12\v\n" +
 	"\aPARTIAL\x10\x01\x12\f\n" +
-	"\bDISABLED\x10\x02B?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\bDISABLED\x10\x02BCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_site_explorer_nico_proto_rawDescOnce sync.Once

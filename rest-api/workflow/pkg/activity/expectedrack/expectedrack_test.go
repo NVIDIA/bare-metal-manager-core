@@ -10,25 +10,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // testTemporalSiteClientPool builds a site client pool for activity tests.
@@ -155,8 +155,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		// Echo back labels for current racks
 		if i%5 == 0 {
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "region", Value: cwutil.GetPtr(fmt.Sprintf("region-%d", i/5))},
-				{Key: "row", Value: cwutil.GetPtr(fmt.Sprintf("row-%d", i))},
+				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-%d", i/5))},
+				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
 			}
 		}
 
@@ -174,15 +174,15 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		if i == 1 {
 			// Add labels to a rack that didn't have them before
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "new-label", Value: cwutil.GetPtr("new-value")},
+				{Key: "new-label", Value: cutil.GetPtr("new-value")},
 			}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 5 {
 			// Modify existing labels
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "region", Value: cwutil.GetPtr(fmt.Sprintf("region-updated-%d", i/5))},
-				{Key: "row", Value: cwutil.GetPtr(fmt.Sprintf("row-%d", i))},
-				{Key: "status", Value: cwutil.GetPtr("active")},
+				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-updated-%d", i/5))},
+				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
+				{Key: "status", Value: cutil.GetPtr("active")},
 			}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 10 {
@@ -366,8 +366,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 								Name:        "Rack New 1",
 								Description: "freshly reported",
 								Labels: []*cwssaws.Label{
-									{Key: "environment", Value: cwutil.GetPtr("test")},
-									{Key: "datacenter", Value: cwutil.GetPtr("dc1")},
+									{Key: "environment", Value: cutil.GetPtr("test")},
+									{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 								},
 							},
 						},
@@ -416,7 +416,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			// Verify state by fetching all racks for the site.
 			erDAO := cdbm.NewExpectedRackDAO(dbSession)
 			filterInput := cdbm.ExpectedRackFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}
-			allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+			allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			assert.NoError(t, gerr)
 
 			// Map by RackID (operator-supplied identifier, the reconciliation key)
@@ -555,7 +555,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_NoChange(t *testing.T) {
 					Name:        er.Name,
 					Description: er.Description,
 					Labels: []*cwssaws.Label{
-						{Key: "foo", Value: cwutil.GetPtr("bar")},
+						{Key: "foo", Value: cutil.GetPtr("bar")},
 					},
 				},
 			},
@@ -621,7 +621,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_RaceCondition(t *testing.T) 
 
 	// Verify the rack was NOT deleted
 	filterInput := cdbm.ExpectedRackFilterInput{SiteIDs: []uuid.UUID{st.ID}}
-	allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+	allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	assert.NoError(t, gerr)
 
 	found := false

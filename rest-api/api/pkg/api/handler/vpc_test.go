@@ -15,6 +15,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -26,23 +40,8 @@ import (
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	oteltrace "go.opentelemetry.io/otel/trace"
-
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
 )
 
 func testVPCInitDB(t *testing.T) *cdb.Session {
@@ -97,7 +96,7 @@ func testVPCSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testVPCSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -108,20 +107,20 @@ func testVPCBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   sutil.GetPtr("Test Site"),
-		Description:                   sutil.GetPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         sutil.GetPtr("1.0.0"),
-		SiteAgentVersion:              sutil.GetPtr("1.0.0"),
-		RegistrationToken:             sutil.GetPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   sutil.GetPtr(cdb.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             false,
 		Config:                        cdbm.SiteConfig{NativeNetworking: isNativeNetworkingEnabled, NVLinkPartition: isNVLinkPartitionEnabled},
-		SerialConsoleHostname:         sutil.GetPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      sutil.GetPtr(30),
-		SerialConsoleMaxSessionLength: sutil.GetPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        status,
 		CreatedBy:                     user.ID,
 	})
@@ -133,7 +132,7 @@ func testVPCBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 func testVPCBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, sutil.GetPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -148,9 +147,9 @@ func testVPCBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, 
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       sutil.GetPtr("jdoe@test.com"),
-			FirstName:   sutil.GetPtr("John"),
-			LastName:    sutil.GetPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -172,7 +171,7 @@ func testVPCSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              sutil.GetPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -190,14 +189,14 @@ func testVPCBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               sutil.GetPtr("Test Vpc"),
+		Description:               cutil.GetPtr("Test Vpc"),
 		Org:                       tn.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
 		NetworkVirtualizationType: nvt,
 		NVLinkLogicalPartitionID:  defaultNVLinkLogicalPartitionID,
-		ControllerVpcID:           sutil.GetPtr(uuid.New()),
+		ControllerVpcID:           cutil.GetPtr(uuid.New()),
 		Labels:                    labels,
 		Status:                    status,
 		CreatedBy:                 *user,
@@ -220,7 +219,7 @@ func testVPCBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, tn *c
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, cdbm.SubnetCreateInput{
 		Name:         name,
-		Description:  sutil.GetPtr("Test Subnet"),
+		Description:  cutil.GetPtr("Test Subnet"),
 		Org:          tn.Org,
 		SiteID:       vpc.SiteID,
 		VpcID:        vpc.ID,
@@ -373,10 +372,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, nsgTenant2Site1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	existingVPCSt1 := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st1, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), sutil.GetPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
+	existingVPCSt1 := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st1, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, existingVPCSt1)
 
 	e := echo.New()
@@ -463,16 +462,16 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
-					Vni:                       sutil.GetPtr(555),
+					Vni:                       cutil.GetPtr(555),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -498,15 +497,15 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      vpcWithAllocatedVniName,
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -537,17 +536,17 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC routing profile",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
-					Vni:                       sutil.GetPtr(559),
-					RoutingProfile:            sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					Vni:                       cutil.GetPtr(559),
+					RoutingProfile:            cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -573,10 +572,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC unsupported routing profile",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
-					RoutingProfile:            sutil.GetPtr("tenant-edge"),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					RoutingProfile:            cutil.GetPtr("tenant-edge"),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
@@ -596,10 +595,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC restricted routing profile",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
-					RoutingProfile:            sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					RoutingProfile:            cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 				},
 				reqOrg:      tnOrg3,
 				reqUser:     tnu3,
@@ -619,10 +618,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC ethernet routing profile",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcEthernetVirtualizer),
-					RoutingProfile:            sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+					RoutingProfile:            cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
 				},
 				reqOrg:      tnOrg,
@@ -643,9 +642,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test Flat VPC",
-					Description:               sutil.GetPtr("Flat VPC for zero-DPU instances"),
+					Description:               cutil.GetPtr("Flat VPC for zero-DPU instances"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFlat),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFlat),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -671,10 +670,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test Flat VPC with routing profile",
-					Description:               sutil.GetPtr("Flat VPC with disallowed routing profile"),
+					Description:               cutil.GetPtr("Flat VPC with disallowed routing profile"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFlat),
-					RoutingProfile:            sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFlat),
+					RoutingProfile:            cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
@@ -694,17 +693,17 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
-					Vni:                       sutil.GetPtr(555),
-					RoutingProfile:            sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					Vni:                       cutil.GetPtr(555),
+					RoutingProfile:            cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
@@ -724,9 +723,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:           "Test VPC default ethernet routing profile",
-					Description:    sutil.GetPtr("Test VPC Description"),
+					Description:    cutil.GetPtr("Test VPC Description"),
 					SiteID:         st3.ID.String(),
-					RoutingProfile: sutil.GetPtr(model.APIVpcRoutingProfileInternal),
+					RoutingProfile: cutil.GetPtr(model.APIVpcRoutingProfileInternal),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
@@ -745,18 +744,18 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
-					ID:                        sutil.GetPtr(uuid.New()),
+					ID:                        cutil.GetPtr(uuid.New()),
 					Name:                      "Test VPC 2",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
-					Vni:                       sutil.GetPtr(557),
+					Vni:                       cutil.GetPtr(557),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -783,16 +782,16 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 				reqData: &model.APIVpcCreateRequest{
 					ID:                        &existingVPCSt1.ID,
 					Name:                      "Test VPC 3",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
-					Vni:                       sutil.GetPtr(556),
+					Vni:                       cutil.GetPtr(556),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu,
@@ -811,9 +810,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC bad nsg tenant",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant2Site1.ID,
 
 					Labels: map[string]string{
@@ -838,9 +837,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC bad nsg tenant",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					NetworkSecurityGroupID:    &nsgTenant1Site2.ID,
 
 					Labels: map[string]string{
@@ -865,10 +864,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC bad nsg tenant",
-					Description:               sutil.GetPtr("Test VPC Description"),
+					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
-					NetworkSecurityGroupID:    sutil.GetPtr(uuid.NewString()),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					NetworkSecurityGroupID:    cutil.GetPtr(uuid.NewString()),
 
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
@@ -892,7 +891,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC",
-					Description: sutil.GetPtr("Test VPC Description"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					SiteID:      st1.ID.String(),
 				},
 				reqOrg:   tnOrg,
@@ -911,7 +910,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC",
-					Description: sutil.GetPtr("Test VPC Description"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					SiteID:      st1.ID.String(),
 				},
 				reqOrg:   ipOrg,
@@ -930,7 +929,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC",
-					Description: sutil.GetPtr("Test VPC Description"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					SiteID:      uuid.NewString(),
 				},
 				reqOrg:   tnOrg,
@@ -949,7 +948,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC",
-					Description: sutil.GetPtr("Test VPC Description"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					SiteID:      st2.ID.String(),
 				},
 				reqOrg:   tnOrg,
@@ -968,9 +967,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:                      "Test VPC 3",
-					Description:               sutil.GetPtr("Test VPC Description 3"),
+					Description:               cutil.GetPtr("Test VPC Description 3"),
 					SiteID:                    st3.ID.String(),
-					NetworkVirtualizationType: sutil.GetPtr(cdbm.VpcFNN),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 				},
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
@@ -990,7 +989,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC 3",
-					Description: sutil.GetPtr("Test VPC Description 3"),
+					Description: cutil.GetPtr("Test VPC Description 3"),
 					SiteID:      st3.ID.String(),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
@@ -1014,7 +1013,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
 					Name:        "Test VPC",
-					Description: sutil.GetPtr("Test VPC Description"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					SiteID:      st1.ID.String(),
 					Labels: map[string]string{
 						"ygsV9MoUjep1rCwbQskkF9wfMolE3oDTCcxuYSJCx9TLKepCIku9pnHfIkxCxHkb7ucbsBL4hyLqQaHoEqpTBmfoX4Un7sGvQdHGZ7nb68JJEJ3ocFAtyCMCBt66z3ldnTqp8SXXOIhNsOh35MLYQjI8557Pu6o91TsEBqyTz0yz68HHmfNgJoreHpXfeujq4cpElUXXbQ3xfFICkNyghXgFZ0MLs2o0u1Nd29aB113X5g3FKJBCskW6eBULNmeFFG61DMM37q": "east1",
@@ -1197,22 +1196,22 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, al1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st, tn, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st, tn, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", sutil.GetPtr("Test NVLink Logical Partition 2"), tnOrg, st, tn, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cutil.GetPtr("Test NVLink Logical Partition 2"), tnOrg, st, tn, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
-	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), sutil.GetPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
+	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc)
 
-	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "wes2"}, cdbm.VpcStatusReady, tnu)
+	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "wes2"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west3"}, cdbm.VpcStatusReady, tnu)
+	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west3"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc2)
 
-	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st3, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west6"}, cdbm.VpcStatusReady, tnu)
+	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st3, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west6"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc4)
 
 	// Associate tenant 1 with site 1
@@ -1302,12 +1301,12 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					Labels: map[string]string{
 						"zone": "westnew",
 					},
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp1.ID.String()),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp1.ID.String()),
 				},
 				reqVPCID: vpc.ID.String(),
 				reqVPC:   vpc,
@@ -1327,8 +1326,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                   sutil.GetPtr(uuid.NewString()),
-					Description:            sutil.GetPtr("Test VPC Description"),
+					Name:                   cutil.GetPtr(uuid.NewString()),
+					Description:            cutil.GetPtr("Test VPC Description"),
 					NetworkSecurityGroupID: &nsgTenant2Site1.ID,
 					Labels: map[string]string{
 						"zone": "westnew",
@@ -1352,8 +1351,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                   sutil.GetPtr(uuid.NewString()),
-					Description:            sutil.GetPtr("Test VPC Description"),
+					Name:                   cutil.GetPtr(uuid.NewString()),
+					Description:            cutil.GetPtr("Test VPC Description"),
 					NetworkSecurityGroupID: &nsgTenant1Site2.ID,
 					Labels: map[string]string{
 						"zone": "westnew",
@@ -1377,9 +1376,9 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                   sutil.GetPtr(uuid.NewString()),
-					Description:            sutil.GetPtr("Test VPC Description"),
-					NetworkSecurityGroupID: sutil.GetPtr(uuid.NewString()),
+					Name:                   cutil.GetPtr(uuid.NewString()),
+					Description:            cutil.GetPtr("Test VPC Description"),
+					NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()),
 					Labels: map[string]string{
 						"zone": "westnew",
 					},
@@ -1402,9 +1401,9 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                   sutil.GetPtr(uuid.NewString()),
-					Description:            sutil.GetPtr("Test VPC Description"),
-					NetworkSecurityGroupID: sutil.GetPtr(""),
+					Name:                   cutil.GetPtr(uuid.NewString()),
+					Description:            cutil.GetPtr("Test VPC Description"),
+					NetworkSecurityGroupID: cutil.GetPtr(""),
 					Labels: map[string]string{
 						"zone": "westnew",
 					},
@@ -1428,8 +1427,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc-2"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc-2"),
+					Description: cutil.GetPtr("Test VPC Description"),
 				},
 				reqVPCID: vpc.ID.String(),
 				reqVPC:   vpc,
@@ -1448,8 +1447,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc-2"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc-2"),
+					Description: cutil.GetPtr("Test VPC Description"),
 				},
 				reqVPCID: vpc2.ID.String(),
 				reqVPC:   vpc2,
@@ -1468,8 +1467,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc"),
+					Description: cutil.GetPtr("Test VPC Description"),
 				},
 				reqVPCID: vpc.ID.String(),
 				reqVPC:   vpc,
@@ -1488,8 +1487,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc"),
+					Description: cutil.GetPtr("Test VPC Description"),
 				},
 				reqVPC:   vpc,
 				reqVPCID: "",
@@ -1508,8 +1507,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("test-vpc-3"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("test-vpc-3"),
+					Description: cutil.GetPtr("Test VPC Description"),
 				},
 				reqVPCID: vpc4.ID.String(),
 				reqVPC:   vpc4,
@@ -1528,8 +1527,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("Test VPC 3"),
-					Description: sutil.GetPtr("Test VPC Description 3"),
+					Name:        cutil.GetPtr("Test VPC 3"),
+					Description: cutil.GetPtr("Test VPC Description 3"),
 					Labels: map[string]string{
 						"vpc-dpu-zone": "east1",
 						"vpc-gpu-zone": "west1",
@@ -1554,8 +1553,8 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:        sutil.GetPtr("Test VPC"),
-					Description: sutil.GetPtr("Test VPC Description"),
+					Name:        cutil.GetPtr("Test VPC"),
+					Description: cutil.GetPtr("Test VPC Description"),
 					Labels: map[string]string{
 						"ygsV9MoUjep1rCwbQskkF9wfMolE3oDTCcxuYSJCx9TLKepCIku9pnHfIkxCxHkb7ucbsBL4hyLqQaHoEqpTBmfoX4Un7sGvQdHGZ7nb68JJEJ3ocFAtyCMCBt66z3ldnTqp8SXXOIhNsOh35MLYQjI8557Pu6o91TsEBqyTz0yz68HHmfNgJoreHpXfeujq4cpElUXXbQ3xfFICkNyghXgFZ0MLs2o0u1Nd29aB113X5g3FKJBCskW6eBULNmeFFG61DMM37q": "east1",
 					},
@@ -1579,9 +1578,9 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                     sutil.GetPtr("test-vpc"),
-					Description:              sutil.GetPtr("Test VPC Description"),
-					NVLinkLogicalPartitionID: sutil.GetPtr(""),
+					Name:                     cutil.GetPtr("test-vpc"),
+					Description:              cutil.GetPtr("Test VPC Description"),
+					NVLinkLogicalPartitionID: cutil.GetPtr(""),
 				},
 				reqVPCID: vpc.ID.String(),
 				reqVPC:   vpc,
@@ -1590,7 +1589,7 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				respCode: http.StatusOK,
 			},
 			wantErr:                      false,
-			expectedNVLinkPartitionValue: sutil.GetPtr(""),
+			expectedNVLinkPartitionValue: cutil.GetPtr(""),
 		},
 		{
 			name: "test VPC update to set NVLink Logical Partition ID after clearing - success",
@@ -1601,9 +1600,9 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcUpdateRequest{
-					Name:                     sutil.GetPtr("test-vpc"),
-					Description:              sutil.GetPtr("Test VPC Description"),
-					NVLinkLogicalPartitionID: sutil.GetPtr(nvllp2.ID.String()),
+					Name:                     cutil.GetPtr("test-vpc"),
+					Description:              cutil.GetPtr("Test VPC Description"),
+					NVLinkLogicalPartitionID: cutil.GetPtr(nvllp2.ID.String()),
 				},
 				reqVPCID: vpc.ID.String(),
 				reqVPC:   vpc,
@@ -1612,7 +1611,7 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				respCode: http.StatusOK,
 			},
 			wantErr:                      false,
-			expectedNVLinkPartitionValue: sutil.GetPtr(nvllp2.ID.String()),
+			expectedNVLinkPartitionValue: cutil.GetPtr(nvllp2.ID.String()),
 		},
 	}
 	for _, tt := range tests {
@@ -1762,23 +1761,23 @@ func TestUpdateVirtualizationVPCHandler_Handle(t *testing.T) {
 	al1 := testVPCSiteBuildAllocation(t, dbSession, st2, tn, "test-allocation-1", ipu)
 	assert.NotNil(t, al1)
 
-	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
+	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc)
 
-	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "wes2"}, cdbm.VpcStatusReady, tnu)
+	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "wes2"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west3"}, cdbm.VpcStatusReady, tnu)
+	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west3"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc2)
 
-	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, sutil.GetPtr(cdbm.VpcFNN), nil, map[string]string{"zone": "west6"}, cdbm.VpcStatusReady, tnu)
+	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st2, cutil.GetPtr(cdbm.VpcFNN), nil, map[string]string{"zone": "west6"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpc4)
 
-	vpcWithSubnet := testVPCBuildVPC(t, dbSession, "test-vpc-with-subnet", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west4"}, cdbm.VpcStatusReady, tnu)
+	vpcWithSubnet := testVPCBuildVPC(t, dbSession, "test-vpc-with-subnet", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west4"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpcWithSubnet)
 	assert.NotNil(t, testVPCBuildSubnet(t, dbSession, "test-subnet", tn, vpcWithSubnet, tnu))
 
-	vpcWithInstance := testVPCBuildVPC(t, dbSession, "test-vpc-with-instance", ip, tn, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west5"}, cdbm.VpcStatusReady, tnu)
+	vpcWithInstance := testVPCBuildVPC(t, dbSession, "test-vpc-with-instance", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west5"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpcWithInstance)
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type", st, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instanceType)
@@ -1792,7 +1791,7 @@ func TestUpdateVirtualizationVPCHandler_Handle(t *testing.T) {
 	tsPending := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, stPending.ID, tnu.ID)
 	assert.NotNil(t, tsPending)
 	_ = testVPCSiteBuildAllocation(t, dbSession, stPending, tn, "test-allocation-pending-site", ipu)
-	vpcPendingSite := testVPCBuildVPC(t, dbSession, "test-vpc-pending-site", ip, tn, stPending, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west-pending"}, cdbm.VpcStatusReady, tnu)
+	vpcPendingSite := testVPCBuildVPC(t, dbSession, "test-vpc-pending-site", ip, tn, stPending, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west-pending"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpcPendingSite)
 
 	// Registered site without native networking (FNN not enabled at site) — eligible otherwise (no subnets / instances)
@@ -1802,7 +1801,7 @@ func TestUpdateVirtualizationVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, tsNoNative)
 	alNoNative := testVPCSiteBuildAllocation(t, dbSession, stNoNativeNet, tn, "test-allocation-no-native", ipu)
 	assert.NotNil(t, alNoNative)
-	vpcNoNativeNet := testVPCBuildVPC(t, dbSession, "test-vpc-no-native-net", ip, tn, stNoNativeNet, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west-nonative"}, cdbm.VpcStatusReady, tnu)
+	vpcNoNativeNet := testVPCBuildVPC(t, dbSession, "test-vpc-no-native-net", ip, tn, stNoNativeNet, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west-nonative"}, cdbm.VpcStatusReady, tnu)
 	assert.NotNil(t, vpcNoNativeNet)
 
 	e := echo.New()
@@ -2141,14 +2140,14 @@ func TestGetVPCHandler_Handle(t *testing.T) {
 	al := testVPCSiteBuildAllocation(t, dbSession, st, tn1, "test-allocation", ipu)
 	assert.NotNil(t, al)
 
-	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn1, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu1)
+	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn1, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc)
 
 	// Attach an NSG to this instance
 	nsg1 := testBuildNetworkSecurityGroup(t, dbSession, "network-security-group-1-for-the-win", tn1, st, cdbm.NetworkSecurityGroupStatusReady)
 	assert.NotNil(t, nsg1)
 
-	vpc.NetworkSecurityGroupID = sutil.GetPtr(nsg1.ID)
+	vpc.NetworkSecurityGroupID = cutil.GetPtr(nsg1.ID)
 	testUpdateVPC(t, dbSession, vpc)
 
 	e := echo.New()
@@ -2264,7 +2263,7 @@ func TestGetVPCHandler_Handle(t *testing.T) {
 				reqUser:  tnu1,
 				respCode: http.StatusOK,
 			},
-			queryIncludeRelations1: sutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedTenantOrg:      &tn1.Org,
 			wantErr:                false,
 			verifyChildSpanner:     true,
@@ -2283,7 +2282,7 @@ func TestGetVPCHandler_Handle(t *testing.T) {
 				reqUser:  tnu1,
 				respCode: http.StatusOK,
 			},
-			queryIncludeRelations1:           sutil.GetPtr(cdbm.NetworkSecurityGroupRelationName),
+			queryIncludeRelations1:           cutil.GetPtr(cdbm.NetworkSecurityGroupRelationName),
 			expectedNetworkSecurityGroupName: &nsg1.Name,
 			wantErr:                          false,
 			verifyChildSpanner:               true,
@@ -2302,8 +2301,8 @@ func TestGetVPCHandler_Handle(t *testing.T) {
 				reqUser:  tnu1,
 				respCode: http.StatusOK,
 			},
-			queryIncludeRelations1: sutil.GetPtr(cdbm.TenantRelationName),
-			queryIncludeRelations2: sutil.GetPtr(cdbm.SiteRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.SiteRelationName),
 			expectedTenantOrg:      &tn1.Org,
 			expectedSiteName:       &st.Name,
 			wantErr:                false,
@@ -2452,13 +2451,13 @@ func TestGetAllVPCHandler_Handle(t *testing.T) {
 	nsgs := []*cdbm.NetworkSecurityGroup{nsg1, nsg2, nsg3}
 
 	// NVLink Logical Partitions
-	nvllp1 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
+	nvllp1 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
 	assert.NotNil(t, nvllp1)
-	nvllp2 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp2", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st2, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
+	nvllp2 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp2", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st2, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
 	assert.NotNil(t, nvllp2)
-	nvllp3 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp3", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st3, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
+	nvllp3 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp3", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st3, tn, cdbm.NVLinkLogicalPartitionStatusReady, tnu)
 	assert.NotNil(t, nvllp3)
-	nvllp4 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp4", sutil.GetPtr("Test NVLink Logical Partition"), tn2Org, st3, tn2, cdbm.NVLinkLogicalPartitionStatusReady, tnu2)
+	nvllp4 := testVPCBuildNVLinkLogicalPartition(t, dbSession, "nvllp4", cutil.GetPtr("Test NVLink Logical Partition"), tn2Org, st3, tn2, cdbm.NVLinkLogicalPartitionStatusReady, tnu2)
 	assert.NotNil(t, nvllp4)
 
 	nvllps := []*cdbm.NVLinkLogicalPartition{nvllp1, nvllp2, nvllp3}
@@ -2485,11 +2484,11 @@ func TestGetAllVPCHandler_Handle(t *testing.T) {
 			status = cdbm.VpcStatusPending
 		}
 
-		vpc := testVPCBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-%02d", i), ip, tn, curSite, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), &curNvllp.ID, map[string]string{"zone": fmt.Sprintf("test-vpc-%02d", i)}, status, tnu)
+		vpc := testVPCBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-%02d", i), ip, tn, curSite, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), &curNvllp.ID, map[string]string{"zone": fmt.Sprintf("test-vpc-%02d", i)}, status, tnu)
 		assert.NotNil(t, vpc)
 
 		// Add the NSG of the site to the VPC
-		vpc.NetworkSecurityGroupID = sutil.GetPtr(curNsg.ID)
+		vpc.NetworkSecurityGroupID = cutil.GetPtr(curNsg.ID)
 		testUpdateVPC(t, dbSession, vpc)
 
 		vpcs = append(vpcs, *vpc)
@@ -3149,28 +3148,28 @@ func TestDeleteVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, ipb1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", sutil.GetPtr("Test NVLink Logical Partition"), tnOrg1, st, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg1, st, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	vpc1 := testVPCBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), sutil.GetPtr(nvllp1.ID), map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testVPCBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(nvllp1.ID), map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
+	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc2)
 
-	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st, sutil.GetPtr(cdbm.VpcFNN), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
+	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn1, st, cutil.GetPtr(cdbm.VpcFNN), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc3)
 
 	os := common.TestBuildOperatingSystem(t, dbSession, "test-os", tn1, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os)
 
-	it := common.TestBuildInstanceType(t, dbSession, "testIT", sutil.GetPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "testIT", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
 	assert.NotNil(t, it)
 
-	machine := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, sutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	machine := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 	assert.NotNil(t, machine)
 
 	alc := common.TestBuildAllocationConstraint(t, dbSession, al, it, nil, 1, ipu)
@@ -3182,10 +3181,10 @@ func TestDeleteVPCHandler_Handle(t *testing.T) {
 	subnet := testVPCBuildSubnet(t, dbSession, "test-subnet", tn1, vpc2, tnu1)
 	assert.NotNil(t, subnet)
 
-	vpcPrefix := testVPCBuildVPCPrefix(t, dbSession, "test-vpc-prefix", tn1, vpc3, sutil.GetPtr(ipb1.ID), "10.0.0.0/24", tnu1)
+	vpcPrefix := testVPCBuildVPCPrefix(t, dbSession, "test-vpc-prefix", tn1, vpc3, cutil.GetPtr(ipb1.ID), "10.0.0.0/24", tnu1)
 	assert.NotNil(t, vpcPrefix)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp", sutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st, tn1, sutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp", cutil.GetPtr("Test NVLink Logical Partition"), tn1.Org, st, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp)
 
 	e := echo.New()

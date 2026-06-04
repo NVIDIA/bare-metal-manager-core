@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

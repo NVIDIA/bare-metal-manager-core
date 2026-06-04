@@ -12,14 +12,11 @@ gen-pb: ## Generate protobuf files
 	@echo "Successfully generated protobuf"
 
 gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for new messages or fields that we will actually use
-	rm -rf infra-controller-core
-	git clone https://github.com/NVIDIA/infra-controller-core.git
 	rm -f internal/nicoapi/nicoproto/*.proto
-	cp infra-controller-core/crates/rpc/proto/*.proto internal/nicoapi/nicoproto/
+	cp ../../crates/rpc/proto/*.proto internal/nicoapi/nicoproto/
 	@if [ -f internal/nicoapi/nicoproto/forge.proto ] && [ ! -f internal/nicoapi/nicoproto/nico.proto ]; then \
 		mv internal/nicoapi/nicoproto/forge.proto internal/nicoapi/nicoproto/nico.proto; \
 	fi
-	rm -rf infra-controller-core
 # The protodefs are a bit unclean, and we need to make some tweaks to make them usable.
 	cd internal/nicoapi && ./tweak_protodefs.sh
 # Specify version of buf for consistency in pipeline builds
@@ -43,9 +40,9 @@ flow:
 	BUILD_TIME=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
 	GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
 	go build -C build \
-		-ldflags "-X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.Version=$${VERSION}' \
-		          -X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.BuildTime=$${BUILD_TIME}' \
-		          -X 'github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata.GitCommit=$${GIT_COMMIT}'" \
+		-ldflags "-X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.Version=$${VERSION}' \
+		          -X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.BuildTime=$${BUILD_TIME}' \
+		          -X 'github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata.GitCommit=$${GIT_COMMIT}'" \
 		..
 
 container: flow

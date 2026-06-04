@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,25 +27,23 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
 
 	tclient "go.temporal.io/sdk/client"
 
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 
 	temporalEnums "go.temporal.io/api/enums/v1"
 
-	cam "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cam "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 const (

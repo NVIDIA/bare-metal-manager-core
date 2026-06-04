@@ -15,7 +15,7 @@ const (
 // SPDX-License-Identifier: Apache-2.0
 `
 
-	goPackageOption = `option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";`
+	goPackageOption = `option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";`
 
 	additionalExpectedMachineAttributes = `
 // WARNING: Following fields are not present in Core, but added directly in REST snapshot

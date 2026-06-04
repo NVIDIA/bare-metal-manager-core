@@ -10,24 +10,22 @@ import (
 	"testing"
 	"time"
 
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
 	"os"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func testTemporalSiteClientPool(t *testing.T) *sc.ClientPool {
@@ -78,7 +76,7 @@ func testVpcPeeringSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testVpcPeeringSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cwutil.GetPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -89,14 +87,14 @@ func testVpcPeeringBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infr
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                        name,
-		DisplayName:                 cwutil.GetPtr("Test Site"),
-		Description:                 cwutil.GetPtr("Test Site Description"),
+		DisplayName:                 cutil.GetPtr("Test Site"),
+		Description:                 cutil.GetPtr("Test Site Description"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cwutil.GetPtr("1.0.0"),
-		SiteAgentVersion:            cwutil.GetPtr("1.0.0"),
-		RegistrationToken:           cwutil.GetPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cwutil.GetPtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		IsSerialConsoleEnabled:      false,
 		Status:                      cdbm.SiteStatusPending,
@@ -110,7 +108,7 @@ func testVpcPeeringBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infr
 func testVpcPeeringBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cwutil.GetPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -122,9 +120,9 @@ func testVpcPeeringBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID s
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cwutil.GetPtr("jdoe@test.com"),
-		FirstName:   cwutil.GetPtr("John"),
-		LastName:    cwutil.GetPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -157,7 +155,7 @@ func testVpcPeeringBuildVPC(
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cwutil.GetPtr("Test VPC"),
+		Description:               cutil.GetPtr("Test VPC"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
@@ -233,15 +231,15 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 	assert.NotNil(t, vp1)
 	vp2 := testVpcPeeringBuildVpcPeering(t, dbSession, vpc2.ID, vpc1.ID, site.ID, false, user.ID)
 	assert.NotNil(t, vp2)
-	_, err := dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), vp2.ID)
+	_, err := dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vp2.ID)
 	assert.NoError(t, err)
 	vp3 := testVpcPeeringBuildVpcPeering(t, dbSession, vpc1.ID, vpc3.ID, site.ID, false, user.ID)
 	assert.NotNil(t, vp3)
-	_, err = dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), vp3.ID)
+	_, err = dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vp3.ID)
 	assert.NoError(t, err)
 	vp4 := testVpcPeeringBuildVpcPeering(t, dbSession, vpc2.ID, vpc3.ID, site.ID, false, user.ID)
 	assert.NotNil(t, vp4)
-	_, err = dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), vp4.ID)
+	_, err = dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vp4.ID)
 	assert.NoError(t, err)
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
@@ -265,10 +263,10 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 
 		mvp := NewManageVpcPeering(dbSession, nil)
 		// Set status to Ready
-		err = mvp.updateVpcPeeringStatusInDB(ctx, nil, vpcPeering.ID, cwutil.GetPtr(cdbm.VpcPeeringStatusReady), cwutil.GetPtr("VPC Peering was created in DB from site inventory"))
+		err = mvp.updateVpcPeeringStatusInDB(ctx, nil, vpcPeering.ID, cutil.GetPtr(cdbm.VpcPeeringStatusReady), cutil.GetPtr("VPC Peering was created in DB from site inventory"))
 		assert.NoError(t, err)
 		// Set created to 2x inventory interval ago
-		_, err := dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), vpcPeering.ID)
+		_, err := dbSession.DB.Exec("UPDATE vpc_peering SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vpcPeering.ID)
 		assert.NoError(t, err)
 
 		if i < 34 {

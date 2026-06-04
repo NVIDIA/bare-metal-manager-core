@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

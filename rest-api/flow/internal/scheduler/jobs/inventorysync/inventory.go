@@ -12,12 +12,12 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 const driftFieldSerialNumber = "serial_number"

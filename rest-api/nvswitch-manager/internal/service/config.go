@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/credentials"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/firmwaremanager"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/nvswitchmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/credentials"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/firmwaremanager"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/nvswitchmanager"
 )
 
 // Config captures runtime settings for running the gRPC service.

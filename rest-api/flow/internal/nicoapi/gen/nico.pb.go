@@ -10,15 +10,16 @@
 package nicoapigrpc
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	_ "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -60622,7 +60623,7 @@ const file_nico_proto_rawDesc = "" +
 	"\x19FindOperatingSystemsByIds\x12#.forge.OperatingSystemsByIdsRequest\x1a\x1a.forge.OperatingSystemList\x12\x91\x01\n" +
 	"/GetOperatingSystemCachableIpxeTemplateArtifacts\x12=.forge.GetOperatingSystemCachableIpxeTemplateArtifactsRequest\x1a\x1f.forge.IpxeTemplateArtifactList\x12\x8e\x01\n" +
 	"2UpdateOperatingSystemCachableIpxeTemplateArtifacts\x127.forge.UpdateOperatingSystemIpxeTemplateArtifactRequest\x1a\x1f.forge.IpxeTemplateArtifactListB\x8d\x01\n" +
-	"\tcom.forgeB\tNicoProtoP\x01ZAgithub.com/NVIDIA/infra-controller-rest/flow/internal/nicoapigrpc\xa2\x02\x03FXX\xaa\x02\x05Forge\xca\x02\x05Forge\xe2\x02\x11Forge\\GPBMetadata\xea\x02\x05Forgeb\x06proto3"
+	"\tcom.forgeB\tNicoProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03FXX\xaa\x02\x05Forge\xca\x02\x05Forge\xe2\x02\x11Forge\\GPBMetadata\xea\x02\x05Forgeb\x06proto3"
 
 var (
 	file_nico_proto_rawDescOnce sync.Once

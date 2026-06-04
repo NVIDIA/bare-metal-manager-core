@@ -5,10 +5,11 @@ package bmc
 
 import (
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // DefaultBMCPort is the default Redfish HTTPS port.

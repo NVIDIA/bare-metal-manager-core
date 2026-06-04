@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/sdk/standard"
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 // Vpc represents a simplified VPC

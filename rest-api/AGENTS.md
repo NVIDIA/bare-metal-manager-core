@@ -8,8 +8,7 @@ This file provides guidance for AI coding agents working in the
 **NVIDIA Infrastructure Controller REST** is a collection of Go microservices that comprise
 the management backend for NVIDIA Infrastructure Controller (NICo), exposed as a REST API. It
 provides multi-tenant, API-driven bare-metal lifecycle management, working in
-concert with [NVIDIA Infrastructure Controller Core](https://github.com/NVIDIA/infra-controller-core)
-for on-site hardware operations.
+concert with Core services for on-site hardware operations.
 
 > **Status:** Experimental/Preview. APIs, configurations, and features may
 > change without notice between releases.
@@ -57,7 +56,7 @@ infra-controller-rest/
 
 ## Technology Stack
 
-- **Language:** Go (version specified in `go.mod`; module `github.com/NVIDIA/infra-controller-rest`)
+- **Language:** Go (version specified in `go.mod`; module `github.com/NVIDIA/infra-controller/rest-api`)
 - **HTTP framework:** Echo v4 (with middleware for CORS, auth, rate limiting, audit)
 - **Database:** PostgreSQL via pgx v5 (connection pool) and Bun ORM (queries, migrations)
 - **Workflow engine:** Temporal (cloud and site workflows/activities)

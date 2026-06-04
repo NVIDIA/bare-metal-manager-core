@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package nmx_c;
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 enum ProtoMsgMajorVersion {
   PROTO_MSG_MAJOR_VERSION_UNDEFINED = 0;

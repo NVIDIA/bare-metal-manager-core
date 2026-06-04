@@ -7,12 +7,11 @@ import (
 	"testing"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate verifies required fields, audience allowlist rules, and rotateKey/signingKeyOverlapSeconds coupling on the tenant identity create-or-update request.

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	pkgcerts "github.com/NVIDIA/infra-controller-rest/flow/pkg/certs"
+	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
 // Config represents the configuration needed to create a new Flow service

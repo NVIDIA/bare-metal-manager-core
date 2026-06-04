@@ -10,14 +10,15 @@
 package proto
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	_ "google.golang.org/protobuf/types/known/durationpb"
 	_ "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -6804,7 +6805,7 @@ const file_measured_boot_nico_proto_rawDesc = "" +
 	"Discovered\x10\x00\x12\x11\n" +
 	"\rPendingBundle\x10\x01\x12\f\n" +
 	"\bMeasured\x10\x02\x12\x13\n" +
-	"\x0fMeasuringFailed\x10\x03B?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\x0fMeasuringFailed\x10\x03BCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_measured_boot_nico_proto_rawDescOnce sync.Once

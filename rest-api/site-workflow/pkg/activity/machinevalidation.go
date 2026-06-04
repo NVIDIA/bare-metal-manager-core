@@ -7,9 +7,9 @@ import (
 	"context"
 	"errors"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 )

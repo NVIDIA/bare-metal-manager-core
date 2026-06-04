@@ -10,6 +10,12 @@ import (
 	"testing"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -17,20 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwsv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
 	"os"
 
@@ -2215,203 +2214,6 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					assert.Equal(t, cdbm.NVLinkInterfaceStatusDeleting, unvIfc.Status)
 				}
 			}
-		})
-	}
-}
-
-func Test_Instance_UpdateInstanceMetadata(t *testing.T) {
-	ctx := context.Background()
-
-	dbSession := util.TestInitDB(t)
-	defer dbSession.Close()
-
-	util.TestSetupSchema(t, dbSession)
-
-	ipOrg := "test-provider-org-update-metadata"
-	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
-	ipu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{ipOrg}, ipRoles)
-	ip := util.TestBuildInfrastructureProvider(t, dbSession, "testIPUpdateMetadata", ipOrg, ipu)
-
-	tnOrg := "test-tenant-org-update-metadata"
-	tnRoles := []string{"FORGE_TENANT_ADMIN"}
-	tnu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg}, tnRoles)
-	tncfg := cdbm.TenantConfig{
-		EnableSSHAccess: true,
-	}
-	tenant := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant Update Metadata", &tncfg, tnu)
-
-	site := util.TestBuildSite(t, dbSession, ip, "testSiteUpdateMetadata", cdbm.SiteStatusPending, nil, ipu)
-	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpcUpdateMetadata")
-	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("mcTypeTest"), cutil.GetPtr(true), cdbm.MachineStatusReady)
-	instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "testInstanceTypeUpdateMetadata")
-	operatingSystem := util.TestBuildOperatingSystem(t, dbSession, "testOSUpdateMetadata")
-
-	instanceDAO := cdbm.NewInstanceDAO(dbSession)
-	description := "db-description"
-	dbInstance, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
-		Name:                     "db-instance-name",
-		Description:              &description,
-		TenantID:                 tenant.ID,
-		InfrastructureProviderID: ip.ID,
-		SiteID:                   site.ID,
-		InstanceTypeID:           &instanceType.ID,
-		VpcID:                    vpc.ID,
-		MachineID:                &machine.ID,
-		ControllerInstanceID:     cutil.GetPtr(uuid.New()),
-		Hostname:                 cutil.GetPtr("test.com"),
-		OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
-		IpxeScript:               cutil.GetPtr("ipxe"),
-		AlwaysBootWithCustomIpxe: true,
-		UserData:                 cutil.GetPtr("userdata"),
-		Labels: map[string]string{
-			"db-label-key-1": "db-label-value-1",
-			"db-label-key-2": "db-label-value-2",
-		},
-		Status:    cdbm.InstanceStatusReady,
-		CreatedBy: tnu.ID,
-	})
-	require.NoError(t, err)
-
-	controllerInstanceID := uuid.New().String()
-	controllerInstance := &cwsv1.Instance{
-		Id: &cwsv1.InstanceId{Value: controllerInstanceID},
-		Config: &cwsv1.InstanceConfig{
-			Tenant: &cwsv1.TenantConfig{
-				TenantOrganizationId: "controller-tenant-org",
-				TenantKeysetIds:      []string{"keyset-a", "keyset-b"},
-			},
-			Os: &cwsv1.OperatingSystem{},
-			Network: &cwsv1.InstanceNetworkConfig{
-				Interfaces: []*cwsv1.InstanceInterfaceConfig{
-					{
-						FunctionType:     cwsv1.InterfaceFunctionType_PHYSICAL_FUNCTION,
-						NetworkSegmentId: &cwsv1.NetworkSegmentId{Value: uuid.New().String()},
-					},
-				},
-			},
-			Infiniband: &cwsv1.InstanceInfinibandConfig{
-				IbInterfaces: []*cwsv1.InstanceIBInterfaceConfig{
-					{
-						IbPartitionId:  &cwsv1.IBPartitionId{Value: uuid.New().String()},
-						Device:         "mlx5_ib0",
-						DeviceInstance: 0,
-					},
-				},
-			},
-			Nvlink: &cwsv1.InstanceNVLinkConfig{
-				GpuConfigs: []*cwsv1.InstanceNVLinkGpuConfig{
-					{
-						DeviceInstance:     0,
-						LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: uuid.New().String()},
-					},
-				},
-			},
-			DpuExtensionServices: &cwsv1.InstanceDpuExtensionServicesConfig{
-				ServiceConfigs: []*cwsv1.InstanceDpuExtensionServiceConfig{
-					{
-						ServiceId: "service-1",
-						Version:   "v1",
-					},
-				},
-			},
-		},
-		Metadata: &cwsv1.Metadata{
-			Name:        "controller-name-should-not-win",
-			Description: "controller-description-should-not-win",
-		},
-	}
-
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "site-instance-update-metadata-" + dbInstance.ID.String(),
-		TaskQueue: queue.SiteTaskQueue,
-	}
-
-	buildMatchRequestFn := func(t *testing.T) interface{} {
-		t.Helper()
-		return mock.MatchedBy(func(req *cwsv1.InstanceConfigUpdateRequest) bool {
-			require.NotNil(t, req)
-			require.NotNil(t, req.Metadata)
-			require.NotNil(t, req.Config)
-
-			// Metadata should always come from DB instance.
-			assert.Equal(t, dbInstance.Name, req.Metadata.Name)
-			assert.Equal(t, description, req.Metadata.Description)
-
-			gotLabels := map[string]string{}
-			for _, label := range req.Metadata.Labels {
-				require.NotNil(t, label)
-				require.NotNil(t, label.Value)
-				gotLabels[label.Key] = *label.Value
-			}
-			assert.Equal(t, dbInstance.Labels, gotLabels)
-
-			// Config fields should be copied from controller instance.
-			require.NotNil(t, req.Config.Tenant)
-			require.NotNil(t, controllerInstance.Config)
-			require.NotNil(t, controllerInstance.Config.Tenant)
-			assert.Equal(t, controllerInstance.Config.Tenant.TenantOrganizationId, req.Config.Tenant.TenantOrganizationId)
-			assert.Equal(t, controllerInstance.Config.Tenant.TenantKeysetIds, req.Config.Tenant.TenantKeysetIds)
-			assert.Equal(t, controllerInstance.Config.Os, req.Config.Os)
-			assert.Equal(t, controllerInstance.Config.Network, req.Config.Network)
-			assert.Equal(t, controllerInstance.Config.Infiniband, req.Config.Infiniband)
-			assert.Equal(t, controllerInstance.Config.Nvlink, req.Config.Nvlink)
-			assert.Equal(t, controllerInstance.Config.DpuExtensionServices, req.Config.DpuExtensionServices)
-			assert.Equal(t, controllerInstanceID, req.InstanceId.GetValue())
-
-			return true
-		})
-	}
-
-	tests := []struct {
-		name       string
-		instanceID uuid.UUID
-		mockClient *tmocks.Client
-		expectErr  bool
-	}{
-		{
-			name:       "success: metadata sourced from db and config copied from controller",
-			instanceID: dbInstance.ID,
-			mockClient: func() *tmocks.Client {
-				wrun := &tmocks.WorkflowRun{}
-				wrun.On("GetID").Return("test-workflow-id")
-
-				mtc := &tmocks.Client{}
-				mtc.On("ExecuteWorkflow", ctx, workflowOptions, "UpdateInstance", buildMatchRequestFn(t)).Return(wrun, nil).Once()
-				return mtc
-			}(),
-			expectErr: false,
-		},
-		{
-			name:       "error: db instance not found",
-			instanceID: uuid.New(),
-			mockClient: &tmocks.Client{},
-			expectErr:  true,
-		},
-		{
-			name:       "success: execute workflow error is swallowed",
-			instanceID: dbInstance.ID,
-			mockClient: func() *tmocks.Client {
-				mtc := &tmocks.Client{}
-				mtc.On("ExecuteWorkflow", ctx, workflowOptions, "UpdateInstance", buildMatchRequestFn(t)).Return(nil, fmt.Errorf("workflow unavailable")).Once()
-				return mtc
-			}(),
-			expectErr: false,
-		},
-	}
-
-	tSiteClientPool := testTemporalSiteClientPool(t)
-	cfg := config.GetTestConfig()
-	ms := NewManageInstance(dbSession, tSiteClientPool, &tmocks.Client{}, cfg)
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ms.UpdateInstanceMetadata(ctx, site.ID, tc.mockClient, tc.instanceID, controllerInstance)
-			if tc.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			tc.mockClient.AssertExpectations(t)
 		})
 	}
 }

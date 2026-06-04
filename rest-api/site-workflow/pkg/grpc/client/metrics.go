@@ -5,10 +5,11 @@ package client
 
 import (
 	"context"
+	"time"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"time"
 )
 
 // Metrics interface that defines call-back functions for RPC metrics

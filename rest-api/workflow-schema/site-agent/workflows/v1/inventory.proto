@@ -11,7 +11,7 @@ import "common_nico.proto";
 import "nico_nico.proto";
 import "machine_discovery_nico.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 // InventoryStatus - response status for inventory collection
 enum InventoryStatus {
