@@ -1261,7 +1261,9 @@ impl ApiClient {
                     .pci_properties
                     .as_ref()
                     .map(|pci| &pci.vendor)
-                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
+                    .is_some_and(|v| {
+                        v.to_ascii_lowercase().contains("mellanox") || allocate_instance.zero_dpu
+                    })
             });
             let mut interface_config = Vec::default();
             let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
@@ -1463,8 +1465,12 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: interface_configs,
-                auto: false,
+                interfaces: if allocate_instance.zero_dpu {
+                    vec![]
+                } else {
+                    interface_configs
+                },
+                auto: allocate_instance.zero_dpu,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,

@@ -71,6 +71,9 @@ pub struct Args {
     #[clap(short, long, help = "The VPC prefix to assign to a PF")]
     pub vpc_prefix_id: Vec<VpcPrefixId>,
 
+    #[clap(long, help = "Allocate a zero-dpu host")]
+    pub zero_dpu: bool,
+
     #[clap(long, help = "The VPC prefix to assign to a VF")]
     pub vf_vpc_prefix_id: Vec<VpcPrefixId>,
 
