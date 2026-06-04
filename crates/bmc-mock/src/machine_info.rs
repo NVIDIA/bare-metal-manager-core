@@ -112,9 +112,12 @@ impl DpuMachineInfo {
         let mode = match self.hw_type {
             HostHardwareType::DellPowerEdgeR750
             | HostHardwareType::NvidiaDgxH100
-            | HostHardwareType::GenericAmi => hw::bluefield3::Mode::SuperNIC {
+            | HostHardwareType::GenericAmi
+            | HostHardwareType::GenericSupermicro => hw::bluefield3::Mode::SuperNIC {
                 nic_mode: self.settings.nic_mode,
             },
+            // GB-class cold-aisle DPU mode. Confirmed for GB200; for DGX/SMC GB300 the BF3
+            // chassis is in the scrape but the mode is not separately confirmed (synthetic).
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
@@ -178,7 +181,8 @@ impl HostMachineInfo {
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld
-            | HostHardwareType::GenericAmi => redfish::oem::State::Other,
+            | HostHardwareType::GenericAmi
+            | HostHardwareType::GenericSupermicro => redfish::oem::State::Other,
         }
     }
 
@@ -197,6 +201,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
             HostHardwareType::GenericAmi => redfish::oem::BmcVendor::Ami,
+            HostHardwareType::GenericSupermicro => redfish::oem::BmcVendor::Supermicro,
         }
     }
 
@@ -211,6 +216,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
             HostHardwareType::GenericAmi => Some("AMI Redfish Server"),
+            HostHardwareType::GenericSupermicro => Some("Super Server"),
         }
     }
 
@@ -225,6 +231,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
             HostHardwareType::GenericAmi => "1.17.0",
+            HostHardwareType::GenericSupermicro => "1.17.0",
         }
     }
 
@@ -242,7 +249,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
-            HostHardwareType::GenericAmi => self.generic_ami().manager_config(),
+            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
+                self.generic_ami().manager_config()
+            }
         }
     }
 
@@ -265,7 +274,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
-            HostHardwareType::GenericAmi => self.generic_ami().system_config(callbacks),
+            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
+                self.generic_ami().system_config(callbacks)
+            }
         }
     }
 
@@ -283,7 +294,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
-            HostHardwareType::GenericAmi => self.generic_ami().chassis_config(),
+            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
+                self.generic_ami().chassis_config()
+            }
         }
     }
 
@@ -303,7 +316,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
-            HostHardwareType::GenericAmi => self.generic_ami().update_service_config(),
+            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
+                self.generic_ami().update_service_config()
+            }
         }
     }
 
@@ -315,7 +330,9 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
-            HostHardwareType::GenericAmi => self.generic_ami().discovery_info(),
+            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
+                self.generic_ami().discovery_info()
+            }
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("discovery_info requested for {}", self.hw_type)
             }
@@ -405,16 +422,20 @@ impl HostMachineInfo {
     }
 
     fn dgx_gb300_nvl(&self) -> hw::dgx_gb300_nvl::DgxGB300Nvl<'_> {
+        // Serials below are taken from the DGX GB300 scrape. GPU_0/1 and GPU_2/3 share a
+        // superchip serial, and the HGX baseboard (Systems/HGX_Baseboard_0) reports the same
+        // serial as the first GPU superchip. The DGX scrape has a single IO board
+        // (IO_Board_0); io_board1_sn is a synthetic placeholder for the mock's second slot.
         let mut dpus = self.dpus.iter();
-        let cpu0_sn = "0x000000017FFFFFFFFF00000000000001";
-        let cpu1_sn = "0x000000017FFFFFFFFF00000000000002";
-        let superchip_a_sn = "165300000001";
-        let superchip_b_sn = "165300000002";
-        let io_board0_sn = "MT2524000001";
-        let io_board1_sn = "MT2524000002";
+        let cpu0_sn = "0x000000017831E0C9100000000F018200";
+        let cpu1_sn = "0x000000017831E0C91000000018018240";
+        let superchip_a_sn = "1642225000100";
+        let superchip_b_sn = "1642225000086";
+        let io_board0_sn = "MT2521XZ0GJM";
+        let io_board1_sn = "MT2521XZ0GJM-SYNTH";
         hw::dgx_gb300_nvl::DgxGB300Nvl {
             system_0_serial_number: "1332425360072".into(),
-            chassis_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: "1332425360072".into(),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for DGX GB300 NVL")
@@ -426,7 +447,8 @@ impl HostMachineInfo {
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
-            hgx_serial_number: "1642225000100".into(),
+            // HGX baseboard serial == first GPU superchip serial, per the scrape.
+            hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
                 compute_tray_index: 15,
@@ -467,17 +489,19 @@ impl HostMachineInfo {
     }
 
     fn supermicro_gb300_nvl(&self) -> hw::supermicro_gb300_nvl::SupermicroGB300Nvl<'_> {
+        // Serials below are taken from the SMC GB300 tray scrape. GPU_0/1 and GPU_2/3 share
+        // a superchip serial, and the HGX baseboard (Systems/HGX_Baseboard_0) reports the
+        // same serial as the first GPU superchip.
         let mut dpus = self.dpus.iter();
-        let cpu0_sn = "0x000000017FFFFFFFFF00000000000001";
-        let cpu1_sn = "0x000000017FFFFFFFFF00000000000002";
-        let superchip_a_sn = "165300000001";
-        let superchip_b_sn = "165300000002";
-        let io_board0_sn = "MT2524000001";
-        let io_board1_sn = "MT2524000002";
+        let cpu0_sn = "0x000000017844A04120000000120081C0";
+        let cpu1_sn = "0x00000001784191C11000000008018040";
+        let superchip_a_sn = "1764625801410";
+        let superchip_b_sn = "1764625800673";
+        let io_board0_sn = "MT2609603LCN";
+        let io_board1_sn = "MT2609603LQ2";
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
-            // Real SMC GB300 tray system serial, per the scrape.
             system_0_serial_number: "A978250X6404492".into(),
-            chassis_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: "HA261S056572".into(),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for SMC GB300 NVL")
@@ -489,7 +513,8 @@ impl HostMachineInfo {
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
-            hgx_serial_number: "1642225000200".into(),
+            // HGX baseboard serial == first GPU superchip serial, per the scrape.
+            hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
                 compute_tray_index: 15,

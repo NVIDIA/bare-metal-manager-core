@@ -221,10 +221,10 @@ impl SupermicroGB300Nvl<'_> {
                 .map(|n| hw::nvidia_gbx00::cbc_chassis(format!("CBC_{n}").into(), &self.topology))
                 .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
-                    chassis_type: "RackMount".into(),
-                    // SMC GB300: Supermicro host chassis reporting product "GB NVL".
+                    // SMC GB300 scrape: Chassis_0 is a Shelf with PDB part number AOM-PDB-B3.
+                    chassis_type: "Shelf".into(),
                     manufacturer: Some("Supermicro".into()),
-                    part_number: None,
+                    part_number: Some("AOM-PDB-B3".into()),
                     model: Some("GB NVL".into()),
                     serial_number: Some(self.chassis_0_serial_number.to_string().into()),
                     sensors: Some(redfish::sensor::generate_chassis_sensors(

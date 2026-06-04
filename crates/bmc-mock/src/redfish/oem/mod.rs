@@ -52,6 +52,9 @@ impl BmcVendor {
     // id. Real identifier is different for different BMC vendors.
     pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
         match self {
+            // Supermicro uses `{odata_id}/Settings` per the SMC GB300 tray scrape
+            // (`/Systems/System_0/Settings`, `/Bios/Settings`). Other Supermicro models
+            // may differ; this is scoped to the GB300 tray mock.
             BmcVendor::Nvidia(_)
             | BmcVendor::Dell
             | BmcVendor::Wiwynn

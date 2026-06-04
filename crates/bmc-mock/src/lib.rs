@@ -71,6 +71,11 @@ pub enum HostHardwareType {
     NvidiaDgxH100,
     #[serde(rename = "generic_ami")]
     GenericAmi,
+    /// A non-GB300 Supermicro-vendor server (no NVIDIA GB300 GPU chassis). Reuses the
+    /// generic-server representation but reports a Supermicro vendor; used to assert that
+    /// the `is_gb300()` gate keeps such a box classified as generic `Supermicro`.
+    #[serde(rename = "generic_supermicro")]
+    GenericSupermicro,
 }
 
 impl fmt::Display for HostHardwareType {
@@ -85,6 +90,7 @@ impl fmt::Display for HostHardwareType {
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
             Self::GenericAmi => "Generic AMI Server".fmt(f),
+            Self::GenericSupermicro => "Generic Supermicro Server".fmt(f),
         }
     }
 }
@@ -104,6 +110,7 @@ impl HostHardwareType {
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
             Self::GenericAmi => None,
+            Self::GenericSupermicro => None,
         }
     }
 }

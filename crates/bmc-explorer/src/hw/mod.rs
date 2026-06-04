@@ -75,8 +75,11 @@ impl HwType {
             Self::Bluefield => None,
             Self::Dell => Some(BiosAttr::new_str("BootSeqRetry", "Enabled")),
             Self::Gb200 => Some(BiosAttr::new_str("EmbeddedUefiShell", "Disabled")),
-            // DGX GB300 carries the same EmbeddedUefiShell knob as GB200 (confirmed in its BIOS).
-            Self::DgxGb300 => Some(BiosAttr::new_str("EmbeddedUefiShell", "Disabled")),
+            // The DGX GB300 BIOS exposes EmbeddedUefiShell, but the value that means
+            // infinite-boot-enabled is not yet characterized on hardware (GB200's polarity
+            // is not assumed to carry over). Left None until confirmed on a tray.
+            // TODO(dgx-gb300): set the infinite-boot attribute from the DGX GB300 BIOS.
+            Self::DgxGb300 => None,
             Self::Hpe => None,
             Self::Lenovo => Some(BiosAttr::new_str("BootModes_InfiniteBootRetry", "Enabled")),
             Self::LenovoAmi => Some(BiosAttr::new_str("EndlessBoot", "Enabled")),

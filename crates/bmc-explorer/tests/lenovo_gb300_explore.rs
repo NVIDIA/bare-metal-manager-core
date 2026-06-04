@@ -16,7 +16,7 @@
  */
 mod common;
 
-use bmc_explorer::nv_generate_exploration_report;
+use bmc_explorer::{detect_hw_type, hw::HwType, nv_generate_exploration_report};
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
 use tokio::test;
@@ -28,10 +28,20 @@ use tokio::test;
 #[test]
 async fn explore_lenovo_gb300() {
     let h = test_support::lenovo_gb300_bmc().await;
-    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+    let config = common::explorer_config();
+
+    // Decisive assertion: resolves to LenovoGb300 (the GB300 platform), proving
+    // GB300 was recognized on an AMI host. Passes before and after the decouple.
+    assert_eq!(
+        detect_hw_type(h.service_root.clone(), &config)
+            .await
+            .unwrap(),
+        Some(HwType::LenovoGb300),
+    );
+
+    let report = nv_generate_exploration_report(h.service_root, &config)
         .await
         .unwrap();
-
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     // LenovoGb300 -> BMCVendor::LenovoAMI; proves GB300 was recognized on an AMI host.
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::LenovoAMI));

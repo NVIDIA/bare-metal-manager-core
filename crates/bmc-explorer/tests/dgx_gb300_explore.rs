@@ -16,7 +16,7 @@
  */
 mod common;
 
-use bmc_explorer::nv_generate_exploration_report;
+use bmc_explorer::{detect_hw_type, hw::HwType, nv_generate_exploration_report};
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
 use tokio::test;
@@ -28,10 +28,21 @@ use tokio::test;
 #[test]
 async fn explore_dgx_gb300() {
     let h = test_support::dgx_gb300_bmc().await;
-    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+    let config = common::explorer_config();
+
+    // Decisive assertion: a DGX GB300 must resolve to DgxGb300, not the Gb200
+    // fallback. Both map to BMCVendor::Nvidia, so asserting the report vendor
+    // alone would pass even with the DgxGb300 arm removed.
+    assert_eq!(
+        detect_hw_type(h.service_root.clone(), &config)
+            .await
+            .unwrap(),
+        Some(HwType::DgxGb300),
+    );
+
+    let report = nv_generate_exploration_report(h.service_root, &config)
         .await
         .unwrap();
-
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(!report.systems.is_empty(), "systems must be present");

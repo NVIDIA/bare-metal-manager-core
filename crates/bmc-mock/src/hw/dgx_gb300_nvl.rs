@@ -221,9 +221,9 @@ impl DgxGB300Nvl<'_> {
                 .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
                     chassis_type: "RackMount".into(),
-                    // DGX GB300: NVIDIA host chassis (vs Lenovo).
+                    // DGX GB300: NVIDIA host chassis (vs Lenovo). Part number from the scrape.
                     manufacturer: Some("NVIDIA".into()),
-                    part_number: None,
+                    part_number: Some("699-25859-0331-RC2".into()),
                     model: Some("GB300 Titania-Bianca Compute Tray".into()),
                     serial_number: Some(self.chassis_0_serial_number.to_string().into()),
                     sensors: Some(redfish::sensor::generate_chassis_sensors(

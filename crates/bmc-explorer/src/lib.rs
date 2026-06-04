@@ -66,11 +66,10 @@ pub struct Config<'a, B: Bmc> {
     pub retry_timeout: Duration,
 }
 
-pub async fn nv_generate_exploration_report<B: Bmc>(
-    mut root: Arc<ServiceRoot<B>>,
-    config: &Config<'_, B>,
-) -> Result<EndpointExplorationReport, Error<B>> {
-    let chassis_explore_config = chassis::Config {
+/// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
+/// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
+fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
+    chassis::Config {
         network_adapter: network_adapter::Config {
             need_network_device_fns: root.vendor() == Some(Vendor::new("Dell")),
         },
@@ -86,7 +85,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
             && root.product() == Some(Product::new("BlueField-3 DPU")))
         .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
-    };
+    }
+}
+
+pub async fn nv_generate_exploration_report<B: Bmc>(
+    mut root: Arc<ServiceRoot<B>>,
+    config: &Config<'_, B>,
+) -> Result<EndpointExplorationReport, Error<B>> {
+    let chassis_explore_config = build_chassis_explore_config(&root);
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
@@ -253,6 +259,56 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         revision_id: None,
         remediation_error: None,
     })
+}
+
+/// Resolve the [`hw::HwType`] for an endpoint, running only the chassis +
+/// computer-system exploration that detection depends on.
+///
+/// This performs the same detection as [`nv_generate_exploration_report`] but
+/// returns the resolved platform type directly. Tests use it to assert the
+/// detected platform: the full report only surfaces the derived BMC vendor (via
+/// [`hw::HwType::bmc_vendor`]), and several distinct platforms share a vendor
+/// (e.g. `Gb200` and `DgxGb300` both map to `Nvidia`, `Supermicro` and
+/// `SupermicroGb300` both map to `Supermicro`), so a vendor assertion cannot
+/// prove which detection arm was taken.
+pub async fn detect_hw_type<B: Bmc>(
+    mut root: Arc<ServiceRoot<B>>,
+    config: &Config<'_, B>,
+) -> Result<Option<hw::HwType>, Error<B>> {
+    let chassis_explore_config = build_chassis_explore_config(&root);
+    let explored_chassis =
+        ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
+
+    if explored_chassis.is_bluefield2() {
+        root = root.as_ref().clone().restrict_expand().into();
+    }
+
+    // Mirrors nv_generate_exploration_report's system selection.
+    let mut systems_iter = root
+        .systems()
+        .await
+        .map_err(Error::nv_redfish("systems"))?
+        .ok_or_else(Error::bmc_not_provided("systems"))?
+        .members()
+        .await
+        .map_err(Error::nv_redfish("systems members"))?
+        .into_iter();
+    let first_system = systems_iter
+        .next()
+        .ok_or_else(Error::bmc_not_provided("at least one computer system"))?;
+    let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
+    let system = other_system_with_bios.unwrap_or(first_system);
+
+    let is_bluefield_system = system.id().into_inner() == "Bluefield";
+    let system_explore_config = computer_system::Config {
+        need_oem_nvidia_bluefield: is_bluefield_system,
+        ignore_500_on_bios_fetch: is_bluefield_system,
+        retry_404_on_eth_interfaces: is_bluefield_system,
+        explore: config,
+    };
+    let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
+
+    Ok(hw_type(&root, &explored_system, &explored_chassis))
 }
 
 pub(crate) fn hw_type<B: Bmc>(
