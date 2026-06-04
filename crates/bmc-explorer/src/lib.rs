@@ -179,7 +179,9 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
-            Some(hw::HwType::LenovoGb300 | hw::HwType::DgxGb300) => {
+            Some(
+                hw::HwType::LenovoGb300 | hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300,
+            ) => {
                 let chassis_id = chassis.chassis.id().into_inner();
                 chassis_id.starts_with("HGX_GPU_")
             }
@@ -278,12 +280,12 @@ pub(crate) fn hw_type<B: Bmc>(
         {
             return Some(hw::HwType::DgxGb300);
         }
-        // TODO(smc-scrape): Supermicro GB300 arm. Engineers expect SMC to start on an AMI BMC
-        // (like the Lenovo GB300) rather than its usual `Oem.Supermicro` convention; a scrape
-        // will confirm. Under that assumption it presents as vendor "AMI" with a Supermicro
-        // host chassis -- add `if explored_chassis.is_supermicro() { return SupermicroGb300 }`
-        // once confirmed. Until then a non-Lenovo/non-NVIDIA GB300 falls through unchanged.
-        // See gb300-firmus-ingestion/triangulation-matrix.md.
+        // SMC GB300: Supermicro host BMC. The tray scrape shows ServiceRoot vendor "Supermicro"
+        // (Product "GB NVL", no OEM key), so the vendor string carries it -- no chassis helper
+        // needed. See gb300-firmus-ingestion/triangulation-matrix.md.
+        if root.vendor() == Some(Vendor::new("Supermicro")) {
+            return Some(hw::HwType::SupermicroGb300);
+        }
     }
 
     root.vendor()
@@ -868,11 +870,11 @@ fn machine_setup_status<B: Bmc>(
             }
         }
 
-        hw::HwType::DgxGb300 => {
-            // DGX GB300 runs on the NVIDIA "GB BMC" (GB200 family), so it shares GB200's
-            // setup expectations: secure boot off and boot order by MAC.
-            // TODO(dgx-gb300): add a GB300-specific EXPECTED_BIOS_ATTRS table once the DGX
-            // GB300 BIOS is characterized; until then no BIOS-attr verification is applied.
+        hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300 => {
+            // GB300 platforms (DGX on the NVIDIA "GB BMC", SMC on a Supermicro OpenBMC) share
+            // the platform-level setup expectations: secure boot off and boot order by MAC.
+            // TODO(gb300): add per-ODM EXPECTED_BIOS_ATTRS tables once each GB300 tray's
+            // BIOS is characterized; until then no BIOS-attr verification is applied.
             if explored_system
                 .secure_boot_status()
                 .is_ok_and(|s| s.is_enabled)

@@ -40,6 +40,7 @@ pub enum HwType {
     Lenovo,
     LenovoAmi,
     LenovoGb300,
+    SupermicroGb300,
     Supermicro,
     Viking,
     LiteonPowerShelf,
@@ -59,6 +60,8 @@ impl HwType {
             Self::Lenovo => Some(bmc_vendor::BMCVendor::Lenovo),
             Self::LenovoAmi => Some(bmc_vendor::BMCVendor::LenovoAMI),
             Self::LenovoGb300 => Some(bmc_vendor::BMCVendor::LenovoAMI),
+            // SMC GB300 runs a Supermicro (OpenBMC) host BMC.
+            Self::SupermicroGb300 => Some(bmc_vendor::BMCVendor::Supermicro),
             Self::LiteonPowerShelf => Some(bmc_vendor::BMCVendor::Liteon),
             Self::NvSwitch => Some(bmc_vendor::BMCVendor::Nvidia),
             Self::Supermicro => Some(bmc_vendor::BMCVendor::Supermicro),
@@ -78,6 +81,8 @@ impl HwType {
             Self::Lenovo => Some(BiosAttr::new_str("BootModes_InfiniteBootRetry", "Enabled")),
             Self::LenovoAmi => Some(BiosAttr::new_str("EndlessBoot", "Enabled")),
             Self::LenovoGb300 => Some(BiosAttr::new_int("LEM0003", 50)),
+            // TODO(smc): confirm the SMC GB300 infinite-boot BIOS attribute from the tray BIOS.
+            Self::SupermicroGb300 => None,
             Self::LiteonPowerShelf => None,
             Self::NvSwitch => None,
             Self::Supermicro => None,

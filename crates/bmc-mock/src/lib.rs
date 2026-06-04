@@ -61,6 +61,8 @@ pub enum HostHardwareType {
     LenovoGB300Nvl,
     #[serde(rename = "nvidia_dgx_gb300")]
     NvidiaDgxGb300,
+    #[serde(rename = "supermicro_gb300_nvl")]
+    SupermicroGb300Nvl,
     #[serde(rename = "liteon_power_shelf")]
     LiteOnPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
@@ -78,6 +80,7 @@ impl fmt::Display for HostHardwareType {
             Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
             Self::LenovoGB300Nvl => "Lenovo GB300 NVL".fmt(f),
             Self::NvidiaDgxGb300 => "NVIDIA DGX GB300 NVL".fmt(f),
+            Self::SupermicroGb300Nvl => "Supermicro GB300 NVL".fmt(f),
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
@@ -96,6 +99,7 @@ impl HostHardwareType {
             Self::WiwynnGB200Nvl => Some(2),
             Self::LenovoGB300Nvl => Some(1),
             Self::NvidiaDgxGb300 => Some(1),
+            Self::SupermicroGb300Nvl => Some(1),
             Self::LiteOnPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),

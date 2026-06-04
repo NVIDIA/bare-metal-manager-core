@@ -27,6 +27,7 @@ pub enum BmcVendor {
     Wiwynn,
     LiteOn,
     Ami,
+    Supermicro,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -44,13 +45,18 @@ impl BmcVendor {
             BmcVendor::Wiwynn => Some("WIWYNN"),
             BmcVendor::LiteOn => None,
             BmcVendor::Ami => Some("AMI"),
+            BmcVendor::Supermicro => Some("Supermicro"),
         }
     }
     // This function creates settings of the resource from the resource
     // id. Real identifier is different for different BMC vendors.
     pub fn make_settings_odata_id(&self, resource: &Resource<'_>) -> String {
         match self {
-            BmcVendor::Nvidia(_) | BmcVendor::Dell | BmcVendor::Wiwynn | BmcVendor::LiteOn => {
+            BmcVendor::Nvidia(_)
+            | BmcVendor::Dell
+            | BmcVendor::Wiwynn
+            | BmcVendor::LiteOn
+            | BmcVendor::Supermicro => {
                 format!("{}/Settings", resource.odata_id)
             }
             BmcVendor::Ami => {

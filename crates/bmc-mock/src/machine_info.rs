@@ -117,7 +117,8 @@ impl DpuMachineInfo {
             },
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
-            | HostHardwareType::NvidiaDgxGb300 => hw::bluefield3::Mode::B3240ColdAisle,
+            | HostHardwareType::NvidiaDgxGb300
+            | HostHardwareType::SupermicroGb300Nvl => hw::bluefield3::Mode::B3240ColdAisle,
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("Bluefield3 DPU is defined for {}", self.hw_type)
             }
@@ -173,6 +174,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
+            | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld
@@ -188,6 +190,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaDgxGb300 => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
+            HostHardwareType::SupermicroGb300Nvl => redfish::oem::BmcVendor::Supermicro,
             HostHardwareType::LiteOnPowerShelf => redfish::oem::BmcVendor::LiteOn,
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
@@ -203,6 +206,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => Some("GB200 NVL"),
             HostHardwareType::LenovoGB300Nvl => Some("AMI Redfish Server"),
             HostHardwareType::NvidiaDgxGb300 => Some("GB BMC"),
+            HostHardwareType::SupermicroGb300Nvl => Some("GB NVL"),
             HostHardwareType::LiteOnPowerShelf => None,
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
@@ -216,6 +220,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => "1.17.0",
             HostHardwareType::LenovoGB300Nvl => "1.21.1",
             HostHardwareType::NvidiaDgxGb300 => "1.17.0",
+            HostHardwareType::SupermicroGb300Nvl => "1.17.0",
             HostHardwareType::LiteOnPowerShelf => "1.9.0",
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
@@ -229,6 +234,9 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().manager_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().manager_config(),
+            HostHardwareType::SupermicroGb300Nvl => {
+                self.supermicro_gb300_nvl().manager_config()
+            }
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().manager_config()
@@ -249,6 +257,9 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().system_config(callbacks),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().system_config(callbacks),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().system_config(callbacks),
+            HostHardwareType::SupermicroGb300Nvl => {
+                self.supermicro_gb300_nvl().system_config(callbacks)
+            }
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().system_config()
@@ -264,6 +275,9 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().chassis_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().chassis_config(),
+            HostHardwareType::SupermicroGb300Nvl => {
+                self.supermicro_gb300_nvl().chassis_config()
+            }
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().chassis_config()
@@ -281,6 +295,9 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().update_service_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().update_service_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().update_service_config(),
+            HostHardwareType::SupermicroGb300Nvl => {
+                self.supermicro_gb300_nvl().update_service_config()
+            }
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().update_service_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
@@ -296,6 +313,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
+            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
             HostHardwareType::GenericAmi => self.generic_ami().discovery_info(),
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
@@ -409,6 +427,69 @@ impl HostMachineInfo {
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
             hgx_serial_number: "1642225000100".into(),
+            topology: hw::nvidia_gbx00::Topology {
+                chassis_physical_slot_number: 25,
+                compute_tray_index: 15,
+                revision_id: 2,
+                topology_id: 128,
+            },
+            cpu: [
+                hw::nvidia_gb300::NvidiaGB300Cpu {
+                    serial_number: cpu0_sn.into(),
+                },
+                hw::nvidia_gb300::NvidiaGB300Cpu {
+                    serial_number: cpu1_sn.into(),
+                },
+            ],
+            gpu: [
+                hw::nvidia_gb300::NvidiaGB300Gpu {
+                    serial_number: superchip_a_sn.into(),
+                },
+                hw::nvidia_gb300::NvidiaGB300Gpu {
+                    serial_number: superchip_a_sn.into(),
+                },
+                hw::nvidia_gb300::NvidiaGB300Gpu {
+                    serial_number: superchip_b_sn.into(),
+                },
+                hw::nvidia_gb300::NvidiaGB300Gpu {
+                    serial_number: superchip_b_sn.into(),
+                },
+            ],
+            io_board: [
+                hw::nvidia_gb300::NvidiaGB300IoBoard {
+                    serial_number: io_board0_sn.into(),
+                },
+                hw::nvidia_gb300::NvidiaGB300IoBoard {
+                    serial_number: io_board1_sn.into(),
+                },
+            ],
+        }
+    }
+
+    fn supermicro_gb300_nvl(&self) -> hw::supermicro_gb300_nvl::SupermicroGB300Nvl<'_> {
+        let mut dpus = self.dpus.iter();
+        let cpu0_sn = "0x000000017FFFFFFFFF00000000000001";
+        let cpu1_sn = "0x000000017FFFFFFFFF00000000000002";
+        let superchip_a_sn = "165300000001";
+        let superchip_b_sn = "165300000002";
+        let io_board0_sn = "MT2524000001";
+        let io_board1_sn = "MT2524000002";
+        hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
+            // Real SMC GB300 tray system serial, per the scrape.
+            system_0_serial_number: "A978250X6404492".into(),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
+            dpu: dpus
+                .next()
+                .expect("One DPU must present for SMC GB300 NVL")
+                .bluefield3(),
+            embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
+                mac_address: next_mac(),
+            },
+            bmc_mac_address_eth0: next_mac(),
+            bmc_mac_address_eth1: next_mac(),
+            bmc_mac_address_usb0: next_mac(),
+            hgx_bmc_mac_address_usb0: next_mac(),
+            hgx_serial_number: "1642225000200".into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
                 compute_tray_index: 15,
