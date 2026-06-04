@@ -105,14 +105,7 @@ func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	}
 
 	if len(er.Labels) > 0 {
-		protoLabels := make([]*cwssaws.Label, 0, len(er.Labels))
-		for k, v := range er.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata.Labels = protoLabels
+		proto.Metadata.Labels = er.Labels.ToProto()
 	}
 
 	return proto

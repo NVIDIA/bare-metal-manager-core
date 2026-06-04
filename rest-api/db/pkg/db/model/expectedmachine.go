@@ -132,15 +132,8 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 	}
 
 	if em.Labels != nil {
-		protoLabels := make([]*cwssaws.Label, 0, len(em.Labels))
-		for k, v := range em.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
 		proto.Metadata = &cwssaws.Metadata{
-			Labels: protoLabels,
+			Labels: em.Labels.ToProto(),
 		}
 	}
 

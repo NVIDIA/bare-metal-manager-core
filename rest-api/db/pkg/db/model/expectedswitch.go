@@ -130,15 +130,8 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 	}
 
 	if es.Labels != nil {
-		protoLabels := make([]*cwssaws.Label, 0, len(es.Labels))
-		for k, v := range es.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
 		proto.Metadata = &cwssaws.Metadata{
-			Labels: protoLabels,
+			Labels: es.Labels.ToProto(),
 		}
 	}
 

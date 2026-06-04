@@ -176,11 +176,7 @@ func (vpc *Vpc) toMetadataProto() *cwssaws.Metadata {
 		md.Description = *vpc.Description
 	}
 	if vpc.Labels != nil {
-		labels := make([]*cwssaws.Label, 0, len(vpc.Labels))
-		for k, v := range vpc.Labels {
-			labels = append(labels, &cwssaws.Label{Key: k, Value: &v})
-		}
-		md.Labels = labels
+		md.Labels = vpc.Labels.ToProto()
 	}
 	return md
 }

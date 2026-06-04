@@ -123,15 +123,8 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 	}
 
 	if eps.Labels != nil {
-		protoLabels := make([]*cwssaws.Label, 0, len(eps.Labels))
-		for k, v := range eps.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
 		proto.Metadata = &cwssaws.Metadata{
-			Labels: protoLabels,
+			Labels: eps.Labels.ToProto(),
 		}
 	}
 
