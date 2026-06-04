@@ -18,6 +18,12 @@
 # be greater than what we see in the BFB.
 FROM rust:1.90.0-bookworm
 
+ARG SQUID_PROXY
+ENV http_proxy=${SQUID_PROXY} \
+    https_proxy=${SQUID_PROXY} \
+    HTTP_PROXY=${SQUID_PROXY} \
+    HTTPS_PROXY=${SQUID_PROXY}
+
 RUN dpkg --add-architecture arm64 && \
     apt-get update && \
     apt-get upgrade -y && \

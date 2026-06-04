@@ -1,0 +1,85 @@
+# =============================================================================
+# deploy-nico.config.example
+# -----------------------------------------------------------------------------
+# Copy this file (e.g. to my-site.env), edit values to match your lab/site,
+# then run:
+#
+#   ./dev/tools/deploy-nico.sh --config my-site.env --yes
+#
+# The script can also read these values directly from the environment, which
+# is the recommended pattern for CircleCI (set them as project-level secrets).
+# =============================================================================
+
+# ---- Repo / target ---------------------------------------------------------
+NICO_REPO_ROOT=/root/ncx-infra-controller-core
+NICO_NAMESPACE=forge-system
+NICO_SITE_NAME=nico-lab
+NICO_DOMAIN=lab.local
+
+# ---- Subnet & physical hosts -----------------------------------------------
+NICO_SUBNET_CIDR=172.16.0.0/24
+NICO_GATEWAY=172.16.0.1
+NICO_MTU=1500
+NICO_NIC_NAME=eth0
+
+NICO_CP_IP=172.16.0.80
+# Empty for single-node:
+NICO_WORKER_IPS=172.16.0.81,172.16.0.82
+
+# ---- IP pools (all formats: "start-end") -----------------------------------
+# MetalLB pool must hold ≥7 IPs (dhcp, pxe, dns0, dns1, api, ssh, unbound).
+NICO_METALLB_RANGE=172.16.0.85-172.16.0.95
+# DHCP pool handed out to bare-metal BMCs (carbide-api allocates from here).
+NICO_DHCP_POOL=172.16.0.20-172.16.0.76
+# NICo loopback IP pool (one per bare-metal host).
+NICO_LOOPBACK_POOL=172.16.0.100-172.16.0.121
+NICO_VLAN_ID_POOL=100-501
+NICO_VNI_POOL=1024000-1099999
+
+# ---- Service VIPs (optional — defaults = sequential from MetalLB range) -----
+# NICO_VIP_DHCP=172.16.0.85
+# NICO_VIP_PXE=172.16.0.86
+# NICO_VIP_DNS_0=172.16.0.87
+# NICO_VIP_DNS_1=172.16.0.88
+# NICO_VIP_API=172.16.0.89
+# NICO_VIP_SSH=172.16.0.90
+# NICO_VIP_UNBOUND=172.16.0.91
+
+# ---- Local Docker registry --------------------------------------------------
+# Set to 0 to skip and fall back to "docker save | ctr import" on every node.
+NICO_USE_REGISTRY=1
+NICO_REGISTRY_HOST=172.16.0.80     # reachable from every node
+NICO_REGISTRY_PORT=5000
+NICO_REGISTRY_NAME=nico-registry
+NICO_REGISTRY_DATA=/var/lib/nico-registry
+
+# ---- Versions ---------------------------------------------------------------
+NICO_KUBE_VERSION=1.30.4-1.1
+NICO_CALICO_VERSION=v3.28.1
+NICO_METALLB_VERSION=0.14.5
+NICO_POD_CIDR=10.244.0.0/16
+
+# ---- SSH (used to drive worker nodes from CP) -------------------------------
+NICO_SSH_USER=ubuntu
+NICO_SSH_KEY=/root/.ssh/id_nico_lab
+
+# ---- Unbound (site-built) images --------------------------------------------
+# devspace builds carbide-api (all-services) + carbide-bmc-proxy. The deploy
+# phase also builds the forge/unbound + forge/unbound_exporter images so a run
+# produces every image NICo deploys. Set NICO_BUILD_UNBOUND=0 to skip (e.g. if
+# already imported on the nodes). Tags must match unbound.image.tag /
+# unbound.exporterImage.tag in the generated values.base.yaml.
+NICO_BUILD_UNBOUND=1
+NICO_UNBOUND_VERSION=1.20.0
+NICO_EXPORTER_REF=v0.4.6
+NICO_UNBOUND_TAG=1.20.0-local
+NICO_EXPORTER_TAG=0.4.6-local
+
+# ---- Air-gap helpers --------------------------------------------------------
+# HTTP proxy used by docker builds (apt / cargo). Empty = no proxy.
+# NICO_SQUID_PROXY=http://172.16.0.50:3128
+
+# ---- Misc -------------------------------------------------------------------
+NICO_LOG_DIR=/var/log/nico-deploy
+# 1 = skip every prompt (same as --yes); required for CircleCI.
+NICO_NON_INTERACTIVE=1

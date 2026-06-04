@@ -25,10 +25,21 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: unbound
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            ## The `unbound` binary in the site-built image is
+            ## `setcap cap_net_bind_service=+ep` so it can bind UDP/TCP 53
+            ## while running as the non-root `unbound` user.  Kubelet drops
+            ## file capabilities by default; this `add` re-grants it.
+            capabilities:
+              add: ["NET_BIND_SERVICE"]
           ports:
             - name: dns-udp
               containerPort: 53

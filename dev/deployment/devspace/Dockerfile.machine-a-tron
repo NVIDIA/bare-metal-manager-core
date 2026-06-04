@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,6 +15,14 @@
 
 FROM build-container-localdev AS builder
 
+# Route Cargo crate downloads through squid proxy.
+# Pass at build time: docker build --build-arg SQUID_PROXY=http://172.16.0.50:3128
+ARG SQUID_PROXY
+ENV http_proxy=${SQUID_PROXY} \
+    https_proxy=${SQUID_PROXY} \
+    HTTP_PROXY=${SQUID_PROXY} \
+    HTTPS_PROXY=${SQUID_PROXY}
+
 ENV CARGO_HOME=/cargo-home
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/cargo-target
@@ -27,19 +33,29 @@ COPY . .
 
 RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
   --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
-  cargo build -p carbide-machine-a-tron --bin machine-a-tron --locked && \
+  cargo build -p carbide-machine-a-tron --bin machine-a-tron && \
   mkdir -p /artifacts && \
   cp /cargo-target/debug/machine-a-tron /artifacts/machine-a-tron
 
+ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
+
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates \
-  iproute2 \
-  iputils-ping \
-  libssl3 \
-  libudev1 \
-  && rm -rf /var/lib/apt/lists/*
+# Pass proxy only to the apt RUN via shell — never bake it into ENV so the
+# running container does not inherit http_proxy (machine-a-tron only accepts
+# socks5:// proxy and will error on http:// or empty string).
+ARG SQUID_PROXY
+RUN export http_proxy=${SQUID_PROXY} https_proxy=${SQUID_PROXY} \
+        HTTP_PROXY=${SQUID_PROXY} HTTPS_PROXY=${SQUID_PROXY} && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get update -o Acquire::Check-Valid-Until=false && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      iproute2 \
+      iputils-ping \
+      libssl3 \
+      libudev1 \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/machine-a-tron/bin /opt/machine-a-tron/templates /tmp/machine-a-tron-data
 

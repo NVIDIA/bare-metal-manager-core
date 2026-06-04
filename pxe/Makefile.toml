@@ -33,15 +33,33 @@ FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 # - using flint tool (BlueField-3 only):
 # `flint -d /dev/mst/mt41692_pciconf0 qbfb`
 #
-DOCA_VERSION = "3.2.2"
-BFB_BUILD = "125"
-BFB_RELEASE = "26.02"
+# Firmware compatibility guide (set the four variables below to match your DPU's BMC firmware generation):
+#
+#   BMC firmware BF-24.x / DOCA 2.8.x (legacy):
+#     DOCA_VERSION = "2.8.0"   BFB_BUILD = "11"    BFB_RELEASE = "24.04"
+#     DOCA_HBN_VERSION = "2.3.0"
+#
+#   BMC firmware BF-25.x / DOCA 2.9.x (e.g. BF-25.10-15):
+#     DOCA_VERSION = "2.9.2"   BFB_BUILD = "31"    BFB_RELEASE = "25.02"
+#     DOCA_HBN_VERSION = "2.4.2"   DOCA_HBN_TAG = "2.4.2-doca2.9.2-32"
+#
+#   BMC firmware BF-32.x / DOCA 3.2.x (newer hardware):
+#     DOCA_VERSION = "3.2.2"   BFB_BUILD = "125"   BFB_RELEASE = "26.02"
+#     DOCA_HBN_VERSION = "3.2.2"   DOCA_HBN_TAG = "3.2.2-doca3.2.2"
+#
+# Current target: DOCA 2.9.2 — compatible with BMC firmware BF-25.x (e.g. BF-25.10-15)
+DOCA_VERSION = "2.9.2"
+BFB_BUILD = "31"
+BFB_RELEASE = "25.02"
 # DPU OS Ubuntu 22.04
 BFB_URL = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 BFB_NAME = "bf-bundle-${DOCA_VERSION}-${BFB_BUILD}_${BFB_RELEASE}_ubuntu-22.04_prod.bfb"
-# DOCA HBN Version
-DOCA_HBN_VERSION = "3.2.2"
-DOCA_HBN_URL = "nvcr.io/nvidia/doca/doca_hbn:${DOCA_HBN_VERSION}-doca${DOCA_VERSION}"
+# DOCA HBN Version — tag must match the exact tag from NVIDIA's doca_hbn.yaml on NGC.
+# For DOCA 2.9.x the tag has an extra build suffix (e.g. "2.4.2-doca2.9.2-32");
+# for DOCA 3.x it does not (e.g. "3.2.2-doca3.2.2"). Use DOCA_HBN_TAG for the full tag.
+DOCA_HBN_VERSION = "2.4.2"
+DOCA_HBN_TAG = "2.4.2-doca2.9.2-32"
+DOCA_HBN_URL = "nvcr.io/nvidia/doca/doca_hbn:${DOCA_HBN_TAG}"
 DOCA_HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${DOCA_HBN_VERSION}/files"
 
 IPXE_BANNER_VERSION = { script = [
@@ -935,19 +953,28 @@ args = ["-p", "${BUILD_LOCATION}"]
 [tasks.bfb-download]
 category = "iPXE Kernel"
 description = "Download the BFB on aarch64 gitlab runner"
-command = "wget"
-args = ["-Nnv", "${BFB_URL}/${BFB_NAME}", "-P", "/tmp/bfb-dump"]
+script = '''
+if [ -f "/tmp/bfb-dump/${BFB_NAME}" ]; then
+  echo "BFB already present at /tmp/bfb-dump/${BFB_NAME}, skipping download."
+else
+  wget -nv ${SQUID_PROXY:+-e use_proxy=yes -e https_proxy=${SQUID_PROXY} -e http_proxy=${SQUID_PROXY}} \
+    "${BFB_URL}/${BFB_NAME}" -P /tmp/bfb-dump
+fi
+'''
 
 [tasks.bfbtools-download]
 category = "iPXE Kernel"
 description = "Download the BFB tools on aarch64 gitlab runner"
-command = "wget"
-args = [
-  "-Nnv",
-  "https://raw.githubusercontent.com/Mellanox/bfscripts/master/mlx-mkbfb",
-  "-P",
-  "/tmp/bfb-dump",
-]
+script = '''
+if [ -f "/tmp/bfb-dump/mlx-mkbfb" ]; then
+  echo "mlx-mkbfb already present, skipping download."
+else
+  wget -nv ${SQUID_PROXY:+-e use_proxy=yes -e https_proxy=${SQUID_PROXY} -e http_proxy=${SQUID_PROXY}} \
+    "https://raw.githubusercontent.com/Mellanox/bfscripts/master/mlx-mkbfb" \
+    -P /tmp/bfb-dump
+fi
+chmod +x /tmp/bfb-dump/mlx-mkbfb
+'''
 
 [tasks.bfb-extract]
 category = "iPXE Kernel"
@@ -1023,12 +1050,13 @@ script = '''
 [tasks.download-debs-for-bfb]
 category = "iPXE Kernel"
 description = "Wget the debs to nvinit_setup"
-command = "wget"
-args = [
-  "-i",
-  "${REPO_ROOT}/pxe/wget_deb_urls",
-  "--directory-prefix=${REPO_ROOT}/pxe/debs",
-]
+script = '''
+wget -nv \
+  ${SQUID_PROXY:+-e use_proxy=yes -e https_proxy=${SQUID_PROXY} -e http_proxy=${SQUID_PROXY}} \
+  -nc \
+  -i "${REPO_ROOT}/pxe/wget_deb_urls" \
+  --directory-prefix="${REPO_ROOT}/pxe/debs"
+'''
 cwd = "${REPO_ROOT}/pxe"
 dependencies = ["cleanup-old-debs"]
 
@@ -1097,10 +1125,16 @@ script = '''
     while IFS= read -r obj; do
       url=$(printf '%s\n' "$obj" | jq -r '.url')
       path=$(printf '%s\n' "$obj" | jq -r '.filepath')
-      sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d | od -An -vtx1 | tr -d ' \n')
+      sha_b64=$(printf '%s\n' "$obj" | jq -r '.sha256_base64')
       mkdir -p "$(dirname "$path")"
       curl -sSL "$url" -o "$path"
-      printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
+      # sha256_base64 is null for some DOCA versions (e.g. 2.9.x) — skip verification in that case
+      if [ "$sha_b64" != "null" ] && [ -n "$sha_b64" ]; then
+        sha=$(printf '%s\n' "$sha_b64" | base64 -d | od -An -vtx1 | tr -d ' \n')
+        printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
+      else
+        echo "No checksum provided for $path, skipping verification"
+      fi
     done
 '''
 cwd = "${BUILD_LOCATION}/doca_container_configs"
@@ -1121,6 +1155,7 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 [tasks.mv-hbn-configs-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN configs to the BFB"
+# scripts/ dir is keyed by DOCA_HBN_VERSION (e.g. 2.4.2), not DOCA_VERSION
 command = "mv"
 args = ["temp/scripts/${DOCA_HBN_VERSION}/", "scripts"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
@@ -1128,8 +1163,10 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 [tasks.mv-hbn-scripts-to-bfb]
 category = "iPXE Kernel"
 description = "Add the HBN scripts to the BFB"
+# configs/ dir is also keyed by DOCA_HBN_VERSION for 2.9.x (not DOCA_VERSION).
+# Use DOCA_HBN_VERSION so the path matches what the NGC API actually provides.
 command = "mv"
-args = ["temp/configs/${DOCA_VERSION}/", "configs"]
+args = ["temp/configs/${DOCA_HBN_VERSION}/", "configs"]
 cwd = "${BUILD_LOCATION}/doca_container_configs"
 
 [tasks.cleanup-hbn-scripts]

@@ -23,3 +23,35 @@ spec:
       protocol: TCP
       targetPort: metrics
       name: unbound-metrics
+{{- if .Values.externalService.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-unbound-external
+  namespace: {{ include "unbound.namespace" . }}
+  labels:
+    {{- include "unbound.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: forge-unbound
+  annotations:
+    {{- include "unbound.annotations" . | nindent 4 }}
+    {{- with .Values.externalService.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  {{- if .Values.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.externalService.externalTrafficPolicy }}
+  {{- end }}
+  selector:
+    {{- include "unbound.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 53
+      targetPort: dns-udp
+      protocol: UDP
+      name: dns-udp
+    - port: 53
+      targetPort: dns-tcp
+      protocol: TCP
+      name: dns-tcp
+{{- end }}

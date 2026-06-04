@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NICo — Network Isolation &amp; DHCP Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --border:    #30363d;
+    --dim:       #8b949e;
+    --text:      #e6edf3;
+
+    /* network zone colours */
+    --dmz-c:     #58a6ff;
+    --dmz-bg:    rgba(88,166,255,.07);
+    --dmz-bd:    rgba(88,166,255,.35);
+
+    --v101-c:    #f0883e;
+    --v101-bg:   rgba(240,136,62,.07);
+    --v101-bd:   rgba(240,136,62,.35);
+
+    --v201-c:    #3fb950;
+    --v201-bg:   rgba(63,185,80,.07);
+    --v201-bd:   rgba(63,185,80,.35);
+
+    --it-c:      #a5a5f5;
+    --it-bg:     rgba(165,165,245,.07);
+    --it-bd:     rgba(165,165,245,.30);
+
+    --k8s-c:     #58a6ff;
+    --vip-c:     #ffa657;
+    --sut-c:     #ff7b72;
+
+    --arrow:     #6e7681;
+    --label:     #8b949e;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    min-height: 100vh;
+    padding: 28px 20px 40px;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .subtitle { color: var(--dim); font-size: 12px; margin-bottom: 24px; }
+
+  /* ── Legend ─────────────────────────────────────── */
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .leg { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Zone wrapper ────────────────────────────────── */
+  .zone {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .zone-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+    position: absolute;
+    top: -11px;
+    left: 14px;
+  }
+
+  .zone-dmz  { background: var(--dmz-bg);  border-color: var(--dmz-bd);  }
+  .zone-v101 { background: var(--v101-bg); border-color: var(--v101-bd); }
+  .zone-v201 { background: var(--v201-bg); border-color: var(--v201-bd); }
+  .zone-it   { background: var(--it-bg);   border-color: var(--it-bd);   }
+  .zone-k8s  { background: var(--dmz-bg);  border-color: var(--dmz-bd);  }
+
+  .zone-dmz  .zone-label { background: var(--dmz-bg);  color: var(--dmz-c);  border: 1px solid var(--dmz-bd);  }
+  .zone-v101 .zone-label { background: var(--v101-bg); color: var(--v101-c); border: 1px solid var(--v101-bd); }
+  .zone-v201 .zone-label { background: var(--v201-bg); color: var(--v201-c); border: 1px solid var(--v201-bd); }
+  .zone-it   .zone-label { background: var(--it-bg);   color: var(--it-c);   border: 1px solid var(--it-bd);   }
+  .zone-k8s  .zone-label { background: var(--dmz-bg);  color: var(--dmz-c);  border: 1px solid var(--dmz-bd);  }
+
+  /* ── Card grid ───────────────────────────────────── */
+  .grid { display: grid; gap: 10px; }
+  .g2   { grid-template-columns: 1fr 1fr; }
+  .g3   { grid-template-columns: 1fr 1fr 1fr; }
+  .g4   { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .card-name {
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 3px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .card-role { font-size: 10px; color: var(--dim); margin-bottom: 6px; }
+
+  .badge {
+    font-size: 9px; font-weight: 600; letter-spacing: .04em;
+    padding: 1px 5px; border-radius: 3px; text-transform: uppercase;
+  }
+  .b-cp    { background: rgba(88,166,255,.15); color: var(--dmz-c); }
+  .b-wk    { background: rgba(63,185,80,.12);  color: var(--v201-c); }
+  .b-vip   { background: rgba(255,166,87,.15); color: var(--vip-c); }
+  .b-sut   { background: rgba(255,123,114,.12); color: var(--sut-c); }
+  .b-sw    { background: rgba(165,165,245,.12); color: var(--it-c); }
+
+  /* ── NIC pills ───────────────────────────────────── */
+  .nics { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .nic {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    font-weight: 600;
+  }
+  .n-dmz  { background: rgba(88,166,255,.12);  color: var(--dmz-c);  }
+  .n-v101 { background: rgba(240,136,62,.12);  color: var(--v101-c); }
+  .n-v201 { background: rgba(63,185,80,.12);   color: var(--v201-c); }
+  .n-it   { background: rgba(165,165,245,.12); color: var(--it-c);   }
+
+  /* ── VIP table inside card ───────────────────────── */
+  .vip-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px; padding: 3px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .vip-row:last-child { border-bottom: none; }
+  .vip-svc { color: var(--dim); }
+  .vip-ip  { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--vip-c); }
+  .vip-port { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--dim); }
+
+  /* ── Arrows between zones ────────────────────────── */
+  .connector {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; padding: 4px 0;
+    color: var(--arrow);
+    font-size: 10px;
+  }
+  .conn-line {
+    flex: 1; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--arrow), transparent);
+  }
+  .conn-label {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 10px;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  /* ── DHCP flow diagram ───────────────────────────── */
+  .flow-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .flow-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .flow-title {
+    font-size: 11px; font-weight: 700; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .flow-step {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin-bottom: 8px; font-size: 11px;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 18px; height: 18px; border-radius: 50%;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 1px;
+  }
+  .s-v101 { background: rgba(240,136,62,.2); color: var(--v101-c); }
+  .s-v201 { background: rgba(63,185,80,.2);  color: var(--v201-c); }
+  .step-text { color: var(--text); }
+  .step-text b { color: var(--vip-c); font-weight: 600; }
+  .step-text em { color: var(--dim); font-style: normal; font-size: 10px; }
+
+  /* ── Isolation callout ───────────────────────────── */
+  .isolation-box {
+    background: rgba(88,166,255,.05);
+    border: 1px solid var(--dmz-bd);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 10px;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .isolation-box h3 {
+    font-size: 12px; font-weight: 700;
+    color: var(--dmz-c); margin-bottom: 6px;
+  }
+  .isolation-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+  .iso-icon { flex-shrink: 0; font-size: 12px; }
+  .iso-text  { color: var(--dim); }
+  .iso-text b { color: var(--text); }
+
+  /* ── Section header ──────────────────────────────── */
+  .sec-hdr {
+    font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--dim);
+    margin: 18px 0 8px;
+  }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<h1>NICo — Network Isolation &amp; DHCP Architecture</h1>
+<div class="subtitle">NuraMetal Lab · Nutanix AHV · kubeadm + MetalLB · Three-zone isolation</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="leg"><div class="leg-dot" style="background:var(--dmz-c)"></div>DMZ 10.17.48.0/24 — Management</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--v101-c)"></div>VLAN 101 172.16.0.0/24 — BMC OOB (10G Switch)</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--v201-c)"></div>VLAN 201 172.16.10.0/24 — DPU OOB (400G Switch)</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--it-c)"></div>Nutanix IT 172.160.0.0/16 — AHV Fabric</div>
+</div>
+
+<!-- ══ ZONE 1: Nutanix IT Network ══ -->
+<div class="zone zone-it">
+  <span class="zone-label">Nutanix IT Network — 172.160.0.0/16 — AHV Hypervisor Fabric (physical NICs only)</span>
+  <div class="grid g2">
+    <div class="card">
+      <div class="card-name">Nutanix AHV Host 1 <span class="badge b-sw">hypervisor</span></div>
+      <div class="card-role">Runs Ubuntu VMs as AHV guests</div>
+      <div class="nics">
+        <span class="nic n-it">172.160.10.2/24</span>
+        <span class="nic n-it">TOR 100G uplink</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-name">Nutanix AHV Host N <span class="badge b-sw">hypervisor</span></div>
+      <div class="card-role">Runs Ubuntu VMs as AHV guests</div>
+      <div class="nics">
+        <span class="nic n-it">172.160.10.3/24</span>
+        <span class="nic n-it">TOR 100G uplink</span>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:8px; font-size:10px; color:var(--dim);">
+    ⚠ 172.160.x.x addresses belong to <b style="color:var(--it-c)">physical AHV NICs only</b> — never assigned to Ubuntu VMs.
+    VMs use 10.17.48.x (DMZ) for management and 172.16.x.x for test networks.
+  </div>
+</div>
+
+<div class="connector">
+  <div class="conn-line"></div>
+  <div class="conn-label">AHV vSwitch — vNICs per VM (eth0 DMZ · eth1 VLAN101 · eth2 VLAN201)</div>
+  <div class="conn-line"></div>
+</div>
+
+<!-- ══ ZONE 2: DMZ — Kubernetes Cluster + Management ══ -->
+<div class="zone zone-dmz">
+  <span class="zone-label">DMZ — 10.17.48.0/24 — Management Network (SSH · kubectl · DevSpace · kubeadm)</span>
+
+  <div class="sec-hdr">Kubernetes VMs — Ubuntu on AHV (3 vNICs each)</div>
+  <div class="grid g3">
+
+    <div class="card">
+      <div class="card-name">nico-cp-1 <span class="badge b-cp">control-plane + dev</span></div>
+      <div class="card-role">kubeadm init · kube-apiserver · etcd · DevSpace · kubectl</div>
+      <div class="nics">
+        <span class="nic n-dmz">eth0 10.17.48.28</span>
+        <span class="nic n-v101">ens5 172.16.0.80</span>
+        <span class="nic n-v201">ens8 172.16.10.80</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-name">nico-worker-1 <span class="badge b-wk">worker</span></div>
+      <div class="card-role">kubeadm join · NICo pods</div>
+      <div class="nics">
+        <span class="nic n-dmz">eth0 10.17.48.29</span>
+        <span class="nic n-v101">ens5 172.16.0.81</span>
+        <span class="nic n-v201">ens8 172.16.10.81</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-name">nico-worker-n <span class="badge b-wk">worker</span></div>
+      <div class="card-role">kubeadm join · NICo pods</div>
+      <div class="nics">
+        <span class="nic n-dmz">eth0 10.17.48.30</span>
+        <span class="nic n-v101">ens5 172.16.0.82</span>
+        <span class="nic n-v201">ens8 172.16.10.82</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="sec-hdr" style="margin-top:14px;">NICo Kubernetes Services (forge-system namespace) — MetalLB LoadBalancer VIPs</div>
+  <div class="grid g4">
+
+    <div class="card">
+      <div class="card-name">carbide-api <span class="badge b-vip">VIP</span></div>
+      <div class="card-role">Scout agent · admin CLI · DevSpace</div>
+      <div class="nics"><span class="nic n-v101">172.16.0.89 :443</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-name">carbide-dhcp <span class="badge b-vip">VIP × 2</span></div>
+      <div class="card-role">DHCP server — relay-only, bound to test NICs</div>
+      <div class="nics">
+        <span class="nic n-v101">172.16.0.85 :67</span>
+        <span class="nic n-v201">172.16.10.85 :67</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-name">carbide-pxe <span class="badge b-vip">VIP × 2</span></div>
+      <div class="card-role">PXE / iPXE next-server</div>
+      <div class="nics">
+        <span class="nic n-v101">172.16.0.86 :80</span>
+        <span class="nic n-v201">172.16.10.86 :80</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-name">carbide-dns / ssh <span class="badge b-vip">VIP</span></div>
+      <div class="card-role">DNS replicas · SSH console</div>
+      <div class="nics">
+        <span class="nic n-v101">172.16.0.87 :53</span>
+        <span class="nic n-v101">172.16.0.88 :53</span>
+        <span class="nic n-v101">172.16.0.90 :22</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Isolation callout -->
+  <div class="isolation-box">
+    <h3>🔒 DMZ Isolation — why DHCP does NOT leak to 10.17.48.0/24</h3>
+    <div class="isolation-row">
+      <span class="iso-icon">①</span>
+      <span class="iso-text"><b>carbide-dhcp binds to specific interfaces only.</b>
+        The pod's <code>--interfaces</code> flag lists <b>ens5</b> (VLAN 101) and <b>ens8</b> (VLAN 201).
+        No socket is ever opened on eth0 (DMZ). DHCP broadcasts arriving on the DMZ are silently ignored.</span>
+    </div>
+    <div class="isolation-row">
+      <span class="iso-icon">②</span>
+      <span class="iso-text"><b>MetalLB L2Advertisement is interface-pinned.</b>
+        <code>l2-advert-vlan101</code> announces VIPs only on <b>ens5</b>;
+        <code>l2-advert-vlan201</code> only on <b>ens8</b>.
+        VIPs 172.16.0.85–.95 and 172.16.10.85–.95 are never ARPed on eth0.</span>
+    </div>
+    <div class="isolation-row">
+      <span class="iso-icon">③</span>
+      <span class="iso-text"><b>Switches relay DHCP — no broadcast crosses zones.</b>
+        The 10G switch has <code>ip helper-address 172.16.0.85</code> on VLAN 101 interface only.
+        The 400G switch has <code>ip helper-address 172.16.10.85</code> on VLAN 201 interface only.
+        DHCP unicast relay packets are routed; they never reach the DMZ subnet.</span>
+    </div>
+    <div class="isolation-row">
+      <span class="iso-icon">④</span>
+      <span class="iso-text"><b>No default gateway from test VLANs to DMZ.</b>
+        172.16.0.0/24 and 172.16.10.0/24 are isolated test segments with gateways
+        172.16.0.1 and 172.16.10.1 respectively — those gateways do not route to 10.17.48.0/24.</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ Connectors to test networks ══ -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin: 8px 0;">
+  <div class="connector">
+    <div class="conn-line"></div>
+    <div class="conn-label" style="color:var(--v101-c); border-color:var(--v101-bd);">ens5 · VLAN 101 · ip helper → 172.16.0.85</div>
+    <div class="conn-line"></div>
+  </div>
+  <div class="connector">
+    <div class="conn-line"></div>
+    <div class="conn-label" style="color:var(--v201-c); border-color:var(--v201-bd);">ens8 · VLAN 201 · ip helper → 172.16.10.85</div>
+    <div class="conn-line"></div>
+  </div>
+</div>
+
+<!-- ══ ZONE 3: Test Networks side by side ══ -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
+  <!-- VLAN 101 -->
+  <div class="zone zone-v101">
+    <span class="zone-label">VLAN 101 — 172.16.0.0/24 — BMC OOB (10G Switch)</span>
+
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-name">10G Switch <span class="badge b-sw">switch</span></div>
+      <div class="card-role">VLAN 101 · DHCP relay → 172.16.0.85</div>
+      <div style="font-size:10px; color:var(--dim); margin-top:4px; font-family:'IBM Plex Mono',monospace;">
+        ip helper-address 172.16.0.85
+      </div>
+    </div>
+
+    <div class="sec-hdr" style="margin-top:10px;">DHCP lease pool (handed to SUT BMC NICs)</div>
+    <div class="card" style="margin-bottom:8px;">
+      <div class="vip-row"><span class="vip-svc">Lease range</span><span class="vip-ip">172.16.0.20 – .60</span></div>
+      <div class="vip-row"><span class="vip-svc">Gateway</span><span class="vip-ip">172.16.0.1</span></div>
+      <div class="vip-row"><span class="vip-svc">next-server (PXE)</span><span class="vip-ip">172.16.0.86</span></div>
+      <div class="vip-row"><span class="vip-svc">DNS</span><span class="vip-ip">172.16.0.87 / .88</span></div>
+    </div>
+
+    <div class="sec-hdr">SUT / SUD Bare-Metal BMC NICs</div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-name">SUT-1 BMC <span class="badge b-sut">BMC</span></div>
+        <div class="nics"><span class="nic n-v101">172.16.0.20 (DHCP)</span></div>
+      </div>
+      <div class="card">
+        <div class="card-name">SUT-N BMC <span class="badge b-sut">BMC</span></div>
+        <div class="nics"><span class="nic n-v101">172.16.0.21 (DHCP)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VLAN 201 -->
+  <div class="zone zone-v201">
+    <span class="zone-label">VLAN 201 — 172.16.10.0/24 — DPU OOB (400G Switch)</span>
+
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-name">400G Switch <span class="badge b-sw">switch</span></div>
+      <div class="card-role">VLAN 201 · DHCP relay → 172.16.10.85</div>
+      <div style="font-size:10px; color:var(--dim); margin-top:4px; font-family:'IBM Plex Mono',monospace;">
+        ip helper-address 172.16.10.85
+      </div>
+    </div>
+
+    <div class="sec-hdr" style="margin-top:10px;">DHCP lease pool (handed to SUT DPU NICs)</div>
+    <div class="card" style="margin-bottom:8px;">
+      <div class="vip-row"><span class="vip-svc">Lease range</span><span class="vip-ip">172.16.10.20 – .60</span></div>
+      <div class="vip-row"><span class="vip-svc">Gateway</span><span class="vip-ip">172.16.10.1</span></div>
+      <div class="vip-row"><span class="vip-svc">next-server (PXE)</span><span class="vip-ip">172.16.10.86</span></div>
+      <div class="vip-row"><span class="vip-svc">DNS</span><span class="vip-ip">—</span></div>
+    </div>
+
+    <div class="sec-hdr">SUT / SUD Bare-Metal DPU NICs</div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-name">SUT-1 DPU <span class="badge b-sut">DPU</span></div>
+        <div class="nics"><span class="nic n-v201">172.16.10.20 (DHCP)</span></div>
+      </div>
+      <div class="card">
+        <div class="card-name">SUT-N DPU <span class="badge b-sut">DPU</span></div>
+        <div class="nics"><span class="nic n-v201">172.16.10.21 (DHCP)</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<hr>
+
+<!-- ══ DHCP Flow Diagrams ══ -->
+<div class="sec-hdr">DHCP / PXE Boot Flow — per network path</div>
+<div class="flow-wrap">
+
+  <!-- BMC path -->
+  <div class="flow-box">
+    <div class="flow-title" style="color:var(--v101-c);">
+      <span style="font-size:16px;">⬜</span> BMC Boot Path — VLAN 101 (10G Switch)
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">1</div>
+      <div class="step-text">SUT BMC powers on → broadcasts <b>DHCP Discover</b> on VLAN 101</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">2</div>
+      <div class="step-text">10G Switch relays unicast to <b>172.16.0.85</b> <em>(carbide-dhcp VIP)</em></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">3</div>
+      <div class="step-text">carbide-dhcp → gRPC → carbide-api → allocates IP from <b>172.16.0.20–.60</b></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">4</div>
+      <div class="step-text">DHCP Offer: IP + <b>next-server=172.16.0.86</b> <em>(carbide-pxe)</em></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">5</div>
+      <div class="step-text">BMC fetches iPXE from <b>172.16.0.86:80</b> → boots Scout OS</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">6</div>
+      <div class="step-text">Scout agent → mTLS/gRPC → <b>172.16.0.89:443</b> (carbide-api) → reports inventory</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v101">7</div>
+      <div class="step-text">State: <b>Discovering → Inventoried → Validated → Ready</b></div>
+    </div>
+    <div style="margin-top:6px; padding:6px 8px; background:rgba(240,136,62,.06); border-radius:5px; border-left:3px solid var(--v101-c); font-size:10px; color:var(--dim);">
+      DMZ is <b style="color:var(--text)">never involved</b>. carbide-dhcp socket is on ens5 only. DHCP broadcasts stay on VLAN 101.
+    </div>
+  </div>
+
+  <!-- DPU path -->
+  <div class="flow-box">
+    <div class="flow-title" style="color:var(--v201-c);">
+      <span style="font-size:16px;">▣</span> DPU Boot Path — VLAN 201 (400G Switch)
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">1</div>
+      <div class="step-text">SUT DPU powers on → broadcasts <b>DHCP Discover</b> on VLAN 201</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">2</div>
+      <div class="step-text">400G Switch relays unicast to <b>172.16.10.85</b> <em>(carbide-dhcp-dpu VIP)</em></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">3</div>
+      <div class="step-text">carbide-dhcp-dpu → gRPC → carbide-api → allocates IP from <b>172.16.10.20–.60</b></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">4</div>
+      <div class="step-text">DHCP Offer: IP + <b>next-server=172.16.10.86</b> <em>(carbide-pxe-dpu)</em></div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">5</div>
+      <div class="step-text">DPU fetches iPXE from <b>172.16.10.86:80</b> → boots DPU agent</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">6</div>
+      <div class="step-text">DPU agent → mTLS/gRPC → <b>172.16.0.89:443</b> (carbide-api via VLAN101 cross-route)</div>
+    </div>
+    <div class="flow-step">
+      <div class="step-num s-v201">7</div>
+      <div class="step-text">State: <b>DPU Attached → Provisioning → Ready</b></div>
+    </div>
+    <div style="margin-top:6px; padding:6px 8px; background:rgba(63,185,80,.06); border-radius:5px; border-left:3px solid var(--v201-c); font-size:10px; color:var(--dim);">
+      DMZ is <b style="color:var(--text)">never involved</b>. carbide-dhcp-dpu socket is on ens8 only. DHCP broadcasts stay on VLAN 201.
+    </div>
+  </div>
+
+</div>
+
+<hr>
+
+<!-- ══ Quick reference table ══ -->
+<div class="sec-hdr">Quick IP Reference</div>
+<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+
+  <div class="flow-box">
+    <div class="flow-title" style="color:var(--dmz-c); margin-bottom:8px;">DMZ — 10.17.48.0/24</div>
+    <div class="vip-row"><span class="vip-svc">nico-cp-1 eth0</span><span class="vip-ip">10.17.48.28</span></div>
+    <div class="vip-row"><span class="vip-svc">nico-worker-1 eth0</span><span class="vip-ip">10.17.48.29</span></div>
+    <div class="vip-row"><span class="vip-svc">nico-worker-n eth0</span><span class="vip-ip">10.17.48.30</span></div>
+    <div class="vip-row"><span class="vip-svc">Gateway</span><span class="vip-ip">10.17.48.1</span></div>
+    <div style="margin-top:6px; font-size:10px; color:var(--dim);">SSH · kubectl · DevSpace · kubeadm API</div>
+  </div>
+
+  <div class="flow-box">
+    <div class="flow-title" style="color:var(--v101-c); margin-bottom:8px;">VLAN 101 — 172.16.0.0/24</div>
+    <div class="vip-row"><span class="vip-svc">nico-cp-1 ens5</span><span class="vip-ip">172.16.0.80</span></div>
+    <div class="vip-row"><span class="vip-svc">nico-worker-1 ens5</span><span class="vip-ip">172.16.0.81</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-dhcp VIP</span><span class="vip-ip">172.16.0.85</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-pxe VIP</span><span class="vip-ip">172.16.0.86</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-dns VIPs</span><span class="vip-ip">172.16.0.87/.88</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-api VIP</span><span class="vip-ip">172.16.0.89</span></div>
+    <div class="vip-row"><span class="vip-svc">SUT BMC leases</span><span class="vip-ip">.20 – .60</span></div>
+  </div>
+
+  <div class="flow-box">
+    <div class="flow-title" style="color:var(--v201-c); margin-bottom:8px;">VLAN 201 — 172.16.10.0/24</div>
+    <div class="vip-row"><span class="vip-svc">nico-cp-1 ens8</span><span class="vip-ip">172.16.10.80</span></div>
+    <div class="vip-row"><span class="vip-svc">nico-worker-1 ens8</span><span class="vip-ip">172.16.10.81</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-dhcp-dpu VIP</span><span class="vip-ip">172.16.10.85</span></div>
+    <div class="vip-row"><span class="vip-svc">carbide-pxe-dpu VIP</span><span class="vip-ip">172.16.10.86</span></div>
+    <div class="vip-row"><span class="vip-svc">SUT DPU leases</span><span class="vip-ip">.20 – .60</span></div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NuraMetal Lab Network — NICo Deployment Topology</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg:            #080c12;
+    --surface:       #0e1420;
+    --surface2:      #141c2e;
+    --border:        #1e2a3a;
+    --border2:       #253045;
+    --text:          #d4e0f0;
+    --dim:           #5a7090;
+    --dim2:          #7a90a8;
+
+    --blue:   #4da8ff;
+    --blue-bg: rgba(77,168,255,0.08);
+    --blue-bd: rgba(77,168,255,0.25);
+
+    --orange: #f0a030;
+    --orange-bg: rgba(240,160,48,0.08);
+    --orange-bd: rgba(240,160,48,0.28);
+
+    --red:    #ff5a5a;
+    --red-bg: rgba(255,90,90,0.08);
+    --red-bd: rgba(255,90,90,0.28);
+
+    --purple: #b07aff;
+    --purple-bg: rgba(176,122,255,0.08);
+    --purple-bd: rgba(176,122,255,0.28);
+
+    --green:  #40d870;
+    --green-bg: rgba(64,216,112,0.08);
+    --green-bd: rgba(64,216,112,0.28);
+
+    --teal:   #30d0c0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 28px 32px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  .header { margin-bottom: 24px; }
+  .header h1 { font-size: 20px; font-weight: 700; color: #e8f0fc; letter-spacing: -0.4px; }
+  .header p  { font-size: 12px; color: var(--dim2); margin-top: 4px; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    padding: 12px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    margin-bottom: 28px;
+  }
+  .leg { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim2); }
+  .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Topology canvas ── */
+  .canvas {
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* ── Row helpers ── */
+  .row {
+    display: grid;
+    gap: 14px;
+    align-items: start;
+  }
+  .row-top    { grid-template-columns: 240px 1fr 1fr; }
+  .row-switch { grid-template-columns: 240px 1fr 1fr; margin-top: 0; }
+  .row-vm     { grid-template-columns: 1fr; margin-top: 14px; }
+  .row-dev    { grid-template-columns: 1fr; margin-top: 14px; }
+
+  /* ── Zone panels ── */
+  .panel {
+    border-radius: 10px;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    padding: 14px 16px;
+    position: relative;
+  }
+  .panel.blue   { border-color: var(--blue-bd);   background: var(--blue-bg);   }
+  .panel.orange { border-color: var(--orange-bd); background: var(--orange-bg); }
+  .panel.red    { border-color: var(--red-bd);    background: var(--red-bg);    }
+  .panel.purple { border-color: var(--purple-bd); background: var(--purple-bg); }
+  .panel.green  { border-color: var(--green-bd);  background: var(--green-bg);  }
+  .panel.dim    { border-color: var(--border2);   background: var(--surface2);  }
+
+  .panel-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel.blue   .panel-title { color: var(--blue); }
+  .panel.orange .panel-title { color: var(--orange); }
+  .panel.red    .panel-title { color: var(--red); }
+  .panel.purple .panel-title { color: var(--purple); }
+  .panel.green  .panel-title { color: var(--green); }
+  .panel.dim    .panel-title { color: var(--dim2); }
+
+  /* ── Node cards ── */
+  .card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    transition: background 0.15s;
+  }
+  .card:last-child { margin-bottom: 0; }
+  .card:hover { background: rgba(255,255,255,0.06); }
+  .card-name { font-weight: 600; font-size: 12px; color: #e0ecff; margin-bottom: 2px; }
+  .card-role { font-size: 10px; color: var(--dim2); margin-bottom: 6px; }
+
+  /* ── NIC pills ── */
+  .nic {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-top: 4px;
+    margin-right: 4px;
+  }
+  .nic b { font-weight: 600; }
+  .nic.n-dmz    { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-bd); }
+  .nic.n-v101   { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-bd); }
+  .nic.n-v201   { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-bd); }
+  .nic.n-purple { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-bd); }
+
+  /* ── Switch boxes ── */
+  .sw-box {
+    border-radius: 9px;
+    padding: 14px;
+    border: 2px dashed;
+    text-align: center;
+    position: relative;
+  }
+  .sw-box.sw-100g { border-color: var(--purple-bd); background: var(--purple-bg); }
+  .sw-box.sw-10g  { border-color: var(--orange-bd); background: var(--orange-bg); }
+  .sw-box.sw-400g { border-color: var(--red-bd);    background: var(--red-bg);    }
+  .sw-box.sw-ipmi { border-color: var(--border2);   background: var(--surface2);  }
+
+  .sw-name   { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+  .sw-vlan   { font-size: 10px; color: var(--dim2); margin-top: 2px; }
+  .sw-helper { font-family: 'JetBrains Mono', monospace; font-size: 9px; margin-top: 5px; padding: 3px 6px; border-radius: 4px; display: inline-block; }
+  .sw-helper.h-orange { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange-bd); }
+  .sw-helper.h-red    { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-bd); }
+
+  /* ── Connector lines ── */
+  .conn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 0;
+    font-size: 18px;
+    color: var(--border2);
+  }
+  .conn.c-orange { color: var(--orange); opacity: 0.5; }
+  .conn.c-red    { color: var(--red);    opacity: 0.5; }
+  .conn.c-purple { color: var(--purple); opacity: 0.4; }
+
+  /* ── VIP table ── */
+  .vip-section { margin-top: 4px; }
+  .vip-group-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+    margin-top: 10px;
+  }
+  .vip-group-label:first-child { margin-top: 0; }
+  .vip-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 3px;
+    font-size: 10px;
+  }
+  .vip-row.v101 { background: var(--orange-bg); border: 1px solid var(--orange-bd); }
+  .vip-row.v201 { background: var(--red-bg);    border: 1px solid var(--red-bd); }
+  .vip-row.vshared { background: var(--green-bg); border: 1px solid var(--green-bd); }
+  .vip-svc  { color: var(--dim2); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
+  .vip-ip   { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 10px; }
+  .vip-port { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--teal); }
+  .vip-row.v101 .vip-ip   { color: var(--orange); }
+  .vip-row.v201 .vip-ip   { color: var(--red); }
+  .vip-row.vshared .vip-ip { color: var(--green); }
+
+  /* ── Badge ── */
+  .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+  .badge.cp     { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-bd); }
+  .badge.worker { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green-bd); }
+  .badge.dev    { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-bd); }
+  .badge.ahv    { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-bd); }
+
+  /* ── Note boxes ── */
+  .note {
+    border-radius: 6px;
+    padding: 9px 13px;
+    font-size: 11px;
+    color: var(--dim2);
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  .note.n-orange { background: var(--orange-bg); border: 1px solid var(--orange-bd); }
+  .note.n-red    { background: var(--red-bg);    border: 1px solid var(--red-bd); }
+  .note.n-blue   { background: var(--blue-bg);   border: 1px solid var(--blue-bd); }
+  .note strong { color: var(--orange); }
+  .note.n-red strong { color: var(--red); }
+  .note.n-blue strong { color: var(--blue); }
+
+  /* ── Flow section ── */
+  .flow-section { max-width: 1200px; margin-top: 28px; }
+  .flow-title {
+    font-size: 14px; font-weight: 700; color: #e0ecff;
+    margin-bottom: 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border2);
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  /* ── Dual flow grid ── */
+  .dual-flow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .flow-lane {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .flow-lane-title {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .flow-lane.orange { border-color: var(--orange-bd); }
+  .flow-lane.red    { border-color: var(--red-bd);    }
+  .flow-lane.orange .flow-lane-title { color: var(--orange); }
+  .flow-lane.red    .flow-lane-title { color: var(--red); }
+
+  .flow-steps {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+  }
+
+  .step {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-width: 100px;
+    text-align: center;
+    flex: 1;
+  }
+  .step-num  { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+  .step-text { font-size: 11px; font-weight: 600; color: #d0e4ff; }
+  .step-sub  { font-size: 9px; color: var(--dim2); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+  .step.done { border-color: var(--green-bd); background: var(--green-bg); }
+  .step.done .step-text { color: var(--green); }
+  .step-arr  { font-size: 16px; color: var(--dim); padding: 0 5px; flex-shrink: 0; }
+
+  /* ── Quick Ref table ── */
+  .ref-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .ref-col-title {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border2);
+  }
+  .ref-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .ref-row:last-child { border-bottom: none; }
+  .ref-key { color: var(--dim2); }
+  .ref-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+
+  .sep { border: none; border-top: 1px solid var(--border); margin: 28px 0 0; max-width: 1200px; }
+  .footer { font-size: 10px; color: var(--dim); max-width: 1200px; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>NuraMetal Lab Network — NICo Deployment Topology</h1>
+  <p>Nutanix AHV + Ubuntu VMs (kubeadm) + NVIDIA NICo &nbsp;·&nbsp; VLAN 101 (10G/BMC) + VLAN 201 (400G/DPU) + DMZ Management</p>
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="leg-dot" style="background:var(--blue)"></div>DMZ 10.17.48.0/24 — management (SSH, kubectl, DevSpace)</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--orange)"></div>VLAN 101 172.16.0.0/24 — 10G Switch / BMC OOB</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--red)"></div>VLAN 201 172.16.10.0/24 — 400G Switch / DPU OOB</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--purple)"></div>IT Net 172.160.0.0/16 — AHV physical host NICs only</div>
+  <div class="leg"><div class="leg-dot" style="background:var(--green)"></div>MetalLB VIPs — VLAN101: .65–.75 &nbsp;/&nbsp; VLAN201: 172.16.10.65–.75</div>
+</div>
+
+<div class="canvas">
+
+  <!-- ═══ ROW 1: AHV hosts | 10G Switch | 400G Switch ═══ -->
+  <div class="row row-top">
+
+    <!-- AHV Hosts -->
+    <div class="panel purple">
+      <div class="panel-title">Nutanix AHV Hosts <span style="color:var(--dim);font-weight:400;font-size:9px;">172.160.0.0/16</span></div>
+      <div class="card">
+        <div class="card-name">AHV Host 1 <span class="badge ahv">AHV</span></div>
+        <div class="card-role">Physical hypervisor — runs Ubuntu VMs</div>
+        <div><span class="nic n-purple"><b>CVM</b> 172.160.10.2/24</span></div>
+      </div>
+      <div class="card">
+        <div class="card-name">AHV Host 2 <span class="badge ahv">AHV</span></div>
+        <div class="card-role">Physical hypervisor — runs Ubuntu VMs</div>
+        <div><span class="nic n-purple"><b>CVM</b> 172.160.10.3/24</span></div>
+      </div>
+      <div class="note n-orange" style="margin-top:10px; font-size:10px;">
+        <strong>⚠</strong> 172.160.x.x = AHV host NICs only<br>Ubuntu VMs use 10.17.48.x (DMZ)
+      </div>
+      <!-- IPMI switch below AHV -->
+      <div style="margin-top:10px;">
+        <div class="conn c-purple">↕</div>
+        <div class="sw-box sw-ipmi">
+          <div class="sw-name" style="color:var(--dim2); font-size:11px;">1G IPMI Switch</div>
+          <div class="sw-vlan">AHV host OOB management only</div>
+          <div class="sw-vlan" style="font-size:9px; margin-top:3px;">No NICo traffic</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10G Switch -->
+    <div class="panel orange" style="display:flex; flex-direction:column; gap:6px;">
+      <div class="panel-title">10G Switch (VLAN 101 — BMC OOB)</div>
+      <div class="sw-box sw-10g">
+        <div class="sw-name" style="color:var(--orange);">10G Switch A / B</div>
+        <div class="sw-vlan">VLAN 101 — 172.16.0.0/24</div>
+        <div class="sw-vlan">SUT/SUD BMC ports connect here</div>
+        <div style="margin-top:8px;">
+          <div class="sw-helper h-orange">ip helper-address 172.16.0.65</div>
+        </div>
+        <div class="sw-vlan" style="margin-top:6px; font-size:9px;">Relays BMC DHCP → MetalLB VIP .65</div>
+      </div>
+      <div class="note n-orange" style="font-size:10px;">
+        <strong>VM eth1</strong> connects here via AHV vSwitch.<br>
+        MetalLB advertises DHCP VIP 172.16.0.65 on eth1.<br>
+        Requires <strong>Forged Transmits</strong> on vSwitch.
+      </div>
+      <div class="conn c-orange">↕</div>
+      <div style="font-size:10px; color:var(--orange); font-weight:600; text-align:center;">
+        carbide-dhcp VIP 172.16.0.65<br>
+        <span style="color:var(--dim2); font-weight:400;">carbide-pxe  VIP 172.16.0.66</span>
+      </div>
+    </div>
+
+    <!-- 400G Switch -->
+    <div class="panel red" style="display:flex; flex-direction:column; gap:6px;">
+      <div class="panel-title">400G Switch (VLAN 201 — DPU OOB)</div>
+      <div class="sw-box sw-400g">
+        <div class="sw-name" style="color:var(--red);">400G Switch</div>
+        <div class="sw-vlan">VLAN 201 — 172.16.10.0/24</div>
+        <div class="sw-vlan">SUT/SUD DPU (BlueField) ports connect here</div>
+        <div style="margin-top:8px;">
+          <div class="sw-helper h-red">ip helper-address 172.16.10.65</div>
+        </div>
+        <div class="sw-vlan" style="margin-top:6px; font-size:9px;">Relays DPU DHCP → MetalLB VIP 172.16.10.65</div>
+      </div>
+      <div class="note n-red" style="font-size:10px;">
+        <strong>VM eth2</strong> connects here via AHV vSwitch.<br>
+        MetalLB advertises DHCP VIP 172.16.10.65 on eth2.<br>
+        Requires <strong>Forged Transmits</strong> on vSwitch.
+      </div>
+      <div class="conn c-red">↕</div>
+      <div style="font-size:10px; color:var(--red); font-weight:600; text-align:center;">
+        carbide-dhcp-dpu VIP 172.16.10.65<br>
+        <span style="color:var(--dim2); font-weight:400;">carbide-pxe-dpu  VIP 172.16.10.66</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ ROW 2: SUT/SUD Machines (full width) ═══ -->
+  <div class="row" style="grid-template-columns: 240px 1fr 1fr; margin-top:14px;">
+
+    <!-- spacer -->
+    <div></div>
+
+    <!-- SUT via BMC (VLAN 101) -->
+    <div class="panel orange">
+      <div class="panel-title">SUT/SUD Servers — BMC NIC <span style="color:var(--dim);font-weight:400;">VLAN 101 via 10G Switch</span></div>
+      <div class="card">
+        <div class="card-name">Server Under Test 1…N</div>
+        <div class="card-role">Bare-metal provisioned by NICo</div>
+        <div><span class="nic n-v101"><b>BMC</b> DHCP 172.16.0.20–.60</span></div>
+        <div style="font-size:10px; color:var(--dim2); margin-top:6px;">
+          DHCP from carbide-dhcp → 172.16.0.65<br>
+          PXE next-server → 172.16.0.66 (carbide-pxe)
+        </div>
+      </div>
+    </div>
+
+    <!-- SUT via DPU (VLAN 201) -->
+    <div class="panel red">
+      <div class="panel-title">SUT/SUD Servers — DPU NIC <span style="color:var(--dim);font-weight:400;">VLAN 201 via 400G Switch</span></div>
+      <div class="card">
+        <div class="card-name">DPU (BlueField) on Server 1…N</div>
+        <div class="card-role">DPU OOB NIC connects to 400G Switch</div>
+        <div><span class="nic n-v201"><b>DPU</b> DHCP 172.16.10.20–.60</span></div>
+        <div style="font-size:10px; color:var(--dim2); margin-top:6px;">
+          DHCP from carbide-dhcp-dpu → 172.16.10.65<br>
+          PXE next-server → 172.16.10.66 (carbide-pxe-dpu)
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ ROW 3: Kubernetes VMs (full width) ═══ -->
+  <div style="margin-top:14px;">
+    <div class="panel blue">
+      <div class="panel-title">Kubernetes Cluster — Ubuntu VMs on Nutanix AHV &nbsp;<span style="color:var(--dim);font-weight:400;font-size:9px;">3 vNICs per VM: eth0 DMZ · eth1 VLAN101 · eth2 VLAN201</span></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;">
+
+        <div class="card">
+          <div class="card-name">nico-cp-1 <span class="badge cp">control-plane + dev</span></div>
+          <div class="card-role">kubeadm init · kube-apiserver · etcd · devspace · kubectl</div>
+          <div><span class="nic n-dmz"><b>eth0</b> 10.17.48.28/24</span></div>
+          <div><span class="nic n-v101"><b>eth1</b> 172.16.0.80/24</span></div>
+          <div><span class="nic n-v201"><b>eth2</b> 172.16.10.80/24</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-name">nico-worker-1 <span class="badge worker">worker</span></div>
+          <div class="card-role">kubeadm join · NICo pods</div>
+          <div><span class="nic n-dmz"><b>eth0</b> 10.17.48.29/24</span></div>
+          <div><span class="nic n-v101"><b>eth1</b> 172.16.0.81/24</span></div>
+          <div><span class="nic n-v201"><b>eth2</b> 172.16.10.81/24</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-name">nico-worker-n <span class="badge worker">worker</span></div>
+          <div class="card-role">kubeadm join · NICo pods</div>
+          <div><span class="nic n-dmz"><b>eth0</b> 10.17.48.30/24</span></div>
+          <div><span class="nic n-v101"><b>eth1</b> 172.16.0.82/24</span></div>
+          <div><span class="nic n-v201"><b>eth2</b> 172.16.10.82/24</span></div>
+        </div>
+
+        <!-- MetalLB VIPs column -->
+        <div class="card" style="background:var(--green-bg); border-color:var(--green-bd);">
+          <div class="card-name" style="color:var(--green);">MetalLB VIPs</div>
+          <div class="card-role">L2 Advertisement — two pools</div>
+
+          <div class="vip-group-label" style="color:var(--orange); margin-top:8px;">VLAN 101 · eth1</div>
+          <div class="vip-row v101"><span class="vip-svc">carbide-dhcp</span><span class="vip-ip">172.16.0.65</span><span class="vip-port">67/UDP</span></div>
+          <div class="vip-row v101"><span class="vip-svc">carbide-pxe</span><span class="vip-ip">172.16.0.66</span><span class="vip-port">80/TCP</span></div>
+          <div class="vip-row vshared"><span class="vip-svc">carbide-dns-0</span><span class="vip-ip">172.16.0.67</span><span class="vip-port">53</span></div>
+          <div class="vip-row vshared"><span class="vip-svc">carbide-dns-1</span><span class="vip-ip">172.16.0.68</span><span class="vip-port">53</span></div>
+          <div class="vip-row vshared"><span class="vip-svc">carbide-api</span><span class="vip-ip">172.16.0.69</span><span class="vip-port">443</span></div>
+          <div class="vip-row vshared"><span class="vip-svc">carbide-ssh</span><span class="vip-ip">172.16.0.70</span><span class="vip-port">22</span></div>
+
+          <div class="vip-group-label" style="color:var(--red);">VLAN 201 · eth2</div>
+          <div class="vip-row v201"><span class="vip-svc">carbide-dhcp-dpu</span><span class="vip-ip">172.16.10.65</span><span class="vip-port">67/UDP</span></div>
+          <div class="vip-row v201"><span class="vip-svc">carbide-pxe-dpu</span><span class="vip-ip">172.16.10.66</span><span class="vip-port">80/TCP</span></div>
+        </div>
+
+      </div>
+      <div class="note n-blue" style="margin-top:10px;">
+        <strong>eth0</strong> (DMZ 10.17.48.x) → SSH · kubectl · kubeadm API · DevSpace &nbsp;|&nbsp;
+        <strong>eth1</strong> (VLAN101 172.16.0.x) → MetalLB pool for BMC DHCP/PXE via 10G Switch &nbsp;|&nbsp;
+        <strong>eth2</strong> (VLAN201 172.16.10.x) → MetalLB pool for DPU DHCP/PXE via 400G Switch &nbsp;|&nbsp;
+        Prism vSwitch must have <strong>Forged Transmits enabled</strong> on both VLAN 101 and VLAN 201 vSwitches
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ROW 4: DMZ — Control-plane / dev tools ═══ -->
+  <div style="margin-top:14px;">
+    <div class="panel dim">
+      <div class="panel-title">DMZ Management Network <span style="color:var(--dim);font-weight:400;font-size:9px;">10.17.48.0/24 — same subnet as Ubuntu VM eth0</span></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="card">
+          <div class="card-name">nico-cp-1 <span class="badge dev">control-plane + dev</span></div>
+          <div class="card-role">kubeadm control-plane · DevSpace · kubectl · carbide-admin-cli</div>
+          <div><span class="nic n-dmz"><b>eth0</b> 10.17.48.28/24</span></div>
+          <div style="font-size:10px; color:var(--dim2); margin-top:6px;">
+            KUBECONFIG local (~/.kube/config)<br>
+            ssh nico-worker-1 / nico-worker-n from here
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-name">Container Registry</div>
+          <div class="card-role">Docker registry for DevSpace image builds</div>
+          <div><span class="nic n-dmz"><b>eth0</b> 10.17.48.24/24</span></div>
+          <div style="font-size:10px; color:var(--dim2); margin-top:6px;">
+            k3d-nico-registry:5000 or Harbor
+          </div>
+        </div>
+        <div class="card" style="background:var(--green-bg); border-color:var(--green-bd);">
+          <div class="card-name" style="color:var(--green);">NICo Admin Access</div>
+          <div class="card-role">Post-deploy verification</div>
+          <div style="font-size:10px; color:var(--dim2); margin-top:6px; line-height:1.7;">
+            carbide-admin-cli → 172.16.0.69:443<br>
+            Route: dev-ws <b style="color:var(--dim2);">→</b> VM1 eth1 <b style="color:var(--dim2);">→</b> VLAN101<br>
+            Or: kubectl port-forward svc/carbide-api
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+
+
+<!-- ═══ DHCP / PXE Boot Flows ═══ -->
+<div class="flow-section">
+  <div class="flow-title"><span class="live-dot"></span> DHCP / PXE Boot Flows</div>
+  <div class="dual-flow">
+
+    <!-- BMC path (VLAN 101 / 10G) -->
+    <div class="flow-lane orange">
+      <div class="flow-lane-title">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--orange);margin-right:4px;"></span>
+        BMC Boot — VLAN 101 via 10G Switch
+      </div>
+      <div class="flow-steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">SUT Powers On</div>
+          <div class="step-sub">BIOS DHCP broadcast<br>on BMC port</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">10G Switch</div>
+          <div class="step-sub">ip helper-address<br>→ 172.16.0.65</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">carbide-dhcp</div>
+          <div class="step-sub">VIP 172.16.0.65<br>DHCP offer + .66</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-text">carbide-pxe</div>
+          <div class="step-sub">VIP 172.16.0.66<br>serves iPXE</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step done">
+          <div class="step-num">5</div>
+          <div class="step-text">Host Ready</div>
+          <div class="step-sub">registered via<br>carbide-api .69</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DPU path (VLAN 201 / 400G) -->
+    <div class="flow-lane red">
+      <div class="flow-lane-title">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:4px;"></span>
+        DPU Boot — VLAN 201 via 400G Switch
+      </div>
+      <div class="flow-steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">DPU Powers On</div>
+          <div class="step-sub">BlueField DHCP<br>on DPU OOB port</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">400G Switch</div>
+          <div class="step-sub">ip helper-address<br>→ 172.16.10.65</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">carbide-dhcp-dpu</div>
+          <div class="step-sub">VIP 172.16.10.65<br>DHCP offer + .66</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-text">carbide-pxe-dpu</div>
+          <div class="step-sub">VIP 172.16.10.66<br>serves iPXE</div>
+        </div>
+        <div class="step-arr">→</div>
+        <div class="step done">
+          <div class="step-num">5</div>
+          <div class="step-text">DPU Ready</div>
+          <div class="step-sub">registered via<br>carbide-api .69</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="note n-orange" style="margin-top:12px; font-size:11px;">
+    <strong>Prerequisites for both paths:</strong>
+    (1) Prism vSwitch Forged Transmits enabled on <em>both</em> VLAN101 and VLAN201 vSwitches.
+    (2) 10G Switch VLAN101 SVI: <code>ip helper-address 172.16.0.65</code> &nbsp;|&nbsp;
+    400G Switch VLAN201 SVI: <code>ip helper-address 172.16.10.65</code>.
+    (3) Ubuntu VM eth1 in VLAN101 · eth2 in VLAN201 with static IPs.
+    (4) NICo deployed with <code>values.physical.yaml</code> (DHCP/PXE/DNS enabled, mocks disabled).
+  </div>
+</div>
+
+
+<!-- ═══ Quick Reference ═══ -->
+<div class="flow-section" style="margin-top:24px;">
+  <div class="flow-title">Quick Reference — IP Addresses</div>
+  <div class="ref-grid">
+
+    <div>
+      <div class="ref-col-title" style="color:var(--blue);">DMZ 10.17.48.0/24</div>
+      <div class="ref-row"><span class="ref-key">nico-cp-1 (ctrl-plane + dev tools)</span><span class="ref-val" style="color:var(--blue);">10.17.48.28</span></div>
+      <div class="ref-row"><span class="ref-key">Registry</span><span class="ref-val" style="color:var(--blue);">10.17.48.24</span></div>
+      <div class="ref-row"><span class="ref-key">nico-cp-1 eth0</span><span class="ref-val" style="color:var(--blue);">10.17.48.28</span></div>
+      <div class="ref-row"><span class="ref-key">nico-worker-1 eth0</span><span class="ref-val" style="color:var(--blue);">10.17.48.29</span></div>
+      <div class="ref-row"><span class="ref-key">nico-worker-n eth0</span><span class="ref-val" style="color:var(--blue);">10.17.48.30</span></div>
+      <div class="ref-row"><span class="ref-key">Gateway</span><span class="ref-val" style="color:var(--dim2);">10.17.48.1</span></div>
+    </div>
+
+    <div>
+      <div class="ref-col-title" style="color:var(--orange);">VLAN 101 — 10G Switch (172.16.0.x)</div>
+      <div class="ref-row"><span class="ref-key">VM 1 eth1</span><span class="ref-val" style="color:var(--orange);">172.16.0.80</span></div>
+      <div class="ref-row"><span class="ref-key">VM 2 eth1</span><span class="ref-val" style="color:var(--orange);">172.16.0.81</span></div>
+      <div class="ref-row"><span class="ref-key">VM N eth1</span><span class="ref-val" style="color:var(--orange);">172.16.0.82</span></div>
+      <div class="ref-row"><span class="ref-key">DHCP pool (BMC)</span><span class="ref-val" style="color:var(--dim2);">.20 – .60</span></div>
+      <div class="ref-row"><span class="ref-key">MetalLB VIPs</span><span class="ref-val" style="color:var(--green);">.65 – .75</span></div>
+      <div class="ref-row"><span class="ref-key">Gateway</span><span class="ref-val" style="color:var(--dim2);">172.16.0.1</span></div>
+    </div>
+
+    <div>
+      <div class="ref-col-title" style="color:var(--red);">VLAN 201 — 400G Switch (172.16.10.x)</div>
+      <div class="ref-row"><span class="ref-key">VM 1 eth2</span><span class="ref-val" style="color:var(--red);">172.16.10.80</span></div>
+      <div class="ref-row"><span class="ref-key">VM 2 eth2</span><span class="ref-val" style="color:var(--red);">172.16.10.81</span></div>
+      <div class="ref-row"><span class="ref-key">VM N eth2</span><span class="ref-val" style="color:var(--red);">172.16.10.82</span></div>
+      <div class="ref-row"><span class="ref-key">DHCP pool (DPU)</span><span class="ref-val" style="color:var(--dim2);">.20 – .60</span></div>
+      <div class="ref-row"><span class="ref-key">MetalLB VIPs</span><span class="ref-val" style="color:var(--green);">.65 – .75</span></div>
+      <div class="ref-row"><span class="ref-key">Gateway</span><span class="ref-val" style="color:var(--dim2);">172.16.10.1</span></div>
+    </div>
+
+    <div>
+      <div class="ref-col-title" style="color:var(--green);">MetalLB VIPs</div>
+      <div class="ref-row"><span class="ref-key" style="color:var(--orange);">carbide-dhcp</span><span class="ref-val" style="color:var(--orange);">172.16.0.65</span></div>
+      <div class="ref-row"><span class="ref-key" style="color:var(--orange);">carbide-pxe</span><span class="ref-val" style="color:var(--orange);">172.16.0.66</span></div>
+      <div class="ref-row"><span class="ref-key">carbide-dns-0</span><span class="ref-val" style="color:var(--green);">172.16.0.67</span></div>
+      <div class="ref-row"><span class="ref-key">carbide-dns-1</span><span class="ref-val" style="color:var(--green);">172.16.0.68</span></div>
+      <div class="ref-row"><span class="ref-key">carbide-api</span><span class="ref-val" style="color:var(--green);">172.16.0.69</span></div>
+      <div class="ref-row"><span class="ref-key" style="color:var(--red);">carbide-dhcp-dpu</span><span class="ref-val" style="color:var(--red);">172.16.10.65</span></div>
+      <div class="ref-row"><span class="ref-key" style="color:var(--red);">carbide-pxe-dpu</span><span class="ref-val" style="color:var(--red);">172.16.10.66</span></div>
+    </div>
+
+  </div>
+</div>
+
+<hr class="sep">
+<div class="footer">
+  AHV Physical Host NICs (IT Network 172.160.0.0/16): Host 1 → 172.160.10.2 &nbsp;·&nbsp; Host 2 → 172.160.10.3 &nbsp;·&nbsp;
+  These are the Nutanix CVM management IPs — Ubuntu VM IPs are separate (DMZ 10.17.48.x).
+</div>
+
+</body>
+</html>

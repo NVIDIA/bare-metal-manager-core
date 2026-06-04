@@ -17,8 +17,31 @@ exporterImage:
 
 imagePullSecrets: []
 
+## Pod-level security context.  `fsGroup` makes Kubernetes chown the
+## `control-keys` emptyDir to GID 1001 so the `unbound` container (UID/GID
+## 1001) can write the `unbound_control` TLS keypair AND the
+## `unbound_exporter` sidecar (also UID/GID 1001) can read it.
+## (UID/GID 1000 is reserved by the default `ubuntu` user in ubuntu:24.04.)
+## Override if you bake images with a different UID/GID.
+podSecurityContext:
+  fsGroup: 1001
+  fsGroupChangePolicy: OnRootMismatch
+
 service:
   type: ClusterIP
+
+## External LoadBalancer Service — exposes the `.forge` zone resolver to
+## clients on the OOB management network (DPU BMCs, host BMCs, etc.).
+## Disabled by default; enable when the BMC needs to resolve `carbide-pxe.forge`
+## and other `.forge` hostnames during Redfish SimpleUpdate BFB installs.
+externalService:
+  enabled: false
+  type: LoadBalancer
+  # externalTrafficPolicy: Local
+  ## Annotations applied to the external Service (e.g. MetalLB VIP pinning).
+  annotations: {}
+  # annotations:
+  #   metallb.universe.tf/loadBalancerIPs: "172.16.0.90"
 
 serviceMonitor:
   enabled: false
@@ -46,9 +69,10 @@ localConfig:
     # This .unknowndomain value is hardcoded in carbide as a default if a VPC
     # doesn't have one configured. We shouldn't forward any of these queries further
     # upstream.
-    local-zone: "unknowndomain." static
-    local-data: "unknowndomain. 10800 IN NS localhost."
-    local-data: "unknowndomain. 10800 IN SOA localhost. nobody.invalid. 1 3600 1200 604800 10800"
+    server:
+        local-zone: "unknowndomain." static
+        local-data: "unknowndomain. 10800 IN NS localhost~."
+        local-data: "unknowndomain. 10800 IN SOA localhost. nobody.invalid. 1 3600 1200 604800 10800"
   forwarders.conf: |
     # This file's contents are intended to be broken if used at runtime. The base
     # configMapGenerator should be merged with a later one that replaces this file.

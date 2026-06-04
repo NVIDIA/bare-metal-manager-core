@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Pre-baked runtime base for all NICo services.
+# Build this on the jump host (which has internet), save as a tarball,
+# copy to nico-cp-1 and load into Docker there.
+# Dockerfile.all-services then uses: FROM carbide-runtime-base
+#
+# On jump host:
+#   docker build -t carbide-runtime-base -f dev/deployment/devspace/Dockerfile.runtime-base .
+#   docker save carbide-runtime-base | gzip > /root/Documents/Manoj_temp/carbide-runtime-base.tar.gz
+#   scp /root/Documents/Manoj_temp/carbide-runtime-base.tar.gz root@172.16.0.80:~/staged/
+#
+# On nico-cp-1:
+#   docker load -i ~/staged/carbide-runtime-base.tar.gz
+
+FROM debian:bookworm-slim
+
+# Route apt through squid proxy (handles HTTP on port 80 via CONNECT tunnel).
+# Set SQUID_PROXY to your squid address, e.g.: docker build --build-arg SQUID_PROXY=http://172.16.0.1:3128
+# Pass proxy only to apt RUN via shell — never bake into ENV to avoid
+# leaking proxy settings into derived images or running containers.
+# carbide-api (and other services) call get_proxy_info() which reads
+# http_proxy env vars and only accepts socks5:// — an http:// or empty
+# value causes a startup UrlParseError.
+ARG SQUID_PROXY
+RUN http_proxy=${SQUID_PROXY} https_proxy=${SQUID_PROXY} \
+    apt-get update && \
+    http_proxy=${SQUID_PROXY} https_proxy=${SQUID_PROXY} \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      ipmitool \
+      iproute2 \
+      iputils-ping \
+      kea-dhcp4-server \
+      kea-ctrl-agent \
+      libaio1 \
+      libc-ares2 \
+      libgrpc++1.51 \
+      libkrb5-3 \
+      libprotoc32 \
+      libssh-4 \
+      libudev1 \
+      openssh-client \
+      openssh-server \
+      tpm2-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p \
+  /opt/carbide \
+  /opt/carbide/firmware \
+  /opt/carbide/migrations \
+  /opt/carbide/pxe/templates \
+  /opt/carbide/static \
+  /mnt/persistence \
+  /var/run/kea \
+  /var/lib/kea \
+  /usr/lib/x86_64-linux-gnu/kea/hooks && \
+  test -f /sbin/kea-dhcp4 || (echo "ERROR: kea-dhcp4 not installed" && exit 1)

@@ -11,18 +11,53 @@ carbide-api:
     carbideApiSiteConfig: |
       bypass_rbac = true
       attestation_enabled = false
-      dpu_ipmi_tool_impl = "test"
+      dpu_ipmi_tool_impl = "ipmi"
       initial_domain_name = "local.forge"
       initial_dpu_agent_upgrade_policy = "off"
+
+      [dpu_config]
+      dpu_enable_secure_boot = true
+
+      [dpu_config.dpu_models.bluefield3]
+      vendor = "Nvidia"
+      model = "Bluefield 3 SmartNIC Main Card"
+      ordering = ["bmc", "cec"]
+
+      [dpu_config.dpu_models.bluefield3.components.bmc]
+      current_version_reported_as = "BMC_Firmware"
+      known_firmware = [
+        { version = "BF-25.10-15", default = true },
+      ]
+
+      [dpu_config.dpu_models.bluefield3.components.cec]
+      current_version_reported_as = "Bluefield_FW_ERoT"
+      known_firmware = [
+        { version = "00.02.0195.0000_n02", default = true },
+      ]
+
+      [dpu_config.dpu_models.bluefield3.components.nic]
+      current_version_reported_as = "DPU_NIC"
+      known_firmware = [
+        { version = "32.47.1088", default = true },
+      ]
+
+      [dpu_config.dpu_models.bluefield3.components.uefi]
+      current_version_reported_as = "DPU_UEFI"
+      known_firmware = [
+        { version = "4.13.1-14-g8a01157b7f", default = true },
+      ]
 
       # DB transactions in carbide should be quick, pool size should ≈ the
       # number of cores. Default postgres configuration is a 100 connection
       # limit, so let's stay safely below that.
       max_database_connections = 64
 
+      # 10G Switch (VLAN 101) relays BMC DHCP to this VIP.
+      dhcp_servers = ["172.16.0.85"]
+
       [pools.lo-ip]
       type = "ipv4"
-      ranges = [{ start = "10.180.64.1", end = "10.180.127.254" }]
+      ranges = [{ start = "172.16.0.100", end = "172.16.0.121" }]
 
       [pools.vlan-id]
       type = "integer"
@@ -30,36 +65,34 @@ carbide-api:
 
       [pools.vni]
       type = "integer"
-      ranges = [{ start = "1024500", end = "1024550" }]
+      ranges = [{ start = "1024000", end = "1099999" }]
 
       [pools.vpc-vni]
       type = "integer"
-      ranges = [{ start = "2024500", end = "2024550" }]
+      ranges = [{ start = "2024000", end = "2099999" }]
 
       [pools.fnn-asn]
       type = "integer"
       ranges = [{ start = "1000", end = "10000" }]
 
+      # VLAN 101 — BMC OOB management network (10G Switch, ip helper-address 172.16.0.85)
+      # reserve_first = 20 reserves .0–.19, so DHCP allocation starts at .20
+      # (.1 = gateway, .2–.19 = static VM NICs + infrastructure, .20–.76 = DHCP pool)
       [networks.admin]
+      type = "underlay"
+      prefix = "172.16.0.0/24"
+      gateway = "172.16.0.1"
+      mtu = 1500
+      reserve_first = 20
+
+      # Host inband network — used exclusively for DPU host interfaces after provisioning.
+      # DHCP pool: 172.16.10.20–.60 (reserve_first = 20 skips .0–.19)
+      [networks.host-inband]
       type = "admin"
-      prefix = "192.168.64.0/18"
-      gateway = "192.168.64.1"
+      prefix = "172.16.10.0/24"
+      gateway = "172.16.10.1"
       mtu = 9000
-      reserve_first = 2
-
-      [networks.DEV-K3S-DPU-ACORN-0]
-      type = "underlay"
-      prefix = "192.168.128.0/18"
-      gateway = "192.168.128.1"
-      mtu = 1500
-      reserve_first = 2
-
-      [networks.DEV-K3S-X86-BMC-UNDERLAY-ACORN-X86-0]
-      type = "underlay"
-      prefix = "192.168.192.0/18"
-      gateway = "192.168.192.1"
-      mtu = 1500
-      reserve_first = 2
+      reserve_first = 20
 
       [auth]
       permissive_mode = true
@@ -87,9 +120,7 @@ carbide-api:
       [site_explorer]
       enabled = true
       create_machines = true
-      allow_changing_bmc_proxy = true
       allow_zero_dpu_hosts = true
-      bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -101,6 +132,11 @@ carbide-api:
       run_interval = "10s"
       concurrency_limit = 100
 
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.0.89"
+
 carbide-bmc-proxy:
   enabled: true
   replicas: 1 # save on local resources
@@ -111,7 +147,6 @@ carbide-bmc-proxy:
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -132,16 +167,136 @@ carbide-bmc-proxy:
       "trusted-certificate" = ["/**"]
 
 carbide-dhcp:
-  enabled: false
+  enabled: true
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.0.85"
+  config:
+    enabled: true
+    keaConfigJson: |
+      {
+        "Dhcp4": {
+          "interfaces-config": {
+            "interfaces": ["eth0"],
+            "dhcp-socket-type": "udp"
+          },
+          "lease-database": {
+            "type": "memfile",
+            "lfc-interval": 3600
+          },
+          "match-client-id": false,
+          "authoritative": true,
+          "renew-timer": 900,
+          "rebind-timer": 1800,
+          "valid-lifetime": 3600,
+          "hooks-libraries": [
+            {
+              "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
+              "parameters": {
+                "carbide-api-url": "https://carbide-api.__NAMESPACE__.svc.cluster.local:1079",
+                "carbide-metrics-endpoint": "[::]:1089",
+                "carbide-nameservers": "172.16.0.91",
+                "carbide-ntpserver": "172.16.0.80",
+                "carbide-provisioning-server-ipv4": "172.16.0.86"
+              }
+            }
+          ],
+          "subnet4": [
+            {
+              "subnet": "0.0.0.0/0",
+              "pools": [{ "pool": "0.0.0.0-255.255.255.255" }]
+            }
+          ],
+          "loggers": [
+            { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+            { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
+            { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
+          ]
+        }
+      }
+
 carbide-dns:
-  enabled: false
+  enabled: true
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "172.16.0.87"
+      - metallb.universe.tf/loadBalancerIPs: "172.16.0.88"
 carbide-dsx-exchange-consumer:
   enabled: false
 carbide-hardware-health:
-  enabled: false
+  enabled: true
 carbide-pxe:
-  enabled: false
+  enabled: true
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.0.86"
+
 carbide-ssh-console-rs:
   enabled: false
+
+## ---------------------------------------------------------------------------
+## unbound — Recursive DNS resolver hosting the `.forge` zone
+## ---------------------------------------------------------------------------
+## NICo's BMC-side services (DPU/host BMCs during Redfish BFB install,
+## DPU agents during cloud-init, etc.) resolve `carbide-pxe.forge`,
+## `carbide-api.forge`, `carbide-ntp.forge`, etc. directly via DNS.
+## These names are hardcoded in compiled binaries (`crates/agent/src/main_loop.rs`)
+## and in the Redfish ImageURI in `crates/api/src/state_controller/machine/handler.rs`,
+## so the `.forge` zone MUST resolve on the OOB management network.
+##
+## `carbide-dns` (172.16.0.87/172.16.0.88) is a different service — it serves
+## per-tenant/VPC records via the NICo API, NOT the static `.forge` zone.
+##
+## This block enables unbound, exposes it on MetalLB VIP 172.16.0.91, and seeds
+## the `.forge` zone via `localConfig.local_data.conf`. `carbide-dhcp` is
+## configured above to advertise 172.16.0.91 as `carbide-nameservers` so newly
+## DHCP'd BMCs get the right resolver automatically.
 unbound:
-  enabled: false
+  enabled: true
+  ## Site-built images — replace the upstream nvcr.io/nvidian/nvforge/unbound{,_exporter}
+  ## references so the supply chain for this dependency is owned by the
+  ## deploying site. Built via `cargo make build-unbound-images`
+  ## (see dev/docker/unbound/README.md) and imported into each node's
+  ## containerd via `ctr -n k8s.io images import`.
+  ##
+  ## Tag = <upstream-version>-<repo-short-sha>. Bump together with the
+  ## tarballs produced by `cargo make build-unbound-images`. For production,
+  ## push to your site registry and update `repository:` accordingly.
+  image:
+    repository: "forge/unbound"
+    tag: "1.20.0-5752b1ac"
+    pullPolicy: IfNotPresent
+  exporterImage:
+    repository: "forge/unbound_exporter"
+    tag: "0.4.6-5752b1ac"
+    pullPolicy: IfNotPresent
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "172.16.0.91"
+  localConfig:
+    ## Forward everything not in a local zone to upstream resolvers.
+    forwarders.conf: |
+      forward-zone:
+        name: "."
+        forward-addr: 8.8.8.8
+        forward-addr: 1.1.1.1
+    ## `.forge` zone — static A records pointing at MetalLB VIPs.
+    ## Keep these in sync with the VIPs assigned above:
+    ##   carbide-api.forge       → carbide-api-external (172.16.0.89)
+    ##   carbide-pxe.forge       → carbide-pxe-external (172.16.0.86)
+    ##   carbide-static-pxe.forge→ carbide-pxe-external (172.16.0.86, same pod)
+    ##   carbide-ntp.forge       → NTP server VIP (172.16.0.80)
+    ##   unbound.forge           → self (172.16.0.91)
+    local_data.conf: |
+      server:
+        local-zone: "forge." static
+        local-data: "carbide-api.forge.        300 IN A 172.16.0.89"
+        local-data: "carbide-pxe.forge.        300 IN A 172.16.0.86"
+        local-data: "carbide-static-pxe.forge. 300 IN A 172.16.0.86"
+        local-data: "carbide-ntp.forge.        300 IN A 172.16.0.80"
+        local-data: "unbound.forge.            300 IN A 172.16.0.91"

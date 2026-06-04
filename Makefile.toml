@@ -179,6 +179,78 @@ docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.pxe-build-container -t carbid
 echo "Image carbide-pxe-builder built. Run: cargo make pxe-docker-x86"
 '''
 
+[tasks.build-unbound-images]
+category = "Build"
+description = "Build site-controlled unbound + unbound_exporter images and save tarballs for ctr-import on cluster nodes. Replaces nvcr.io/nvidian/nvforge/unbound{,_exporter}."
+workspace = false
+script_runner = "bash"
+script = '''
+set -euo pipefail
+
+# Pinned upstream versions — bump together with the matching SHA256 in
+# dev/docker/unbound/Dockerfile when responding to a CVE or rolling forward.
+UNBOUND_VERSION="${UNBOUND_VERSION:-1.20.0}"
+EXPORTER_REF="${EXPORTER_REF:-v0.4.6}"
+
+GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short HEAD)"
+UNBOUND_TAG="${UNBOUND_VERSION}-${GIT_SHA}"
+EXPORTER_TAG="${EXPORTER_REF#v}-${GIT_SHA}"
+
+UNBOUND_IMAGE="forge/unbound:${UNBOUND_TAG}"
+EXPORTER_IMAGE="forge/unbound_exporter:${EXPORTER_TAG}"
+
+echo "==> Building ${UNBOUND_IMAGE}"
+docker build \
+    ${SQUID_PROXY:+--build-arg SQUID_PROXY=${SQUID_PROXY}} \
+    --build-arg UNBOUND_VERSION="${UNBOUND_VERSION}" \
+    -f "${REPO_ROOT}/dev/docker/unbound/Dockerfile" \
+    -t "${UNBOUND_IMAGE}" \
+    "${REPO_ROOT}/dev/docker/unbound"
+
+echo "==> Building ${EXPORTER_IMAGE}"
+docker build \
+    ${SQUID_PROXY:+--build-arg SQUID_PROXY=${SQUID_PROXY}} \
+    --build-arg EXPORTER_REF="${EXPORTER_REF}" \
+    -f "${REPO_ROOT}/dev/docker/unbound-exporter/Dockerfile" \
+    -t "${EXPORTER_IMAGE}" \
+    "${REPO_ROOT}/dev/docker/unbound-exporter"
+
+OUT_DIR="${REPO_ROOT}/build-out/unbound"
+mkdir -p "${OUT_DIR}"
+
+echo "==> Saving ${UNBOUND_IMAGE} -> ${OUT_DIR}/forge-unbound-${UNBOUND_TAG}.tar.gz"
+docker save "${UNBOUND_IMAGE}" | gzip > "${OUT_DIR}/forge-unbound-${UNBOUND_TAG}.tar.gz"
+
+echo "==> Saving ${EXPORTER_IMAGE} -> ${OUT_DIR}/forge-unbound-exporter-${EXPORTER_TAG}.tar.gz"
+docker save "${EXPORTER_IMAGE}" | gzip > "${OUT_DIR}/forge-unbound-exporter-${EXPORTER_TAG}.tar.gz"
+
+cat <<EOF
+
+Built and saved:
+  ${UNBOUND_IMAGE}
+  ${EXPORTER_IMAGE}
+
+Tarballs in ${OUT_DIR}:
+$(ls -lh "${OUT_DIR}"/forge-unbound*.tar.gz | awk '{print "  " $9 "  (" $5 ")"}')
+
+Next:
+  1. Update dev/deployment/devspace/values.base.yaml unbound.image.tag
+     and unbound.exporterImage.tag to:
+       tag: "${UNBOUND_TAG}"     # for image.repository: forge/unbound
+       tag: "${EXPORTER_TAG}"    # for exporterImage.repository: forge/unbound_exporter
+  2. Copy the tarballs to every cluster node and import:
+       for NODE in 172.16.0.80 172.16.0.81 172.16.0.82; do
+         scp ${OUT_DIR}/forge-unbound-${UNBOUND_TAG}.tar.gz \\
+             ${OUT_DIR}/forge-unbound-exporter-${EXPORTER_TAG}.tar.gz \\
+             root@\${NODE}:/tmp/
+         ssh root@\${NODE} \\
+           "sudo ctr -n k8s.io images import /tmp/forge-unbound-${UNBOUND_TAG}.tar.gz && \\
+            sudo ctr -n k8s.io images import /tmp/forge-unbound-exporter-${EXPORTER_TAG}.tar.gz"
+       done
+  3. devspace deploy -n forge-system --force-deploy (or kubectl delete pod -n forge-system -l app.kubernetes.io/name=unbound)
+EOF
+'''
+
 [tasks.pxe-docker-x86]
 category = "Build"
 description = "Build x86_64 PXE boot artifacts inside a privileged container. Requires build-pxe-build-container first. Artifacts land in pxe/static/blobs/internal/x86_64/ via the repo mount."
@@ -351,7 +423,11 @@ workspace = false
 script = '''
 #!/usr/bin/env bash
 
-docker build ${REPO_ROOT}/dev/docker -f ${REPO_ROOT}/dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 -t build-artifacts-container-cross-aarch64
+docker build ${REPO_ROOT}/dev/docker \
+  -f ${REPO_ROOT}/dev/docker/Dockerfile.build-artifacts-container-cross-aarch64 \
+  ${SQUID_PROXY:+--build-arg SQUID_PROXY=${SQUID_PROXY}} \
+  --network=host \
+  -t build-artifacts-container-cross-aarch64
 '''
 
 [tasks.build-x86-build-container]

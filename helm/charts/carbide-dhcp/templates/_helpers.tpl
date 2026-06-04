@@ -6,7 +6,7 @@ Allow the release namespace to be overridden for multi-namespace deployments.
 {{- end -}}
 
 {{/*
-Expand the name of the chart.
+Expand the name of the chart, respecting nameOverride.
 */}}
 {{- define "carbide-dhcp.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
@@ -26,7 +26,7 @@ Common labels
 helm.sh/chart: {{ include "carbide-dhcp.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: site-controller
-app.kubernetes.io/name: carbide-dhcp
+app.kubernetes.io/name: {{ include "carbide-dhcp.name" . }}
 app.kubernetes.io/component: dhcp
 {{- end }}
 
@@ -34,7 +34,7 @@ app.kubernetes.io/component: dhcp
 Selector labels
 */}}
 {{- define "carbide-dhcp.selectorLabels" -}}
-app.kubernetes.io/name: carbide-dhcp
+app.kubernetes.io/name: {{ include "carbide-dhcp.name" . }}
 app.kubernetes.io/component: dhcp
 {{- end }}
 

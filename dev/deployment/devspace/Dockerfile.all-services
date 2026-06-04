@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build stage — uses the same build-container-localdev as Dockerfile.api.
+# build-container-localdev already has kea-dev, libgrpc-dev, libssh-dev,
+# libaio-dev, protobuf-compiler etc. installed, so all service binaries
+# can be compiled here without any additional apt installs.
+FROM build-container-localdev AS builder
+
+# Route Cargo crate downloads through squid proxy (same as used for apt).
+# Pass at build time: docker build --build-arg SQUID_PROXY=http://172.16.0.50:3128
+ARG SQUID_PROXY
+ENV http_proxy=${SQUID_PROXY} \
+    https_proxy=${SQUID_PROXY} \
+    HTTP_PROXY=${SQUID_PROXY} \
+    HTTPS_PROXY=${SQUID_PROXY}
+
+ENV CARGO_HOME=/cargo-home
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_TARGET_DIR=/cargo-target
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN mkdir -p /artifacts
+
+RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
+  --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
+  cargo clean -p carbide-rpc 2>/dev/null || true && \
+  cargo build \
+    -p carbide-api         --bin carbide-api \
+    -p carbide-admin-cli   --bin carbide-admin-cli \
+    -p carbide-pxe         --bin carbide \
+    -p carbide-dns         --bin carbide-dns \
+    -p carbide-dhcp-server --bin forge-dhcp-server \
+    -p carbide-health      --bin forge-hw-health \
+    -p carbide-ssh-console --bin ssh-console && \
+  cp \
+    /cargo-target/debug/carbide-api \
+    /cargo-target/debug/carbide-admin-cli \
+    /cargo-target/debug/carbide \
+    /cargo-target/debug/carbide-dns \
+    /cargo-target/debug/forge-dhcp-server \
+    /cargo-target/debug/forge-hw-health \
+    /cargo-target/debug/ssh-console \
+    /artifacts/
+
+# Build carbide-dhcp (cdylib) separately so errors are visible.
+# Requires Kea C++ headers from kea-dev (present in build-container-localdev).
+# If this fails with "kea/..." header not found, rebuild build-container-localdev:
+#   docker rmi build-container-localdev
+#   docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
+  --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
+  test -d /usr/include/kea || (echo "ERROR: /usr/include/kea not found — rebuild build-container-localdev" && exit 1) && \
+  cargo build -p carbide-dhcp --lib && \
+  find /cargo-target/debug -maxdepth 2 -name 'libdhcp.so' | head -1 | xargs -I{} cp {} /artifacts/libdhcp.so && \
+  test -f /artifacts/libdhcp.so || (echo "ERROR: libdhcp.so not found after build" && exit 1)
+
+# Clear proxy so it does not leak into the runtime stage
+ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
+
+# Runtime stage — uses carbide-runtime-base which must be pre-built on the
+# jump host (has internet) and loaded into Docker on nico-cp-1 before building.
+# See dev/deployment/devspace/Dockerfile.runtime-base for build instructions.
+FROM carbide-runtime-base
+
+COPY --from=builder /artifacts/carbide-api        /opt/carbide/carbide-api
+COPY --from=builder /artifacts/carbide-admin-cli  /opt/carbide/carbide-admin-cli
+COPY --from=builder /artifacts/carbide             /opt/carbide/carbide
+COPY --from=builder /artifacts/carbide-dns        /opt/carbide/carbide-dns
+COPY --from=builder /artifacts/forge-dhcp-server  /opt/carbide/forge-dhcp-server
+COPY --from=builder /artifacts/forge-hw-health    /opt/carbide/forge-hw-health
+COPY --from=builder /artifacts/ssh-console        /opt/carbide/ssh-console
+
+# Kea hook plugin — must go in the kea hooks directory
+COPY --from=builder /artifacts/libdhcp.so \
+  /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so
+
+RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
+
+COPY crates/api/casbin-policy.csv       /opt/carbide/casbin-policy.csv
+COPY crates/api-db/migrations/          /opt/carbide/migrations/
+COPY pxe/templates/                     /opt/carbide/pxe/templates/
+
+ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

@@ -184,7 +184,11 @@ script = '''
   VERSION=$(cat otelcol_version.txt)
   URL=$(sed -e "s/\${PLATFORM}/${PLATFORM}/g" -e "s/\${VERSION}/${VERSION}/g" ocb_url.txt)
   rm -f ocb
-  curl --retry 5 --proto '=https' --tlsv1.2 -fL -o ocb -C - $URL
+  if [ -n "${SQUID_PROXY}" ]; then
+    curl --retry 5 --proto '=https' --tlsv1.2 -fL -o ocb -C - --proxy "${SQUID_PROXY}" $URL
+  else
+    curl --retry 5 --proto '=https' --tlsv1.2 -fL -o ocb -C - $URL
+  fi
   chmod +x ocb
 '''
 
@@ -202,14 +206,21 @@ script = '''
 category = "Build"
 description = "Download go"
 workspace = false
-condition = { files_not_exist = ["{REPO_ROOT}/bluefield/otel/go"] }
 script = '''
+  OTEL=${REPO_ROOT}/bluefield/otel
+  if [ -d "${OTEL}/go" ]; then
+    echo "Go already present at ${OTEL}/go, skipping download."
+    exit 0
+  fi
   GO_VERSION="1.22.0"
   PLATFORM=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
   TARFILE=go${GO_VERSION}.linux-${PLATFORM}.tar.gz
-  OTEL=${REPO_ROOT}/bluefield/otel
   URL=https://golang.org/dl/${TARFILE}
-  wget -q $URL --directory-prefix=${OTEL} --tries=5 --continue --timeout=300
+  if [ -n "${SQUID_PROXY}" ]; then
+    wget -q --execute="https_proxy=${SQUID_PROXY}" $URL --directory-prefix=${OTEL} --tries=5 --continue --timeout=300
+  else
+    wget -q $URL --directory-prefix=${OTEL} --tries=5 --continue --timeout=300
+  fi
   tar -C ${OTEL} -xzf ${OTEL}/${TARFILE}
   rm ${OTEL}/${TARFILE}
 '''
@@ -299,12 +310,20 @@ script = '''
   URL=$(sed -e "s/\${VERSION}/${VERSION}/g" url.txt)
   TARFILE=$(basename ${URL})
   NODE_EXTRACT_DIR=${TARFILE%.tar.gz}
-  wget -q $URL --directory-prefix=${NODE} --tries=5 --continue --timeout=300
-  tar xvfz ${TARFILE}
-  rm -f ${TARFILE}
   export vers=${DPU_AGENT_PKG_VERSION}
   export bin=${REPO_ROOT}/bluefield/forge-dpu_${vers}_arm64/usr/bin
   export licenses=${REPO_ROOT}/bluefield/forge-dpu_${vers}_arm64/usr/share/licenses
+  if [ -f "$bin/node_exporter" ]; then
+    echo "node_exporter already present at $bin, skipping download."
+    exit 0
+  fi
+  if [ -n "${SQUID_PROXY}" ]; then
+    wget -q --execute="https_proxy=${SQUID_PROXY}" $URL --directory-prefix=${NODE} --tries=5 --continue --timeout=300
+  else
+    wget -q $URL --directory-prefix=${NODE} --tries=5 --continue --timeout=300
+  fi
+  tar xvfz ${TARFILE}
+  rm -f ${TARFILE}
   mkdir -p $bin
   mkdir -p $licenses/node_exporter
   mv ${NODE}/${NODE_EXTRACT_DIR}/node_exporter $bin
@@ -338,13 +357,21 @@ script = '''
   URL=$(sed -e "s/\${VERSION}/${VERSION}/g" url.txt)
   TARFILE=$(basename ${URL})
   EXTRACT_DIR=${TARFILE%.tar.gz}
-  wget -q $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=300
-  mkdir -p ${TRANSCEIVER}/${EXTRACT_DIR}
-  tar xvfz ${TARFILE} -C ${TRANSCEIVER}/${EXTRACT_DIR}
-  rm -f ${TARFILE}
   export vers=${DPU_AGENT_PKG_VERSION}
   export bin=${REPO_ROOT}/bluefield/forge-dpu_${vers}_arm64/usr/bin
   export licenses=${REPO_ROOT}/bluefield/forge-dpu_${vers}_arm64/usr/share/licenses
+  if [ -f "$bin/transceiver-exporter" ]; then
+    echo "transceiver-exporter already present at $bin, skipping download."
+    exit 0
+  fi
+  if [ -n "${SQUID_PROXY}" ]; then
+    wget -q --execute="https_proxy=${SQUID_PROXY}" $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=300
+  else
+    wget -q $URL --directory-prefix=${TRANSCEIVER} --tries=5 --continue --timeout=300
+  fi
+  mkdir -p ${TRANSCEIVER}/${EXTRACT_DIR}
+  tar xvfz ${TARFILE} -C ${TRANSCEIVER}/${EXTRACT_DIR}
+  rm -f ${TARFILE}
   mkdir -p $bin
   mkdir -p $licenses/transceiver-exporter
   mv ${TRANSCEIVER}/${EXTRACT_DIR}/transceiver-exporter $bin
