@@ -55,8 +55,7 @@ type APITenantAccountCreateRequest struct {
 func (tacr APITenantAccountCreateRequest) Validate() error {
 	return validation.ValidateStruct(&tacr,
 		validation.Field(&tacr.InfrastructureProviderID,
-			validation.Required.Error(validationErrorValueRequired),
-			validationis.UUID.Error(validationErrorInvalidUUID)),
+			validation.When(tacr.InfrastructureProviderID != "", validationis.UUID.Error(validationErrorInvalidUUID))),
 		validation.Field(&tacr.TenantID,
 			validation.When(tacr.TenantOrg == nil, validation.Required.Error(validationErrorTenantIDOrOrgRequired)),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -161,6 +160,7 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 		apiTenantAccount.Tenant = NewAPITenantSummary(dbta.Tenant)
 	}
 
+	apiTenantAccount.StatusHistory = []APIStatusDetail{}
 	for _, dbsd := range dbsds {
 		apiTenantAccount.StatusHistory = append(apiTenantAccount.StatusHistory, NewAPIStatusDetail(dbsd))
 	}

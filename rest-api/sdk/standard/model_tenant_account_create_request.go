@@ -24,10 +24,11 @@ var _ MappedNullable = &TenantAccountCreateRequest{}
 
 // TenantAccountCreateRequest Request data to create a TenantAccount
 type TenantAccountCreateRequest struct {
-	// ID of the Infrastructure Provider in the organization
-	InfrastructureProviderId string `json:"infrastructureProviderId"`
+	// Deprecated; inferred from the caller's org Infrastructure Provider when omitted. When provided, the value must match the org's Infrastructure Provider — mismatched values are rejected with 400.
+	// Deprecated
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
 	// Must be a valid Org name
-	TenantOrg string `json:"tenantOrg" validate:"regexp=^[A-Za-z0-9-_]+$"`
+	TenantOrg string `json:"tenantOrg" validate:"regexp=^[A-Za-z0-9_-]+$"`
 }
 
 type _TenantAccountCreateRequest TenantAccountCreateRequest
@@ -36,9 +37,8 @@ type _TenantAccountCreateRequest TenantAccountCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTenantAccountCreateRequest(infrastructureProviderId string, tenantOrg string) *TenantAccountCreateRequest {
+func NewTenantAccountCreateRequest(tenantOrg string) *TenantAccountCreateRequest {
 	this := TenantAccountCreateRequest{}
-	this.InfrastructureProviderId = infrastructureProviderId
 	this.TenantOrg = tenantOrg
 	return &this
 }
@@ -51,28 +51,39 @@ func NewTenantAccountCreateRequestWithDefaults() *TenantAccountCreateRequest {
 	return &this
 }
 
-// GetInfrastructureProviderId returns the InfrastructureProviderId field value
+// GetInfrastructureProviderId returns the InfrastructureProviderId field value if set, zero value otherwise.
+// Deprecated
 func (o *TenantAccountCreateRequest) GetInfrastructureProviderId() string {
-	if o == nil {
+	if o == nil || IsNil(o.InfrastructureProviderId) {
 		var ret string
 		return ret
 	}
-
-	return o.InfrastructureProviderId
+	return *o.InfrastructureProviderId
 }
 
-// GetInfrastructureProviderIdOk returns a tuple with the InfrastructureProviderId field value
+// GetInfrastructureProviderIdOk returns a tuple with the InfrastructureProviderId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// Deprecated
 func (o *TenantAccountCreateRequest) GetInfrastructureProviderIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.InfrastructureProviderId) {
 		return nil, false
 	}
-	return &o.InfrastructureProviderId, true
+	return o.InfrastructureProviderId, true
 }
 
-// SetInfrastructureProviderId sets field value
+// HasInfrastructureProviderId returns a boolean if a field has been set.
+func (o *TenantAccountCreateRequest) HasInfrastructureProviderId() bool {
+	if o != nil && !IsNil(o.InfrastructureProviderId) {
+		return true
+	}
+
+	return false
+}
+
+// SetInfrastructureProviderId gets a reference to the given string and assigns it to the InfrastructureProviderId field.
+// Deprecated
 func (o *TenantAccountCreateRequest) SetInfrastructureProviderId(v string) {
-	o.InfrastructureProviderId = v
+	o.InfrastructureProviderId = &v
 }
 
 // GetTenantOrg returns the TenantOrg field value
@@ -109,7 +120,9 @@ func (o TenantAccountCreateRequest) MarshalJSON() ([]byte, error) {
 
 func (o TenantAccountCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["infrastructureProviderId"] = o.InfrastructureProviderId
+	if !IsNil(o.InfrastructureProviderId) {
+		toSerialize["infrastructureProviderId"] = o.InfrastructureProviderId
+	}
 	toSerialize["tenantOrg"] = o.TenantOrg
 	return toSerialize, nil
 }
@@ -119,7 +132,6 @@ func (o *TenantAccountCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"infrastructureProviderId",
 		"tenantOrg",
 	}
 

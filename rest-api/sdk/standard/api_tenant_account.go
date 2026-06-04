@@ -46,7 +46,7 @@ CreateTenantAccount Create Tenant Account
 
 Create a Tenant Account.
 
-Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have authorization role with `PROVIDER_ADMIN` suffix
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. The Infrastructure Provider is inferred from the caller's org; the deprecated `infrastructureProviderId` request body field is optional and, when provided, must match the org's Infrastructure Provider.
 
 Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
 
@@ -285,7 +285,8 @@ type ApiGetAllTenantAccountRequest struct {
 	orderBy                  *string
 }
 
-// Filter Tenant Accounts by Infrastructure Provider ID
+// Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllTenantAccountRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetAllTenantAccountRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
@@ -334,13 +335,9 @@ func (r ApiGetAllTenantAccountRequest) Execute() ([]TenantAccount, *http.Respons
 /*
 GetAllTenantAccount Retrieve all Tenant Accounts
 
-Retrieve all Tenant Accounts.
+Retrieve all Tenant Accounts for the org.
 
-Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
-
-If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -476,13 +473,15 @@ type ApiGetTenantAccountRequest struct {
 	includeRelation          *string
 }
 
-// Filter Tenant Accounts by Infrastructure Provider ID
+// Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetTenantAccountRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetTenantAccountRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter Tenant Accounts by Tenant ID
+// Filter Tenant Accounts by Tenant ID. Deprecated: Tenant is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetTenantAccountRequest) TenantId(tenantId string) ApiGetTenantAccountRequest {
 	r.tenantId = &tenantId
 	return r
@@ -501,13 +500,9 @@ func (r ApiGetTenantAccountRequest) Execute() (*TenantAccount, *http.Response, e
 /*
 GetTenantAccount Retrieve Tenant Account
 
-# Retrieve a Tenant Account by ID
+Retrieve a Tenant Account by ID.
 
-Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
-
-If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

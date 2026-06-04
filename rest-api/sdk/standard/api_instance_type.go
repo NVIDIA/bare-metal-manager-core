@@ -624,7 +624,7 @@ GetAllInstanceType Retrieve all Instance Types
 
 Get all Instance Types for the org.
 
-Provider and Tenant roles are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
 Results are returned from both Provider and Tenant perspectives when the org has both roles.
 
