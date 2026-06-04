@@ -2730,15 +2730,19 @@ protoc --version
 > ```
 
 ```bash
-# On nico-cp-1 — use the pre-built binary (no cargo needed):
-export CARBIDE_API="https://172.16.0.89:443"
-alias ncli="$HOME/carbide-admin-cli -c $CARBIDE_API"
+# carbide-api speaks mTLS and its cert is issued for the DNS name (not the VIP),
+# so the alias MUST pass the client cert/key + CA and use the DNS name that the
+# /etc/hosts entry from Phase 7e maps to the API VIP. A bare
+# `--carbide-api <url>` without certs cannot reach carbide-api.
+export CARBIDE_API="https://carbide-api.forge-system.svc.cluster.local:443"
+
+# On nico-cp-1 — use the pre-built binary copied to $HOME (no cargo needed):
+alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY $HOME/carbide-admin-cli --carbide-api $CARBIDE_API --forge-root-ca-path /tmp/forge-ca.crt --client-cert-path /tmp/client.crt --client-key-path /tmp/client.key"
 
 # Or if building directly on nico-cp-1 (requires Rust + internet for crates):
 cd ncx-infra-controller-core
 cargo build --release -p carbide-admin-cli
-export CARBIDE_API="https://172.16.0.89:443"
-alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ./carbide-admin-cli --carbide-api $CARBIDE_API --forge-root-ca-path /tmp/forge-ca.crt  --client-cert-path  /tmp/client.crt  --client-key-path  /tmp/client.key"
+alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ./target/release/carbide-admin-cli --carbide-api $CARBIDE_API --forge-root-ca-path /tmp/forge-ca.crt --client-cert-path /tmp/client.crt --client-key-path /tmp/client.key"
 ```
 
 ### 9b. Set site-wide credentials (IPMI communication through carbide)
@@ -3091,13 +3095,23 @@ all NICo pods are Ready and the four LoadBalancer VIPs are assigned.
 ### Step A — Wire up the admin CLI
 
 ```bash
-# Use the pre-built binary on nico-cp-1
-export CARBIDE_API="https://172.16.0.89:443"
-alias ncli="$HOME/carbide-admin-cli -c $CARBIDE_API"
+# carbide-api requires mTLS, and its cert is issued for the DNS name (not the
+# VIP). Use the DNS name (mapped to the API VIP via /etc/hosts in Phase 7e) and
+# always pass the client cert/key + CA — a bare `--carbide-api <url>` without
+# certs is "unable to reach carbide-api".
+export CARBIDE_API="https://carbide-api.forge-system.svc.cluster.local:443"
 
-# Or, if the binary uses explicit cert paths:
+# Pre-built binary copied to $HOME on nico-cp-1:
 alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
   $HOME/carbide-admin-cli \
+  --carbide-api $CARBIDE_API \
+  --forge-root-ca-path /tmp/forge-ca.crt \
+  --client-cert-path  /tmp/client.crt \
+  --client-key-path   /tmp/client.key"
+
+# Or, if you built in-tree (binary lives under target/release):
+alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+  $HOME/ncx-infra-controller-core/target/release/carbide-admin-cli \
   --carbide-api $CARBIDE_API \
   --forge-root-ca-path /tmp/forge-ca.crt \
   --client-cert-path  /tmp/client.crt \
@@ -3106,6 +3120,11 @@ alias ncli="env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
 # Sanity check — should return an empty list
 ncli machine list
 ```
+
+> **Tip:** `dev/tools/deploy-nico.sh --phases cli` automates all of this — it
+> extracts the certs to `~/.config/carbide-certs`, adds the `/etc/hosts` entry,
+> writes `~/.config/carbide_api_cli.json`, and installs the `ncli` alias in
+> `~/.bashrc`.
 
 If you get a TLS error, see [`DEBUG.md § CLI TLS Certificate Mismatch`](DEBUG.md#cli-tls-certificate-mismatch).
 

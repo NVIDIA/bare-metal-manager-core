@@ -67,7 +67,7 @@ NICO_REGISTRY_HOST=172.16.0.80 \
 ```
 
 Phase names: `prereqs`, `cluster`, `tools`, `metallb`, `values`, `registry`,
-`bootstrap`, `deploy`, `verify`, `all` (default).
+`bootstrap`, `deploy`, `cli`, `verify`, `all` (default).
 
 ---
 
@@ -84,7 +84,8 @@ Phase names: `prereqs`, `cluster`, `tools`, `metallb`, `values`, `registry`,
 | `registry` | Runs `registry:2` as a Docker container on `NICO_REGISTRY_HOST:NICO_REGISTRY_PORT`, configures **containerd** on every node to trust it as an insecure HTTP registry (`/etc/containerd/certs.d/<host:port>/hosts.toml`), adds it to `/etc/docker/daemon.json` `insecure-registries`, restarts containerd/docker, and smoke-tests `/v2/` from each node. The rendered `values.base.yaml` already points `global.image.repository` and `carbide-bmc-proxy.image.repository` at this registry. |
 | `bootstrap` | cert-manager (jetstack chart), local-path storage class, then `dev/deployment/devspace/bootstrap-prereqs.sh` (vault + postgres + cert issuers) with `LOCAL_DEV_INSTALL_CERT_MANAGER=0`. |
 | `deploy` | Builds **all** images NICo deploys: `devspace build` (carbide-api/all-services + carbide-bmc-proxy) **plus** `forge/unbound` + `forge/unbound_exporter` (unless `NICO_BUILD_UNBOUND=0`). Then `docker tag`/`docker push` to the local registry → `devspace deploy`. If `NICO_USE_REGISTRY=0` the script falls back to `docker save \| ctr -n k8s.io images import` on every node. |
-| `verify` | `kubectl get nodes/pods/svc/ipaddresspool`, prints all service VIPs and the OOB-switch helper-address you need to configure. |
+| `cli` | Configures `carbide-admin-cli` (the `ncli` alias) on the control-plane host so it can actually reach carbide-api. Extracts the client cert/key + CA from the `machine-a-tron-certificate` secret into `NICO_CLI_CERT_DIR` (default `~/.config/carbide-certs`), pins `carbide-api.<ns>.svc.cluster.local` to `NICO_VIP_API` in `/etc/hosts` (the cert is issued for the DNS name, not the VIP), writes `~/.config/carbide_api_cli.json`, and installs an `ncli` alias in `~/.bashrc` that passes the certs explicitly and strips `http(s)_proxy` (the CLI only accepts `socks5://`). Binary path defaults to `NICO_CLI_BIN` (`<repo>/target/release/carbide-admin-cli`). |
+| `verify` | `kubectl get nodes/pods/svc/ipaddresspool`, prints all service VIPs, the `ncli` activation hint, and the OOB-switch helper-address you need to configure. |
 
 A timestamped log is written to `${NICO_LOG_DIR}/deploy-YYYYMMDD-HHMMSS.log`.
 
@@ -167,6 +168,9 @@ per-service VIP overrides) are documented inline at the top of
   with a `.bak.<unix-ts>` suffix.
 * `registry` reuses an existing `nico-registry` container if present.
 * `deploy` always runs `devspace deploy`, which is itself idempotent.
+* `cli` re-extracts certs and rewrites the config/alias each run; the `/etc/hosts`
+  entry and the `ncli` alias live in managed `# nico-carbide-api` / `# nico-ncli`
+  blocks so re-runs replace (never duplicate) them.
 
 ---
 

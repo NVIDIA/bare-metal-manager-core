@@ -57,6 +57,9 @@
 #   registry  — Provision local Docker registry on CP node + rewrite values
 #   bootstrap — Phase 6 (cert-manager, vault, postgres via bootstrap-prereqs.sh)
 #   deploy    — Phase 7 (devspace build/push + helm deploy)
+#   cli       — Configure carbide-admin-cli (`ncli`) on the control-plane host:
+#               extract TLS certs, add the carbide-api /etc/hosts entry, write
+#               ~/.config/carbide_api_cli.json and the `ncli` alias in ~/.bashrc
 #   verify    — Verify pods/services and print useful URLs
 #   all       — All of the above, in order (default)
 #
@@ -108,6 +111,11 @@
 #   NICO_METALLB_VERSION    MetalLB helm chart version       (default: 0.14.5)
 #   NICO_POD_CIDR           Pod CIDR for kubeadm             (default: 10.244.0.0/16)
 #
+#   NICO_CLI_BIN            Path to the carbide-admin-cli binary used by the
+#                           `ncli` alias    (default: <repo>/target/release/carbide-admin-cli)
+#   NICO_CLI_CERT_DIR       Persistent dir for the extracted CLI TLS certs
+#                           (default: ~/.config/carbide-certs)
+#
 #   NICO_NON_INTERACTIVE    1 to skip prompts (same as --yes)
 #   NICO_LOG_DIR            Where to write logs              (default: /tmp/nico-deploy)
 #
@@ -149,6 +157,12 @@ NICO_SSH_KEY="${NICO_SSH_KEY:-${HOME}/.ssh/id_rsa}"
 NICO_LOG_DIR="${NICO_LOG_DIR:-/tmp/nico-deploy}"
 NICO_NON_INTERACTIVE="${NICO_NON_INTERACTIVE:-0}"
 NICO_SQUID_PROXY="${NICO_SQUID_PROXY:-}"
+
+# ---- carbide-admin-cli (`ncli`) --------------------------------------------
+# Binary built by `cargo build --release -p carbide-admin-cli`. Override
+# NICO_CLI_BIN if you keep the binary somewhere else (e.g. copied to ~/).
+NICO_CLI_BIN="${NICO_CLI_BIN:-${NICO_REPO_ROOT}/target/release/carbide-admin-cli}"
+NICO_CLI_CERT_DIR="${NICO_CLI_CERT_DIR:-${HOME}/.config/carbide-certs}"
 
 # ---- Unbound (site-built) images -------------------------------------------
 # The `unbound` + `unbound_exporter` images are NOT built by devspace; they are
@@ -1009,6 +1023,79 @@ phase_deploy() {
 }
 
 # -----------------------------------------------------------------------------
+# CLI — configure carbide-admin-cli (`ncli`) on the control-plane host
+#
+# Without this, a bare `carbide-admin-cli --carbide-api <url>` cannot reach
+# carbide-api: the server speaks mTLS and is reachable only by its DNS name.
+# This phase fixes both by (1) extracting the client cert/key + CA from the
+# machine-a-tron-certificate secret, (2) pinning carbide-api's DNS name to its
+# VIP in /etc/hosts, (3) writing ~/.config/carbide_api_cli.json, and
+# (4) installing an `ncli` alias in ~/.bashrc that passes the certs explicitly
+# and strips http(s) proxies (the CLI only accepts socks5:// proxies).
+# -----------------------------------------------------------------------------
+phase_cli() {
+  hdr "CLI: configure carbide-admin-cli (ncli) on control-plane host"
+
+  export KUBECONFIG="${HOME}/.kube/config"
+
+  if [[ ! -x "${NICO_CLI_BIN}" ]]; then
+    warn "carbide-admin-cli not found at ${NICO_CLI_BIN}"
+    warn "Build it with: (cd '${NICO_REPO_ROOT}' && cargo build --release -p carbide-admin-cli)"
+    warn "or set NICO_CLI_BIN to the binary location and re-run --phases cli"
+  fi
+
+  # Certs go in a persistent dir — unlike /tmp, this survives a reboot.
+  mkdir -p "${NICO_CLI_CERT_DIR}"
+
+  if kubectl get secret machine-a-tron-certificate -n "${NICO_NAMESPACE}" >/dev/null 2>&1; then
+    log "Extracting carbide-api TLS credentials from machine-a-tron-certificate secret"
+    kubectl get secret machine-a-tron-certificate -n "${NICO_NAMESPACE}" \
+      -o jsonpath='{.data.ca\.crt}'  | base64 -d > "${NICO_CLI_CERT_DIR}/forge-ca.crt"
+    kubectl get secret machine-a-tron-certificate -n "${NICO_NAMESPACE}" \
+      -o jsonpath='{.data.tls\.crt}' | base64 -d > "${NICO_CLI_CERT_DIR}/client.crt"
+    kubectl get secret machine-a-tron-certificate -n "${NICO_NAMESPACE}" \
+      -o jsonpath='{.data.tls\.key}' | base64 -d > "${NICO_CLI_CERT_DIR}/client.key"
+    chmod 600 "${NICO_CLI_CERT_DIR}/client.key"
+    ok "Wrote TLS certs to ${NICO_CLI_CERT_DIR}"
+  else
+    warn "Secret machine-a-tron-certificate not found in '${NICO_NAMESPACE}' — run the 'deploy' phase first, then re-run --phases cli"
+  fi
+
+  # carbide-api's TLS cert is issued for its DNS name, not its VIP. nico-cp-1 is
+  # a host (not a pod), so cluster DNS (.svc.cluster.local) does not resolve —
+  # pin the name to the API VIP in /etc/hosts so the cert's SAN matches.
+  local api_dns="carbide-api.${NICO_NAMESPACE}.svc.cluster.local"
+  local carbide_api_url="https://${api_dns}:443"
+  sudo sed -i '/# nico-carbide-api/d' /etc/hosts 2>/dev/null || true
+  echo "${NICO_VIP_API} ${api_dns}  # nico-carbide-api" | sudo tee -a /etc/hosts >/dev/null
+  log "Mapped ${api_dns} -> ${NICO_VIP_API} in /etc/hosts"
+
+  # Config file so a bare `ncli` (no flags) also works.
+  mkdir -p "${HOME}/.config"
+  cat > "${HOME}/.config/carbide_api_cli.json" <<EOF
+{
+  "carbide_api": "${carbide_api_url}",
+  "forge_root_ca_path": "${NICO_CLI_CERT_DIR}/forge-ca.crt",
+  "client_cert_path": "${NICO_CLI_CERT_DIR}/client.crt",
+  "client_key_path": "${NICO_CLI_CERT_DIR}/client.key"
+}
+EOF
+  ok "Wrote ${HOME}/.config/carbide_api_cli.json"
+
+  # `ncli` alias — managed inside a # nico-ncli block so re-runs don't duplicate.
+  # \$CARBIDE_API stays literal in ~/.bashrc and is expanded when ncli is run.
+  local bashrc="${HOME}/.bashrc"
+  touch "${bashrc}"
+  sed -i '/# nico-ncli/d' "${bashrc}"
+  cat >> "${bashrc}" <<EOF
+export CARBIDE_API="${carbide_api_url}"  # nico-ncli
+alias ncli='env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ${NICO_CLI_BIN} --carbide-api \$CARBIDE_API --forge-root-ca-path ${NICO_CLI_CERT_DIR}/forge-ca.crt --client-cert-path ${NICO_CLI_CERT_DIR}/client.crt --client-key-path ${NICO_CLI_CERT_DIR}/client.key'  # nico-ncli
+EOF
+  ok "Installed 'ncli' alias in ${bashrc}"
+  log "Activate it with:  source ${bashrc}  &&  ncli machine show"
+}
+
+# -----------------------------------------------------------------------------
 # Verify
 # -----------------------------------------------------------------------------
 phase_verify() {
@@ -1030,6 +1117,12 @@ ${C_BOLD}Useful endpoints:${C_RESET}
 OOB switch — point the BMC VLAN at carbide-dhcp:
   ip helper-address ${NICO_VIP_DHCP}
 
+Admin CLI (configured by the 'cli' phase):
+  source ~/.bashrc        # load the 'ncli' alias + \$CARBIDE_API
+  ncli machine show       # should return a (possibly empty) machine list
+  Binary : ${NICO_CLI_BIN}
+  Certs  : ${NICO_CLI_CERT_DIR}
+
 Log: ${LOG_FILE}
 EOF
 }
@@ -1048,6 +1141,7 @@ run_phase() {
     registry)  phase_registry ;;
     bootstrap) phase_bootstrap ;;
     deploy)    phase_deploy ;;
+    cli)       phase_cli ;;
     verify)    phase_verify ;;
     *) die "unknown phase: $1" ;;
   esac
@@ -1062,7 +1156,7 @@ main() {
 
   local list
   if [[ "${PHASES}" == "all" ]]; then
-    list=(prereqs tools cluster metallb registry values bootstrap deploy verify)
+    list=(prereqs tools cluster metallb registry values bootstrap deploy cli verify)
   else
     IFS=',' read -r -a list <<<"${PHASES}"
   fi
