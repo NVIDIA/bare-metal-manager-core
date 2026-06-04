@@ -349,5 +349,4 @@ annotation involved for traces
 
 ## 6. References
 
-- NICo core metrics catalogue (incl. `carbide_api_tracing_spans_open`):
-  <https://docs.nvidia.com/infra-controller/documentation/operations/metrics/core-metrics>
+- [NICo core metrics catalogue](https://docs.nvidia.com/infra-controller/documentation/observability/core-metrics) - includes `carbide_api_tracing_spans_open`.
