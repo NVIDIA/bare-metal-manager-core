@@ -241,16 +241,14 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().manager_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().manager_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().manager_config(),
-            HostHardwareType::SupermicroGb300Nvl => {
-                self.supermicro_gb300_nvl().manager_config()
-            }
+            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().manager_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_ami().manager_config()
+                self.generic_server().manager_config()
             }
         }
     }
@@ -275,7 +273,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_ami().system_config(callbacks)
+                self.generic_server().system_config(callbacks)
             }
         }
     }
@@ -286,16 +284,14 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().chassis_config(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().chassis_config(),
             HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().chassis_config(),
-            HostHardwareType::SupermicroGb300Nvl => {
-                self.supermicro_gb300_nvl().chassis_config()
-            }
+            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().chassis_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_ami().chassis_config()
+                self.generic_server().chassis_config()
             }
         }
     }
@@ -317,7 +313,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_ami().update_service_config()
+                self.generic_server().update_service_config()
             }
         }
     }
@@ -331,7 +327,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_ami().discovery_info()
+                self.generic_server().discovery_info()
             }
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("discovery_info requested for {}", self.hw_type)
@@ -422,17 +418,21 @@ impl HostMachineInfo {
     }
 
     fn dgx_gb300_nvl(&self) -> hw::dgx_gb300_nvl::DgxGB300Nvl<'_> {
-        // Serials below are taken from the DGX GB300 scrape. GPU_0/1 and GPU_2/3 share a
-        // superchip serial, and the HGX baseboard (Systems/HGX_Baseboard_0) reports the same
-        // serial as the first GPU superchip. The DGX scrape has a single IO board
-        // (IO_Board_0); io_board1_sn is a synthetic placeholder for the mock's second slot.
         let mut dpus = self.dpus.iter();
-        let cpu0_sn = "0x000000017831E0C9100000000F018200";
-        let cpu1_sn = "0x000000017831E0C91000000018018240";
+        // Serials are from the DGX GB300 scrape.
+        // GPU_0/1 and GPU_2/3 share a superchip serial; the HGX baseboard
+        // (Systems/HGX_Baseboard_0) reports the same serial as the first GPU superchip.
+        // The DGX scrape has a single IO board (IO_Board_0); the mock's second slot is
+        // a synthetic placeholder.
         let superchip_a_sn = "1642225000100";
-        let superchip_b_sn = "1642225000086";
-        let io_board0_sn = "MT2521XZ0GJM";
-        let io_board1_sn = "MT2521XZ0GJM-SYNTH";
+        let boards = gb300_boards(
+            [
+                "0x000000017831E0C9100000000F018200",
+                "0x000000017831E0C91000000018018240",
+            ],
+            [superchip_a_sn, "1642225000086"],
+            ["MT2521XZ0GJM", "MT2521XZ0GJM-SYNTH"],
+        );
         hw::dgx_gb300_nvl::DgxGB300Nvl {
             system_0_serial_number: "1332425360072".into(),
             chassis_0_serial_number: "1332425360072".into(),
@@ -447,7 +447,6 @@ impl HostMachineInfo {
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
-            // HGX baseboard serial == first GPU superchip serial, per the scrape.
             hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
@@ -455,50 +454,26 @@ impl HostMachineInfo {
                 revision_id: 2,
                 topology_id: 128,
             },
-            cpu: [
-                hw::nvidia_gb300::NvidiaGB300Cpu {
-                    serial_number: cpu0_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Cpu {
-                    serial_number: cpu1_sn.into(),
-                },
-            ],
-            gpu: [
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_a_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_a_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_b_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_b_sn.into(),
-                },
-            ],
-            io_board: [
-                hw::nvidia_gb300::NvidiaGB300IoBoard {
-                    serial_number: io_board0_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300IoBoard {
-                    serial_number: io_board1_sn.into(),
-                },
-            ],
+            cpu: boards.cpu,
+            gpu: boards.gpu,
+            io_board: boards.io_board,
         }
     }
 
     fn supermicro_gb300_nvl(&self) -> hw::supermicro_gb300_nvl::SupermicroGB300Nvl<'_> {
-        // Serials below are taken from the SMC GB300 tray scrape. GPU_0/1 and GPU_2/3 share
-        // a superchip serial, and the HGX baseboard (Systems/HGX_Baseboard_0) reports the
-        // same serial as the first GPU superchip.
         let mut dpus = self.dpus.iter();
-        let cpu0_sn = "0x000000017844A04120000000120081C0";
-        let cpu1_sn = "0x00000001784191C11000000008018040";
+        // Serials are from the SMC GB300 tray scrape.
+        // GPU_0/1 and GPU_2/3 share a superchip serial; the HGX baseboard
+        // (Systems/HGX_Baseboard_0) reports the same serial as the first GPU superchip.
         let superchip_a_sn = "1764625801410";
-        let superchip_b_sn = "1764625800673";
-        let io_board0_sn = "MT2609603LCN";
-        let io_board1_sn = "MT2609603LQ2";
+        let boards = gb300_boards(
+            [
+                "0x000000017844A04120000000120081C0",
+                "0x00000001784191C11000000008018040",
+            ],
+            [superchip_a_sn, "1764625800673"],
+            ["MT2609603LCN", "MT2609603LQ2"],
+        );
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
             system_0_serial_number: "A978250X6404492".into(),
             chassis_0_serial_number: "HA261S056572".into(),
@@ -513,7 +488,6 @@ impl HostMachineInfo {
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
-            // HGX baseboard serial == first GPU superchip serial, per the scrape.
             hgx_serial_number: superchip_a_sn.into(),
             topology: hw::nvidia_gbx00::Topology {
                 chassis_physical_slot_number: 25,
@@ -521,36 +495,9 @@ impl HostMachineInfo {
                 revision_id: 2,
                 topology_id: 128,
             },
-            cpu: [
-                hw::nvidia_gb300::NvidiaGB300Cpu {
-                    serial_number: cpu0_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Cpu {
-                    serial_number: cpu1_sn.into(),
-                },
-            ],
-            gpu: [
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_a_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_a_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_b_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300Gpu {
-                    serial_number: superchip_b_sn.into(),
-                },
-            ],
-            io_board: [
-                hw::nvidia_gb300::NvidiaGB300IoBoard {
-                    serial_number: io_board0_sn.into(),
-                },
-                hw::nvidia_gb300::NvidiaGB300IoBoard {
-                    serial_number: io_board1_sn.into(),
-                },
-            ],
+            cpu: boards.cpu,
+            gpu: boards.gpu,
+            io_board: boards.io_board,
         }
     }
 
@@ -680,7 +627,7 @@ impl HostMachineInfo {
         }
     }
 
-    fn generic_ami(&self) -> hw::generic_ami::GenericAmi<'_> {
+    fn generic_server(&self) -> hw::generic_ami::GenericAmi<'_> {
         let nics = self
             .dpus
             .iter()
@@ -829,4 +776,55 @@ fn next_mac() -> MacAddress {
     let mac_bytes = <[u8; 6]>::try_from(bytes).unwrap();
 
     MacAddress::from(mac_bytes)
+}
+
+/// CPU / GPU / IO-board chassis common to every GB300 tray: NVIDIA HGX reference
+/// silicon, identical in shape across ODMs (only the serials differ per scrape).
+/// GPU_0/1 and GPU_2/3 each share a superchip serial.
+struct Gb300Boards<'a> {
+    cpu: [hw::nvidia_gb300::NvidiaGB300Cpu<'a>; 2],
+    gpu: [hw::nvidia_gb300::NvidiaGB300Gpu<'a>; 4],
+    io_board: [hw::nvidia_gb300::NvidiaGB300IoBoard<'a>; 2],
+}
+
+fn gb300_boards<'a>(
+    cpu_serials: [&'a str; 2],
+    superchip_serials: [&'a str; 2],
+    io_board_serials: [&'a str; 2],
+) -> Gb300Boards<'a> {
+    let [cpu0, cpu1] = cpu_serials;
+    let [superchip_a, superchip_b] = superchip_serials;
+    let [io0, io1] = io_board_serials;
+    Gb300Boards {
+        cpu: [
+            hw::nvidia_gb300::NvidiaGB300Cpu {
+                serial_number: cpu0.into(),
+            },
+            hw::nvidia_gb300::NvidiaGB300Cpu {
+                serial_number: cpu1.into(),
+            },
+        ],
+        gpu: [
+            hw::nvidia_gb300::NvidiaGB300Gpu {
+                serial_number: superchip_a.into(),
+            },
+            hw::nvidia_gb300::NvidiaGB300Gpu {
+                serial_number: superchip_a.into(),
+            },
+            hw::nvidia_gb300::NvidiaGB300Gpu {
+                serial_number: superchip_b.into(),
+            },
+            hw::nvidia_gb300::NvidiaGB300Gpu {
+                serial_number: superchip_b.into(),
+            },
+        ],
+        io_board: [
+            hw::nvidia_gb300::NvidiaGB300IoBoard {
+                serial_number: io0.into(),
+            },
+            hw::nvidia_gb300::NvidiaGB300IoBoard {
+                serial_number: io1.into(),
+            },
+        ],
+    }
 }

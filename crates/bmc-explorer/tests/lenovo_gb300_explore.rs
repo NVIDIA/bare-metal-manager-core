@@ -16,7 +16,8 @@
  */
 mod common;
 
-use bmc_explorer::{detect_hw_type, hw::HwType, nv_generate_exploration_report};
+use bmc_explorer::hw::HwType;
+use bmc_explorer::{detect_hw_type, nv_generate_exploration_report};
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
 use tokio::test;

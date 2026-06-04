@@ -16,7 +16,8 @@
  */
 mod common;
 
-use bmc_explorer::{detect_hw_type, hw::HwType};
+use bmc_explorer::detect_hw_type;
+use bmc_explorer::hw::HwType;
 use bmc_mock::test_support;
 use tokio::test;
 

@@ -185,9 +185,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
-            Some(
-                hw::HwType::LenovoGb300 | hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300,
-            ) => {
+            Some(hw::HwType::LenovoGb300 | hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300) => {
                 let chassis_id = chassis.chassis.id().into_inner();
                 chassis_id.starts_with("HGX_GPU_")
             }
