@@ -188,14 +188,35 @@ impl FakePowerShelf {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine_no_default_poweron"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_default_pause_ingestion_and_poweron(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
+    let bmc_mac_address = "6a:6b:6c:6d:6e:6f".parse().unwrap();
+    let mut txn = pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".into(),
+                bmc_password: "Pwd2023x0x0x0x0x7".into(),
+                serial_number: "VVG121GL".into(),
+                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                default_pause_ingestion_and_poweron: Some(true),
+                ..Default::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await?;
+
     let mut machines = vec![FakeMachine::new(
-        "6a:6b:6c:6d:6e:6f",
+        &bmc_mac_address.to_string(),
         "Vendor1",
         env.underlay_segment.unwrap(),
     )];
@@ -1128,11 +1149,46 @@ async fn test_site_explorer_ingests_no_dpu_host(
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_site_explorer_audit_exploration_results(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut txn = pool.begin().await?;
+    for (bmc_mac_address, serial_number, fallback_dpu_serial_numbers) in [
+        ("0a:0b:0c:0d:0e:0f", "VVG121GG", vec![]),
+        ("1a:1b:1c:1d:1e:1f", "VVG121GH", vec![]),
+        ("2a:2b:2c:2d:2e:2f", "VVG121GI", vec![]),
+        ("3a:3b:3c:3d:3e:3f", "VVG121GJ", vec!["dpu_serial1"]),
+        (
+            "4a:4b:4c:4d:4e:4f",
+            "VVG121GK",
+            vec!["dpu_serial2", "dpu_serial3"],
+        ),
+        ("5a:5b:5c:5d:5e:5f", "VVG121GL", vec![]),
+    ] {
+        db::expected_machine::create(
+            &mut txn,
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: bmc_mac_address.parse().unwrap(),
+                data: ExpectedMachineData {
+                    bmc_username: "ADMIN".into(),
+                    bmc_password: "Pwd2023x0x0x0x0x7".into(),
+                    serial_number: serial_number.into(),
+                    fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
+                        .into_iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    }
+    txn.commit().await?;
 
     let mut machines = vec![
         // This will be our expected DPU, and it will have the
