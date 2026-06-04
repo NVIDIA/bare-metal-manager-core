@@ -17,7 +17,6 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
@@ -224,7 +223,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 
 		cloudCap := cloudCapMap[macCapName]
 
-		if cloudCap == nil || !util.MachineCapabilitiesEqual(cloudCap, controllerCap) {
+		if cloudCap == nil || !cloudCap.Equal(controllerCap) {
 
 			if cloudCap != nil {
 				// If cloud and site knew about it but they have mismatched properties,

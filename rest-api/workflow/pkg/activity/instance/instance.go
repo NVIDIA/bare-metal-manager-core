@@ -229,7 +229,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			controllerInstanceID != nil ||
 			isUpdatePending != nil ||
 			tpmEkCertificateUpdated != nil ||
-			!util.NetworkSecurityGroupPropagationDetailsEqual(instance.NetworkSecurityGroupPropagationDetails, sitePropagationStatus)
+			!instance.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus)
 
 		if needsUpdate {
 			// If the Instance in the DB has propagation details but the site reported no propagation details

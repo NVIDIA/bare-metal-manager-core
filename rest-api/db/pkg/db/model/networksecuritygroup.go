@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -146,6 +147,28 @@ func (s *NetworkSecurityGroupPropagationDetails) UnmarshalJSON(b []byte) error {
 
 func (s *NetworkSecurityGroupPropagationDetails) MarshalJSON() ([]byte, error) {
 	return protojson.Marshal(s)
+}
+
+// Equal reports whether two `*NetworkSecurityGroupPropagationDetails`
+// wrappers carry the same wire-relevant state. Used by the cloud-sync
+// activity to skip no-op DAO updates when the cloud copy already
+// matches what the Site reported. Treats two nil receivers as equal.
+// Declared as a method (per the Go convention used by `time.Time.Equal`,
+// `cmp.Equal`, etc.) so callers can write `pd.Equal(other)` instead of
+// reaching for a free helper.
+func (s *NetworkSecurityGroupPropagationDetails) Equal(other *NetworkSecurityGroupPropagationDetails) bool {
+	if s == nil || other == nil {
+		return s == other
+	}
+	// `Details` is the only pointer-typed field we compare; inline the
+	// nil-aware check so this method doesn't depend on the workflow util
+	// layer.
+	detailsEqual := (s.Details == nil) == (other.Details == nil) &&
+		(s.Details == nil || *s.Details == *other.Details)
+	return s.Status.Number() == other.Status.Number() &&
+		detailsEqual &&
+		slices.Equal(s.UnpropagatedInstanceIds, other.UnpropagatedInstanceIds) &&
+		slices.Equal(s.RelatedInstanceIds, other.RelatedInstanceIds)
 }
 
 // NetworkSecurityGroupCreateInput input parameters for Create method

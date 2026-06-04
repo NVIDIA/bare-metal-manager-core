@@ -177,7 +177,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			controllerVpcID != nil ||
 			networkVirtualizationType != nil ||
 			!util.PtrsEqual(vpc.RoutingProfile, controllerVpc.RoutingProfileType) ||
-			!util.NetworkSecurityGroupPropagationDetailsEqual(vpc.NetworkSecurityGroupPropagationDetails, sitePropagationStatus) ||
+			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
 			// Status should never go back to nil - that would be a bug.

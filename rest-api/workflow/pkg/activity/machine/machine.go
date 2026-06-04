@@ -934,7 +934,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 			}
 		} else {
 			// Compare the orignal with the current and update if there's a diff.
-			if !util.MachineCapabilitiesEqual(cloudCap, controllerCap) {
+			if !cloudCap.Equal(controllerCap) {
 				_, serr := mcDAO.Update(ctx, nil, cdbm.MachineCapabilityUpdateInput{
 					ID:               cloudCap.ID,
 					Frequency:        controllerCap.Frequency,

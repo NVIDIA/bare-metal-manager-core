@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -238,6 +239,48 @@ type MachineCapability struct {
 	ValueStr    *string `bun:"value_str"`
 	ValueInt    *int    `bun:"value_int"`
 	Description *string `bun:"description"`
+}
+
+// Equal reports whether two `*MachineCapability` records carry the same
+// proto-relevant fields. Used by the cloud-sync activity to skip
+// no-op DAO updates when the cloud copy matches what the Site
+// reported. Declared as a method (per the Go convention used by
+// `time.Time.Equal`, `cmp.Equal`, etc.) so callers can write
+// `mc.Equal(other)` instead of reaching for a free helper.
+//
+// Compares the wire-relevant fields only: `MachineID`, `InstanceTypeID`,
+// `ID`, `Created`/`Updated`/`Deleted` and the deprecated `ValueStr` /
+// `ValueInt` / `Description` are deliberately excluded.
+func (mc *MachineCapability) Equal(other *MachineCapability) bool {
+	if mc == nil || other == nil {
+		return mc == other
+	}
+	return mcPtrsEqual(mc.Cores, other.Cores) &&
+		mcPtrsEqual(mc.Threads, other.Threads) &&
+		mcPtrsEqual(mc.Count, other.Count) &&
+		mcPtrsEqual(mc.DeviceType, other.DeviceType) &&
+		mc.Name == other.Name &&
+		mc.Type == other.Type &&
+		mcPtrsEqual(mc.Capacity, other.Capacity) &&
+		mcPtrsEqual(mc.Frequency, other.Frequency) &&
+		mcPtrsEqual(mc.HardwareRevision, other.HardwareRevision) &&
+		mcPtrsEqual(mc.Vendor, other.Vendor) &&
+		slices.Equal(mc.InactiveDevices, other.InactiveDevices) &&
+		mc.Index == other.Index
+}
+
+// mcPtrsEqual is a file-local copy of the workflow util `PtrsEqual`
+// helper, declared here so `(*MachineCapability).Equal` can compare
+// pointer-typed fields without taking a dependency on the workflow
+// layer. The signature mirrors `util.PtrsEqual` exactly.
+func mcPtrsEqual[T comparable](a, b *T) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return *a == *b
 }
 
 // ToProto converts this MachineCapability to its workflow proto

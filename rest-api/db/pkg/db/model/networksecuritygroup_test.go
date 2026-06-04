@@ -38,6 +38,58 @@ func testNetworkSecurityGroupSetupSchema(t *testing.T, dbSession *db.Session) {
 	assert.Nil(t, err)
 }
 
+func TestNetworkSecurityGroupPropagationDetails_Equal(t *testing.T) {
+	mk := func() *NetworkSecurityGroupPropagationDetails {
+		return &NetworkSecurityGroupPropagationDetails{
+			FriendlyStatus: "Propagated",
+			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+				Status:                  cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
+				Details:                 cutil.GetPtr("ok"),
+				UnpropagatedInstanceIds: []string{"i-1"},
+				RelatedInstanceIds:      []string{"i-2"},
+			},
+		}
+	}
+
+	t.Run("nil equals nil", func(t *testing.T) {
+		var a, b *NetworkSecurityGroupPropagationDetails
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil does not equal non-nil", func(t *testing.T) {
+		var a *NetworkSecurityGroupPropagationDetails
+		b := mk()
+		assert.False(t, a.Equal(b))
+		assert.False(t, b.Equal(a))
+	})
+	t.Run("identical wrappers are equal", func(t *testing.T) {
+		assert.True(t, mk().Equal(mk()))
+	})
+	t.Run("differing Status returns false", func(t *testing.T) {
+		a := mk()
+		b := mk()
+		b.Status = cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing Details returns false", func(t *testing.T) {
+		a := mk()
+		b := mk()
+		b.Details = cutil.GetPtr("changed")
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("nil-vs-set Details returns false", func(t *testing.T) {
+		a := mk()
+		b := mk()
+		b.Details = nil
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing UnpropagatedInstanceIds returns false", func(t *testing.T) {
+		a := mk()
+		b := mk()
+		b.UnpropagatedInstanceIds = []string{"i-9"}
+		assert.False(t, a.Equal(b))
+	})
+}
+
 func TestNetworkSecurityGroupSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)

@@ -28,7 +28,6 @@ import (
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
 	cwma "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
-	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -1066,7 +1065,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 				existingCap := existingMacCapMap[capKey]
 				// The incoming requested capability doesn't exist at all currently,
 				// so it's brand new.
-				if existingCap != nil && cwu.MachineCapabilitiesEqual(existingCap, &cdbm.MachineCapability{
+				if existingCap != nil && existingCap.Equal(&cdbm.MachineCapability{
 					Type:             reqMacCap.Type,
 					Name:             reqMacCap.Name,
 					Frequency:        reqMacCap.Frequency,

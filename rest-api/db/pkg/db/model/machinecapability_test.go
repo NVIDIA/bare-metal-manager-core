@@ -22,6 +22,56 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+func TestMachineCapability_Equal(t *testing.T) {
+	makeCap := func() *MachineCapability {
+		return &MachineCapability{
+			Type:             MachineCapabilityTypeCPU,
+			Name:             "cap-1",
+			Cores:            cutil.GetPtr(8),
+			Threads:          cutil.GetPtr(16),
+			Count:            cutil.GetPtr(1),
+			Vendor:           cutil.GetPtr("Intel"),
+			Capacity:         cutil.GetPtr("64GB"),
+			Frequency:        cutil.GetPtr("3.0GHz"),
+			HardwareRevision: cutil.GetPtr("rev-1"),
+			InactiveDevices:  []int{1, 2},
+			Index:            0,
+		}
+	}
+
+	t.Run("nil equals nil", func(t *testing.T) {
+		var a, b *MachineCapability
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil does not equal non-nil", func(t *testing.T) {
+		var a *MachineCapability
+		b := makeCap()
+		assert.False(t, a.Equal(b))
+		assert.False(t, b.Equal(a))
+	})
+	t.Run("identical caps are equal", func(t *testing.T) {
+		assert.True(t, makeCap().Equal(makeCap()))
+	})
+	t.Run("differing Name returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Name = "cap-2"
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing pointer field returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Cores = cutil.GetPtr(4)
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing InactiveDevices slice returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.InactiveDevices = []int{1, 3}
+		assert.False(t, a.Equal(b))
+	})
+}
+
 func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 
