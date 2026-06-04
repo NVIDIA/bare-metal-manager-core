@@ -1226,7 +1226,6 @@ dependencies = [
  "carbide-nvlink-manager",
  "carbide-power-shelf-controller",
  "carbide-preingestion-manager",
- "carbide-prost-builder",
  "carbide-rack",
  "carbide-rack-controller",
  "carbide-redfish",
@@ -2358,10 +2357,8 @@ dependencies = [
 name = "carbide-macros"
 version = "0.0.0"
 dependencies = [
- "eyre",
  "proc-macro2",
  "quote",
- "sqlx",
  "sqlx-macros-core",
  "syn 2.0.117",
 ]
@@ -2665,6 +2662,7 @@ dependencies = [
  "carbide-libmlx-model",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-prost-builder",
  "carbide-secrets",
  "carbide-tls",
  "carbide-utils",

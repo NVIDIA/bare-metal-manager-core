@@ -93,7 +93,7 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::common::rpc_builder::{
-    InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
+    InstanceAllocationRequest, InstanceConfig, InstanceConfigExt, VpcCreationRequest,
 };
 
 pub async fn find_instances_by_label(

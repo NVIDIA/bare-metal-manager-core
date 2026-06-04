@@ -35,6 +35,7 @@ model = [
   "dep:regex",
   "dep:base64",
 ]
+test-support = ["dep:carbide-prost-builder"]
 
 [dependencies]
 
@@ -46,6 +47,7 @@ carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
 carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-measured-boot = { path = "../measured-boot", default-features = false }
+carbide-prost-builder = { path = "../prost-builder", optional = true }
 carbide-secrets = { path = "../secrets" }
 carbide-network = { path = "../network" }
 carbide-utils = { path = "../utils" }
