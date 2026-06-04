@@ -21,12 +21,6 @@ use axum::Router;
 // in `carbide-api-core`.
 pub use carbide_api_core::tests::common;
 use carbide_api_core::tests::common::api_fixtures::TestEnv;
-// The `#[crate::sqlx_test]` macro expands to references to `crate::tests::MIGRATOR` and
-// `crate::tests::sqlx_fixture_from_str`; re-export them here so those macro-generated paths resolve
-// in this crate. `#[allow(unused_imports)]` because the only references are in macro output (and
-// `sqlx_fixture_from_str` is only used by tests that declare fixtures), which the lint can't see.
-#[allow(unused_imports)]
-pub use carbide_api_core::tests::{MIGRATOR, sqlx_fixture_from_str};
 use hyper::http::Request;
 use hyper::http::request::Builder;
 

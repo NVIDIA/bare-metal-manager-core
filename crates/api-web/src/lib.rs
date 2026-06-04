@@ -215,9 +215,9 @@ fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
         .unwrap_or_default()
 }
 
-// Allow `carbide_macros::sqlx_test` to be referred to as `#[crate::sqlx_test]` in the admin-UI
-// tests (the macro expands to `crate::tests::{MIGRATOR, sqlx_fixture_from_str}`, re-exported in
-// `tests/mod.rs`).
+// Allow `carbide_macros::sqlx_test` to be referred to as
+// `#[crate::sqlx_test]` in the admin-UI tests. These tests do not support
+// `fixtures(...)`; use explicit setup helpers instead.
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
 #[cfg(test)]

@@ -239,10 +239,9 @@ mod vpc_prefix;
 // exercise). They build an `Api` via the `tests::common` fixtures, which `carbide-api-web` reaches
 // through this crate's `test-support` feature.
 
-pub use db::migrations::MIGRATOR;
-
-/// Make these symols available as crate::tests::MIGRATOR and crate::tests::sqlx_fixture_from_str,
-/// so that the [`carbide_macros::sqlx_test`] can delegate to them.
+/// Make these symbol available as
+/// crate::tests::sqlx_fixture_from_str, so that the
+/// [`carbide_macros::sqlx_test`] can delegate to them.
 pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests. Only our own test binary needs this global initializer (it depends on
