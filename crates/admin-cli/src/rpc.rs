@@ -44,6 +44,7 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use futures::{StreamExt, TryStreamExt, stream};
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
@@ -73,6 +74,8 @@ fn maybe_unimplemented(status: &tonic::Status) -> bool {
         tonic::Code::Unimplemented | tonic::Code::PermissionDenied
     )
 }
+
+const MACHINE_LIST_FETCH_CONCURRENCY: usize = 8;
 
 // Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
 // access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
@@ -112,8 +115,19 @@ impl ApiClient {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
-        for machine_ids in all_machine_ids.machine_ids.chunks(page_size) {
-            let machines = self.get_machines_by_ids(machine_ids).await?;
+        let mut machine_pages =
+            stream::iter(all_machine_ids.machine_ids.chunks(page_size).enumerate())
+                .map(|(index, machine_ids)| async move {
+                    self.get_machines_by_ids(machine_ids)
+                        .await
+                        .map(|machines| (index, machines))
+                })
+                .buffer_unordered(MACHINE_LIST_FETCH_CONCURRENCY)
+                .try_collect::<Vec<_>>()
+                .await?;
+
+        machine_pages.sort_by_key(|(index, _)| *index);
+        for (_, machines) in machine_pages {
             all_machines.machines.extend(machines.machines);
         }
 
