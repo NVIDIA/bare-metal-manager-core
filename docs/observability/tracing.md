@@ -11,13 +11,13 @@ costs.
   document. **nico-dns** also emits traces, but with a separate simpler always-on setup.
   No other NICo component emits traces.
 - **nico-api traces are off by default**; two things must both be true before any spans are emitted:
-  - OTLP endpoint configured at deploy time by setting the env var `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+  - OTEL endpoint configured at deploy time by setting the env var `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
       ```yaml
-      # Set OTLP endpoint in nico-api pod template
+      # Set OTEL endpoint in nico-api pod template
       ...
       env:
         - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-          value: http://<otpl_endpoint>:<port>
+          value: http://<otel_endpoint_host>:4317 # gRPC (default port 4317)
       ...
       ```
   - The runtime switch turned on with `nico-admin-cli set tracing-enabled true`
@@ -28,7 +28,7 @@ costs.
     # ... reproduce the issue, examine traces in your backend ...
     nico-admin-cli set tracing-enabled false    # stop capturing traces
     ```
-  Leaving the OTLP endpoint configured while the runtime switch is off costs almost nothing
+  Leaving the OTEL endpoint configured while the runtime switch is off costs almost nothing
 - Transport is **OTLP/gRPC, plaintext**; nico-api cannot do OTLP/HTTP or originate TLS
 
 ---
