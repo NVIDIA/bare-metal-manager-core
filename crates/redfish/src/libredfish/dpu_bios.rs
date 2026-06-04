@@ -36,13 +36,6 @@ pub fn is_dpu_bios_attributes_not_ready(error: &RedfishError) -> bool {
     }
 }
 
-pub fn dpu_bios_attributes_not_ready_message(error: &RedfishError) -> String {
-    format!(
-        "DPU BMC BIOS attributes not ready ({error}). \
-         This is a known race between UEFI POST and the BMC; force-restarting the DPU usually resolves it."
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3737,10 +3737,10 @@ impl DpuMachineStateHandler {
                         if carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready(&e) =>
                     {
                         let msg = format!(
-                            "DPU {} BIOS attributes not ready while polling BIOS setup (known UEFI POST/BMC race); issuing force-restart. err: {e}",
+                            "DPU {} BIOS attributes not ready ({e}); issuing a force-restart to mitigate the known UEFI POST/BMC race",
                             dpu_snapshot.id
                         );
-                        tracing::warn!(msg);
+                        tracing::warn!("{msg}");
                         let reboot_status = trigger_reboot_if_needed(
                             dpu_snapshot,
                             state,
