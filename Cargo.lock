@@ -843,6 +843,7 @@ name = "bmc-explorer"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bmc-explorer",
  "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
