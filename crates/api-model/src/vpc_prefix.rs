@@ -15,13 +15,63 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::time::Duration;
 
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use chrono::{DateTime, Utc};
+use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
+use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::metadata::Metadata;
+use crate::{DeletedFilter, StateSla};
+
+const PROVISIONING_SLA: Duration = Duration::from_secs(15 * 60);
+const DELETING_DBDELETE_SLA: Duration = Duration::from_secs(15 * 60);
+
+/// State of a VPC prefix as tracked by the controller.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum VpcPrefixControllerState {
+    Provisioning,
+    Ready,
+    Deleting {
+        deletion_state: VpcPrefixDeletionState,
+    },
+}
+
+/// Possible substates while deleting a VPC prefix.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum VpcPrefixDeletionState {
+    DrainNetworkPrefixes { delete_at: DateTime<Utc> },
+    DBDelete,
+}
+
+/// Returns the SLA for the current VPC prefix controller state.
+pub fn state_sla(state: &VpcPrefixControllerState, state_version: &ConfigVersion) -> StateSla {
+    // Compare the controller state's version timestamp against the current time.
+    let time_in_state = chrono::Utc::now()
+        .signed_duration_since(state_version.timestamp())
+        .to_std()
+        .unwrap_or(Duration::from_secs(60 * 60 * 24));
+
+    // Only bounded controller work has an SLA; dependency drains can wait indefinitely.
+    match state {
+        VpcPrefixControllerState::Provisioning => {
+            StateSla::with_sla(PROVISIONING_SLA, time_in_state)
+        }
+        VpcPrefixControllerState::Ready => StateSla::no_sla(),
+        VpcPrefixControllerState::Deleting {
+            deletion_state: VpcPrefixDeletionState::DrainNetworkPrefixes { .. },
+        } => StateSla::no_sla(),
+        VpcPrefixControllerState::Deleting {
+            deletion_state: VpcPrefixDeletionState::DBDelete,
+        } => StateSla::with_sla(DELETING_DBDELETE_SLA, time_in_state),
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct VpcPrefix {
@@ -30,6 +80,15 @@ pub struct VpcPrefix {
     pub config: VpcPrefixConfig,
     pub metadata: Metadata,
     pub status: VpcPrefixStatus,
+    pub deleted: Option<DateTime<Utc>>,
+}
+
+impl VpcPrefix {
+    /// Returns whether the VPC prefix was marked for asynchronous deletion.
+    pub fn is_marked_as_deleted(&self) -> bool {
+        // A non-null deletion timestamp is the durable soft-delete marker.
+        self.deleted.is_some()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +98,8 @@ pub struct VpcPrefixConfig {
 
 #[derive(Clone, Debug)]
 pub struct VpcPrefixStatus {
+    pub controller_state: Versioned<VpcPrefixControllerState>,
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
     pub last_used_prefix: Option<IpNetwork>,
     pub total_31_segments: u32,
     pub available_31_segments: u32,
@@ -55,6 +116,10 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
         let last_used_prefix = row.try_get("last_used_prefix")?;
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
         let description: String = row.try_get("description")?;
+        let controller_state: sqlx::types::Json<VpcPrefixControllerState> =
+            row.try_get("controller_state")?;
+        let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
+            row.try_get("controller_state_outcome")?;
 
         Ok(VpcPrefix {
             id,
@@ -66,12 +131,18 @@ impl<'r> sqlx::FromRow<'r, PgRow> for VpcPrefix {
             },
             vpc_id,
             status: VpcPrefixStatus {
+                controller_state: Versioned::new(
+                    controller_state.0,
+                    row.try_get("controller_state_version")?,
+                ),
+                controller_state_outcome: controller_state_outcome.map(|outcome| outcome.0),
                 last_used_prefix,
                 total_31_segments: 0,
                 available_31_segments: 0,
                 total_linknet_segments: 0,
                 available_linknet_segments: 0,
             },
+            deleted: row.try_get("deleted")?,
         })
     }
 }
@@ -81,6 +152,14 @@ pub enum PrefixMatch {
     Exact(IpNetwork),
     Contains(IpNetwork),
     ContainedBy(IpNetwork),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct VpcPrefixSearch {
+    pub vpc_id: Option<VpcId>,
+    pub name: Option<String>,
+    pub prefix_match: Option<PrefixMatch>,
+    pub deleted_filter: DeletedFilter,
 }
 
 /// NewVpcPrefix represents a VPC prefix resource before it's persisted to the

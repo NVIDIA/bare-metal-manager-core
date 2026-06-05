@@ -15,28 +15,17 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::output::OutputFormat;
+use sqlx::PgPool;
+use state_controller::state_handler::StateHandlerContextObjects;
 
-use super::args::Args;
-use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::rpc::ApiClient;
-use crate::vpc_prefix::show::cmd::ShowOutput;
+pub struct VpcPrefixStateHandlerContextObjects {}
 
-pub async fn create(
-    args: Args,
-    output_format: OutputFormat,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
-    let output = api_client
-        .0
-        .create_vpc_prefix(args)
-        .await
-        .map(|vpc_prefix| ShowOutput::One {
-            vpc_prefix,
-            history: Vec::new(),
-        })?;
+#[derive(Clone)]
+pub struct VpcPrefixStateHandlerServices {
+    pub db_pool: PgPool,
+}
 
-    output
-        .write_output(output_format, crate::Destination::Stdout())
-        .map_err(CarbideCliError::from)
+impl StateHandlerContextObjects for VpcPrefixStateHandlerContextObjects {
+    type Services = VpcPrefixStateHandlerServices;
+    type ObjectMetrics = ();
 }

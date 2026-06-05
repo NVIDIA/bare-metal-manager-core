@@ -234,6 +234,7 @@ service Forge {
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
+  rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -1688,7 +1689,8 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4; 
+  uint64 available_linknet_segments = 4;
+  LifecycleStatus lifecycle = 5;
 }
 
 message VpcPrefixCreationRequest {
@@ -1712,10 +1714,14 @@ message VpcPrefixSearchQuery {
   // for its semantics.)
   optional string prefix_match = 4;
   optional PrefixMatchType prefix_match_type = 5;
+  // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 6;
 }
 
 message VpcPrefixGetRequest {
   repeated common.VpcPrefixId vpc_prefix_ids = 1;
+  // Controls whether soft-deleted VPC prefixes are returned. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
 }
 
 message VpcPrefixIdList {
@@ -1743,6 +1749,10 @@ message VpcPrefixDeletionRequest {
 }
 
 message VpcPrefixDeletionResult {
+}
+
+message VpcPrefixStateHistoriesRequest {
+  repeated common.VpcPrefixId vpc_prefix_ids = 1;
 }
 
 message VpcPeering {

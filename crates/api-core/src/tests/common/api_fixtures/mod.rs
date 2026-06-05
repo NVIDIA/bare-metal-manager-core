@@ -66,6 +66,9 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
+use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
+use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
+use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
 use chrono::{DateTime, Duration, Utc};
 use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
@@ -172,6 +175,7 @@ pub struct TestEnvOverrides {
     pub nmxc_simulator: Option<bool>,
     pub redfish_overrides: Option<RedfishOverrides>,
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
+    pub vpc_prefixes_drain_period: Option<chrono::Duration>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -271,6 +275,7 @@ pub struct TestEnv {
     spdm_state_controller: Arc<Mutex<StateController<SpdmStateControllerIO>>>,
     pub machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
+    vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
@@ -522,6 +527,17 @@ impl TestEnv {
     /// in this test environment
     pub async fn run_network_segment_controller_iteration(&self) {
         self.network_segment_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
+    /// Runs one iteration of the VPC prefix state controller handler with the services
+    /// in this test environment.
+    pub async fn run_vpc_prefix_controller_iteration(&self) {
+        self.vpc_prefix_controller
             .lock()
             .await
             .run_single_iteration()
@@ -1364,6 +1380,28 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");
 
+    let vpc_prefix_swap = SwapHandler {
+        inner: Arc::new(Mutex::new(VpcPrefixStateHandler::new(
+            overrides
+                .vpc_prefixes_drain_period
+                .unwrap_or(chrono::Duration::milliseconds(500)),
+        ))),
+    };
+
+    let vpc_prefix_controller = StateController::builder()
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
+        .meter("carbide_vpc_prefixes", test_meter.meter())
+        .processor_id(state_controller_id.clone())
+        .services(
+            VpcPrefixStateHandlerServices {
+                db_pool: db_pool.clone(),
+            }
+            .into(),
+        )
+        .state_handler(Arc::new(vpc_prefix_swap.clone()))
+        .build_for_manual_iterations(cancel_token.clone())
+        .expect("Unable to build VpcPrefixStateController");
+
     let test_component_manager = component_manager::component_manager::build_component_manager(
         &component_manager::config::ComponentManagerConfig {
             nv_switch_backend: "rms".into(),
@@ -1561,6 +1599,7 @@ pub async fn create_test_env_with_overrides(
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
+        vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,

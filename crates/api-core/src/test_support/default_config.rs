@@ -43,7 +43,8 @@ use crate::cfg::file::{
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
-    VmaasConfig, VpcPeeringPolicy, default_bmc_session_lockout_threshold, default_max_find_by_ids,
+    VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
+    default_bmc_session_lockout_threshold, default_max_find_by_ids,
 };
 
 pub fn get() -> CarbideConfig {
@@ -135,6 +136,10 @@ pub fn get() -> CarbideConfig {
         },
         network_segment_state_controller: NetworkSegmentStateControllerConfig {
             network_segment_drain_time: Duration::seconds(2),
+            controller: StateControllerConfig::default(),
+        },
+        vpc_prefix_state_controller: VpcPrefixStateControllerConfig {
+            vpc_prefix_drain_time: Duration::seconds(2),
             controller: StateControllerConfig::default(),
         },
         ib_partition_state_controller: IbPartitionStateControllerConfig {

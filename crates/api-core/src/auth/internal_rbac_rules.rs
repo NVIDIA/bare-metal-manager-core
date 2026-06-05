@@ -79,6 +79,10 @@ impl InternalRBACRules {
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindVpcPrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);

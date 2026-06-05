@@ -236,6 +236,13 @@ impl Forge for Api {
         crate::handlers::vpc_prefix::delete(self, request).await
     }
 
+    async fn find_vpc_prefix_state_histories(
+        &self,
+        request: Request<rpc::VpcPrefixStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::vpc_prefix::find_state_histories(self, request).await
+    }
+
     async fn create_vpc_peering(
         &self,
         request: Request<rpc::VpcPeeringCreationRequest>,

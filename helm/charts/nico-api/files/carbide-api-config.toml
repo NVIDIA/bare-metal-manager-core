@@ -72,6 +72,9 @@ additional_issuer_cns = []
 [machine_state_controller]
 failure_retry_time = "90m"
 
+[vpc_prefix_state_controller]
+vpc_prefix_drain_time = "5m"
+
 [network_security_group]
 # Controls whether additional config to support
 # stateful/reflexive ACLs will be inserted into

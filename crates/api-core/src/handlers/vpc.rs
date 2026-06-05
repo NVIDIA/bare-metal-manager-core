@@ -272,6 +272,20 @@ pub(crate) async fn delete(
         .id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
+    let vpcs = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?;
+    if vpcs.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "vpc",
+            id: vpc_id.to_string(),
+        }
+        .into());
+    }
+
     let vpc = match db::vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
         None => {

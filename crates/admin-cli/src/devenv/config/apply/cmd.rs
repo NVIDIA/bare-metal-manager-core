@@ -16,7 +16,9 @@
  */
 use carbide_network::ip::prefix::Ipv4Network;
 use carbide_uuid::network::NetworkSegmentId;
-use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
+use rpc::forge::{
+    DeletedFilter, PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery,
+};
 use serde::{Deserialize, Serialize};
 
 use super::args::{Args, NetworkChoice};
@@ -158,6 +160,7 @@ async fn handle_overlay_vpc_prefix_creation(
             name: Some(vpc_prefix_name.clone()),
             prefix_match: Some(network.to_string()),
             prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
+            deleted: DeletedFilter::Exclude as i32,
         };
         let vpc_prefix_ids = api_client
             .0

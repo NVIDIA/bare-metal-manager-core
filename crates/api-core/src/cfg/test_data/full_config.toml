@@ -108,6 +108,13 @@ iteration_time = "8m"
 max_object_handling_time = "88s"
 max_concurrency = 888
 
+[vpc_prefix_state_controller]
+vpc_prefix_drain_time = "43s"
+[vpc_prefix_state_controller.controller]
+iteration_time = "6m"
+max_object_handling_time = "66s"
+max_concurrency = 666
+
 [ib_partition_state_controller.controller]
 iteration_time = "7m"
 max_object_handling_time = "77s"

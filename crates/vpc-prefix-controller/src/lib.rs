@@ -15,28 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::output::OutputFormat;
+//! State controller implementation for VPC prefixes.
 
-use super::args::Args;
-use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::rpc::ApiClient;
-use crate::vpc_prefix::show::cmd::ShowOutput;
-
-pub async fn create(
-    args: Args,
-    output_format: OutputFormat,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
-    let output = api_client
-        .0
-        .create_vpc_prefix(args)
-        .await
-        .map(|vpc_prefix| ShowOutput::One {
-            vpc_prefix,
-            history: Vec::new(),
-        })?;
-
-    output
-        .write_output(output_format, crate::Destination::Stdout())
-        .map_err(CarbideCliError::from)
-}
+pub mod context;
+pub mod handler;
+pub mod io;

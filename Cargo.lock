@@ -1240,6 +1240,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
+ "carbide-vpc-prefix-controller",
  "casbin",
  "chrono",
  "clap",
@@ -3078,6 +3079,22 @@ dependencies = [
 [[package]]
 name = "carbide-version"
 version = "0.0.0"
+
+[[package]]
+name = "carbide-vpc-prefix-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
 
 [[package]]
 name = "cargo_metadata"
