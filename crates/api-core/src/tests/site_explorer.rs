@@ -22,7 +22,6 @@ use std::sync::Arc;
 
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
-use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
@@ -134,6 +133,34 @@ impl DiscoverDhcp for Vec<FakeMachine> {
             machine.discover_dhcp(env).await?
         }
         Ok(())
+    }
+}
+
+trait SiteExplorerConstructor {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer;
+}
+
+impl SiteExplorerConstructor for TestEnv {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer {
+        SiteExplorer::new(
+            self.pool.clone(),
+            explorer_config,
+            self.test_meter.meter(),
+            endpoint_explorer.clone(),
+            Arc::new(self.config.get_firmware_config()),
+            self.common_pools.clone(),
+            self.api.work_lock_manager_handle.clone(),
+            self.rms_sim.as_rms_client(),
+            self.test_credential_manager.clone(),
+        )
     }
 }
 
@@ -249,18 +276,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // check the ingestion state of the machine
     let response = env
@@ -413,18 +429,7 @@ async fn test_handle_redfish_error_powers_on_machine(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await?;
 
@@ -576,18 +581,8 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -906,18 +901,8 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // First iteration populates `explored_endpoints`; second runs
     // `identify_managed_hosts` after preingestion is complete.
@@ -935,6 +920,7 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
         "strict gate should refuse to ingest a zero-DPU host without a `NoDpu` declaration, got {:?}",
         explored_managed_hosts,
     );
+
     assert_eq!(
         test_meter
             .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
@@ -1008,18 +994,7 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -1095,18 +1070,7 @@ async fn test_site_explorer_ingests_no_dpu_host(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -1358,18 +1322,8 @@ async fn test_site_explorer_audit_exploration_results(
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // carbide_endpoint_exploration_preingestions_incomplete_overall_count
@@ -1564,18 +1518,7 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
         ..Default::default()
     };
 
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
@@ -1843,18 +1786,7 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -2069,17 +2001,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        env.test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Run site explorer and check the health state of the Machine
     explorer.run_single_iteration().await.unwrap();
@@ -2643,18 +2565,7 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -2863,18 +2774,8 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -3199,7 +3100,6 @@ async fn test_expected_machine_device_type_metrics(
         ),
     ]);
 
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 3, // Explore our 3 machines
@@ -3215,17 +3115,8 @@ async fn test_expected_machine_device_type_metrics(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // Run site explorer to collect metrics
     explorer.run_single_iteration().await.unwrap();
@@ -3363,18 +3254,8 @@ async fn test_site_explorer_power_shelf_discovery(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -3519,18 +3400,8 @@ async fn test_site_explorer_switch_discovery(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -3669,18 +3540,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -3824,18 +3684,8 @@ async fn test_site_explorer_power_shelf_creation_limit(
         power_shelves_created_per_run: 2, // Limit to 2 per run
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -3959,18 +3809,8 @@ async fn test_site_explorer_power_shelf_disabled(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -4063,18 +3903,8 @@ async fn test_site_explorer_power_shelf_error_handling(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -4119,7 +3949,6 @@ async fn test_site_explorer_creates_power_shelf(
     let underlay_segment = env.underlay_segment.unwrap();
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4132,17 +3961,7 @@ async fn test_site_explorer_creates_power_shelf(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create a power shelf using FakePowerShelf
     let mut power_shelf = FakePowerShelf::new(
@@ -4418,7 +4237,6 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4431,17 +4249,7 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelf using site explorer
     assert!(
@@ -4690,7 +4498,6 @@ async fn test_power_shelf_state_history_multiple(
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4703,17 +4510,7 @@ async fn test_power_shelf_state_history_multiple(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelves using site explorer
     assert!(
@@ -4931,7 +4728,6 @@ async fn test_power_shelf_state_history_error_handling(
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4944,17 +4740,7 @@ async fn test_power_shelf_state_history_error_handling(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelf using site explorer
     assert!(
@@ -5135,18 +4921,8 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -5858,20 +5634,12 @@ async fn power_shelf_skips_creation_when_bmc_mac_already_used(
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
+    let explorer = env.new_site_explorer(
         SiteExplorerConfig {
             create_power_shelves: Arc::new(true.into()),
             ..Default::default()
         },
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
+        &endpoint_explorer,
     );
 
     let explored_endpoint = ExploredEndpoint {
