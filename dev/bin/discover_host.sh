@@ -62,7 +62,11 @@ DPU_CONFIG_FILE="/tmp/forge-dpu-agent-sim-config.toml"
 # Determine the CircuitId that our host needs to use
 # We use the first network segment that we can find
 RESULT=$(${GRPCURL} $API_SERVER_HOST:$API_SERVER_PORT forge.Forge/FindNetworkSegments)
-CIRCUIT_ID=$(echo "$RESULT" | jq ".networkSegments | .[0] | .prefixes | .[0] | .circuitId" | tr -d '"')
+CIRCUIT_ID=$(echo "$RESULT" | jq -r '(.networkSegments[0].config.prefixes[0].circuitId // .networkSegments[0].prefixes[0].circuitId // empty)')
+if [ -z "$CIRCUIT_ID" ]; then
+  echo "ERROR: could not determine CIRCUIT_ID from FindNetworkSegments response" >&2
+  exit 1
+fi
 echo "Circuit ID is $CIRCUIT_ID"
 
 # Simulate the DHCP request of a x86 host

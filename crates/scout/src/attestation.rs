@@ -425,7 +425,7 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
 
     tracing::debug!("family_indicator is {0}", spec_version);
 
-    let vendor = vendor_1.clone() + &vendor_2;
+    let vendor = vendor_1.clone() + vendor_2.as_str();
     tracing::debug!("vendor is {0}", vendor);
 
     let firmware_version = format!("0x{firmware_version_1:x}.0x{firmware_version_2:x}");

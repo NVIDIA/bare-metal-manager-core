@@ -19,11 +19,11 @@
       {
         "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
         "parameters": {
-          "carbide-api-url": "https://carbide-api.forge-system.svc.cluster.local:1079",
-          "carbide-metrics-endpoint": "[::]:1089",
-          "carbide-nameservers": "{{ FORGE_UNBOUND_EXTERNAL_IP }}",
-          "carbide-ntpserver": "{{ CARBIDE_NTP_SERVERS_IP_0 }},{{ CARBIDE_NTP_SERVERS_IP_1 }},{{ CARBIDE_NTP_SERVERS_IP_2 }}",
-          "carbide-provisioning-server-ipv4": "{{ CARBIDE_PXE_IP }}"
+          "nico-api-url": "https://nico-api.nico-system.svc.cluster.local:1079",
+          "nico-metrics-endpoint": "[::]:1089",
+          "nico-nameservers": "{{ NICO_UNBOUND_EXTERNAL_IP }}",
+          "nico-ntpserver": "{{ NICO_NTP_SERVERS_IP_0 }},{{ NICO_NTP_SERVERS_IP_1 }},{{ NICO_NTP_SERVERS_IP_2 }}",
+          "nico-provisioning-server-ipv4": "{{ NICO_PXE_IP }}"
         }
       }
     ],
@@ -43,7 +43,7 @@
       { "name": "kea-dhcp4.callouts", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
       { "name": "kea-dhcp4.dhcpsrv", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
       { "name": "kea-dhcp4.hooks", "severity": "DEBUG", "debuglevel": 99, "output_options": [ { "output": "stdout" } ]  },
-      { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [ { "output": "stdout" } ]  }
+      { "name": "kea-dhcp4.nico-rust", "severity": "INFO", "output_options": [ { "output": "stdout" } ]  }
     ]
   }
 }

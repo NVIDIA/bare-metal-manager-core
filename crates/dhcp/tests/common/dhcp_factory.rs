@@ -35,6 +35,14 @@ impl DHCPFactory {
     // Make and encode a relayed DHCP_DISCOVER packet
     // The idx is used as the last byte of the MAC and Link addresses to make them unique.
     pub fn discover(idx: u8) -> Message {
+        Self::base_relayed_message(idx, v4::MessageType::Discover)
+    }
+
+    /// Build a relayed DHCPv4 message of the given type with the test harness's
+    /// standard MAC, vendor class, and relay options. Callers can mutate the
+    /// returned `Message` further (e.g. set ciaddr, insert option 50/54) to
+    /// shape it into REQUEST sub-states.
+    pub fn base_relayed_message(idx: u8, msg_type: v4::MessageType) -> Message {
         // 0x02 prefix is a 'locally administered address'
         let mac = vec![0x02, 0x00, 0x00, 0x00, 0x00, idx];
 
@@ -58,8 +66,8 @@ impl DHCPFactory {
         use v4::DhcpOption::*;
         opts.insert(ClassIdentifier(uefi_vendor_class)); // 60
         opts.insert(RelayAgentInformation(relay_agent)); // 82
-        opts.insert(ClientSystemArchitecture(v4::Architecture::Intelx86PC)); // 93
-        opts.insert(MessageType(v4::MessageType::Discover));
+        opts.insert(ClientSystemArchitecture(v4::Architecture::X86_Bios)); // 93
+        opts.insert(MessageType(msg_type));
 
         msg
     }

@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge as forgerpc;
 use clap::Parser;
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug)]
 pub struct Args {

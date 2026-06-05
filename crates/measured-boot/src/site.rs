@@ -22,19 +22,11 @@
  * This also provides code for importing/exporting (and working with) SiteModels.
  */
 
-use std::convert::{From, Into};
-use std::str::FromStr;
 use std::vec::Vec;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementBundleId;
 use chrono::Utc;
-#[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::protos::measured_boot::{
-    ImportSiteMeasurementsResponse, ListAttestationSummaryResponse, MachineAttestationSummaryPb,
-    SiteModelPb,
-};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::FromRow;
@@ -43,18 +35,12 @@ use super::records::{
     MeasurementBundleRecord, MeasurementBundleValueRecord, MeasurementSystemProfileAttrRecord,
     MeasurementSystemProfileRecord,
 };
+#[cfg(feature = "cli")]
+use crate::ToTable;
 
 #[derive(Serialize)]
 pub struct ImportResult {
     pub status: String,
-}
-
-impl From<&ImportSiteMeasurementsResponse> for ImportResult {
-    fn from(msg: &ImportSiteMeasurementsResponse) -> Self {
-        Self {
-            status: msg.result().as_str_name().to_string(),
-        }
-    }
 }
 
 #[cfg(feature = "cli")]
@@ -83,74 +69,9 @@ impl ToTable for SiteModel {
     }
 }
 
-impl SiteModel {
-    ////////////////////////////////////////////////////////////
-    /// from_grpc takes an optional protobuf (as populated in a
-    /// proto response from the API) and attempts to convert it
-    /// to the backing model.
-    ////////////////////////////////////////////////////////////
-    pub fn from_grpc(some_pb: Option<&SiteModelPb>) -> super::Result<Self> {
-        some_pb
-            .ok_or(super::Error::RpcConversion(
-                "model is unexpectedly empty".to_string(),
-            ))
-            .and_then(|pb| {
-                Self::from_pb(pb).map_err(|e| {
-                    super::Error::RpcConversion(format!("site failed pb->model conversion: {e}"))
-                })
-            })
-    }
-
-    /// from_pb takes a SiteModelPb and converts it to a SiteModel,
-    /// generally for the purpose of importing it into the database.
-    pub fn from_pb(model: &SiteModelPb) -> super::Result<Self> {
-        Ok(Self {
-            measurement_system_profiles: MeasurementSystemProfileRecord::from_pb_vec(
-                &model.measurement_system_profiles,
-            )?,
-            measurement_system_profiles_attrs: MeasurementSystemProfileAttrRecord::from_pb_vec(
-                &model.measurement_system_profiles_attrs,
-            )?,
-            measurement_bundles: MeasurementBundleRecord::from_pb_vec(&model.measurement_bundles)?,
-            measurement_bundles_values: MeasurementBundleValueRecord::from_pb_vec(
-                &model.measurement_bundles_values,
-            )?,
-        })
-    }
-
-    /// to_pb takes a SiteModel and converts it to a SiteModelPb,
-    /// generally for the purpose of handling a gRPC response.
-    pub fn to_pb(model: &SiteModel) -> super::Result<SiteModelPb> {
-        let measurement_system_profiles = model
-            .measurement_system_profiles
-            .iter()
-            .map(|record| record.clone().into())
-            .collect();
-
-        let measurement_system_profiles_attrs = model
-            .measurement_system_profiles_attrs
-            .iter()
-            .map(|record| record.clone().into())
-            .collect();
-
-        let measurement_bundles = model
-            .measurement_bundles
-            .iter()
-            .map(|record| record.clone().into())
-            .collect();
-
-        let measurement_bundles_values = model
-            .measurement_bundles_values
-            .iter()
-            .map(|record| record.clone().into())
-            .collect();
-
-        Ok(SiteModelPb {
-            measurement_system_profiles,
-            measurement_system_profiles_attrs,
-            measurement_bundles,
-            measurement_bundles_values,
-        })
+impl crate::DisplayName for SiteModel {
+    fn display_name() -> &'static str {
+        "model"
     }
 }
 
@@ -165,52 +86,3 @@ pub struct MachineAttestationSummary {
 }
 
 pub struct MachineAttestationSummaryList(pub Vec<MachineAttestationSummary>);
-
-// we need methods to convert this to gRPC messages and back
-impl From<MachineAttestationSummaryList> for ListAttestationSummaryResponse {
-    fn from(val: MachineAttestationSummaryList) -> Self {
-        MachineAttestationSummaryList::to_grpc(&val.0)
-    }
-}
-
-impl MachineAttestationSummaryList {
-    pub fn to_grpc(val: &[MachineAttestationSummary]) -> ListAttestationSummaryResponse {
-        ListAttestationSummaryResponse {
-            attestation_outcomes: val
-                .iter()
-                .map(|e| MachineAttestationSummaryPb {
-                    machine_id: e.machine_id.to_string(),
-                    bundle_id: e.bundle_id,
-                    profile_name: e.profile_name.clone(),
-                    ts: Some(e.ts.into()),
-                })
-                .collect(),
-        }
-    }
-
-    pub fn from_grpc(val: &ListAttestationSummaryResponse) -> super::Result<Self> {
-        let mut attestation_summary_list = Vec::<MachineAttestationSummary>::new();
-
-        for pb in &val.attestation_outcomes {
-            attestation_summary_list.push(MachineAttestationSummary {
-                machine_id: MachineId::from_str(&pb.machine_id).map_err(|err| {
-                    super::Error::RpcConversion(format!(
-                        "Could not deserialize ListAttestationSummaryResponse(machine_id): {err}"
-                    ))
-                })?,
-                bundle_id: pb.bundle_id,
-                profile_name: pb.profile_name.clone(),
-                ts: match pb.ts {
-                    Some(ts) => chrono::DateTime::<Utc>::try_from(ts).map_err(|err| {
-                        super::Error::RpcConversion(format!(
-                            "Could not deserialize ListAttestationSummaryResponse(timestamp): {err}"
-                        ))
-                    })?,
-                    None => chrono::DateTime::<Utc>::default(),
-                },
-            });
-        }
-
-        Ok(Self(attestation_summary_list))
-    }
-}

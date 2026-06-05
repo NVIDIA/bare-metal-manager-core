@@ -17,13 +17,11 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::infiniband::IBPartitionId;
-use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 // TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
-use super::network::{InterfaceFunctionId, InterfaceFunctionType};
+use super::network::InterfaceFunctionId;
 use crate::ConfigValidationError;
 
 /// Desired infiniband configuration for an instance
@@ -77,77 +75,6 @@ impl InstanceInfinibandConfig {
         }
 
         current != *new_config
-    }
-}
-
-impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: rpc::InstanceInfinibandConfig) -> Result<Self, Self::Error> {
-        // try_from for ib_interfaces:
-        let mut assigned_vfs: u8 = 0;
-        let mut ib_interfaces = Vec::with_capacity(config.ib_interfaces.len());
-        for iface in config.ib_interfaces.into_iter() {
-            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
-                .map_err(|_| {
-                    RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
-                })?;
-            let iface_type = InterfaceFunctionType::try_from(rpc_iface_type).map_err(|_| {
-                RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
-            })?;
-
-            let function_id = match iface_type {
-                InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
-                InterfaceFunctionType::Virtual => {
-                    let id = assigned_vfs;
-                    assigned_vfs = assigned_vfs.saturating_add(1);
-                    InterfaceFunctionId::Virtual { id }
-                }
-            };
-
-            let ib_partition_id =
-                iface
-                    .ib_partition_id
-                    .ok_or(RpcDataConversionError::MissingArgument(
-                        "InstanceIbInterfaceConfig::ib_partition_id",
-                    ))?;
-
-            ib_interfaces.push(InstanceIbInterfaceConfig {
-                function_id,
-                ib_partition_id,
-                pf_guid: None,
-                guid: None,
-                device: iface.device,
-                vendor: iface.vendor,
-                device_instance: iface.device_instance,
-            });
-        }
-
-        Ok(Self { ib_interfaces })
-    }
-}
-
-impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(
-        config: InstanceInfinibandConfig,
-    ) -> Result<rpc::InstanceInfinibandConfig, Self::Error> {
-        let mut ib_interfaces = Vec::with_capacity(config.ib_interfaces.len());
-        for iface in config.ib_interfaces.into_iter() {
-            let function_type = iface.function_id.function_type();
-
-            ib_interfaces.push(rpc::InstanceIbInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
-                virtual_function_id: None,
-                ib_partition_id: Some(iface.ib_partition_id),
-                device: iface.device,
-                vendor: iface.vendor,
-                device_instance: iface.device_instance,
-            });
-        }
-
-        Ok(rpc::InstanceInfinibandConfig { ib_interfaces })
     }
 }
 

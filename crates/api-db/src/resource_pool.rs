@@ -23,8 +23,8 @@ use config_version::ConfigVersion;
 use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
-    CommonPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, SECONDARY_VTEP_IP,
-    VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
+    SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -319,7 +319,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
                 FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name
             ) snapshot";
 
-    for query in &[query_int, query_ipv4] {
+    for query in [query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
             .fetch_all(&mut *txn)
             .await
@@ -368,9 +368,6 @@ const MAX_POOL_SIZE: usize = 250_000;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DefineResourcePoolError {
-    #[error("Invalid TOML: {0}")]
-    InvalidToml(#[from] toml::de::Error),
-
     #[error("{0}")]
     InvalidArgument(String),
 
@@ -937,6 +934,10 @@ pub async fn create_common_pools(
         Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer));
     optional_pool_names.push(pool_fnn_asn.name().to_string());
 
+    let pool_dpa_vni: Arc<ResourcePool<i32>> =
+        Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer));
+    optional_pool_names.push(pool_dpa_vni.name().to_string());
+
     let pool_vpc_dpu_loopback_ip: Arc<ResourcePool<IpAddr>> = Arc::new(ResourcePool::new(
         VPC_DPU_LOOPBACK.to_string(),
         ValueType::Ipv4,
@@ -1016,6 +1017,7 @@ pub async fn create_common_pools(
             pool_vni,
             pool_vpc_vni,
             pool_external_vpc_vni,
+            pool_dpa_vni,
             pool_fnn_asn,
             pool_vpc_dpu_loopback_ip,
             pool_secondary_vtep_ip,

@@ -15,16 +15,13 @@
  * limitations under the License.
  */
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, SocketAddr};
-use std::ops::Deref;
 
-use ::rpc::errors::RpcDataConversionError;
-use base64::prelude::*;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -36,8 +33,6 @@ use duration_str::deserialize_duration_chrono;
 use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use mac_address::MacAddress;
-use rpc::forge::HealthSourceOrigin;
-use rpc::forge_agent_control_response as fac;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -46,6 +41,7 @@ use strum_macros::EnumIter;
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use self::nvlink::MachineNvLinkStatusObservation;
+use self::spx::MachineSpxStatusObservation;
 use super::StateSla;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::MachineInventory;
@@ -64,6 +60,7 @@ use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
 use crate::machine::health_override::HealthReportSources;
+use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
@@ -79,6 +76,7 @@ pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod topology;
 pub mod upgrade_policy;
 
@@ -86,15 +84,6 @@ pub mod upgrade_policy;
 pub struct DpuInfo {
     pub id: String,
     pub loopback_ip: String,
-}
-
-impl From<DpuInfo> for rpc::forge::DpuInfo {
-    fn from(info: DpuInfo) -> Self {
-        rpc::forge::DpuInfo {
-            id: info.id,
-            loopback_ip: info.loopback_ip,
-        }
-    }
 }
 
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
@@ -230,8 +219,8 @@ pub enum NotAllocatableReason {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedHostStateSnapshotError {
-    #[error("Missing attached dpu id in primary interface. Machine id: {0}")]
-    AttachedDpuIdMissing(MachineId),
+    #[error("Missing primary interface. Machine id: {0}")]
+    PrimaryInterfaceMissing(MachineId),
 
     #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
     MissingPrimaryDpu(MachineId, MachineId),
@@ -278,36 +267,38 @@ fn pick_boot_interface_mac(
 }
 
 impl ManagedHostStateSnapshot {
-    /// Returns `true` if this managed host has no DPU snapshots attached.
+    /// Returns `true` if this managed host has at least one DPU snapshot
+    /// attached -- i.e. a DPU we actively manage as a `Machine`.
     ///
-    /// Most call sites in the state controller use this to follow a "zero-DPU"
-    /// branch -- skip DPU-specific work, use the host's primary interface MAC
-    /// directly, reject DPU-only operations, etc.
+    /// A `false` return ("no managed DPUs") covers two cases that are intended
+    /// to be treated the same: actual zero-DPU hosts (`DpuMode::NoDpu`), and
+    /// `DpuMode::NicMode` hosts. The latter may acutally have DPUs, but
+    /// site-explorer puts them into NIC mode at ingestion, so no DPU snapshot
+    /// is ever attached.
     ///
-    /// Note: Currently, a handful of call sites combine this with
-    /// `host_snapshot.associated_dpu_machine_ids().is_empty()` to distinguish
-    /// "truly zero-DPU" from "DPU expected per topology but the snapshot
-    /// failed to load". Those sites intentionally inspect both fields and
-    /// should NOT be rewritten to use this helper alone. Maybe we can enhance
-    /// that later, but for now this keeps it simple.
+    /// Some callers combine this w/ `associated_dpu_machine_ids().is_empty()`
+    /// to distinguish between truly no managed DPUs vs. DPU expected per
+    /// topology (but something happened, like the snapshot failed to load).
+    /// Those sites intentionally inspect both sides of this, so simply relying
+    /// on this might not be what they'd want (at least for now).
     ///
     /// NOTE(chet): When called from state-controller handlers (anything reached
     /// via `MachineStateHandler::handle_object_state`), there is an upstream
     /// guard that short-circuits with an error if topology reports DPUs but
     /// `dpu_snapshots` is empty -- i.e. the DPU snapshots failed to load.
     /// That guard runs before the `ManagedHostState` dispatch, so by the time
-    /// a state handler asks `is_zero_dpu()`, the potential bug of "topology
-    /// has DPUs, but snapshots are empty, so we think it's zero DPU" has
-    /// already been filtered out. A `true` return in that context means
-    /// genuinely zero-DPU (both topology and snapshots agree).
+    /// a state handler asks `has_managed_dpus()`, the potential bug of "topology
+    /// has DPUs, but snapshots are empty, so we think it has none" has
+    /// already been filtered out. A `false` return in that context means
+    /// genuinely no managed DPUs (both topology and snapshots agree).
     ///
     /// Now, callers OUTSIDE the state-controller path DON'T get that upstream
     /// guard; if you need the stronger guarantee there, you'll need to
     /// check both:
     /// `self.dpu_snapshots.is_empty()` and
     /// `self.host_snapshot.associated_dpu_machine_ids().is_empty()`.
-    pub fn is_zero_dpu(&self) -> bool {
-        self.dpu_snapshots.is_empty()
+    pub fn has_managed_dpus(&self) -> bool {
+        !self.dpu_snapshots.is_empty()
     }
 
     /// Returns `true` if this managed host is currently operating on the
@@ -442,12 +433,21 @@ impl ManagedHostStateSnapshot {
                 }
             };
 
-        let mut has_hardware_health = false;
-
         // Merge DPU's alerts.  If DPU alerts should be suppressed, than remove the classification from the
         // alert so that metrics won't show a critical issue.
         let suppress_dpu_alerts = self.managed_state.suppress_dpu_alerts();
         for snapshot in self.dpu_snapshots.iter_mut() {
+            if let Some(over) = snapshot.health_reports.replace.as_mut() {
+                let source = over.source.clone();
+                Self::merge_override_report_with_hw_health(
+                    &mut output,
+                    &source,
+                    over,
+                    host_health_config.hardware_health_reports,
+                );
+                continue;
+            }
+
             let health_report = if suppress_dpu_alerts {
                 let mut health_report = snapshot.dpu_agent_health_report().cloned();
 
@@ -479,16 +479,16 @@ impl ManagedHostStateSnapshot {
                 .iter_mut()
                 .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
             {
-                let merged_hardware = Self::merge_override_report_with_hw_health(
+                Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
                     over,
                     host_health_config.hardware_health_reports,
                 );
-                has_hardware_health |= merged_hardware;
             }
         }
 
+        let mut has_host_hardware_health = false;
         for (source, over) in self.host_snapshot.health_reports.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
@@ -496,11 +496,11 @@ impl ManagedHostStateSnapshot {
                 over,
                 host_health_config.hardware_health_reports,
             );
-            has_hardware_health |= merged_hardware;
+            has_host_hardware_health |= merged_hardware;
         }
 
         if host_health_config.hardware_health_reports == HardwareHealthReportsConfig::Enabled
-            && !has_hardware_health
+            && !has_host_hardware_health
         {
             merge_or_timeout(&mut output, &None, "hardware-health".to_string());
         }
@@ -519,64 +519,15 @@ impl ManagedHostStateSnapshot {
         self.aggregate_health = output;
     }
 
-    /// Creates an RPC Machine representation for either the Host or one of the DPUs
-    pub fn rpc_machine_state(
-        &self,
-        dpu_machine_id: Option<&MachineId>,
-        sla_config: &slas::MachineSlaConfig,
-    ) -> Option<rpc::forge::Machine> {
-        match dpu_machine_id {
-            None => {
-                let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
-                let state = &self.host_snapshot.state.value;
-                let version = &self.host_snapshot.state.version;
-                rpc_machine.health = Some(self.aggregate_health.clone().into());
-                rpc_machine.state_sla = Some(
-                    state_sla(
-                        &self.host_snapshot.id,
-                        state,
-                        version,
-                        &self.aggregate_health,
-                        sla_config,
-                    )
-                    .into(),
-                );
-                Some(rpc_machine)
-            }
-            Some(dpu_machine_id) => {
-                let dpu_snapshot = self
-                    .dpu_snapshots
-                    .iter()
-                    .find(|dpu| dpu.id == *dpu_machine_id)?;
-                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
-                // In case the DPU does not know the associated Host - we can backfill the data here
-                rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
-                rpc_machine.state_sla = Some(
-                    state_sla(
-                        &dpu_snapshot.id,
-                        &dpu_snapshot.state.value,
-                        &dpu_snapshot.state.version,
-                        &self.aggregate_health,
-                        sla_config,
-                    )
-                    .into(),
-                );
-                Some(rpc_machine)
-            }
-        }
-    }
-
     /// Returns true if the desired managedhost networking configuration had been synced
     /// to **all** DPUs.
     ///
-    /// Each DPU's check compares its own `network_config.version` against its
-    /// reported observation; per-DPU versions are kept equal to the host's via
-    /// its "machine group" (and `try_update_network_config`), so a change
-    /// anywhere in the machine group flips all per-DPU sync states to out of
-    /// sync until each agent has polled + re-sent an observation.
+    /// Each DPU's check compares the host-level `network_config.version`
+    /// against the version that DPU agent reported observing.
     pub fn managed_host_network_config_version_synced(&self) -> bool {
+        let host_version = self.host_snapshot.network_config.version;
         for dpu_snapshot in self.dpu_snapshots.iter() {
-            if !dpu_snapshot.managed_host_network_config_version_synced() {
+            if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
                 return false;
             }
         }
@@ -632,18 +583,13 @@ impl ManagedHostStateSnapshot {
             }
         });
 
-        let primary_dpu_id = self
+        let primary_interface = self
             .host_snapshot
             .interfaces
             .iter()
-            .find_map(|x| {
-                if x.primary_interface {
-                    Some(x.attached_dpu_machine_id)
-                } else {
-                    None
-                }
-            })
-            .flatten();
+            .find(|interface| interface.primary_interface);
+        let primary_dpu_id =
+            primary_interface.and_then(|interface| interface.attached_dpu_machine_id);
 
         if let Some(primary_dpu_id) = primary_dpu_id {
             let index = self
@@ -661,72 +607,17 @@ impl ManagedHostStateSnapshot {
                 let snapshot = self.dpu_snapshots.remove(index);
                 self.dpu_snapshots.insert(0, snapshot);
             }
-        } else if !self.is_zero_dpu() {
-            // If it is not Zero-DPU case, return failure.
-            return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
+        } else if primary_interface.is_none() && self.has_managed_dpus() {
+            // DPU hosts still need some primary interface so boot/network callers have a host
+            // primary to anchor on. A present primary interface without an attached DPU is valid:
+            // ExpectedMachine can declare a non-DPU host admin NIC as primary, and in that case no
+            // DPU should be promoted ahead of PCI order.
+            return Err(ManagedHostStateSnapshotError::PrimaryInterfaceMissing(
                 self.host_snapshot.id,
             ));
         };
 
         Ok(())
-    }
-}
-
-impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
-    type Error = RpcDataConversionError;
-
-    fn try_from(mut snapshot: ManagedHostStateSnapshot) -> Result<Self, Self::Error> {
-        let Some(instance) = snapshot.instance.take() else {
-            return Ok(None);
-        };
-
-        // TODO: If multiple DPUs have reprovisioning requested, we might not get
-        // the expected response
-        let mut reprovision_request = snapshot.host_snapshot.reprovision_requested.clone();
-        for dpu in &snapshot.dpu_snapshots {
-            if let Some(reprovision_requested) = dpu.reprovision_requested.as_ref() {
-                reprovision_request = Some(reprovision_requested.clone());
-            }
-        }
-        let (_, dpu_id_to_device_map) = snapshot
-            .host_snapshot
-            .get_dpu_device_and_id_mappings()
-            .map_err(|e| {
-                RpcDataConversionError::InvalidValue(
-                    "dpu_id_to_device_map".to_string(),
-                    e.to_string(),
-                )
-            })?;
-        let status = instance.derive_status(
-            dpu_id_to_device_map,
-            snapshot.managed_state.clone(),
-            reprovision_request,
-            snapshot
-                .host_snapshot
-                .infiniband_status_observation
-                .as_ref(),
-            snapshot.host_snapshot.nvlink_status_observation.as_ref(),
-        )?;
-
-        Ok(Some(rpc::Instance {
-            id: Some(instance.id),
-            machine_id: Some(instance.machine_id),
-            config: Some(instance.config.try_into()?),
-            status: Some(status.try_into()?),
-            config_version: instance.config_version.version_string(),
-            network_config_version: instance.network_config_version.version_string(),
-            ib_config_version: instance.ib_config_version.version_string(),
-            dpu_extension_service_version: instance
-                .extension_services_config_version
-                .version_string(),
-            instance_type_id: instance.instance_type_id.map(|i| i.to_string()),
-            metadata: Some(instance.metadata.into()),
-            tpm_ek_certificate: snapshot.host_snapshot.hardware_info.and_then(|hi| {
-                hi.tpm_ek_certificate
-                    .map(|cert| BASE64_STANDARD.encode(cert.into_bytes()))
-            }),
-            nvlink_config_version: instance.nvlink_config_version.version_string(),
-        }))
     }
 }
 
@@ -788,6 +679,9 @@ pub struct Machine {
 
     // The most recent status of the nvlink GPUs.
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
+
+    // The most recent status of the SPX attachments.
+    pub spx_status_observation: Option<MachineSpxStatusObservation>,
 
     /// A list of [StateHistoryRecord]s that this machine has experienced
     pub history: Vec<StateHistoryRecord>,
@@ -889,7 +783,7 @@ pub struct Machine {
     /// If host upgrades have been completed since the last start explicit start request or actual start
     pub update_complete: bool,
 
-    /// The NMX-M GPU info for this machine.
+    /// The NVLink GPU info for this machine.
     pub nvlink_info: Option<MachineNvLinkInfo>,
 
     /// Whether the DPF is enabled for this machine
@@ -950,16 +844,6 @@ impl HostProfile {
                     .unwrap_or_default(),
             },
             None => Self::default(),
-        }
-    }
-}
-
-impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
-    fn from(value: Machine) -> Self {
-        Self {
-            machine_id: value.id.into(),
-            enabled: value.dpf.enabled,
-            used_for_ingestion: value.dpf.used_for_ingestion,
         }
     }
 }
@@ -1076,10 +960,11 @@ impl Machine {
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 
-    /// If this machine is a DPU, then this returns whether the desired ManagedHost
-    /// network configuration had been applied by forge-dpu-agent
-    pub fn managed_host_network_config_version_synced(&self) -> bool {
-        let dpu_expected_version = self.network_config.version;
+    /// If this machine is a DPU, returns whether the version of the
+    /// given ManagedHostNetworkConfig (which is a host-level versioned
+    /// config that is kept in sync across all DPUs on a host) has been
+    /// applied + reported back as same by the carbide-dpu-agent.
+    pub fn managed_host_network_config_version_synced(&self, host_version: ConfigVersion) -> bool {
         let dpu_observation = self.network_status_observation.as_ref();
 
         let dpu_observed_version: ConfigVersion = match dpu_observation {
@@ -1094,44 +979,7 @@ impl Machine {
             },
         };
 
-        if dpu_expected_version != dpu_observed_version {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {
-        let inband_interfaces = self
-            .interfaces
-            .iter()
-            .filter(|i| matches!(i.network_segment_type, Some(NetworkSegmentType::HostInband)))
-            .collect::<Vec<_>>();
-
-        // If there are no HostInband interfaces, this currently means this machine has DPUs and is
-        // not restricted to being in particular network segments
-        if inband_interfaces.is_empty() {
-            return rpc::forge::InstanceNetworkRestrictions {
-                network_segment_membership_type:
-                    rpc::forge::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
-                network_segment_ids: vec![],
-            };
-        }
-
-        // The machine has interfaces on HostInband segments, meaning its network segment
-        // memebership is static (cannot be configured at instance allocation time.)
-
-        // Get unique segment ID's and VPC ID's from each HostInband interface
-        let inband_network_segment_ids = inband_interfaces
-            .iter()
-            .map(|iface| iface.segment_id)
-            .collect::<HashSet<_>>();
-
-        rpc::forge::InstanceNetworkRestrictions {
-            network_segment_membership_type:
-                rpc::forge::InstanceNetworkSegmentMembershipType::Static as i32,
-            network_segment_ids: inband_network_segment_ids.into_iter().collect(),
-        }
+        host_version == dpu_observed_version
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
@@ -1211,178 +1059,6 @@ impl Machine {
     }
 }
 
-pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
-
-impl From<MachineType> for RpcMachineTypeWrapper {
-    fn from(value: MachineType) -> Self {
-        RpcMachineTypeWrapper(match value {
-            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
-            MachineType::Dpu => rpc::forge::MachineType::Dpu,
-        })
-    }
-}
-
-impl Deref for RpcMachineTypeWrapper {
-    type Target = rpc::forge::MachineType;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<Machine> for rpc::forge::Machine {
-    fn from(mut machine: Machine) -> Self {
-        let health = match machine.is_dpu() {
-            true => {
-                let mut health = machine
-                    .dpu_agent_health_report()
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        HealthReport::heartbeat_timeout(
-                            HealthReport::DPU_AGENT_SOURCE.to_string(),
-                            HealthReport::DPU_AGENT_SOURCE.to_string(),
-                            "No health data was received from DPU".to_string(),
-                            true,
-                            false,
-                        )
-                    });
-                match machine.health_reports.replace.as_ref() {
-                    Some(over) => over.clone(),
-                    None => {
-                        for over in machine
-                            .health_reports
-                            .merges
-                            .iter()
-                            .filter(|(source, _)| source.as_str() != HealthReport::DPU_AGENT_SOURCE)
-                            .map(|(_, over)| over)
-                        {
-                            health.merge(over);
-                        }
-                        health
-                    }
-                }
-            }
-            false => HealthReport::empty("aggregate-health".to_string()), // Health is written by ManagedHostStateSnapshot
-        };
-
-        let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
-            machine
-                .health_reports
-                .maintenance_override()
-                .map(|o| (Some(o.maintenance_reference), o.maintenance_start_time))
-                .unwrap_or_default()
-        } else {
-            (None, None)
-        };
-
-        let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
-        let instance_network_restrictions = Some(machine.instance_network_restrictions());
-
-        rpc::Machine {
-            id: Some(machine.id),
-            rack_id: machine.rack_id.clone(),
-            state: if machine.is_dpu() {
-                machine.state.value.dpu_state_string(&machine.id)
-            } else {
-                machine.state.value.to_string()
-            },
-            capabilities: machine.to_capabilities().map(|mut c| {
-                c.sort();
-                c.into()
-            }),
-            instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
-            state_version: machine.state.version.version_string(),
-            // calculated at RPC handler, see ManagedHostStateSnapshot::rpc_machine_state
-            state_sla: None,
-            machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
-            metadata: Some(machine.metadata.into()),
-            version: machine.version.version_string(),
-            events: machine
-                .history
-                .into_iter()
-                .map(|event| event.into())
-                .collect(),
-            interfaces: machine
-                .interfaces
-                .into_iter()
-                .map(|interface| interface.into())
-                .collect(),
-            discovery_info: machine
-                .hardware_info
-                .and_then(|hw_info| match hw_info.try_into() {
-                    Ok(di) => Some(di),
-                    Err(e) => {
-                        tracing::warn!(
-                            machine_id = %machine.id,
-                            error = %e,
-                            "Hardware information couldn't be parsed into discovery info",
-                        );
-                        None
-                    }
-                }),
-            bmc_info: Some(machine.bmc_info.into()),
-            last_reboot_time: machine.last_reboot_time.map(|t| t.into()),
-            last_observation_time: machine
-                .network_status_observation
-                .as_ref()
-                .map(|obs| obs.observed_at.into()),
-            dpu_agent_version: machine
-                .network_status_observation
-                .and_then(|obs| obs.agent_version),
-            maintenance_reference,
-            maintenance_start_time,
-            associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
-            associated_dpu_machine_ids,
-            inventory: Some(machine.inventory.unwrap_or_default().into()),
-            last_reboot_requested_time: machine
-                .last_reboot_requested
-                .as_ref()
-                .map(|x| x.time.into()),
-            last_reboot_requested_mode: machine.last_reboot_requested.map(|x| x.mode.to_string()),
-            state_reason: machine.controller_state_outcome.map(|r| r.into()),
-            health: Some(health.into()),
-            firmware_autoupdate: machine.firmware_autoupdate,
-            health_sources: machine
-                .health_reports
-                .into_iter()
-                .map(|(hr, m)| HealthSourceOrigin {
-                    mode: m as i32,
-                    source: hr.source,
-                })
-                .collect(),
-            failure_details: if machine.failure_details.cause != FailureCause::NoError {
-                Some(machine.failure_details.to_string())
-            } else {
-                None
-            },
-            ib_status: Some(
-                machine
-                    .infiniband_status_observation
-                    .take()
-                    .map(|status| status.into())
-                    .unwrap_or_default(),
-            ),
-            instance_network_restrictions,
-            hw_sku: machine.hw_sku,
-            hw_sku_status: machine.hw_sku_status.map(|s| s.into()),
-            quarantine_state: machine
-                .network_config
-                .quarantine_state
-                .take()
-                .map(Into::into),
-            hw_sku_device_type: machine.hw_sku_device_type,
-            update_complete: machine.update_complete,
-            nvlink_info: machine.nvlink_info.map(|info| info.into()),
-            nvlink_status_observation: machine
-                .nvlink_status_observation
-                .map(|status| status.into()),
-            placement_in_rack: Some(rpc::forge::PlacementInRack {
-                slot_number: machine.slot_number,
-                tray_index: machine.tray_index,
-            }),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DpuDiscoveringStates {
     pub states: HashMap<MachineId, DpuDiscoveringState>,
@@ -1432,6 +1108,8 @@ pub enum ManagedHostState {
     // This is host specific state. We expect DPU to be in Ready state.
     WaitingForCleanup {
         cleanup_state: CleanupState,
+        #[serde(default)]
+        cleanup_context: CleanupContext,
     },
 
     /// A forced deletion process has been triggered by the admin CLI
@@ -1471,12 +1149,31 @@ pub enum ManagedHostState {
         measuring_state: MeasuringState,
     },
 
+    // this includes MeasuredBoot and SPDM attestations
     PostAssignedMeasuring {
-        measuring_state: MeasuringState,
+        attestation_mode: AttestationMode,
     },
+
+    // Ready -> PreAssignedMeasuring -> StartAssignmentCycle -> Move into Assigned State(s)
+    PreAssignedMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
+    },
+
+    StartAssignmentCycle,
 
     BomValidating {
         bom_validating_state: BomValidating,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AttestationMode {
+    MeasuredBoot {
+        measuring_state: MeasuringState,
+    },
+    SpdmAttestation {
+        spdm_measuring_state: SpdmMeasuringState,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1661,6 +1358,13 @@ pub enum MeasuringState {
     PendingBundle,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SpdmMeasuringState {
+    TriggerMeasurements,
+    PollResult,
+}
+
 /// Tenant has requested network config update for the existing instance.
 /// At this point, instance config, instance network config version are already increased.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1731,8 +1435,10 @@ pub enum HostReprovisionState {
     WaitingForRackFirmwareUpgrade,
     WaitingForScoutUpgrade {
         upgrade_task_id: String,
-        component_type: FirmwareComponentType,
-        target_version: String,
+        firmware_type: FirmwareComponentType,
+        final_version: String,
+        #[serde(default)]
+        power_drains_needed: Option<u32>,
         started_at: DateTime<Utc>,
         /// Absolute deadline; the API declares failure past this time.
         /// Derived from scout's execution/download timeouts plus slack.
@@ -1808,6 +1514,10 @@ pub enum FailureCause {
     MeasurementsCAValidationFailed { err: String },
 
     DpfProvisioning { err: String },
+
+    SpdmAttestationFailed { err: String },
+
+    BiosSetupFailed { err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -1959,7 +1669,10 @@ pub enum MachineState {
     WaitingForBiosJob {
         bios_config_info: BiosConfigInfo,
     },
-    PollingBiosSetup,
+    PollingBiosSetup {
+        #[serde(default)]
+        retry_count: u32,
+    },
     SetBootOrder {
         set_boot_order_info: Option<SetBootOrderInfo>,
     },
@@ -1968,6 +1681,9 @@ pub enum MachineState {
     },
     Measuring {
         measuring_state: MeasuringState,
+    },
+    SpdmMeasuring {
+        spdm_measuring_state: SpdmMeasuringState,
     },
     WaitingForDiscovery,
     Discovered {
@@ -2012,6 +1728,10 @@ pub enum UefiSetupState {
 
 /// Tracks progress waiting for the Dell BIOS config job (from machine_setup PATCH) to complete
 /// before configuring boot order. Same pattern as SetBootOrderInfo / SetBootOrderState.
+///
+/// `bios_job_id` is `Some` while polling a vendor BIOS job (e.g. Dell). `None` only during
+/// `HandleBiosJobFailure` recovery from stuck PollingBiosSetup; non-Dell hosts reboot in
+/// `configure_host_bios` and never enter job-polling substates.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub struct BiosConfigInfo {
@@ -2128,6 +1848,14 @@ pub enum CleanupState {
     // Unused
     DisableBIOSBMCLockdown,
 }
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CleanupContext {
+    #[default]
+    Deprovision,
+    InitialDiscovery,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum LockdownState {
@@ -2217,7 +1945,10 @@ pub enum HostPlatformConfigurationState {
     WaitingForBiosJob {
         bios_config_info: BiosConfigInfo,
     },
-    PollingBiosSetup,
+    PollingBiosSetup {
+        #[serde(default)]
+        retry_count: u32,
+    },
     SetBootOrder {
         set_boot_order_info: SetBootOrderInfo,
     },
@@ -2266,18 +1997,6 @@ pub struct UpgradeDecision {
     pub should_upgrade: bool,
     pub to_version: String,
     pub last_updated: DateTime<Utc>,
-}
-
-impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
-    fn from(value: ReprovisionRequest) -> Self {
-        ::rpc::forge::InstanceUpdateStatus {
-            module: ::rpc::forge::instance_update_status::Module::Dpu as i32,
-            initiator: value.initiator,
-            trigger_received_at: Some(value.requested_at.into()),
-            update_triggered_at: value.started_at.map(|x| x.into()),
-            user_approval_received: value.user_approval_received,
-        }
-    }
 }
 
 impl Display for DpuDiscoveringState {
@@ -2339,7 +2058,11 @@ impl Display for FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
             }
-            FailureCause::DpfProvisioning { .. } => write!(f, "DpfProvisioning"),
+            FailureCause::DpfProvisioning { err } => write!(f, "DpfProvisioning {err}"),
+            FailureCause::SpdmAttestationFailed { .. } => {
+                write!(f, "SpdmAttestationFailed")
+            }
+            FailureCause::BiosSetupFailed { .. } => write!(f, "BiosSetupFailed"),
         }
     }
 }
@@ -2363,6 +2086,12 @@ impl Display for HostReprovisionState {
 }
 
 impl Display for MeasuringState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Display for SpdmMeasuringState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -2410,7 +2139,7 @@ impl Display for ManagedHostState {
                     write!(f, "Assigned/{instance_state}")
                 }
             },
-            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+            ManagedHostState::WaitingForCleanup { cleanup_state, .. } => {
                 write!(f, "WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
@@ -2434,8 +2163,23 @@ impl Display for ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                write!(f, "PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        write!(f, "PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => write!(
+                        f,
+                        "PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"
+                    ),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                write!(f, "PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => write!(f, "Created"),
             ManagedHostState::BomValidating {
@@ -2445,6 +2189,9 @@ impl Display for ManagedHostState {
             }
             ManagedHostState::Validation { validation_state } => {
                 write!(f, "{validation_state}")
+            }
+            ManagedHostState::StartAssignmentCycle => {
+                write!(f, "StartAssignmentCycle")
             }
         }
     }
@@ -2483,7 +2230,7 @@ impl ManagedHostState {
                 }
                 _ => format!("Assigned/{instance_state}"),
             },
-            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+            ManagedHostState::WaitingForCleanup { cleanup_state, .. } => {
                 format!("WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),
@@ -2508,8 +2255,20 @@ impl ManagedHostState {
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => {
-                format!("PostAssignedMeasuring/{measuring_state}")
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => {
+                        format!("PostAssignedMeasuring/MeasuredBoot/{measuring_state}")
+                    }
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => format!("PostAssignedMeasuring/SpdmAttestation/{spdm_measuring_state}"),
+                }
+            }
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => {
+                format!("PreAssignedMeasuring/{spdm_measuring_state}")
             }
             ManagedHostState::Created => "Created".to_string(),
             ManagedHostState::BomValidating {
@@ -2518,6 +2277,7 @@ impl ManagedHostState {
             ManagedHostState::Validation { validation_state } => {
                 format!("{validation_state}")
             }
+            ManagedHostState::StartAssignmentCycle => "StartAssignmentCycle".to_string(),
         }
     }
 }
@@ -2526,6 +2286,7 @@ impl ManagedHostState {
 pub struct MachineInterfaceSnapshot {
     pub id: MachineInterfaceId,
     pub hostname: String,
+    pub interface_type: InterfaceType,
     pub primary_interface: bool,
     pub mac_address: MacAddress,
     pub attached_dpu_machine_id: Option<MachineId>,
@@ -2553,6 +2314,7 @@ impl MachineInterfaceSnapshot {
             segment_id: uuid::Uuid::nil().into(),
             mac_address,
             hostname: String::new(),
+            interface_type: InterfaceType::Data,
             primary_interface: true,
             addresses: Vec::new(),
             vendors: Vec::new(),
@@ -2566,100 +2328,9 @@ impl MachineInterfaceSnapshot {
     }
 }
 
-impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
-    fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
-        rpc::MachineInterface {
-            id: Some(machine_interface.id),
-            attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
-            machine_id: machine_interface.machine_id,
-            segment_id: Some(machine_interface.segment_id),
-            hostname: machine_interface.hostname,
-            domain_id: machine_interface.domain_id,
-            mac_address: machine_interface.mac_address.to_string(),
-            primary_interface: machine_interface.primary_interface,
-            address: machine_interface
-                .addresses
-                .iter()
-                .map(|addr| addr.to_string())
-                .collect(),
-            vendor: machine_interface.vendors.last().cloned(),
-            created: Some(machine_interface.created.into()),
-            last_dhcp: machine_interface.last_dhcp.map(|t| t.into()),
-            power_shelf_id: machine_interface.power_shelf_id,
-            is_bmc: None,
-            switch_id: machine_interface.switch_id,
-            association_type: machine_interface.association_type.map(|t| t as i32),
-        }
-    }
-}
-
 pub struct DpuInitNextStateResolver;
 pub struct InstanceNextStateResolver;
 pub struct MachineNextStateResolver;
-
-pub fn get_action_for_dpu_state(
-    state: &ManagedHostState,
-    dpu_machine_id: &MachineId,
-) -> ModelResult<fac::Action> {
-    Ok(match state {
-        ManagedHostState::DPUReprovision { .. }
-        | ManagedHostState::Assigned {
-            instance_state: InstanceState::DPUReprovision { .. },
-        } => {
-            let dpu_state = state
-                .as_reprovision_state(dpu_machine_id)
-                .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
-            match dpu_state {
-                ReprovisionState::BufferTime => fac::Action::retry(),
-                ReprovisionState::WaitingForNetworkInstall
-                | ReprovisionState::DpfStates {
-                    substate: DpfState::WaitingForReady { .. },
-                } => fac::Action::Discovery(fac::Discovery {}),
-                _ => {
-                    tracing::info!(
-                        dpu_machine_id = %dpu_machine_id,
-                        machine_type = "DPU",
-                        %state,
-                        "forge agent control",
-                    );
-                    fac::Action::noop()
-                }
-            }
-        }
-        ManagedHostState::DPUInit { dpu_states } => {
-            let dpu_state = dpu_states
-                .states
-                .get(dpu_machine_id)
-                .ok_or(ModelError::MissingDpu(*dpu_machine_id))?;
-
-            match dpu_state {
-                DpuInitState::Init
-                | DpuInitState::DpfStates {
-                    state: DpfState::WaitingForReady { .. },
-                } => fac::Action::Discovery(fac::Discovery {}),
-                _ => {
-                    tracing::info!(
-                        dpu_machine_id = %dpu_machine_id,
-                        machine_type = "DPU",
-                        %state,
-                        "forge agent control",
-                    );
-                    fac::Action::noop()
-                }
-            }
-        }
-        _ => {
-            // Later this might go to site admin dashboard for manual intervention
-            tracing::info!(
-                dpu_machine_id = %dpu_machine_id,
-                machine_type = "DPU",
-                %state,
-                "forge agent control",
-            );
-            fac::Action::noop()
-        }
-    })
-}
 
 /// Returns the SLA for the current state.
 ///
@@ -2778,20 +2449,45 @@ pub fn state_sla(
             // is sitting there).
             MeasuringState::PendingBundle => StateSla::no_sla(),
         },
-        ManagedHostState::PostAssignedMeasuring { measuring_state } => match measuring_state {
-            // The API shouldn't be waiting for measurements for long. As soon
-            // as it transitions into this state, Scout should get an Action::Measure
-            // action, and it should pretty quickly send measurements in (~seconds).
-            MeasuringState::WaitingForMeasurements => {
-                StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
-            }
-            // If the machine is waiting for a matching bundle, this could
-            // take a bit, since it means either auto-bundle generation OR
-            // manual bundle generation needs to happen. In the case of new
-            // turn ups, this could take hours or even days (e.g. if new gear
-            // is sitting there).
-            MeasuringState::PendingBundle => StateSla::no_sla(),
+        ManagedHostState::PostAssignedMeasuring { attestation_mode } => match attestation_mode {
+            AttestationMode::MeasuredBoot { measuring_state } => match measuring_state {
+                // The API shouldn't be waiting for measurements for long. As soon
+                // as it transitions into this state, Scout should get an Action::Measure
+                // action, and it should pretty quickly send measurements in (~seconds).
+                MeasuringState::WaitingForMeasurements => {
+                    StateSla::with_sla(slas::MEASUREMENT_WAIT_FOR_MEASUREMENT, time_in_state)
+                }
+                // If the machine is waiting for a matching bundle, this could
+                // take a bit, since it means either auto-bundle generation OR
+                // manual bundle generation needs to happen. In the case of new
+                // turn ups, this could take hours or even days (e.g. if new gear
+                // is sitting there).
+                MeasuringState::PendingBundle => StateSla::no_sla(),
+            },
+            AttestationMode::SpdmAttestation {
+                spdm_measuring_state,
+            } => match spdm_measuring_state {
+                SpdmMeasuringState::PollResult => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+                }
+                SpdmMeasuringState::TriggerMeasurements => {
+                    StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+                }
+            },
         },
+        ManagedHostState::PreAssignedMeasuring {
+            spdm_measuring_state,
+        } => match spdm_measuring_state {
+            SpdmMeasuringState::PollResult => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_RESULT_POLL, time_in_state)
+            }
+            SpdmMeasuringState::TriggerMeasurements => {
+                StateSla::with_sla(slas::SPDM_ATTESTATION_TRIGGER, time_in_state)
+            }
+        },
+        ManagedHostState::StartAssignmentCycle => {
+            StateSla::with_sla(slas::START_ASSIGNMENT_CYCLE, time_in_state)
+        }
         ManagedHostState::BomValidating {
             bom_validating_state,
         } => match bom_validating_state {
@@ -2821,8 +2517,31 @@ pub struct BomValidatingContext {
     // so that machine validation works properly.  Additionally, "None" may be
     // used to skip machine validation.  Note that "None" is not a valid
     // context for machine validation, but only services to skip it.
-    pub machine_validation_context: Option<String>,
+    pub machine_validation_context: Option<MachineValidationContext>,
     pub reboot_retry_count: Option<i64>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum MachineValidationContext {
+    Discovery,
+    Cleanup,
+    OnDemand,
+}
+
+impl AsRef<str> for MachineValidationContext {
+    fn as_ref(&self) -> &str {
+        match self {
+            MachineValidationContext::Discovery => "Discovery",
+            MachineValidationContext::Cleanup => "Cleanup",
+            MachineValidationContext::OnDemand => "OnDemand",
+        }
+    }
+}
+
+impl Display for MachineValidationContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2842,30 +2561,6 @@ pub struct MachineValidationFilter {
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
     pub contexts: Option<Vec<String>>,
-}
-
-impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
-    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
-        Self {
-            tags: filter.tags,
-            allowed_tests: filter.allowed_tests,
-            run_unverfied_tests: filter.run_unverfied_tests,
-            contexts: filter.contexts.map(|c| c.items),
-        }
-    }
-}
-
-impl From<MachineValidationFilter> for fac::MachineValidationFilter {
-    fn from(filter: MachineValidationFilter) -> Self {
-        Self {
-            tags: filter.tags,
-            allowed_tests: filter.allowed_tests,
-            run_unverfied_tests: filter.run_unverfied_tests,
-            contexts: filter
-                .contexts
-                .map(|items| rpc::common::StringList { items }),
-        }
-    }
 }
 
 impl Display for MachineValidationFilter {
@@ -2914,6 +2609,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             segment_id: row.try_get("segment_id")?,
             domain_id: row.try_get("domain_id")?,
             hostname: row.try_get("hostname")?,
+            interface_type: row.try_get("interface_type")?,
             mac_address: row.try_get("mac_address")?,
             primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,
@@ -2945,6 +2641,142 @@ impl Display for PowerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HostHealthConfig {
+    /// Whether or not to use hardware health reports in aggregate health reports
+    /// and for restricting state transitions.
+    #[serde(default)]
+    pub hardware_health_reports: HardwareHealthReportsConfig,
+    /// How old a DPU agent's version should be before considering stale
+    #[serde(
+        default = "HostHealthConfig::dpu_agent_version_staleness_threshold_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub dpu_agent_version_staleness_threshold: Duration,
+
+    /// Whether to fail health checks if a DPU agent version is stale
+    #[serde(default)]
+    pub prevent_allocations_on_stale_dpu_agent_version: bool,
+
+    /// Whether the scout heartbeat timeout alert should prevent allocations
+    #[serde(default)]
+    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
+
+    /// Whether the scout heartbeat timeout alert should suppress external alerting
+    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
+    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
+}
+
+/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
+fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("{}s", d.num_seconds()))
+}
+
+impl Default for HostHealthConfig {
+    fn default() -> Self {
+        HostHealthConfig {
+            hardware_health_reports: HardwareHealthReportsConfig::default(),
+            dpu_agent_version_staleness_threshold:
+                Self::dpu_agent_version_staleness_threshold_default(),
+            prevent_allocations_on_stale_dpu_agent_version: false,
+            prevent_allocations_on_scout_heartbeat_timeout: false,
+            suppress_external_alerting_on_scout_heartbeat_timeout:
+                Self::default_suppress_ext_alert_on_scout_heartbeat(),
+        }
+    }
+}
+
+impl HostHealthConfig {
+    pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
+        Duration::days(1)
+    }
+
+    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub enum HardwareHealthReportsConfig {
+    #[default]
+    Disabled,
+    /// Include successes and alerts but remove their classifications
+    MonitorOnly,
+    /// Include successes, alerts, and classifications.
+    Enabled,
+}
+
+pub fn dpf_based_dpu_provisioning_possible(
+    state: &ManagedHostStateSnapshot,
+    dpf_enabled_at_site: bool,
+    reprovisioning_case: bool,
+) -> bool {
+    // DPF is disabled at site.
+    if !dpf_enabled_at_site {
+        return false;
+    }
+
+    // DPF should be enabled for host.
+    if !state.host_snapshot.dpf.enabled {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // if it is reprovisioning case, initial ingestion should be done with dpf
+    // to continue or we should be trying to reprovision all the dpus (switching
+    // to DPF). Reprovisioning only a subset of DPUs cannot flip the host to DPF.
+    if reprovisioning_case
+        && !state.host_snapshot.dpf.used_for_ingestion
+        && !state
+            .dpu_snapshots
+            .iter()
+            .all(|dpu| dpu.reprovision_requested.is_some())
+    {
+        tracing::info!(
+            "DPF based DPU reprovisioning is not possible for host {} because initial ingestion is not done with DPF \
+            and not all DPUs are being reprovisioned.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs should not be Bluefield 2.
+    if state.dpu_snapshots.iter().any(|dpu| {
+        dpu.hardware_info
+            .as_ref()
+            .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
+            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
+            .unwrap_or(false)
+    }) {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
+            state.host_snapshot.id
+        );
+        return false;
+    }
+
+    // All DPUs support BFB install via Redfish.
+    if !state
+        .dpu_snapshots
+        .iter()
+        .all(|dpu| dpu.bmc_info.supports_bfb_install())
+    {
+        tracing::info!(
+            "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
+        );
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]
@@ -3086,7 +2918,38 @@ mod tests {
         assert_eq!(
             deserialized,
             ManagedHostState::HostInit {
-                machine_state: MachineState::PollingBiosSetup,
+                machine_state: MachineState::PollingBiosSetup { retry_count: 0 },
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_polling_bios_setup_with_retry_count() {
+        let serialized =
+            r#"{"state":"hostinit","machine_state":{"state":"pollingbiossetup","retry_count":2}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::PollingBiosSetup { retry_count: 2 },
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_deserialize_host_platform_configuration_polling_bios_setup_legacy() {
+        let serialized = r#"{"state":"assigned","instance_state":{"state":"hostplatformconfiguration","platform_config_state":{"state":"pollingbiossetup"}}}"#;
+        let deserialized: ManagedHostState = serde_json::from_str(serialized).unwrap();
+
+        assert_eq!(
+            deserialized,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::PollingBiosSetup {
+                        retry_count: 0,
+                    },
+                },
             }
         );
     }
@@ -3369,17 +3232,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn dpu_info_to_rpc() {
-        let info = DpuInfo {
-            id: "dpu-123".to_string(),
-            loopback_ip: "10.0.0.1".to_string(),
-        };
-        let rpc_info: rpc::forge::DpuInfo = info.into();
-        assert_eq!(rpc_info.id, "dpu-123");
-        assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
-    }
-
     /// Build a mock `MachineInterfaceSnapshot` with the fields
     /// `pick_boot_interface_mac` actually inspects (MAC, primary flag,
     /// segment type) set, and everything else left at the mock default.
@@ -3519,132 +3371,25 @@ mod tests {
         data.host_lifecycle_profile.disable_lockdown = Some(false);
         assert!(!HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
     }
-}
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub struct HostHealthConfig {
-    /// Whether or not to use hardware health reports in aggregate health reports
-    /// and for restricting state transitions.
-    #[serde(default)]
-    pub hardware_health_reports: HardwareHealthReportsConfig,
-    /// How old a DPU agent's version should be before considering stale
-    #[serde(
-        default = "HostHealthConfig::dpu_agent_version_staleness_threshold_default",
-        deserialize_with = "deserialize_duration_chrono",
-        serialize_with = "as_duration"
-    )]
-    pub dpu_agent_version_staleness_threshold: Duration,
+    #[test]
+    fn dpf_error_deserialization() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let state = ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: "This should be in display".to_string(),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
 
-    /// Whether to fail health checks if a DPU agent version is stale
-    #[serde(default)]
-    pub prevent_allocations_on_stale_dpu_agent_version: bool,
-
-    /// Whether the scout heartbeat timeout alert should prevent allocations
-    #[serde(default)]
-    pub prevent_allocations_on_scout_heartbeat_timeout: bool,
-
-    /// Whether the scout heartbeat timeout alert should suppress external alerting
-    #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
-    pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
-}
-
-/// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
-fn as_duration<S>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(&format!("{}s", d.num_seconds()))
-}
-
-impl Default for HostHealthConfig {
-    fn default() -> Self {
-        HostHealthConfig {
-            hardware_health_reports: HardwareHealthReportsConfig::default(),
-            dpu_agent_version_staleness_threshold:
-                Self::dpu_agent_version_staleness_threshold_default(),
-            prevent_allocations_on_stale_dpu_agent_version: false,
-            prevent_allocations_on_scout_heartbeat_timeout: false,
-            suppress_external_alerting_on_scout_heartbeat_timeout:
-                Self::default_suppress_ext_alert_on_scout_heartbeat(),
-        }
+        let output = state.to_string();
+        assert!(output.contains("This should be in display"));
     }
-}
-
-impl HostHealthConfig {
-    pub fn dpu_agent_version_staleness_threshold_default() -> Duration {
-        Duration::days(1)
-    }
-
-    fn default_suppress_ext_alert_on_scout_heartbeat() -> bool {
-        true
-    }
-}
-
-#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub enum HardwareHealthReportsConfig {
-    #[default]
-    Disabled,
-    /// Include successes and alerts but remove their classifications
-    MonitorOnly,
-    /// Include successes, alerts, and classifications.
-    Enabled,
-}
-
-pub fn dpf_based_dpu_provisioning_possible(
-    state: &ManagedHostStateSnapshot,
-    dpf_enabled_at_site: bool,
-    reprovisioing_case: bool,
-) -> bool {
-    // DPF is disabled at site.
-    if !dpf_enabled_at_site {
-        return false;
-    }
-
-    // DPF should be enabled for host.
-    if !state.host_snapshot.dpf.enabled {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
-    // reprovision.
-    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
-        tracing::info!(
-            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // All DPUs should not be Bluefield 2.
-    if state.dpu_snapshots.iter().any(|dpu| {
-        dpu.hardware_info
-            .as_ref()
-            .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
-            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
-            .unwrap_or(false)
-    }) {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
-            state.host_snapshot.id
-        );
-        return false;
-    }
-
-    // All DPUs support BFB install via Redfish.
-    if !state
-        .dpu_snapshots
-        .iter()
-        .all(|dpu| dpu.bmc_info.supports_bfb_install())
-    {
-        tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
-        );
-        return false;
-    }
-
-    true
 }

@@ -17,16 +17,16 @@
 use clap::{Parser, ValueEnum, ValueHint};
 use rpc::admin_cli::OutputFormat;
 
-use crate::cfg::measurement;
 use crate::{
-    bmc_machine, boot_override, component_manager, compute_allocation, credential, devenv, domain,
-    dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf, expected_rack,
-    expected_switch, extension_service, firmware, generate_shell_complete, host, ib_partition,
-    instance, instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
-    machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
-    network_segment, nvl_logical_partition, nvl_partition, operating_system, os_image, ping,
-    power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
-    site_explorer, sku, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
+    attestation, bmc_machine, boot_override, component_manager, compute_allocation, credential,
+    devenv, domain, dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf,
+    expected_rack, expected_switch, extension_service, firmware, generate_man,
+    generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
+    ipxe_template, jump, machine, machine_interfaces, machine_validation, managed_host,
+    managed_switch, mlx, network_devices, network_security_group, network_segment, nvl_domain,
+    nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints, operating_system, os_image, ping,
+    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
+    sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
     vpc_peering, vpc_prefix,
 };
 
@@ -49,11 +49,11 @@ pub struct CliOptions {
     )]
     pub cloud_unsafe_op: Option<String>,
 
-    #[clap(short, long, env = "CARBIDE_API_URL")]
+    #[clap(short, long, env = "API_URL", visible_alias = "carbide-url")]
     #[clap(
-        help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
+        help = "Default to API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
     )]
-    pub carbide_api: Option<String>,
+    pub api_url: Option<String>,
 
     #[clap(short, long, value_enum, default_value = "ascii-table")]
     pub format: OutputFormat,
@@ -61,11 +61,11 @@ pub struct CliOptions {
     #[clap(short, long)]
     pub output: Option<String>,
 
-    #[clap(long, env = "FORGE_ROOT_CA_PATH")]
+    #[clap(long, env = "ROOT_CA_PATH", visible_alias = "forge-root-ca-path")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
-    pub forge_root_ca_path: Option<String>,
+    pub root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
@@ -100,11 +100,12 @@ pub struct CliOptions {
     #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 
-    // This is primarily used by measured boot, where basic output contains just
-    // what you probably care about, and "extended" output also dumps out all of
-    // the internal UUIDs that are used to associate instances. Helpful for filing
-    // reports, doing site import/exports, etc.
-    #[clap(long, global = true, help = "Extended result output.")]
+    /// Extended result output.
+    ///
+    /// This used by measured boot, where basic output contains just
+    /// what you probably care about, and "extended" output also dumps out all
+    /// the internal UUIDs that are used to associate instances.
+    #[clap(long, global = true)]
     pub extended: bool,
 
     #[clap(subcommand)]
@@ -147,6 +148,12 @@ pub enum CliCommand {
         visible_alias = "ns"
     )]
     NetworkSegment(network_segment::Cmd),
+    #[clap(
+        name = "nvlink-nmxc-endpoints",
+        about = "Rack chassis serial → NMX-C endpoint mappings",
+        subcommand
+    )]
+    NvlinkNmxcEndpoints(nvlink_nmxc_endpoints::Cmd),
     #[clap(about = "Domain related handling", subcommand, visible_alias = "d")]
     Domain(domain::Cmd),
     #[clap(
@@ -161,12 +168,6 @@ pub enum CliCommand {
         visible_alias = "ms"
     )]
     ManagedSwitch(managed_switch::Cmd),
-    #[clap(
-        subcommand,
-        about = "Work with measured boot data.",
-        visible_alias = "mb"
-    )]
-    Measurement(measurement::Cmd),
     #[clap(about = "Resource pool handling", subcommand, visible_alias = "rp")]
     ResourcePool(resource_pool::Cmd),
     #[clap(about = "Redfish BMC actions", visible_alias = "rf")]
@@ -205,6 +206,8 @@ pub enum CliCommand {
         about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
+    #[clap(about = "Generate man pages for the CLI", hide = true)]
+    GenerateMan(generate_man::Cmd),
     #[clap(
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]
@@ -309,13 +312,6 @@ pub enum CliCommand {
     #[clap(about = "Rack Management", subcommand)]
     Rack(rack::Cmd),
 
-    #[clap(
-        about = "Rack Firmware configuration management",
-        subcommand,
-        visible_alias = "rack-fw"
-    )]
-    RackFirmware(rack_firmware::Cmd),
-
     #[clap(about = "RMS Actions")]
     Rms(rms::args::RmsAction),
 
@@ -346,6 +342,20 @@ pub enum CliCommand {
     NvlPartition(nvl_partition::Cmd),
 
     #[clap(
+        about = "SPX Partition related handling",
+        subcommand,
+        visible_alias = "spx"
+    )]
+    SpxPartition(spx_partition::Cmd),
+
+    #[clap(
+        about = "NVLink domain related handling",
+        subcommand,
+        visible_alias = "nvd"
+    )]
+    NvlDomain(nvl_domain::Cmd),
+
+    #[clap(
         about = "Logical partition related handling",
         subcommand,
         visible_alias = "lp"
@@ -355,13 +365,21 @@ pub enum CliCommand {
     #[clap(subcommand)]
     #[clap(verbatim_doc_comment)]
     /// DPF-related commands.
-    /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU re-provisioning.
-    /// The state is saved in the machine's metadata and will be deleted if the machine is force-deleted.
-    /// To make the state persistent, add the DPF state for a machine (host) to the expected machines table.
+    /// Note: These commands update the DPF state of the machine, which determines DPF-based DPU
+    /// re-provisioning. The state is saved in the machine's metadata and will be deleted if the
+    /// machine is force-deleted. To make the state persistent, add the DPF state for a machine
+    /// (host) to the expected machines table.
     Dpf(crate::dpf::Cmd),
 
     #[clap(about = "Tenant management", subcommand, visible_alias = "tm")]
     Tenant(tenant::Cmd),
+
+    #[clap(
+        about = "MeasuredBoot or SPDM attestations",
+        subcommand,
+        visible_alias = "att"
+    )]
+    Attestation(attestation::Cmd),
 }
 
 impl CliOptions {

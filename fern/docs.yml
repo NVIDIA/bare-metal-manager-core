@@ -4,6 +4,7 @@
 instances:
   - url: nvidia-ncx-infra-controller.docs.buildwithfern.com/infra-controller
     custom-domain: docs.nvidia.com/infra-controller
+    multi-source: true
 
 title: NVIDIA Infra Controller
 
@@ -13,6 +14,8 @@ metadata:
 ai-search:
   location:
     - docs
+
+global-theme: nvidia
 
 footer: ./components/CustomFooter.tsx
 
@@ -57,24 +60,20 @@ logo:
 
 favicon: ./assets/NVIDIA_symbol.svg
 
-js:
-  - url: https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js
-    strategy: beforeInteractive
-
 css:
   - ./main.css
 
 navbar-links:
   - type: filled
     text: GitHub
-    href: https://github.com/NVIDIA/infra-controller-core
+    href: https://github.com/NVIDIA/infra-controller
 
 products:
   - display-name: NVIDIA Infra Controller
     slug: /
     path: ../docs/index.yml
     versions:
-      - display-name: dev
+      - display-name: v0.8
         path: ../docs/index.yml
 
 redirects:
@@ -82,8 +81,13 @@ redirects:
     destination: "/infra-controller/"
   - source: "/infra-controller/dev/index.html"
     destination: "/infra-controller/dev/"
+  - source: "/infra-controller/documentation/introduction"
+    destination: "/infra-controller/documentation/overview/what-is-nico"
+  - source: "/infra-controller/documentation/getting-started/site-setup"
+    destination: "infra-controller/documentation/getting-started/quick-start-guide"
+  - source: "/infra-controller/documentation/getting-started/building-ni-co-containers"
+    destination: "/infra-controller/documentation/getting-started/building-nico-containers"
 
 experimental:
   mdx-components:
     - ./components
-  basepath-aware: true

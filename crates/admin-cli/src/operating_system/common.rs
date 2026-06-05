@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::{
     self as forgerpc, IpxeTemplateArtifact, IpxeTemplateParameter, OperatingSystem,
 };
 use serde::Serialize;
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 pub fn str_to_os_id(
     id: &str,

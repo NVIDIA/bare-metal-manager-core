@@ -1,0 +1,91 @@
+suite: cert directory overrides
+templates:
+  - daemonset.yaml
+  - configmap.yaml
+tests:
+  - it: should mount certs at /opt/forge by default
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nico-certs
+            mountPath: /opt/forge
+            readOnly: true
+
+  - it: should hostPath-mount /opt/forge by default
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nico-certs
+            hostPath:
+              path: /opt/forge
+              type: DirectoryOrCreate
+
+  - it: configmap should embed /opt/forge cert paths and forge_root.pem by default
+    template: configmap.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'ca_file:\s*/opt/forge/forge_root\.pem'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cert_file:\s*/opt/forge/machine_cert\.pem'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'key_file:\s*/opt/forge/machine_cert\.key'
+
+  - it: should fall back to /opt/nico when certsDir is cleared
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      certsDir: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nico-certs
+            mountPath: /opt/nico
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nico-certs
+            hostPath:
+              path: /opt/nico
+              type: DirectoryOrCreate
+
+  - it: configmap should embed /opt/nico cert paths and nico_root.pem when cleared
+    template: configmap.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      certsDir: null
+      rootCaFile: null
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'ca_file:\s*/opt/nico/nico_root\.pem'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cert_file:\s*/opt/nico/machine_cert\.pem'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'key_file:\s*/opt/nico/machine_cert\.key'

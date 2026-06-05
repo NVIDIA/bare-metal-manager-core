@@ -22,11 +22,11 @@
 #   TOKEN=$(./get-token.sh)
 set -euo pipefail
 
-NS="${KEYCLOAK_NS:-carbide-rest}"
+NS="${KEYCLOAK_NS:-nico-rest}"
 KC_URL="http://keycloak.${NS}:8082"
-TOKEN_URL="${KC_URL}/realms/carbide/protocol/openid-connect/token"
+TOKEN_URL="${KC_URL}/realms/nico/protocol/openid-connect/token"
 CLIENT_ID="ncx-service"
-CLIENT_SECRET="carbide-local-secret"
+CLIENT_SECRET="nico-local-secret"
 
 # Runs curl from inside the cluster via a one-shot pod.
 # This ensures JWT issuer matches the internal Keycloak URL.

@@ -129,25 +129,54 @@ spec:
                     properties:
                       interfaceType:
                         description: The interface type ("vlan", "physical", "pf",
-                          "vf", "ovn", "service")
+                          "vf", "ovn", "patch", "service")
                         enum:
                         - vlan
                         - physical
                         - pf
                         - vf
                         - ovn
+                        - patch
                         - service
                         type: string
                       node:
                         description: Node where this interface exists
                         type: string
                       ovn:
-                        description: The OVN definition
+                        description: |-
+                          The OVN definition
+                          Deprecated: This field is deprecated and will be removed with v26.10.0.
+                          Migrate to interfaceType="patch" with spec.patch.peerBridge and spec.patch.peerPatchName instead.
                         properties:
                           externalBridge:
                             default: br-ovn
                             description: ExternalBridge is the name of the OVN bridge
                             type: string
+                        type: object
+                      patch:
+                        description: The Patch definition
+                        properties:
+                          peerBridge:
+                            description: |-
+                              PeerBridge is the name of the bridge to which the patch port is connected.
+                              This bridge must be created before the ServiceInterface is created.
+                            type: string
+                          peerExternalIDs:
+                            additionalProperties:
+                              type: string
+                            description: PeerExternalIDs are the external IDs used
+                              to identify the peer patch port.
+                            type: object
+                          peerPatchName:
+                            description: |-
+                              PeerPatchName is the name of the patch port on the peer bridge.
+                              If not set, it is auto-generated in the format: `p_<bridgeA>_to_<bridgeB>_<hash>`
+                              where bridge names have hyphens removed and `<hash>` is an 8-character FNV-1a hash
+                              derived from the ServiceInterface's namespace/name.
+                              Example: p_brovn_to_brsfc_7aea60f7 (for bridges br-ovn and br-sfc).
+                            type: string
+                        required:
+                        - peerBridge
                         type: object
                       pf:
                         description: The PF definition
@@ -181,6 +210,8 @@ spec:
                         properties:
                           interfaceName:
                             description: The interface name
+                            maxLength: 15
+                            minLength: 1
                             type: string
                           network:
                             description: |-
@@ -249,12 +280,14 @@ spec:
                     - message: '`for interfaceType=vlan, vlan must be set; for interfaceType=pf,
                         pf must be set; for interfaceType=vf, vf must be set; for
                         interfaceType=physical, physical must be set; for interfaceType=service,
-                        service must be set`'
+                        service must be set; for interfaceType=patch, patch must be
+                        set`'
                       rule: (self.interfaceType == 'vlan' && has(self.vlan)) || (self.interfaceType
                         == 'pf' && has(self.pf)) || (self.interfaceType == 'vf' &&
                         has(self.vf)) || (self.interfaceType == 'physical' && has(self.physical))
                         || (self.interfaceType == 'service' && has(self.service))
-                        || (self.interfaceType == 'ovn')
+                        || (self.interfaceType == 'ovn') || (self.interfaceType ==
+                        'patch' && has(self.patch))
                 required:
                 - spec
                 type: object

@@ -116,16 +116,19 @@ impl ComponentMetrics {
 
 pub struct MetricsManager {
     global_registry: Registry,
+    telemetry_registry: Registry,
     component_metrics: Arc<ComponentMetrics>,
 }
 
 impl MetricsManager {
     pub fn new(prefix: &str) -> Result<Self, prometheus::Error> {
         let global_registry = Registry::new();
+        let telemetry_registry = Registry::new();
         let component_metrics = Arc::new(ComponentMetrics::new(&global_registry, prefix)?);
 
         Ok(Self {
             global_registry,
+            telemetry_registry,
             component_metrics,
         })
     }
@@ -146,17 +149,33 @@ impl MetricsManager {
         CollectorRegistry::new(id, self.global_registry.clone(), prefix)
     }
 
-    pub fn export_all(&self) -> Result<String, HealthError> {
-        let encoder = TextEncoder::new();
-        let metric_families = self.global_registry.gather();
-        let mut buffer = Vec::new();
-        encoder.encode(&metric_families, &mut buffer)?;
-        String::from_utf8(buffer).map_err(|e| {
-            HealthError::GenericError(format!(
-                "MetricManager encoutered IO error while export is called: {e:?}"
-            ))
-        })
+    pub fn create_telemetry_collector_registry(
+        &self,
+        id: String,
+        prefix: impl Into<String>,
+    ) -> Result<CollectorRegistry, HealthError> {
+        CollectorRegistry::new(id, self.telemetry_registry.clone(), prefix)
     }
+
+    pub fn export_metrics(&self) -> Result<String, HealthError> {
+        export_registry(&self.global_registry)
+    }
+
+    pub fn export_telemetry(&self) -> Result<String, HealthError> {
+        export_registry(&self.telemetry_registry)
+    }
+}
+
+fn export_registry(registry: &Registry) -> Result<String, HealthError> {
+    let encoder = TextEncoder::new();
+    let metric_families = registry.gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer)?;
+    String::from_utf8(buffer).map_err(|e| {
+        HealthError::GenericError(format!(
+            "MetricManager encoutered IO error while export is called: {e:?}"
+        ))
+    })
 }
 
 pub struct CollectorRegistry {
@@ -167,7 +186,8 @@ pub struct CollectorRegistry {
 
 impl CollectorRegistry {
     fn new(id: String, parent: Registry, prefix: impl Into<String>) -> Result<Self, HealthError> {
-        let desc = Desc::new(id.clone(), id, Vec::new(), HashMap::new())?;
+        let fq_id = id.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let desc = Desc::new(fq_id, id, Vec::new(), HashMap::new())?;
 
         let registry = Box::new(SubRegistry {
             registry: Registry::new(),
@@ -411,7 +431,7 @@ impl Collector for GaugeMetrics {
             gauge.set_value(data.value);
 
             let mut metric = proto::Metric::new();
-            metric.set_label(labels.into());
+            metric.set_label(labels);
             metric.set_gauge(gauge);
 
             family.mut_metric().push(metric);
@@ -429,7 +449,10 @@ pub async fn run_metrics_server(
         .await
         .map_err(|e| Box::new(e) as BoxedErr)?;
 
-    tracing::info!("Metrics server listening on {}", metrics_endpoint);
+    tracing::info!(
+        "Metrics server listening on {} (paths: /metrics, /telemetry, /livez)",
+        metrics_endpoint
+    );
 
     loop {
         let (stream, _) = listener
@@ -463,29 +486,37 @@ fn serve_request(
             .header(CONTENT_TYPE, "text/plain; charset=utf-8")
             .body("ok".to_string())
             .expect("BUG: Response::builder error")),
-        _ => serve_metrics(metrics_manager),
+        "/metrics" => serve_prometheus(metrics_manager.export_metrics(), "service metrics"),
+        "/telemetry" => serve_prometheus(metrics_manager.export_telemetry(), "telemetry metrics"),
+        _ => Ok(Response::builder()
+            .status(http::StatusCode::OK)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body("not found; use /metrics, /telemetry, or /livez".to_string())
+            .expect("BUG: Response::builder error")),
     }
 }
 
-fn serve_metrics(metrics_manager: Arc<MetricsManager>) -> Result<Response<String>, hyper::Error> {
+fn serve_prometheus(
+    export_result: Result<String, HealthError>,
+    export_name: &'static str,
+) -> Result<Response<String>, hyper::Error> {
     let encoder = TextEncoder::new();
-    let body = match metrics_manager.export_all() {
+    let body = match export_result {
         Ok(body) => body,
         Err(e) => {
-            tracing::error!(error=?e, "error exporting metrics");
+            tracing::error!(error=?e, export_name, "error exporting prometheus metrics");
             return Ok(Response::builder()
                 .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .body("error exporting metrics, see logs".to_string())
+                .body(format!("error exporting {export_name}, see logs"))
                 .expect("BUG: Response::builder error"));
         }
     };
 
-    let response = Response::builder()
+    Ok(Response::builder()
         .status(200)
         .header(CONTENT_TYPE, encoder.format_type())
         .body(body)
-        .expect("BUG: Response::builder error");
-    Ok(response)
+        .expect("BUG: Response::builder error"))
 }
 
 pub fn sanitize_unit(unit: &str) -> String {
@@ -507,5 +538,34 @@ pub fn sanitize_unit(unit: &str) -> String {
                 }
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collector_registry_sanitizes_descriptor_fq_name() {
+        for (id, expected_fq_name) in [
+            (
+                "sensor_collector_10.0.0.1:443",
+                "sensor_collector_10_0_0_1_443",
+            ),
+            (
+                "log_collector_bmc-01.example.com",
+                "log_collector_bmc_01_example_com",
+            ),
+            (
+                "collector with spaces/slashes",
+                "collector_with_spaces_slashes",
+            ),
+        ] {
+            let registry = CollectorRegistry::new(id.to_string(), Registry::new(), "test_prefix")
+                .expect("collector registry should accept sanitized id");
+
+            assert_eq!(registry.registry.desc.fq_name, expected_fq_name);
+            assert_eq!(registry.registry.desc.help, id);
+        }
     }
 }

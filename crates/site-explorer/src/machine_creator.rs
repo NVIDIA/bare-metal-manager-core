@@ -22,7 +22,9 @@ use db::{ObjectColumnFilter, Transaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use itertools::Itertools;
 use librms::RmsApi;
+use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
@@ -148,12 +150,6 @@ impl MachineCreator {
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
-            if !self.config.allow_zero_dpu_hosts {
-                let error =
-                    SiteExplorerError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
-                tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
-                return Err(error);
-            }
             if let Some(machine_id) = self
                 .create_zero_dpu_machine(&mut txn, &managed_host, report, machine_data)
                 .await?
@@ -179,7 +175,19 @@ impl MachineCreator {
                 //
                 // If the DPU's machine is not attached to its machine interface, do so here.
                 // TODO (sp): is this defensive check really neccessary?
-                if self.configure_dpu_interface(&mut txn, dpu_report).await? {
+                let configured_dpu_interface =
+                    self.configure_dpu_interface(&mut txn, dpu_report).await?;
+                let reconciled_host = if let Some(host_machine) =
+                    db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id).await?
+                {
+                    self.reconcile_host_admin_addresses(&mut txn, &host_machine.id)
+                        .await?;
+                    true
+                } else {
+                    false
+                };
+
+                if configured_dpu_interface || reconciled_host {
                     txn.commit().await?;
                 }
                 return Ok(false);
@@ -227,6 +235,11 @@ impl MachineCreator {
                 tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
             }
         }
+
+        // Normalize host admin address ownership after all DPU-backed host
+        // interfaces have been attached and primary flags are final.
+        self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
+            .await?;
 
         txn.commit().await?;
 
@@ -297,7 +310,7 @@ impl MachineCreator {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
         // already.
-        let mac_addresses = report.all_mac_addresses();
+        let mac_addresses = host_mac_addresses_for_predicted_machine(report, machine_data);
         for mac_address in &mac_addresses {
             if db::machine::find_by_mac_address(txn, mac_address)
                 .await?
@@ -625,7 +638,12 @@ impl MachineCreator {
         )
         .await?;
 
-        db::bmc_metadata::update_bmc_network_into_topologies(txn, machine_id, &bmc_info).await?;
+        db::bmc_metadata::update_bmc_network_into_machine_interfaces(
+            txn,
+            machine_id,
+            &mut bmc_info,
+        )
+        .await?;
 
         Ok(())
     }
@@ -662,6 +680,32 @@ impl MachineCreator {
             .await?;
 
         Ok(())
+    }
+
+    /// Reconciles host admin addresses and bumps visible host network config when needed.
+    ///
+    /// Returns whether the active admin config changed.
+    async fn reconcile_host_admin_addresses(
+        &self,
+        txn: &mut PgConnection,
+        host_machine_id: &MachineId,
+    ) -> SiteExplorerResult<bool> {
+        let active_config_changed =
+            db::machine_interface::reconcile_admin_addresses_for_host(txn, host_machine_id).await?;
+        if active_config_changed {
+            let (network_config, network_config_version) =
+                db::machine::get_network_config(&mut *txn, host_machine_id)
+                    .await?
+                    .take();
+            db::machine::try_update_network_config(
+                txn,
+                host_machine_id,
+                network_config_version,
+                &network_config,
+            )
+            .await?;
+        }
+        Ok(active_config_changed)
     }
 
     // configure_host_machine configures the host's machine with the specific interface. It returns the host's machine ID.
@@ -760,5 +804,34 @@ impl MachineCreator {
         .await?;
 
         Ok(predicted_machine_id)
+    }
+}
+
+/// Host inband MACs used when minting `predicted_machine_interface` rows for zero-DPU hosts.
+/// Prefers Redfish-reported System EthernetInterfaces; falls back to `ExpectedMachine.host_nics`
+/// when the BMC omits them from Redfish.
+fn host_mac_addresses_for_predicted_machine(
+    report: &EndpointExplorationReport,
+    machine_data: Option<&ExpectedMachineData>,
+) -> Vec<MacAddress> {
+    let from_redfish = report.all_mac_addresses();
+    match from_redfish.as_slice() {
+        [_, ..] => from_redfish,
+        [] => machine_data
+            .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
+            .map(|data| data.host_nics.as_slice())
+            .filter(|host_nics| !host_nics.is_empty())
+            .map(|host_nics| {
+                tracing::info!(
+                    host_nic_count = host_nics.len(),
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                );
+                host_nics
+                    .iter()
+                    .map(|nic| nic.mac_address)
+                    .dedup()
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }

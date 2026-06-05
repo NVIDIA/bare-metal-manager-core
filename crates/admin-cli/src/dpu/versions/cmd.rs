@@ -18,12 +18,13 @@
 use std::collections::HashMap;
 
 use ::rpc::Machine;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Row, Table};
 use serde::Serialize;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 

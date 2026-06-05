@@ -170,6 +170,45 @@ pub enum DeviceTargetArgs {
     Rack(RackTargetArgs),
 }
 
+/// Component-power-control target subset: no rack target since
+/// `ComponentPowerControlRequest` only supports machines, switches and
+/// power shelves.
+#[derive(Subcommand, Debug)]
+pub enum PowerControlTargetArgs {
+    #[clap(about = "Target NVLink switches")]
+    Switch(SwitchTargetArgs),
+
+    #[clap(about = "Target power shelves")]
+    PowerShelf(PowerShelfTargetArgs),
+
+    #[clap(about = "Target compute trays")]
+    ComputeTray(MachineTargetArgs),
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+#[clap(rename_all = "kebab_case")]
+pub enum PowerActionArg {
+    On,
+    GracefulShutdown,
+    ForceOff,
+    GracefulRestart,
+    ForceRestart,
+    ACPowercycle,
+}
+
+impl From<PowerActionArg> for ::rpc::common::SystemPowerControl {
+    fn from(action: PowerActionArg) -> Self {
+        match action {
+            PowerActionArg::On => Self::On,
+            PowerActionArg::GracefulShutdown => Self::GracefulShutdown,
+            PowerActionArg::ForceOff => Self::ForceOff,
+            PowerActionArg::GracefulRestart => Self::GracefulRestart,
+            PowerActionArg::ForceRestart => Self::ForceRestart,
+            PowerActionArg::ACPowercycle => Self::AcPowercycle,
+        }
+    }
+}
+
 pub fn component_result_status_name(status: i32) -> &'static str {
     match rpc::forge::ComponentManagerStatusCode::try_from(status) {
         Ok(rpc::forge::ComponentManagerStatusCode::Success) => "success",

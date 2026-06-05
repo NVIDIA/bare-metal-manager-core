@@ -20,8 +20,9 @@ use std::sync::Arc;
 
 use bmc_mock::HostnameQuerying;
 use eyre::Context;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use russh::keys::PublicKeyBase64;
-use russh::keys::signature::rand_core::OsRng;
 use russh::server::{Auth, Config, Msg, Server as _, Session, run_stream};
 use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, server};
 use tokio::net::TcpListener;
@@ -53,8 +54,9 @@ pub async fn spawn(
     require_credentials: Option<Credentials>,
     prompt_behavior: PromptBehavior,
 ) -> eyre::Result<MockSshServerHandle> {
-    let mut rng = OsRng;
-    let host_key = russh::keys::PrivateKey::random(&mut rng, russh::keys::Algorithm::Ed25519)?;
+    let mut rng = SysRng;
+    let host_key =
+        russh::keys::PrivateKey::random(&mut UnwrapErr(&mut rng), russh::keys::Algorithm::Ed25519)?;
     let host_pubkey = host_key.public_key_base64();
     let server = Server {
         prompt_hostname,
@@ -197,11 +199,11 @@ impl MockSshHandler {
             ConsoleState::SystemConsole => {
                 session.data(
                     channel,
-                    format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()).into(),
+                    format!("\r\nroot@{} # ", self.prompt_hostname.get_hostname()),
                 )?;
             }
             ConsoleState::Bmc => {
-                session.data(channel, "\nracadm>>".into())?;
+                session.data(channel, "\nracadm>>")?;
             }
             ConsoleState::NoShell => {
                 // Do nothing
@@ -321,7 +323,7 @@ impl server::Handler for MockSshHandler {
                     self.print_prompt(session, channel)?;
                 } else {
                     self.buffer = [&self.buffer, data].concat();
-                    session.data(channel, data.into())?;
+                    session.data(channel, data.to_owned())?;
                 }
             }
             ConsoleState::SystemConsole => {
@@ -349,7 +351,7 @@ impl server::Handler for MockSshHandler {
                         }
                         (data, _) => {
                             self.buffer = [&self.buffer, data].concat();
-                            session.data(channel, data.into())?;
+                            session.data(channel, data.to_owned())?;
                         }
                     }
                 }

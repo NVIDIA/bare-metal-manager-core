@@ -47,9 +47,13 @@ STATE_DIR=/var/lib/otel-agent
 STATE_FILE="$STATE_DIR/otel-agent-build.hash"
 CARBIDE_API=carbide-api.forge
 TAR_DIR=/var/lib/otelcol-contrib
+CERTS_FILE=mtls-certs.tar
+CERTS_TAR="$TAR_DIR/$CERTS_FILE"
 CERTS_DIR=/etc/otelcol-contrib/certs
 TEMPLATE=/usr/share/otelcol-contrib/docker/otel-agent/otel-agent.yaml.template
 OTEL_AGENT_CONFIG=/etc/kubelet.d/otel-agent.yaml
+INITIAL_CERTS_RETRY_INTERVAL="${INITIAL_CERTS_RETRY_INTERVAL:-60}"
+INITIAL_CERTS_WAIT_TIMEOUT="${INITIAL_CERTS_WAIT_TIMEOUT:-0}"
 
 # Parse optional flags
 while [[ "$#" -gt 0 ]]; do
@@ -64,29 +68,72 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+# Validate environment variables
+case "$INITIAL_CERTS_RETRY_INTERVAL" in
+    ''|*[!0-9]*)
+        echo "INITIAL_CERTS_RETRY_INTERVAL must be a non-negative integer" >&2
+        exit 1
+        ;;
+esac
+
+case "$INITIAL_CERTS_WAIT_TIMEOUT" in
+    ''|*[!0-9]*)
+        echo "INITIAL_CERTS_WAIT_TIMEOUT must be a non-negative integer" >&2
+        exit 1
+        ;;
+esac
+
 if [[ ! -f "$CERTS_DIR/private/otel-key.pem" ]]; then
     # mTLS certs are not installed yet. Look for initial certs in a tar file at
-    # $TAR_DIR. If they aren't there yet, fail and let the service retry until
-    # initial certs are provided.
-    if [[ -f "$TAR_DIR/mtls-certs.tar" ]]; then
-        cd "$TAR_DIR"
-        tar xvf mtls-certs.tar --exclude='._*' --warning=no-unknown-keyword
-        if [[ ! -d certs ]]; then
-            echo "Expected 'certs' directory missing after extraction" >&2
+    # $TAR_DIR. If they aren't there yet, retry until initial certs are
+    # provided, up to a configurable timeout (forever by default).
+    start_ts=$(date +%s)
+
+    while :; do
+        now_ts=$(date +%s)
+        elapsed=$((now_ts - start_ts))
+
+        if [[ ! -f "$CERTS_TAR" ]]; then
+            if [[ "$INITIAL_CERTS_WAIT_TIMEOUT" -gt 0 && "$elapsed" -ge "$INITIAL_CERTS_WAIT_TIMEOUT" ]]; then
+                echo "Initial mTLS certs tarball not found at $CERTS_TAR after ${elapsed}s, giving up" >&2
+                exit 1
+            fi
+
+            echo "Initial mTLS certs tarball not found at $CERTS_TAR after ${elapsed}s; retrying in ${INITIAL_CERTS_RETRY_INTERVAL}s" >&2
+            sleep "$INITIAL_CERTS_RETRY_INTERVAL"
+            continue
+        fi
+
+        # File exists; validate that it isn't still being written
+        if tar -tf "$CERTS_TAR" >/dev/null 2>&1; then
+            echo "Found initial mTLS certs tarball at $CERTS_TAR after ${elapsed}s"
+            break
+        fi
+
+        if [[ "$INITIAL_CERTS_WAIT_TIMEOUT" -gt 0 && "$elapsed" -ge "$INITIAL_CERTS_WAIT_TIMEOUT" ]]; then
+            echo "Initial mTLS certs tarball exists but is still invalid after ${elapsed}s; giving up" >&2
             exit 1
         fi
-        mv certs/ca.pem "$CERTS_DIR/"
-        mv certs/client-cert.pem "$CERTS_DIR/otel-cert.pem"
-        mv certs/client-key.pem "$CERTS_DIR/private/otel-key.pem"
-        rm mtls-certs.tar
-        rmdir certs 2>/dev/null || true
-        cd - >/dev/null
-        if [[ -z "$(find "$TAR_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
-            rmdir "$TAR_DIR"
-        fi
-    else
-        echo "Initial mTLS certs not found at $TAR_DIR/mtls-certs.tar" >&2
+
+        echo "Initial mTLS certs tarball exists after ${elapsed}s but is invalid; retrying in ${INITIAL_CERTS_RETRY_INTERVAL}s" >&2
+        sleep "$INITIAL_CERTS_RETRY_INTERVAL"
+    done
+
+    # tar file validated, install mTLS certs
+    cd "$TAR_DIR"
+    tar xvf "$CERTS_FILE" --exclude='._*' --warning=no-unknown-keyword
+    if [[ ! -d certs ]]; then
+        echo "Expected 'certs' directory missing after extraction" >&2
         exit 1
+    fi
+    mv certs/ca.pem "$CERTS_DIR/"
+    mv certs/client-cert.pem "$CERTS_DIR/otel-cert.pem"
+    mv certs/client-key.pem "$CERTS_DIR/private/otel-key.pem"
+    rm "$CERTS_FILE"
+    rmdir certs 2>/dev/null || true
+    cd - >/dev/null
+    if [[ -z "$(find "$TAR_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+        rmdir "$TAR_DIR"
     fi
 fi
 
@@ -216,10 +263,40 @@ interval=2
 
 for i in $(seq 1 $((timeout / interval))); do
     if "$CRICTL" ps --name otel-agent | grep -q otel-agent; then
-        exit 0
+        break
     fi
     sleep "$interval"
 done
 
-echo "otel-agent did not appear in crictl ps output within ${timeout}s" >&2
+if ! "$CRICTL" ps --name otel-agent | grep -q otel-agent; then
+    echo "otel-agent did not appear in crictl ps output within ${timeout}s" >&2
+    exit 1
+fi
+
+cleanup_and_exit() {
+    echo "systemd stop requested; cleaning up and stopping otel-agent."
+
+    rm -f "$OTEL_AGENT_CONFIG"
+
+    for i in $(seq 1 30); do
+        if ! "$CRICTL" ps --name otel-agent | grep -q otel-agent; then
+            echo "otel-agent container has stopped."
+            exit 0
+        fi
+        sleep 2
+    done
+
+    echo "otel-agent container still running after timeout" >&2
+    exit 1
+}
+
+trap cleanup_and_exit TERM
+
+echo "Monitoring otel-agent; will exit when it stops."
+
+while "$CRICTL" ps --name otel-agent | grep -q otel-agent; do
+    sleep 5
+done
+
+echo "otel-agent stopped unexpectedly."
 exit 1

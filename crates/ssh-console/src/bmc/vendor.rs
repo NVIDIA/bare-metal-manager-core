@@ -34,7 +34,6 @@ pub enum BmcVendor {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum IpmiBmcVendor {
     Supermicro,
-    LenovoAmi,
     NvidiaViking,
 }
 
@@ -42,7 +41,6 @@ impl IpmiBmcVendor {
     pub fn config_string(&self) -> &'static str {
         match self {
             IpmiBmcVendor::Supermicro => "supermicro",
-            IpmiBmcVendor::LenovoAmi => "lenovo_ami",
             IpmiBmcVendor::NvidiaViking => "nvidia_viking",
         }
     }
@@ -58,6 +56,8 @@ pub enum SshBmcVendor {
     Dell,
     /// Lenovo XClarity - uses "console kill 1\nconsole 1" command and ESC ( escape sequence
     Lenovo,
+    /// Lenovo AMI - SSH login opens the console directly.
+    LenovoAmi,
     /// HPE iLO - uses "vsp" command and ESC ( escape sequence
     Hpe,
     /// DPU, no commands needed, we just connect to port 2200 and get a console immediately.
@@ -75,7 +75,7 @@ impl BmcVendor {
 
         Ok(match bmc_vendor::BMCVendor::from(vendor_string) {
             BMCVendor::Lenovo => BmcVendor::Ssh(SshBmcVendor::Lenovo),
-            BMCVendor::LenovoAMI => BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi),
+            BMCVendor::LenovoAMI => BmcVendor::Ssh(SshBmcVendor::LenovoAmi),
             BMCVendor::Dell => BmcVendor::Ssh(SshBmcVendor::Dell),
             BMCVendor::Supermicro => BmcVendor::Ipmi(IpmiBmcVendor::Supermicro),
             BMCVendor::Hpe => BmcVendor::Ssh(SshBmcVendor::Hpe),
@@ -95,14 +95,14 @@ impl BmcVendor {
             Some(BmcVendor::Ssh(SshBmcVendor::Dell))
         } else if s == SshBmcVendor::Lenovo.config_string() {
             Some(BmcVendor::Ssh(SshBmcVendor::Lenovo))
+        } else if s == SshBmcVendor::LenovoAmi.config_string() {
+            Some(BmcVendor::Ssh(SshBmcVendor::LenovoAmi))
         } else if s == SshBmcVendor::Hpe.config_string() {
             Some(BmcVendor::Ssh(SshBmcVendor::Hpe))
         } else if s == SshBmcVendor::Dpu.config_string() {
             Some(BmcVendor::Ssh(SshBmcVendor::Dpu))
         } else if s == IpmiBmcVendor::Supermicro.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro))
-        } else if s == IpmiBmcVendor::LenovoAmi.config_string() {
-            Some(BmcVendor::Ipmi(IpmiBmcVendor::LenovoAmi))
         } else if s == IpmiBmcVendor::NvidiaViking.config_string() {
             Some(BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking))
         } else {
@@ -155,6 +155,7 @@ impl SshBmcVendor {
         match self {
             SshBmcVendor::Dell => Some(b"connect com2"),
             SshBmcVendor::Lenovo => Some(b"console kill 1\nconsole 1"),
+            SshBmcVendor::LenovoAmi => None,
             SshBmcVendor::Hpe => Some(b"vsp"),
             SshBmcVendor::Dpu => None,
         }
@@ -164,6 +165,7 @@ impl SshBmcVendor {
         match self {
             SshBmcVendor::Dell => Some(b"\nracadm>>"),
             SshBmcVendor::Lenovo => Some(b"\nsystem>"),
+            SshBmcVendor::LenovoAmi => None,
             SshBmcVendor::Hpe => Some(b"\n</>hpiLO->"),
             SshBmcVendor::Dpu => None,
         }
@@ -183,6 +185,7 @@ impl SshBmcVendor {
         match self {
             SshBmcVendor::Dell => Some(EscapeSequence::Single(0x1c)), // ctrl+\
             SshBmcVendor::Lenovo => Some(EscapeSequence::Pair((0x1b, &[0x28]))), // ESC (
+            SshBmcVendor::LenovoAmi => None,
             SshBmcVendor::Hpe => Some(EscapeSequence::Pair((0x1b, &[0x28]))), // ESC (
             SshBmcVendor::Dpu => None,
         }
@@ -192,6 +195,7 @@ impl SshBmcVendor {
         match self {
             SshBmcVendor::Dell => "dell",
             SshBmcVendor::Lenovo => "lenovo",
+            SshBmcVendor::LenovoAmi => "lenovo_ami",
             SshBmcVendor::Hpe => "hpe",
             SshBmcVendor::Dpu => "dpu",
         }

@@ -94,6 +94,9 @@ fn event_context() -> EventContext {
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: MACHINE_ID.parse().expect("valid machine id"),
             machine_serial: None,
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
         })),
         rack_id: None,
     }
@@ -268,6 +271,9 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                 metadata: Some(EndpointMetadata::Machine(MachineData {
                     machine_id: MACHINE_ID.parse().expect("valid machine id"),
                     machine_serial: None,
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
                 })),
                 rack_id: Some(RackId::new(rack_id)),
             }

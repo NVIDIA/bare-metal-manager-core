@@ -17,8 +17,13 @@
 
 use std::sync::Arc;
 
+use carbide_host_support::agent_config::MachineIdentityConfig;
+use eyre::eyre;
+use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
 use rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
-use rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance, UpdateConfigRequest};
+use rpc::fmds::{
+    FmdsConfigUpdate, FmdsMachineIdentityConfig, IbDevice, IbInstance, UpdateConfigRequest,
+};
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use tonic::transport::Channel;
 
@@ -36,7 +41,7 @@ pub enum FmdsUpdater {
     /// External will send FMDS updates to an FMDS server,
     /// which is colocated on the same DPU, possibly in its
     /// own container.
-    External(FmdsGrpcClient),
+    External(Box<FmdsGrpcClient>),
 }
 
 impl FmdsUpdater {
@@ -66,15 +71,33 @@ impl FmdsUpdater {
 pub struct FmdsGrpcClient {
     client: FmdsConfigServiceClient<Channel>,
     address: String,
+    machine_identity: MachineIdentityConfig,
 }
 
 impl FmdsGrpcClient {
-    pub async fn connect(address: &str) -> eyre::Result<Self> {
+    pub async fn connect(
+        address: &str,
+        machine_identity: MachineIdentityConfig,
+    ) -> eyre::Result<Self> {
         let client = FmdsConfigServiceClient::connect(address.to_string()).await?;
         Ok(Self {
             client,
             address: address.to_string(),
+            machine_identity,
         })
+    }
+
+    fn machine_identity_proto(&self) -> eyre::Result<FmdsMachineIdentityConfig> {
+        MachineIdentityParams::try_from_limits(
+            self.machine_identity.requests_per_second,
+            self.machine_identity.burst,
+            self.machine_identity.wait_timeout_secs,
+            self.machine_identity.sign_timeout_secs,
+            self.machine_identity.sign_proxy_url.as_deref(),
+            self.machine_identity.sign_proxy_tls_root_ca.as_deref(),
+        )
+        .map(Into::into)
+        .map_err(|msg| eyre!("machine-identity (FMDS config push): {msg}"))
     }
 
     async fn update_config(
@@ -122,6 +145,7 @@ impl FmdsGrpcClient {
             user_data: metadata.user_data.clone(),
             ib_devices,
             asn,
+            machine_identity: Some(self.machine_identity_proto()?),
         };
 
         self.client

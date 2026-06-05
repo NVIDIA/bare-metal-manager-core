@@ -21,12 +21,12 @@
  */
 
 use std::collections::HashSet;
-use std::convert::{From, Into};
+use std::convert::From;
 use std::fmt;
 use std::hash::Hash;
 use std::vec::Vec;
 
-use rpc::protos::measured_boot::PcrRegisterValuePb;
+use crate::records::{MeasurementBundleValueRecord, MeasurementReportValueRecord};
 
 // PcrRange is a small struct used when parsing
 // --pcr-register values from the CLI as part of
@@ -170,38 +170,22 @@ pub struct PcrRegisterValue {
     pub sha_any: String,
 }
 
-pub struct PcrRegisterValueVec(Vec<PcrRegisterValue>);
+pub struct PcrRegisterValueVec(pub Vec<PcrRegisterValue>);
 
-impl PcrRegisterValueVec {
-    pub fn into_inner(self) -> Vec<PcrRegisterValue> {
-        self.0
-    }
-}
-
-impl PcrRegisterValue {
-    pub fn from_pb_vec(pbs: Vec<PcrRegisterValuePb>) -> Vec<Self> {
-        pbs.into_iter().map(|value| value.into()).collect()
-    }
-
-    pub fn to_pb_vec(values: &[Self]) -> Vec<PcrRegisterValuePb> {
-        values.iter().map(|value| value.clone().into()).collect()
-    }
-}
-
-impl From<PcrRegisterValue> for PcrRegisterValuePb {
-    fn from(val: PcrRegisterValue) -> Self {
-        Self {
-            pcr_register: val.pcr_register as i32,
+impl From<MeasurementBundleValueRecord> for PcrRegisterValue {
+    fn from(val: MeasurementBundleValueRecord) -> Self {
+        PcrRegisterValue {
+            pcr_register: val.pcr_register,
             sha_any: val.sha_any,
         }
     }
 }
 
-impl From<PcrRegisterValuePb> for PcrRegisterValue {
-    fn from(msg: PcrRegisterValuePb) -> Self {
+impl From<MeasurementReportValueRecord> for PcrRegisterValue {
+    fn from(val: MeasurementReportValueRecord) -> Self {
         Self {
-            pcr_register: msg.pcr_register as i16,
-            sha_any: msg.sha_any,
+            pcr_register: val.pcr_register,
+            sha_any: val.sha_any,
         }
     }
 }

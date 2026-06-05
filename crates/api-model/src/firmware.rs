@@ -126,6 +126,7 @@ pub enum FirmwareComponentType {
     HGXBmc,
     CombinedBmcUefi,
     Gpu,
+    Cx7,
     #[serde(other)]
     #[default]
     Unknown,
@@ -143,6 +144,7 @@ impl fmt::Display for FirmwareComponentType {
             FirmwareComponentType::Cec => write!(f, "CEC"),
             FirmwareComponentType::Gpu => write!(f, "GPU"),
             FirmwareComponentType::HGXBmc => write!(f, "HGX BMC"),
+            FirmwareComponentType::Cx7 => write!(f, "CX7"),
             FirmwareComponentType::Unknown => write!(f, "Unknown"),
         }
     }

@@ -15,10 +15,6 @@
  * limitations under the License.
  */
 
-// use std::fmt::Write;
-use std::str::FromStr;
-
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use sha2::{Digest, Sha256};
 
@@ -105,11 +101,6 @@ pub enum MissingHardwareInfo {
     Serial,
     #[error("TPM and DMI data are both missing")]
     All,
-}
-
-/// Converts a RPC MachineId into the internal data format
-pub fn try_parse_machine_id(id: &str) -> Result<MachineId, RpcDataConversionError> {
-    MachineId::from_str(id).map_err(|_| RpcDataConversionError::InvalidMachineId(id.to_string()))
 }
 
 #[cfg(test)]
@@ -225,18 +216,6 @@ mod tests {
             &mut fingerprint,
             MachineType::PredictedHost,
             host_id_from_dpu_hardware_info,
-        );
-    }
-
-    #[test]
-    fn validate_remote_id() {
-        let dpu_id =
-            try_parse_machine_id("fm100dsg4ekcb4sdi6hkqn0iojhj18okrr8vct64luh8957lfe8e69vme20")
-                .unwrap();
-
-        assert_eq!(
-            "d33nk2ne8p59qr988hssbc84gb2b0s34vcq5j7pm5jnrbnhc6880",
-            dpu_id.remote_id()
         );
     }
 }

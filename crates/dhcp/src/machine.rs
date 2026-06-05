@@ -290,24 +290,6 @@ pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_cha
     vendor_class.into_raw()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn machine_get_uuid(ctx: *mut Machine) -> *mut libc::c_char {
-    assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
-
-    let uuid = if let Some(machine_interface_id) = &machine.inner.machine_interface_id {
-        CString::new(machine_interface_id.to_string()).unwrap()
-    } else {
-        log::debug!(
-            "Found a host missing UUID (Possibly a Instance), dumping everything we know about it: {:?}",
-            &machine
-        );
-        CString::new("").unwrap()
-    };
-
-    uuid.into_raw()
-}
-
 /// Get the broadcast address.
 ///
 /// This is, and will always be, specific to DHCPv4, as broadcast
@@ -353,17 +335,6 @@ pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
         }
 
         drop(CString::from_raw(client_type))
-    };
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn machine_free_uuid(uuid: *mut libc::c_char) {
-    unsafe {
-        if uuid.is_null() {
-            return;
-        }
-
-        drop(CString::from_raw(uuid))
     };
 }
 

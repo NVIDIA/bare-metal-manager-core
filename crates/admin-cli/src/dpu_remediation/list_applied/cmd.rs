@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
@@ -25,6 +25,7 @@ use rpc::forge::{
 };
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 

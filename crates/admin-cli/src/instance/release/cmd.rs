@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::InstanceReleaseRequest;
 use carbide_uuid::instance::InstanceId;
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::instance::common::GlobalOptions;
 use crate::rpc::ApiClient;
 

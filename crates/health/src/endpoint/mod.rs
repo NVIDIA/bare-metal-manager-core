@@ -19,24 +19,52 @@ mod model;
 mod sources;
 
 pub use model::{
-    BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, CredentialProvider, EndpointMetadata,
-    EndpointSource, MachineData, SwitchData,
+    BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
+    PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 pub use sources::{CompositeEndpointSource, StaticEndpointSource};
 
+pub use crate::bmc::{BoxFuture, CredentialProvider};
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     use std::str::FromStr;
     use std::sync::Arc;
 
     use mac_address::MacAddress;
+    use nv_redfish::bmc_http::reqwest::{
+        Client as ReqwestClient, ClientParams as ReqwestClientParams,
+    };
 
     use super::*;
-    use crate::HealthError;
-    use crate::config::StaticBmcEndpoint;
+    use crate::bmc::{BmcClient, FixedCredentialProvider};
 
-    fn make_test_endpoint(mac: MacAddress) -> BmcEndpoint {
-        BmcEndpoint::with_fixed_credentials(
+    pub fn reqwest() -> ReqwestClient {
+        ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
+            .expect("reqwest client builds")
+    }
+
+    pub fn endpoint_with_creds(
+        addr: BmcAddr,
+        creds: BmcCredentials,
+        metadata: Option<EndpointMetadata>,
+        rack_id: Option<carbide_uuid::rack::RackId>,
+    ) -> BmcEndpoint {
+        let provider = Arc::new(FixedCredentialProvider::new(creds));
+        let bmc = Arc::new(
+            BmcClient::new(reqwest(), addr.clone(), provider, None, 10)
+                .expect("fixed-credential BmcClient construction is infallible"),
+        );
+        BmcEndpoint {
+            addr,
+            metadata,
+            rack_id,
+            bmc,
+        }
+    }
+
+    pub fn test_endpoint(mac: MacAddress) -> BmcEndpoint {
+        endpoint_with_creds(
             BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
                 port: Some(443),
@@ -51,11 +79,23 @@ mod tests {
         )
     }
 
+    pub fn mac(s: &str) -> MacAddress {
+        MacAddress::from_str(s).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::test_support::{mac, test_endpoint};
+    use super::*;
+
     #[tokio::test]
     async fn test_static_endpoint_source_shares_arc_data() {
         let endpoints = vec![
-            make_test_endpoint(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
-            make_test_endpoint(MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap()),
+            test_endpoint(mac("00:11:22:33:44:55")),
+            test_endpoint(mac("aa:bb:cc:dd:ee:ff")),
         ];
         let source = StaticEndpointSource::new(endpoints);
 
@@ -70,12 +110,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_composite_endpoint_source_preserves_arc_sharing() {
-        let endpoints1 = vec![make_test_endpoint(
-            MacAddress::from_str("00:11:22:33:44:55").unwrap(),
-        )];
-        let endpoints2 = vec![make_test_endpoint(
-            MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
-        )];
+        let endpoints1 = vec![test_endpoint(mac("00:11:22:33:44:55"))];
+        let endpoints2 = vec![test_endpoint(mac("aa:bb:cc:dd:ee:ff"))];
 
         let source1 = Arc::new(StaticEndpointSource::new(endpoints1));
         let source2 = Arc::new(StaticEndpointSource::new(endpoints2));
@@ -96,12 +132,12 @@ mod tests {
         let addr_http = BmcAddr {
             ip: "10.0.0.1".parse().expect("valid ip"),
             port: Some(80),
-            mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+            mac: mac("00:11:22:33:44:55"),
         };
         let addr_https = BmcAddr {
             ip: "10.0.0.2".parse().expect("valid ip"),
             port: Some(443),
-            mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+            mac: mac("aa:bb:cc:dd:ee:ff"),
         };
 
         let url_http = addr_http.to_url().expect("url should build");
@@ -109,110 +145,5 @@ mod tests {
 
         assert_eq!(url_http.scheme(), "http");
         assert_eq!(url_https.scheme(), "https");
-    }
-
-    #[tokio::test]
-    async fn test_static_endpoint_source_filters_invalid_ip() {
-        let configs = vec![
-            StaticBmcEndpoint {
-                ip: "10.0.0.1".to_string(),
-                port: Some(443),
-                mac: "00:11:22:33:44:55".to_string(),
-                username: "admin".to_string(),
-                password: Some("pass".to_string()),
-                switch_serial: None,
-                machine_id: None,
-                rack_id: None,
-            },
-            StaticBmcEndpoint {
-                ip: "not-an-ip".to_string(),
-                port: Some(443),
-                mac: "aa:bb:cc:dd:ee:ff".to_string(),
-                username: "admin".to_string(),
-                password: Some("pass".to_string()),
-                switch_serial: None,
-                machine_id: None,
-                rack_id: None,
-            },
-        ];
-
-        let source = StaticEndpointSource::from_config(&configs);
-        let endpoints = source.fetch_bmc_hosts().await.expect("fetch should work");
-
-        assert_eq!(endpoints.len(), 1);
-        assert_eq!(
-            endpoints[0].addr.mac,
-            MacAddress::from_str("00:11:22:33:44:55").unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_static_endpoint_with_switch_serial_sets_metadata() {
-        let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.1.1".to_string(),
-            port: Some(443),
-            mac: "11:22:33:44:55:66".to_string(),
-            username: "cumulus".to_string(),
-            password: Some("pass".to_string()),
-            switch_serial: Some("SN-001".to_string()),
-            machine_id: None,
-            rack_id: None,
-        }];
-
-        let source = StaticEndpointSource::from_config(&configs);
-        let endpoints = source.fetch_bmc_hosts().await.unwrap();
-
-        assert_eq!(endpoints.len(), 1);
-        match &endpoints[0].metadata {
-            Some(EndpointMetadata::Switch(s)) => assert_eq!(s.serial, "SN-001"),
-            other => panic!("expected Switch metadata, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_static_endpoint_without_switch_serial_has_no_metadata() {
-        let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.0.1".to_string(),
-            port: Some(443),
-            mac: "aa:bb:cc:dd:ee:ff".to_string(),
-            username: "admin".to_string(),
-            password: Some("pass".to_string()),
-            switch_serial: None,
-            machine_id: None,
-            rack_id: None,
-        }];
-
-        let source = StaticEndpointSource::from_config(&configs);
-        let endpoints = source.fetch_bmc_hosts().await.unwrap();
-
-        assert_eq!(endpoints.len(), 1);
-        assert!(endpoints[0].metadata.is_none());
-    }
-
-    struct FailingSource;
-
-    impl EndpointSource for FailingSource {
-        fn fetch_bmc_hosts<'a>(
-            &'a self,
-        ) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>> {
-            Box::pin(async {
-                Err(HealthError::GenericError(
-                    "simulated endpoint source failure".to_string(),
-                ))
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_composite_endpoint_source_propagates_errors() {
-        let source_ok = Arc::new(StaticEndpointSource::new(vec![make_test_endpoint(
-            MacAddress::from_str("00:11:22:33:44:55").unwrap(),
-        )]));
-        let source_fail = Arc::new(FailingSource);
-        let composite = CompositeEndpointSource::new(vec![source_ok, source_fail]);
-
-        let result = composite.fetch_bmc_hosts().await;
-
-        assert!(result.is_err());
     }
 }

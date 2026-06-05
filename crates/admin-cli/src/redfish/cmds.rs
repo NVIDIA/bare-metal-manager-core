@@ -84,6 +84,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
 
     use Cmd::*;
     let pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
         .proxy(proxy)
         .build()?;
     let redfish: Box<dyn Redfish> = match &action.command {

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
+use carbide_metrics_utils::OtelView;
 use http_body_util::Full;
 use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use hyper::service::service_fn;
@@ -143,17 +144,16 @@ pub fn new_metrics_setup(
 /// This is more useful than the default histogram range where the lowest sets of
 /// buckets are 0, 5, 10, 25
 fn create_metric_view_for_retry_histograms(
-    name_filter: &str,
-) -> Result<Box<dyn opentelemetry_sdk::metrics::View>, opentelemetry_sdk::metrics::MetricError> {
-    let mut criteria = opentelemetry_sdk::metrics::Instrument::new().name(name_filter.to_string());
-    criteria.kind = Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram);
-    let mask = opentelemetry_sdk::metrics::Stream::new().aggregation(
+    name_filter: &'static str,
+) -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        name_filter,
+        Some(opentelemetry_sdk::metrics::InstrumentKind::Histogram),
         opentelemetry_sdk::metrics::Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
             record_min_max: true,
         },
-    );
-    opentelemetry_sdk::metrics::new_view(criteria, mask)
+    )
 }
 
 /// Start a HTTP endpoint which exposes metrics using the provided configuration

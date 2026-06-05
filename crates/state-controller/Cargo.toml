@@ -33,8 +33,6 @@ test-support = []
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
-carbide-dpf = { path = "../dpf" }
-carbide-redfish = { path = "../redfish" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 config-version = { path = "../config-version", features = ["sqlx"] }
@@ -47,17 +45,16 @@ chrono = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
-libredfish = { workspace = true }
-librms = { workspace = true }
 opentelemetry = { workspace = true }
 rand = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "postgres",
-    "chrono",
-    "macros",
+  "runtime-tokio",
+  "tls-rustls",
+  "postgres",
+  "chrono",
+  "macros",
 ] }
 thiserror = { workspace = true }
 tokio = { workspace = true }

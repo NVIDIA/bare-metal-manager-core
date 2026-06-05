@@ -21,14 +21,12 @@
  */
 
 use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-#[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
 use serde::Serialize;
 
 use super::pcr::PcrRegisterValue;
 use super::records::{MeasurementBundleState, MeasurementBundleValueRecord};
+#[cfg(feature = "cli")]
+use crate::ToTable;
 
 /// MeasurementBundle is a composition of a MeasurementBundleRecord,
 /// whose attributes are essentially copied directly it, as well as
@@ -65,78 +63,16 @@ pub struct MeasurementBundle {
     pub ts: chrono::DateTime<chrono::Utc>,
 }
 
-impl From<MeasurementBundle> for MeasurementBundlePb {
-    fn from(val: MeasurementBundle) -> Self {
-        let pb_state: MeasurementBundleStatePb = val.state.into();
-        Self {
-            bundle_id: Some(val.bundle_id),
-            profile_id: Some(val.profile_id),
-            name: val.name,
-            state: pb_state.into(),
-            values: val
-                .values
-                .iter()
-                .map(|value| value.clone().into())
-                .collect(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
 impl MeasurementBundle {
     pub fn pcr_values(&self) -> Vec<PcrRegisterValue> {
         let borrowed = &self.values;
         borrowed.iter().map(|rec| rec.clone().into()).collect()
     }
-
-    ////////////////////////////////////////////////////////////
-    /// from_grpc takes an optional protobuf (as populated in a
-    /// proto response from the API) and attempts to convert it
-    /// to the backing model.
-    ////////////////////////////////////////////////////////////
-    pub fn from_grpc(some_pb: Option<&MeasurementBundlePb>) -> super::Result<Self> {
-        some_pb
-            .ok_or(super::Error::RpcConversion(String::from(
-                "bundle is unexpectedly empty",
-            )))
-            .and_then(|pb| {
-                Self::try_from(pb.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!("bundle failed pb->model conversion: {e}"))
-                })
-            })
-    }
 }
 
-impl TryFrom<MeasurementBundlePb> for MeasurementBundle {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementBundlePb) -> Result<Self, Box<dyn std::error::Error>> {
-        let state = msg.state();
-        let values: super::Result<Vec<MeasurementBundleValueRecord>> = msg
-            .values
-            .iter()
-            .map(
-                |attr| match MeasurementBundleValueRecord::try_from(attr.clone()) {
-                    Ok(worked) => Ok(worked),
-                    Err(failed) => Err(super::Error::RpcConversion(format!(
-                        "attr conversion failed: {failed}"
-                    ))),
-                },
-            )
-            .collect();
-
-        Ok(Self {
-            bundle_id: msg
-                .bundle_id
-                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
-            profile_id: msg
-                .profile_id
-                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
-            name: msg.name.clone(),
-            state: MeasurementBundleState::from(state),
-            values: values?,
-            ts: chrono::DateTime::<chrono::Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl crate::DisplayName for MeasurementBundle {
+    fn display_name() -> &'static str {
+        "bundle"
     }
 }
 

@@ -19,8 +19,9 @@ use std::fmt::Write;
 
 use prettytable::{Row, Table};
 use rpc::Metadata;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::{async_write, async_writeln};
 
 /// Display metadata (name, description, labels) in the

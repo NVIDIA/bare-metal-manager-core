@@ -20,21 +20,16 @@
  *  tables in the database, leveraging the journal-specific record types.
  */
 
-use std::str::FromStr;
-
-use carbide_uuid::UuidEmptyStringError;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
 use chrono::Utc;
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 #[cfg(feature = "cli")]
 use {
-    rpc::admin_cli::ToTable,
-    rpc::admin_cli::{just_print_summary, serde_just_print_summary},
+    crate::ToTable,
+    crate::{just_print_summary, serde_just_print_summary},
 };
 
 use super::records::MeasurementMachineState;
@@ -86,62 +81,11 @@ impl MeasurementJournal {
         ]);
         journal_table
     }
-
-    ////////////////////////////////////////////////////////////
-    /// from_grpc takes an optional protobuf (as populated in a
-    /// proto response from the API) and attempts to convert it
-    /// to the backing model.
-    ////////////////////////////////////////////////////////////
-    pub fn from_grpc(some_pb: Option<&MeasurementJournalPb>) -> super::Result<Self> {
-        some_pb
-            .ok_or(super::Error::RpcConversion(
-                "journal is unexpectedly empty".to_string(),
-            ))
-            .and_then(|pb| {
-                Self::try_from(pb.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!("journal failed pb->model conversion: {e}"))
-                })
-            })
-    }
 }
 
-impl From<MeasurementJournal> for MeasurementJournalPb {
-    fn from(val: MeasurementJournal) -> Self {
-        let pb_state: MeasurementMachineStatePb = val.state.into();
-        Self {
-            journal_id: Some(val.journal_id),
-            machine_id: val.machine_id.to_string(),
-            report_id: Some(val.report_id),
-            profile_id: val.profile_id,
-            bundle_id: val.bundle_id,
-            state: pb_state.into(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementJournalPb> for MeasurementJournal {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementJournalPb) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        }
-        let state = msg.state();
-
-        Ok(Self {
-            journal_id: msg
-                .journal_id
-                .ok_or(RpcDataConversionError::MissingArgument("journal_id"))?,
-            machine_id: MachineId::from_str(&msg.machine_id)?,
-            report_id: msg
-                .report_id
-                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
-            profile_id: msg.profile_id,
-            bundle_id: msg.bundle_id,
-            state: MeasurementMachineState::from(state),
-            ts: chrono::DateTime::<chrono::Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl crate::DisplayName for MeasurementJournal {
+    fn display_name() -> &'static str {
+        "journal"
     }
 }
 

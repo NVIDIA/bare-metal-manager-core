@@ -16,8 +16,9 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::forge::AssociateMachinesWithInstanceTypeRequest;
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

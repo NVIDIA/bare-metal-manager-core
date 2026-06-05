@@ -26,7 +26,7 @@ use ::rpc::admin_cli::OutputFormat;
 use clap::Parser;
 use measured_boot::pcr::PcrRegisterValue;
 
-use crate::measurement::{bundle, journal, machine, profile, report, site};
+use crate::attestation::measured_boot::{bundle, journal, machine, profile, report, site};
 
 // KvPair is a really simple struct for holding
 // a key/value pair, and is used for parsing

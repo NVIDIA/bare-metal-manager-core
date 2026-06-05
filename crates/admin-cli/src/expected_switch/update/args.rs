@@ -17,12 +17,13 @@
 
 use std::net::IpAddr;
 
-use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
@@ -114,6 +115,13 @@ pub struct Args {
     pub bmc_ip_address: Option<IpAddr>,
 
     #[clap(
+        long = "nvos-ip-address",
+        value_name = "NVOS_IP_ADDRESS",
+        help = "Static IP for the single wired NVOS port. Requires exactly one --nvos-mac-address"
+    )]
+    pub nvos_ip_address: Option<IpAddr>,
+
+    #[clap(
         long = "bmc-retain-credentials",
         value_name = "BMC_RETAIN_CREDENTIALS",
         help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
@@ -175,6 +183,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
                 .bmc_ip_address
                 .map(|ip| ip.to_string())
                 .unwrap_or_default(),
+            nvos_ip_address: args.nvos_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: args.bmc_retain_credentials,
         })
     }

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use rand::Rng;
+use rand::RngExt;
 
 const TOKEN_SCALE: u64 = 1_000_000;
 

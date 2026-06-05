@@ -20,6 +20,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 
+use forge_tls::dummy_tls_verifier::DummyTlsVerifier;
 use http_body_util::BodyExt;
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::http::StatusCode;
@@ -29,7 +30,6 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
-use rpc::forge_tls_client::DummyTlsVerifier;
 use rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 use thiserror::Error;
 
@@ -267,7 +267,7 @@ impl RestClient {
         } else {
             rustls_client_builder()
                 .dangerous()
-                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
+                .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier::new_for_prod()))
                 .with_no_client_auth()
         };
 

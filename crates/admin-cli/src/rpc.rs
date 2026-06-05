@@ -17,17 +17,17 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
     NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
-    RemediationList, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
+    RemediationList, SpxPartitionSearchFilter, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
+    VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
@@ -41,11 +41,13 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::expected_machines::common::ExpectedMachineJson;
 use crate::instance::AllocateInstance;
 use crate::machine::MachineAutoupdate;
@@ -407,10 +409,30 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
         let request = rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: network_segments_ids.to_vec(),
-            include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
+            // Request inline history for single-segment lookups so old servers (lacking the
+            // FindNetworkSegmentStateHistories RPC) still populate the deprecated history field.
+            include_history: network_segments_ids.len() == 1,
             include_num_free_ips: true,
         };
         Ok(self.0.find_network_segments_by_ids(request).await?)
+    }
+
+    pub async fn get_segment_state_history(
+        &self,
+        segment_id: NetworkSegmentId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_network_segment_state_histories(rpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&segment_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
     }
 
     pub async fn get_domains(
@@ -617,6 +639,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        dpu_mode: Option<::rpc::forge::DpuMode>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
@@ -699,9 +722,7 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
-            // server-side value.
-            dpu_mode: expected_machine.dpu_mode,
+            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -804,6 +825,7 @@ impl ApiClient {
                         .bmc_ip_address
                         .map(|ip| ip.to_string())
                         .unwrap_or_default(),
+                    nvos_ip_address: switch.nvos_ip_address.map(|ip| ip.to_string()),
                     metadata: switch.metadata,
                     rack_id: switch.rack_id,
                     bmc_retain_credentials: switch.bmc_retain_credentials,
@@ -898,7 +920,6 @@ impl ApiClient {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
-                name: name.to_string(),
                 vni: None,
                 routing_profile_type: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
@@ -1017,6 +1038,33 @@ impl ApiClient {
         Ok(all_list)
     }
 
+    pub async fn get_all_spx_partitions(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let all_ids = self.get_spx_partition_ids(tenant_org_id, name).await?;
+        let mut all_list = rpc::SpxPartitionList {
+            spx_partitions: Vec::with_capacity(all_ids.spx_partition_ids.len()),
+        };
+
+        for ids in all_ids.spx_partition_ids.chunks(page_size) {
+            let list = self.get_spx_partitions_by_ids(ids).await?;
+            all_list.spx_partitions.extend(list.spx_partitions);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_spx_partition(
+        &self,
+        spx_partition_id: SpxPartitionId,
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let partitions = self.get_spx_partitions_by_ids(&[spx_partition_id]).await?;
+        Ok(partitions)
+    }
+
     pub async fn get_one_ib_partition(
         &self,
         ib_partition_id: IBPartitionId,
@@ -1038,6 +1086,19 @@ impl ApiClient {
         Ok(self.0.find_ib_partition_ids(request).await?)
     }
 
+    async fn get_spx_partition_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::SpxPartitionIdList> {
+        let request = SpxPartitionSearchFilter {
+            tenant_org_id,
+            name,
+            label: None,
+        };
+        Ok(self.0.find_spx_partition_ids(request).await?)
+    }
+
     async fn get_ib_partitions_by_ids(
         &self,
         ids: &[IBPartitionId],
@@ -1047,6 +1108,16 @@ impl ApiClient {
             include_history: ids.len() == 1,
         };
         Ok(self.0.find_ib_partitions_by_ids(request).await?)
+    }
+
+    async fn get_spx_partitions_by_ids(
+        &self,
+        ids: &[SpxPartitionId],
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let request = rpc::SpxPartitionsByIdsRequest {
+            spx_partition_ids: Vec::from(ids),
+        };
+        Ok(self.0.find_spx_partitions_by_ids(request).await?)
     }
 
     pub async fn get_all_keysets(
@@ -1190,7 +1261,9 @@ impl ApiClient {
                     .pci_properties
                     .as_ref()
                     .map(|pci| &pci.vendor)
-                    .is_some_and(|v| v.to_ascii_lowercase().contains("mellanox"))
+                    .is_some_and(|v| {
+                        v.to_ascii_lowercase().contains("mellanox") || allocate_instance.zero_dpu
+                    })
             });
             let mut interface_config = Vec::default();
             let mut vf_chunk_iter = vf_network_segment_ids.chunks(vfs_per_pf);
@@ -1223,6 +1296,7 @@ impl ApiClient {
                     virtual_function_id: None,
                     ip_address: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                 });
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
@@ -1238,6 +1312,7 @@ impl ApiClient {
                             virtual_function_id: Some(vf_function_id),
                             ip_address: None,
                             ipv6_interface_config: None,
+                            routing_profile: None,
                         });
                         vf_function_id += 1;
                     }
@@ -1249,7 +1324,7 @@ impl ApiClient {
                 allocate_instance
                     .tenant_org
                     .as_deref()
-                    .unwrap_or("Forge-simulation-tenant"),
+                    .unwrap_or("devenv_test_org"),
             )
         } else if !allocate_instance.vpc_prefix_id.is_empty() {
             let Some(discovery_info) = &machine.discovery_info else {
@@ -1312,6 +1387,7 @@ impl ApiClient {
                                     .get(map_index)
                                     .cloned(),
                             }),
+                        routing_profile: None,
                     };
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
@@ -1342,6 +1418,7 @@ impl ApiClient {
                                                 .cloned()
                                         }),
                                     }),
+                                routing_profile: None,
                             };
                             vf_function_id += 1;
                             tracing::debug!("Adding interface: {:?}", new_interface);
@@ -1388,12 +1465,18 @@ impl ApiClient {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
             network: Some(rpc::InstanceNetworkConfig {
-                interfaces: interface_configs,
+                interfaces: if allocate_instance.zero_dpu {
+                    vec![]
+                } else {
+                    interface_configs
+                },
+                auto: allocate_instance.zero_dpu,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
             infiniband: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: allocate_instance.spxconfig.clone(),
         };
 
         let mut labels = vec![
@@ -1668,12 +1751,10 @@ impl ApiClient {
         &self,
         vpc_id: VpcId,
         version: String,
-        name: String,
         metadata: Option<rpc::Metadata>,
         network_security_group_id: Option<String>,
     ) -> CarbideCliResult<rpc::Vpc> {
         let request = rpc::VpcUpdateRequest {
-            name,
             id: Some(vpc_id),
             if_version_match: Some(version),
             metadata,
@@ -2204,5 +2285,21 @@ impl ApiClient {
         }
 
         Ok(all_dpf_states)
+    }
+
+    pub async fn get_dpf_host_snapshot(
+        &self,
+        host_machine_id: MachineId,
+    ) -> CarbideCliResult<String> {
+        let request = GetDpfHostSnapshotRequest {
+            host_machine_id: Some(host_machine_id),
+        };
+        let response = self.0.get_dpf_host_snapshot(request).await?;
+        Ok(response.json_payload)
+    }
+
+    pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
+        let response = self.0.get_dpf_service_versions().await?;
+        Ok(response.services)
     }
 }

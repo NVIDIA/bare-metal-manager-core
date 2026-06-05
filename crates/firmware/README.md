@@ -1,13 +1,13 @@
-# carbide-firmware
+# nico-firmware
 
-Firmware metadata loading and lookup for Carbide.
+Firmware metadata loading and lookup for NICo.
 
 ## Overview
 
 This crate owns the runtime loading logic for firmware metadata used
-by Carbide services. It loads firmware definitions from two sources:
+by NICo services. It loads firmware definitions from two sources:
 
-- Entries embedded in the main Carbide configuration file (host and
+- Entries embedded in the main NICo configuration file (host and
   DPU models).
 - `metadata.toml` files discovered under a configured
   `firmware_directory` on disk.
@@ -22,21 +22,21 @@ This crate is intentionally narrow:
 
 - It depends on the firmware **data types** (`Firmware`,
   `FirmwareEntry`, `FirmwareComponentType`, ...) which live in
-  `carbide-api-model`. Those types describe firmware; this crate
+  `nico-api-model`. Those types describe firmware; this crate
   loads and queries them.
 - It does **not** define the top-level configuration file schema.
   Knobs like `firmware_directory` are part of `FirmwareGlobal` in
-  `carbide-api`.
+  `nico-api`.
 - It does **not** perform firmware upgrades, version comparison, or
-  artifact fetching. Those concerns live in `carbide-api` and
-  `carbide-scout`.
+  artifact fetching. Those concerns live in `nico-api` and
+  `nico-scout`.
 
 ## Key types
 
 ### `FirmwareConfig`
 
 The main entry point. Constructed from a base map (populated from
-`CarbideConfig`) and a `firmware_directory` path. It is responsible
+`NicoConfig`) and a `firmware_directory` path. It is responsible
 for loading, merging, and refreshing firmware metadata.
 
 It exposes disk-state observation:
@@ -70,7 +70,7 @@ parses every `metadata.toml`, and re-merges the entries on top of
 the base map.
 
 This lets operators add new firmware metadata at runtime without
-restarting Carbide: the next snapshot picks it up. Consumers that want
+restarting NICo: the next snapshot picks it up. Consumers that want
 cheap in-memory lookups (or explicit snapshot semantics) should
 cache a `FirmwareConfigSnapshot` and reuse it.
 
@@ -90,7 +90,7 @@ Merge rules, applied in oldest-to-newest directory order:
 
 Currently used (directly or indirectly) by:
 
-- `carbide-api`: `cfg/file.rs` (construction),
+- `nico-api`: `cfg/file.rs` (construction),
   `machine_update_manager` (hot-reload detection),
   `handlers/firmware.rs` (HTTP API), `preingestion_manager`,
   `site_explorer`, `state_controller`, tests.
@@ -116,7 +116,7 @@ is expected to split this into:
 
 with consumers that want hot-reload holding an
 `Arc<ArcSwap<FirmwareCatalog>>` refreshed by a background task. See
-the enclosing carbide-api refactor notes for details.
+the enclosing nico-api refactor notes for details.
 
 ## License
 

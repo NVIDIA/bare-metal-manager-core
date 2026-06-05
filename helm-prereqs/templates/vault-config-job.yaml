@@ -7,12 +7,14 @@
 ## Flow:
 ##   initContainer: wait for Vault to be healthy (HTTPS, tls-skip-verify)
 ##   container:     wait for site-root Secret, then:
-##     - Import site-root CA into Vault PKI engine (forgeca)
-##     - Configure PKI role (forge-cluster) with SPIFFE URI SANs
+##     - Import site-root CA into Vault PKI engine (nicoca)
+##     - Configure PKI role (nico-cluster) with SPIFFE URI SANs
+##     - Optionally configure PKI role for NICo CLI client certificates
 ##     - Enable Kubernetes auth, bind cert-manager SA
-##     - Create cert-manager-forge-policy + forge-vault-policy
+##     - Create cert-manager-nico-policy + nico-vault-policy
 ##     - Enable KV v2 at secrets/
-##     - Enable AppRole, create carbide role
+##     - Seed factory-default KV entries (machines/all_dpus/...)
+##     - Enable AppRole, create nico role
 ##
 ## Token read from vaultroottoken K8s secret (written by unseal_vault.sh).
 ## =============================================================================
@@ -42,8 +44,8 @@ rules:
     resourceNames: ["site-root"]
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["patch"]
-    resourceNames: ["carbide-vault-approle-tokens"]
+    verbs: ["get", "patch"]
+    resourceNames: ["nico-vault-approle-tokens"]
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates"]
     verbs: ["get"]
@@ -129,7 +131,7 @@ spec:
             - name: VAULT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: carbide-vault-token
+                  name: nico-vault-token
                   key: token
           volumeMounts:
             - name: approle-creds
@@ -185,6 +187,23 @@ spec:
                 require_cn=false \
                 use_csr_common_name=true
 
+              {{ if .Values.vault.nicoCliClientRole.enabled }}
+              # ---- Create NICo CLI client PKI role ----
+              echo "Creating PKI role {{ .Values.vault.nicoCliClientRole.name }}..."
+              vault write {{ .Values.vault.pkiMount }}/roles/{{ .Values.vault.nicoCliClientRole.name }} \
+                allow_any_name=true \
+                enforce_hostnames=false \
+                cn_validations=disabled \
+                client_flag=true \
+                server_flag=false \
+                key_type=ec \
+                key_bits=256 \
+                ttl=1h \
+                max_ttl=12h \
+                ou={{ .Values.vault.nicoCliClientRole.name | quote }}{{ if .Values.vault.nicoCliClientRole.organization }} \
+                organization={{ .Values.vault.nicoCliClientRole.organization | quote }}{{ end }}
+              {{ end }}
+
               # ---- Enable K8s auth ----
               echo "Configuring Kubernetes auth..."
               vault auth enable kubernetes 2>/dev/null || true
@@ -192,47 +211,96 @@ spec:
                 kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
               # ---- Policies ----
-              echo "Writing cert-manager-forge-policy..."
-              vault policy write cert-manager-forge-policy - << 'POLICY'
+              echo "Writing cert-manager-nico-policy..."
+              vault policy write cert-manager-nico-policy - << 'POLICY'
               path "{{ .Values.vault.pkiMount }}/sign/{{ .Values.vault.pkiRole }}" {
                 capabilities = ["create", "update"]
               }
               POLICY
 
-              echo "Writing forge-vault-policy..."
-              vault policy write forge-vault-policy - << 'POLICY'
-              path "{{ .Values.vault.kvMount }}/data/*" {
+              echo "Writing nico-vault-policy..."
+              vault policy write nico-vault-policy - << 'POLICY'
+              path "{{ .Values.vault.pkiMount }}*" {
                 capabilities = ["read", "list"]
+              }
+              path "{{ .Values.vault.pkiMount }}/sign/{{ .Values.vault.pkiRole }}" {
+                capabilities = ["create", "update"]
               }
               path "{{ .Values.vault.pkiMount }}/issue/{{ .Values.vault.pkiRole }}" {
                 capabilities = ["create", "update"]
+              }
+
+              path "{{ .Values.vault.kvMount }}/data/*" {
+                capabilities = ["read", "list"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/machines*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/machines/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/machines/*" {
+                capabilities = ["delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/destroy/machines/*" {
+                capabilities = ["delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/ufm/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/nmxm/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
+              }
+              path "{{ .Values.vault.kvMount }}/data/bgp/*" {
+                capabilities = ["create", "read", "patch", "list", "update", "delete"]
               }
               POLICY
 
               # ---- K8s auth role for cert-manager ----
               echo "Creating K8s auth role for cert-manager..."
-              vault write auth/kubernetes/role/cert-manager-forge-issuer \
-                bound_service_account_names=cert-manager-vault-forgeca-issuer \
+              vault write auth/kubernetes/role/cert-manager-nico-issuer \
+                bound_service_account_names=cert-manager-vault-nicoca-issuer \
                 bound_service_account_namespaces="{{ .Values.certManagerNamespace }}" \
-                policies=cert-manager-forge-policy \
+                policies=cert-manager-nico-policy \
                 ttl=1h
+
+              {{ if .Values.vault.nicoApiK8sAuth.enabled }}
+              # ---- K8s auth role for nico-api ----
+              # nico-api authenticates to in-cluster Vault via its SA JWT
+              # (vault SDK auto-detects /var/run/secrets/kubernetes.io/serviceaccount/token)
+              # and manages machine credentials in the KV mount (nico-vault-policy
+              # grants read/list plus scoped writes for machine, UFM, and NMXM secrets).
+              echo "Creating K8s auth role for nico-api..."
+              vault write auth/kubernetes/role/{{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \
+                bound_service_account_names={{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \
+                bound_service_account_namespaces="{{ .Values.namespace }}" \
+                policies=nico-vault-policy \
+                ttl={{ .Values.vault.nicoApiK8sAuth.tokenTTL }}
+              {{ end }}
 
               # ---- KV v2 + AppRole ----
               echo "Enabling KV v2 at {{ .Values.vault.kvMount }}/..."
               vault secrets enable -path={{ .Values.vault.kvMount }} kv-v2 2>/dev/null || true
 
+              {{- range .Values.vault.kvSeeds }}
+              echo "Seeding {{ $.Values.vault.kvMount }}/{{ .path }}..."
+              vault kv put {{ $.Values.vault.kvMount }}/{{ .path }} - <<'KVSEED'
+              {{ .data | toJson }}
+              KVSEED
+              {{- end }}
+
               echo "Enabling AppRole auth..."
               vault auth enable approle 2>/dev/null || true
 
-              vault write auth/approle/role/carbide \
-                token_policies=forge-vault-policy \
+              vault write auth/approle/role/nico \
+                token_policies=nico-vault-policy \
                 token_ttl=1h \
                 token_max_ttl=4h
 
               echo "Fetching AppRole credentials..."
-              vault read -field=role_id auth/approle/role/carbide/role-id \
+              vault read -field=role_id auth/approle/role/nico/role-id \
                 > /approle-creds/role-id
-              vault write -f -field=secret_id auth/approle/role/carbide/secret-id \
+              vault write -f -field=secret_id auth/approle/role/nico/secret-id \
                 > /approle-creds/secret-id
               touch /approle-creds/done
               echo "AppRole credentials written to shared volume"
@@ -240,7 +308,7 @@ spec:
               echo ""
               echo "=== Vault PKI configuration complete ==="
         ## ---------------------------------------------------------------
-        ## Patch carbide-vault-approle-tokens with real AppRole credentials.
+        ## Patch nico-vault-approle-tokens with real AppRole credentials.
         ## Runs alongside configure; waits for /approle-creds/done sentinel
         ## written by the configure container before patching.
         ## Uses a kubectl image since the vault image has no kubectl.
@@ -258,9 +326,9 @@ spec:
               until [ -f /approle-creds/done ]; do sleep 2; done
               _ROLE_ID=$(cat /approle-creds/role-id)
               _SECRET_ID=$(cat /approle-creds/secret-id)
-              kubectl patch secret carbide-vault-approle-tokens \
+              kubectl patch secret nico-vault-approle-tokens \
                 -n {{ .Values.namespace }} \
                 --type=merge \
                 -p "{\"stringData\":{\"VAULT_ROLE_ID\":\"${_ROLE_ID}\",\"VAULT_SECRET_ID\":\"${_SECRET_ID}\"}}"
-              echo "carbide-vault-approle-tokens patched with real AppRole credentials"
+              echo "nico-vault-approle-tokens patched with real AppRole credentials"
 {{- end }}

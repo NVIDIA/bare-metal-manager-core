@@ -54,6 +54,14 @@ pub async fn test_build_versions(pool: sqlx::PgPool) -> Result<(), eyre::Error> 
     version = "7.10.30.00"
     url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/iDRAC-with-Lifecycle-Controller_Firmware_HV310_WN64_7.10.30.00_A00.EXE"
     default = true
+
+    [components.cx7]
+    current_version_reported_as = "^CX7_[0-9]+$"
+
+    [[components.cx7.known_firmware]]
+    version = "28.47.2682"
+    url = "https://urm.nvidia.com/artifactory/sw-ngc-forge-cargo-local/misc/cx7.bin"
+    default = true
         "#;
     config.add_test_override(src_cfg_str.to_string());
 
@@ -111,7 +119,8 @@ current_version_reported_as = "^2$"
     let versions_all: Vec<AsStrings> = sqlx::query_as(query).fetch_all(txn.deref_mut()).await?;
     let versions = versions_all.first().unwrap().versions.clone();
 
-    let expected = r#"{"bmc": "7.10.30.00", "cec": "8.10.30.00", "uefi": "1.13.3"}"#;
+    let expected =
+        r#"{"bmc": "7.10.30.00", "cec": "8.10.30.00", "cx7": "28.47.2682", "uefi": "1.13.3"}"#;
 
     assert_eq!(expected, versions);
 

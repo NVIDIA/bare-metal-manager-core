@@ -45,21 +45,20 @@ impl Subnet {
     ) -> Result<Subnet, Status> {
         let network_segment = app_context
             .api_client()
-            .create_network_segment(&vpc.vpc_name, vpc.network_virtualization_type)
+            .create_network_segment(&vpc.metadata.name, vpc.network_virtualization_type)
             .await
             .map_err(|e| {
                 tracing::error!("Error creating network segment: {}", e);
                 Status::internal("Failed to create network segment.")
             })?;
 
+        let config = network_segment
+            .config
+            .ok_or_else(|| Status::internal("network segment missing config"))?;
         let new_subnet = Subnet {
             segment_id: network_segment.id.expect("Segment must have an ID."),
-            vpc_id: network_segment.vpc_id.expect("Segment must have a VPC_ID."),
-            prefixes: network_segment
-                .prefixes
-                .iter()
-                .map(|s| s.prefix.clone())
-                .collect(),
+            vpc_id: config.vpc_id.expect("Segment must have a VPC_ID."),
+            prefixes: config.prefixes.iter().map(|s| s.prefix.clone()).collect(),
             logs: Vec::default(),
             _created: network_segment.created,
         };

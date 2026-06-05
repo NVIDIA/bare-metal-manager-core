@@ -24,7 +24,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use lazy_static::lazy_static;
-use rand::Rng;
+use rand::RngExt;
 use rand::distr::StandardUniform;
 use serde_json::json;
 

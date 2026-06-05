@@ -18,13 +18,11 @@
 use std::fmt;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 #[cfg(feature = "ipnetwork")]
 use ipnetwork::IpNetwork;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
-/// doesn't send it to Carbide (which it never does), or if the Carbide API
+/// doesn't send it to NICo (which it never does), or if the NICo API
 /// doesn't send it to the DPU agent.
 pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
     VpcVirtualizationType::EthernetVirtualizer;
@@ -39,12 +37,31 @@ pub const DEFAULT_NETWORK_VIRTUALIZATION_TYPE: VpcVirtualizationType =
 /// and plumb the value down to the DPU agent, which gets piped into
 /// the `update_nvue` function, which is then used to drive
 /// population of the appropriate template.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VpcVirtualizationType {
+    #[default]
     EthernetVirtualizer,
+    /// Deprecated: equivalent to `EthernetVirtualizer` for all live behavior;
+    /// retained only so older database rows decode correctly. Treat the two
+    /// variants as the same thing in match arms.
     EthernetVirtualizerWithNvue,
     Fnn,
+    /// `Flat` is for VPCs whose tenant instances live directly on the
+    /// underlay (zero-DPU hosts, or hosts with their DPU in NIC mode) and
+    /// whose interfaces are bound to `HostInband` network segments rather
+    /// than a NICo-managed overlay. Flat VPCs are still real tenant
+    /// VPCs with a VNI and NSGs, but NICo doesn't drive their data
+    /// plane -- routing and ACL enforcement between Flat VPCs and other
+    /// VPCs is the network operator's responsibility.
+    Flat,
 }
+
+// Per-variant policy ("how does this type behave with respect to segments,
+// peering, routing profiles, IPv6, host fabric interfaces") is declared
+// as data in `carbide_api_model::vpc::capability` and consulted via the
+// `VpcVirtualizationTypeCapabilities` extension trait. There are no
+// inherent methods here; adding a new variant means filling in one
+// `VpcCapabilities` literal in that module, not editing handler logic.
 
 // Manual sqlx impls so that legacy DB value 'etv' decodes as EthernetVirtualizerWithNvue.
 #[cfg(feature = "sqlx")]
@@ -66,6 +83,7 @@ impl sqlx::Encode<'_, sqlx::Postgres> for VpcVirtualizationType {
         let s = match self {
             Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => "etv",
             Self::Fnn => "fnn",
+            Self::Flat => "flat",
         };
         <&str as sqlx::Encode<sqlx::Postgres>>::encode(s, buf)
     }
@@ -85,6 +103,7 @@ impl sqlx::Decode<'_, sqlx::Postgres> for VpcVirtualizationType {
         match s {
             "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizer),
             "fnn" => Ok(Self::Fnn),
+            "flat" => Ok(Self::Flat),
             other => {
                 Err(format!("invalid value {:?} for enum VpcVirtualizationType", other).into())
             }
@@ -125,11 +144,10 @@ mod sqlx_tests {
     fn encode_fnn_writes_fnn() {
         assert_eq!(encode_to_string(VpcVirtualizationType::Fnn), "fnn");
     }
-}
 
-impl Default for VpcVirtualizationType {
-    fn default() -> Self {
-        Self::EthernetVirtualizer
+    #[test]
+    fn encode_flat_writes_flat() {
+        assert_eq!(encode_to_string(VpcVirtualizationType::Flat), "flat");
     }
 }
 
@@ -138,52 +156,7 @@ impl fmt::Display for VpcVirtualizationType {
         match self {
             Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => write!(f, "etv"),
             Self::Fnn => write!(f, "fnn"),
-        }
-    }
-}
-
-impl TryFrom<i32> for VpcVirtualizationType {
-    type Error = RpcDataConversionError;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(match value {
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
-                Self::EthernetVirtualizer
-            }
-            // If we get proto enum field 2, which is ETHERNET_VIRTUALIZER_WITH_NVUE,
-            // just map it to EthernetVirtualizer.
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
-                Self::EthernetVirtualizer
-            }
-            x if x == rpc::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
-            _ => {
-                return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
-            }
-        })
-    }
-}
-
-impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
-    fn from(v: rpc::VpcVirtualizationType) -> Self {
-        match v {
-            rpc::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
-            // ETHERNET_VIRTUALIZER_WITH_NVUE is equivalent to EthernetVirtualizer
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EthernetVirtualizer,
-            rpc::VpcVirtualizationType::Fnn => Self::Fnn,
-            // Following are deprecated.
-            rpc::VpcVirtualizationType::FnnClassic => Self::Fnn,
-            rpc::VpcVirtualizationType::FnnL3 => Self::Fnn,
-        }
-    }
-}
-
-impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
-    fn from(nvt: VpcVirtualizationType) -> Self {
-        match nvt {
-            VpcVirtualizationType::EthernetVirtualizer
-            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizer
-            }
-            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn,
+            Self::Flat => write!(f, "flat"),
         }
     }
 }
@@ -203,6 +176,7 @@ impl FromStr for VpcVirtualizationType {
         match s {
             "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizer),
             "fnn" => Ok(Self::Fnn),
+            "flat" => Ok(Self::Flat),
             x => Err(eyre::eyre!(format!("Unknown virt type {}", x))),
         }
     }
@@ -214,7 +188,7 @@ impl FromStr for VpcVirtualizationType {
 /// for the purpose of FNN /30 allocations (where the host IP
 /// ends up being the 4th IP -- aka the second IP of the second
 /// /31 allocation in the /30), and will probably change with
-/// a wider refactor + intro of Carbide IP Prefix Management.
+/// a wider refactor + intro of NICo IP Prefix Management.
 pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<std::net::IpAddr> {
     match network.prefix() {
         // Single-host allocation: IPv4 /32 or IPv6 /128
@@ -285,39 +259,24 @@ mod tests {
     }
 
     #[test]
-    fn proto_value_2_maps_to_etv() {
-        // Make sure our proto From implementation turns
-        // ETHERNET_VIRTUALIZER_WITH_NVUE into EthernetVirtualizer.
-        let vtype = VpcVirtualizationType::try_from(2).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn proto_value_0_maps_to_etv() {
-        let vtype = VpcVirtualizationType::try_from(0).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn from_rpc_etv_with_nvue_maps_to_etv() {
-        let vtype: VpcVirtualizationType =
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn to_rpc_etv_maps_to_proto_etv() {
-        let rpc_vtype: rpc::VpcVirtualizationType =
-            VpcVirtualizationType::EthernetVirtualizer.into();
-        assert_eq!(rpc_vtype, rpc::VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
     fn display_etv_with_nvue_shows_etv() {
         assert_eq!(
             VpcVirtualizationType::EthernetVirtualizerWithNvue.to_string(),
             "etv"
         );
+    }
+
+    #[test]
+    fn from_str_flat_maps_to_flat() {
+        assert_eq!(
+            "flat".parse::<VpcVirtualizationType>().unwrap(),
+            VpcVirtualizationType::Flat
+        );
+    }
+
+    #[test]
+    fn display_flat_shows_flat() {
+        assert_eq!(VpcVirtualizationType::Flat.to_string(), "flat");
     }
 
     #[test]

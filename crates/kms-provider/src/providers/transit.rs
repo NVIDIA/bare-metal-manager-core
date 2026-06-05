@@ -83,7 +83,7 @@ impl TransitKmsProvider {
                 }
             };
 
-            if !info.renewable {
+            if info.renewable.is_none_or(|renewable| !renewable) {
                 tracing::info!("Transit KMS token is not renewable, skipping renewal loop");
                 return;
             }

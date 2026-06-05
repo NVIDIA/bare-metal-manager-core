@@ -83,8 +83,8 @@ impl VerifierClient for NrasVerifierClient {
 
         if status_code != reqwest::StatusCode::OK {
             return Err(NrasError::Communication(format!(
-                "NRAS returned status code {} and message {}",
-                status_code, response_text
+                "NRAS returned status code {} and message {}.\n Config is {:?}",
+                status_code, response_text, self.config
             )));
         }
 

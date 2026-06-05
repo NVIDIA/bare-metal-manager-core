@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn delete_endpoint(api_client: &ApiClient, opts: Args) -> CarbideCliResult<()> {

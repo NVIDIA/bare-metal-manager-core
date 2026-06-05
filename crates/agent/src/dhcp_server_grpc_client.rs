@@ -19,7 +19,7 @@ pub mod proto {
     tonic::include_proto!("dhcp_server_control");
 }
 
-use carbide_utils::models::dhcp::{
+use carbide_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, HostConfig as ModelHostConfig,
     InterfaceInfo as ModelInterfaceInfo,
 };

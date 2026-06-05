@@ -27,62 +27,28 @@
  *  what type of key is being passed around. A bunch of uuid::Uuid is meh.
  */
 
-use std::convert::Into;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_uuid::DbTable;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
     MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
     MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
 };
-use carbide_uuid::{DbTable, UuidEmptyStringError};
 use chrono::{DateTime, Utc};
-#[cfg(feature = "cli")]
-use rpc::admin_cli::{ToTable, serde_just_print_summary};
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{
-    CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
-    MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
-    MeasurementBundleStatePb, MeasurementBundleValueRecordPb, MeasurementJournalRecordPb,
-    MeasurementMachineStatePb, MeasurementReportRecordPb, MeasurementReportValueRecordPb,
-    MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb,
-};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::{
     postgres::PgRow,
     {FromRow, Row},
 };
-use tonic::Status;
 
-use super::pcr::PcrRegisterValue;
-
-/// ProtoParseError is an error used for reporting back failures
-/// to parse a protobuf message back into its record or model.
-#[derive(Debug)]
-pub struct ProtoParseError {
-    // from is the input type
-    pub from: String,
-    // to is the output type
-    pub to: String,
-    // msg is the msg
-    pub msg: String,
-}
-
-impl fmt::Display for ProtoParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "failed to convert {} to {}: {}",
-            self.from, self.to, self.msg,
-        )
-    }
-}
-
-impl Error for ProtoParseError {}
+use crate::DisplayName;
+#[cfg(feature = "cli")]
+use crate::{ToTable, serde_just_print_summary};
 
 /// StringToEnumError is used for taking an input string and converting
 /// it to an enum of a given type. It is leveraged by MeasurementBundleState,
@@ -118,27 +84,7 @@ pub struct MeasurementSystemProfileRecord {
     pub name: String,
 
     // ts is the timestamp the profile was created.
-    pub ts: chrono::DateTime<Utc>,
-}
-
-impl MeasurementSystemProfileRecord {
-    pub fn from_grpc(msg: MeasurementSystemProfileRecordPb) -> super::Result<Self> {
-        Self::try_from(msg).map_err(|e| {
-            super::Error::RpcConversion(format!("bad input system profile record: {e}"))
-        })
-    }
-
-    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileRecordPb]) -> super::Result<Vec<Self>> {
-        pbs.iter()
-            .map(|record| {
-                Self::try_from(record.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!(
-                        "failed system profile record conversion: {e}"
-                    ))
-                })
-            })
-            .collect()
-    }
+    pub ts: DateTime<Utc>,
 }
 
 impl DbTable for MeasurementSystemProfileRecord {
@@ -147,27 +93,9 @@ impl DbTable for MeasurementSystemProfileRecord {
     }
 }
 
-impl From<MeasurementSystemProfileRecord> for MeasurementSystemProfileRecordPb {
-    fn from(val: MeasurementSystemProfileRecord) -> Self {
-        Self {
-            profile_id: Some(val.profile_id),
-            name: val.name,
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementSystemProfileRecordPb> for MeasurementSystemProfileRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementSystemProfileRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            profile_id: msg
-                .profile_id
-                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
-            name: msg.name.clone(),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementSystemProfileRecord {
+    fn display_name() -> &'static str {
+        "system profile record"
     }
 }
 
@@ -211,61 +139,15 @@ pub struct MeasurementSystemProfileAttrRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementSystemProfileAttrRecord {
-    pub fn from_grpc(msg: MeasurementSystemProfileAttrRecordPb) -> super::Result<Self> {
-        Self::try_from(msg).map_err(|e| {
-            super::Error::RpcConversion(format!("bad input system profile attr record: {e}"))
-        })
-    }
-
-    pub fn from_pb_vec(pbs: &[MeasurementSystemProfileAttrRecordPb]) -> super::Result<Vec<Self>> {
-        pbs.iter()
-            .map(|record| {
-                Self::try_from(record.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!(
-                        "failed system profile record attr conversion: {e}"
-                    ))
-                })
-            })
-            .collect()
-    }
-}
-
 impl DbTable for MeasurementSystemProfileAttrRecord {
     fn db_table_name() -> &'static str {
         "measurement_system_profiles_attrs"
     }
 }
 
-impl From<MeasurementSystemProfileAttrRecord> for MeasurementSystemProfileAttrRecordPb {
-    fn from(val: MeasurementSystemProfileAttrRecord) -> Self {
-        Self {
-            attribute_id: Some(val.attribute_id),
-            profile_id: Some(val.profile_id),
-            key: val.key,
-            value: val.value,
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementSystemProfileAttrRecordPb> for MeasurementSystemProfileAttrRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(
-        msg: MeasurementSystemProfileAttrRecordPb,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            attribute_id: msg
-                .attribute_id
-                .ok_or(RpcDataConversionError::MissingArgument("attribute_id"))?,
-            profile_id: msg
-                .profile_id
-                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
-            key: msg.key.clone(),
-            value: msg.value.clone(),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementSystemProfileAttrRecord {
+    fn display_name() -> &'static str {
+        "system profile attr record"
     }
 }
 
@@ -337,30 +219,6 @@ impl fmt::Display for MeasurementBundleState {
     }
 }
 
-impl From<MeasurementBundleState> for MeasurementBundleStatePb {
-    fn from(val: MeasurementBundleState) -> Self {
-        match val {
-            MeasurementBundleState::Pending => Self::Pending,
-            MeasurementBundleState::Active => Self::Active,
-            MeasurementBundleState::Obsolete => Self::Obsolete,
-            MeasurementBundleState::Retired => Self::Retired,
-            MeasurementBundleState::Revoked => Self::Revoked,
-        }
-    }
-}
-
-impl From<MeasurementBundleStatePb> for MeasurementBundleState {
-    fn from(msg: MeasurementBundleStatePb) -> Self {
-        match msg {
-            MeasurementBundleStatePb::Pending => Self::Pending,
-            MeasurementBundleStatePb::Active => Self::Active,
-            MeasurementBundleStatePb::Obsolete => Self::Obsolete,
-            MeasurementBundleStatePb::Retired => Self::Retired,
-            MeasurementBundleStatePb::Revoked => Self::Revoked,
-        }
-    }
-}
-
 /// MeasurementBundleStateRecord exists so we can do an sqlx::query_as and
 /// *just* select the state (and bind it to a struct). It doesn't really need
 /// to be much other than this for now.
@@ -403,61 +261,15 @@ pub struct MeasurementBundleRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementBundleRecord {
-    pub fn from_grpc(msg: MeasurementBundleRecordPb) -> super::Result<Self> {
-        Self::try_from(msg)
-            .map_err(|e| super::Error::RpcConversion(format!("bad input bundle record: {e}")))
-    }
-
-    pub fn from_pb_vec(pbs: &[MeasurementBundleRecordPb]) -> super::Result<Vec<Self>> {
-        pbs.iter()
-            .map(|record| {
-                Self::try_from(record.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!(
-                        "failed bundle record attr conversion: {e}"
-                    ))
-                })
-            })
-            .collect()
-    }
-}
-
 impl DbTable for MeasurementBundleRecord {
     fn db_table_name() -> &'static str {
         "measurement_bundles"
     }
 }
 
-impl From<MeasurementBundleRecord> for MeasurementBundleRecordPb {
-    fn from(val: MeasurementBundleRecord) -> Self {
-        let pb_state: MeasurementBundleStatePb = val.state.into();
-        Self {
-            bundle_id: Some(val.bundle_id),
-            name: val.name,
-            profile_id: Some(val.profile_id),
-            state: pb_state.into(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementBundleRecordPb> for MeasurementBundleRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementBundleRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        let state = msg.state();
-
-        Ok(Self {
-            bundle_id: msg
-                .bundle_id
-                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
-            profile_id: msg
-                .profile_id
-                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
-            name: msg.name.clone(),
-            state: MeasurementBundleState::from(state),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementBundleRecord {
+    fn display_name() -> &'static str {
+        "bundle record"
     }
 }
 
@@ -498,67 +310,15 @@ pub struct MeasurementBundleValueRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementBundleValueRecord {
-    pub fn from_grpc(msg: MeasurementBundleValueRecordPb) -> super::Result<Self> {
-        Self::try_from(msg)
-            .map_err(|e| super::Error::RpcConversion(format!("bad input bundle value record: {e}")))
-    }
-
-    pub fn from_pb_vec(pbs: &[MeasurementBundleValueRecordPb]) -> super::Result<Vec<Self>> {
-        pbs.iter()
-            .map(|record| {
-                Self::try_from(record.clone()).map_err(|e| {
-                    super::Error::RpcConversion(format!(
-                        "failed bundle value record attr conversion: {e}"
-                    ))
-                })
-            })
-            .collect()
-    }
-}
-
 impl DbTable for MeasurementBundleValueRecord {
     fn db_table_name() -> &'static str {
         "measurement_bundles_values"
     }
 }
 
-impl From<MeasurementBundleValueRecord> for PcrRegisterValue {
-    fn from(val: MeasurementBundleValueRecord) -> Self {
-        PcrRegisterValue {
-            pcr_register: val.pcr_register,
-            sha_any: val.sha_any,
-        }
-    }
-}
-
-impl From<MeasurementBundleValueRecord> for MeasurementBundleValueRecordPb {
-    fn from(val: MeasurementBundleValueRecord) -> Self {
-        Self {
-            value_id: Some(val.value_id),
-            bundle_id: Some(val.bundle_id),
-            pcr_register: val.pcr_register as i32,
-            sha_any: val.sha_any,
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementBundleValueRecordPb> for MeasurementBundleValueRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementBundleValueRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            value_id: msg
-                .value_id
-                .ok_or(RpcDataConversionError::MissingArgument("value_id"))?,
-            bundle_id: msg
-                .bundle_id
-                .ok_or(RpcDataConversionError::MissingArgument("bundle_id"))?,
-            pcr_register: msg.pcr_register as i16,
-            sha_any: msg.sha_any.clone(),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementBundleValueRecord {
+    fn display_name() -> &'static str {
+        "bundle value record"
     }
 }
 
@@ -580,44 +340,15 @@ pub struct MeasurementReportRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementReportRecord {
-    pub fn from_grpc(msg: MeasurementReportRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report record: {e}")))
-    }
-}
-
 impl DbTable for MeasurementReportRecord {
     fn db_table_name() -> &'static str {
         "measurement_reports"
     }
 }
 
-impl From<MeasurementReportRecord> for MeasurementReportRecordPb {
-    fn from(val: MeasurementReportRecord) -> Self {
-        Self {
-            report_id: Some(val.report_id),
-            machine_id: val.machine_id.to_string(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementReportRecordPb> for MeasurementReportRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementReportRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        };
-
-        Ok(Self {
-            report_id: msg
-                .report_id
-                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
-            machine_id: MachineId::from_str(&msg.machine_id)?,
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementReportRecord {
+    fn display_name() -> &'static str {
+        "report record"
     }
 }
 
@@ -660,55 +391,15 @@ pub struct MeasurementReportValueRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementReportValueRecord {
-    pub fn from_grpc(msg: MeasurementReportValueRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input report value record: {e}")))
-    }
-}
-
 impl DbTable for MeasurementReportValueRecord {
     fn db_table_name() -> &'static str {
         "measurement_reports_values"
     }
 }
 
-impl From<MeasurementReportValueRecord> for PcrRegisterValue {
-    fn from(val: MeasurementReportValueRecord) -> Self {
-        Self {
-            pcr_register: val.pcr_register,
-            sha_any: val.sha_any,
-        }
-    }
-}
-
-impl From<MeasurementReportValueRecord> for MeasurementReportValueRecordPb {
-    fn from(val: MeasurementReportValueRecord) -> Self {
-        Self {
-            value_id: Some(val.value_id),
-            report_id: Some(val.report_id),
-            pcr_register: val.pcr_register as i32,
-            sha_any: val.sha_any,
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementReportValueRecordPb> for MeasurementReportValueRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementReportValueRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            value_id: msg
-                .value_id
-                .ok_or(RpcDataConversionError::MissingArgument("value_id"))?,
-            report_id: msg
-                .report_id
-                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
-            pcr_register: msg.pcr_register as i16,
-            sha_any: msg.sha_any.clone(),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementReportValueRecord {
+    fn display_name() -> &'static str {
+        "report value record"
     }
 }
 
@@ -762,57 +453,15 @@ pub struct MeasurementJournalRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementJournalRecord {
-    pub fn from_grpc(msg: MeasurementJournalRecordPb) -> Result<Self, Status> {
-        Self::try_from(msg)
-            .map_err(|e| Status::invalid_argument(format!("bad input journal record: {e}")))
-    }
-}
-
 impl DbTable for MeasurementJournalRecord {
     fn db_table_name() -> &'static str {
         "measurement_journal"
     }
 }
 
-impl From<MeasurementJournalRecord> for MeasurementJournalRecordPb {
-    fn from(val: MeasurementJournalRecord) -> Self {
-        let pb_state: MeasurementMachineStatePb = val.state.into();
-
-        Self {
-            journal_id: Some(val.journal_id),
-            machine_id: val.machine_id.to_string(),
-            report_id: Some(val.report_id),
-            profile_id: val.profile_id,
-            bundle_id: val.bundle_id,
-            state: pb_state.into(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementJournalRecordPb> for MeasurementJournalRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: MeasurementJournalRecordPb) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        }
-        let state = msg.state();
-
-        Ok(Self {
-            journal_id: msg
-                .journal_id
-                .ok_or(RpcDataConversionError::MissingArgument("journal_id"))?,
-            machine_id: MachineId::from_str(&msg.machine_id)?,
-            report_id: msg
-                .report_id
-                .ok_or(RpcDataConversionError::MissingArgument("report_id"))?,
-            profile_id: msg.profile_id,
-            bundle_id: msg.bundle_id,
-            state: MeasurementMachineState::from(state),
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementJournalRecord {
+    fn display_name() -> &'static str {
+        "journal record"
     }
 }
 
@@ -854,28 +503,6 @@ impl fmt::Display for MeasurementMachineState {
     }
 }
 
-impl From<MeasurementMachineState> for MeasurementMachineStatePb {
-    fn from(val: MeasurementMachineState) -> Self {
-        match val {
-            MeasurementMachineState::Discovered => Self::Discovered,
-            MeasurementMachineState::PendingBundle => Self::PendingBundle,
-            MeasurementMachineState::Measured => Self::Measured,
-            MeasurementMachineState::MeasuringFailed => Self::MeasuringFailed,
-        }
-    }
-}
-
-impl From<MeasurementMachineStatePb> for MeasurementMachineState {
-    fn from(msg: MeasurementMachineStatePb) -> Self {
-        match msg {
-            MeasurementMachineStatePb::Discovered => Self::Discovered,
-            MeasurementMachineStatePb::PendingBundle => Self::PendingBundle,
-            MeasurementMachineStatePb::Measured => Self::Measured,
-            MeasurementMachineStatePb::MeasuringFailed => Self::MeasuringFailed,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct CandidateMachineSummary {
     // machine_id is the ID of the machine, e.g. fm100hxxxxx.
@@ -885,35 +512,9 @@ pub struct CandidateMachineSummary {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl CandidateMachineSummary {
-    pub fn from_grpc(msg: CandidateMachineSummaryPb) -> Result<Self, Status> {
-        Self::try_from(msg).map_err(|e| {
-            Status::invalid_argument(format!("bad input candidate machine record: {e}"))
-        })
-    }
-}
-
-impl From<CandidateMachineSummary> for CandidateMachineSummaryPb {
-    fn from(val: CandidateMachineSummary) -> Self {
-        Self {
-            machine_id: val.machine_id.to_string(),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<CandidateMachineSummaryPb> for CandidateMachineSummary {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(msg: CandidateMachineSummaryPb) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        }
-
-        Ok(Self {
-            machine_id: MachineId::from_str(&msg.machine_id)?,
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for CandidateMachineSummary {
+    fn display_name() -> &'static str {
+        "candidate machine record"
     }
 }
 
@@ -959,24 +560,6 @@ impl FromStr for MeasurementApprovedType {
 impl fmt::Display for MeasurementApprovedType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
-    }
-}
-
-impl From<MeasurementApprovedType> for MeasurementApprovedTypePb {
-    fn from(val: MeasurementApprovedType) -> Self {
-        match val {
-            MeasurementApprovedType::Oneshot => Self::Oneshot,
-            MeasurementApprovedType::Persist => Self::Persist,
-        }
-    }
-}
-
-impl From<MeasurementApprovedTypePb> for MeasurementApprovedType {
-    fn from(val: MeasurementApprovedTypePb) -> Self {
-        match val {
-            MeasurementApprovedTypePb::Oneshot => Self::Oneshot,
-            MeasurementApprovedTypePb::Persist => Self::Persist,
-        }
     }
 }
 
@@ -1029,65 +612,15 @@ impl<'r> FromRow<'r, PgRow> for MeasurementApprovedMachineRecord {
     }
 }
 
-impl MeasurementApprovedMachineRecord {
-    pub fn from_grpc(msg: Option<&MeasurementApprovedMachineRecordPb>) -> Result<Self, Status> {
-        match msg {
-            Some(pb) => Self::try_from(pb.clone()).map_err(|e| {
-                Status::invalid_argument(format!("bad input trusted machine approval record: {e}"))
-            }),
-            None => Err(Status::invalid_argument("record unexpectedly empty")),
-        }
+impl DisplayName for MeasurementApprovedMachineRecord {
+    fn display_name() -> &'static str {
+        "record"
     }
 }
 
 impl DbTable for MeasurementApprovedMachineRecord {
     fn db_table_name() -> &'static str {
         "measurement_approved_machines"
-    }
-}
-
-impl From<MeasurementApprovedMachineRecord> for MeasurementApprovedMachineRecordPb {
-    fn from(val: MeasurementApprovedMachineRecord) -> Self {
-        let approval_type: MeasurementApprovedTypePb = val.approval_type.into();
-
-        Self {
-            approval_id: Some(val.approval_id),
-            machine_id: val.machine_id.to_string(),
-            approval_type: approval_type.into(),
-            pcr_registers: val.pcr_registers.unwrap_or("".to_string()),
-            comments: val.comments.unwrap_or("".to_string()),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementApprovedMachineRecordPb> for MeasurementApprovedMachineRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(
-        msg: MeasurementApprovedMachineRecordPb,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        if msg.machine_id.is_empty() {
-            return Err(UuidEmptyStringError {}.into());
-        }
-        let approval_type = msg.approval_type();
-
-        Ok(Self {
-            approval_id: msg
-                .approval_id
-                .ok_or(RpcDataConversionError::MissingArgument("approval_id"))?,
-            machine_id: TrustedMachineId::from_str(&msg.machine_id)?,
-            approval_type: MeasurementApprovedType::from(approval_type),
-            pcr_registers: match !msg.pcr_registers.is_empty() {
-                true => Some(msg.pcr_registers.clone()),
-                false => None,
-            },
-            comments: match !msg.comments.is_empty() {
-                true => Some(msg.comments.clone()),
-                false => None,
-            },
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
     }
 }
 
@@ -1144,63 +677,15 @@ pub struct MeasurementApprovedProfileRecord {
     pub ts: chrono::DateTime<Utc>,
 }
 
-impl MeasurementApprovedProfileRecord {
-    pub fn from_grpc(msg: Option<&MeasurementApprovedProfileRecordPb>) -> Result<Self, Status> {
-        match msg {
-            Some(pb) => Self::try_from(pb.clone()).map_err(|e| {
-                Status::invalid_argument(format!("bad input trusted profile approval record: {e}"))
-            }),
-            None => Err(Status::invalid_argument("record unexpectedly empty")),
-        }
-    }
-}
-
 impl DbTable for MeasurementApprovedProfileRecord {
     fn db_table_name() -> &'static str {
         "measurement_approved_profiles"
     }
 }
 
-impl From<MeasurementApprovedProfileRecord> for MeasurementApprovedProfileRecordPb {
-    fn from(val: MeasurementApprovedProfileRecord) -> Self {
-        let approval_type: MeasurementApprovedTypePb = val.approval_type.into();
-
-        Self {
-            approval_id: Some(val.approval_id),
-            profile_id: Some(val.profile_id),
-            approval_type: approval_type.into(),
-            pcr_registers: val.pcr_registers.unwrap_or("".to_string()),
-            comments: val.comments.unwrap_or("".to_string()),
-            ts: Some(val.ts.into()),
-        }
-    }
-}
-
-impl TryFrom<MeasurementApprovedProfileRecordPb> for MeasurementApprovedProfileRecord {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(
-        msg: MeasurementApprovedProfileRecordPb,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let approval_type = msg.approval_type();
-        Ok(Self {
-            approval_id: msg
-                .approval_id
-                .ok_or(RpcDataConversionError::MissingArgument("approval_id"))?,
-            profile_id: msg
-                .profile_id
-                .ok_or(RpcDataConversionError::MissingArgument("profile_id"))?,
-            approval_type: MeasurementApprovedType::from(approval_type),
-            pcr_registers: match !msg.pcr_registers.is_empty() {
-                true => Some(msg.pcr_registers.clone()),
-                false => None,
-            },
-            comments: match !msg.comments.is_empty() {
-                true => Some(msg.comments.clone()),
-                false => None,
-            },
-            ts: DateTime::<Utc>::try_from(msg.ts.unwrap())?,
-        })
+impl DisplayName for MeasurementApprovedProfileRecord {
+    fn display_name() -> &'static str {
+        "record"
     }
 }
 

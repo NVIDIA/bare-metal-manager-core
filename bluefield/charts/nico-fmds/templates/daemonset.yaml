@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nico-fmds.fullname" . }}
+  labels:
+    {{- include "nico-fmds.labels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.serviceDaemonSet.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.serviceDaemonSet.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nico-fmds.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.serviceDaemonSet.annotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "nico-fmds.selectorLabels" . | nindent 8 }}
+        {{- with .Values.serviceDaemonSet.labels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      dnsPolicy: ClusterFirst
+      {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+              {{- toYaml .Values.serviceDaemonSet.nodeSelector | nindent 12 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-certs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          command:
+            - /busybox/sh
+            - -c
+            - |
+              {{- $dir := .Values.certsDir | default "/opt/nico" }}
+              {{- $rootCa := .Values.rootCaFile | default "nico_root.pem" }}
+              echo "Waiting for certificates in {{ $dir }} ..."
+              while [ ! -f {{ $dir }}/{{ $rootCa }} ] || [ ! -f {{ $dir }}/machine_cert.pem ] || [ ! -f {{ $dir }}/machine_cert.key ]; do
+                sleep 5
+              done
+              echo "Certificates found, starting nico-fmds."
+          volumeMounts:
+            - name: nico-certs
+              mountPath: {{ .Values.certsDir | default "/opt/nico" }}
+              readOnly: true
+      containers:
+        - name: nico-fmds
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            {{- $dir := .Values.certsDir | default "/opt/nico" }}
+            {{- $rootCa := .Values.rootCaFile | default "nico_root.pem" }}
+            - "--grpc-address=$(POD_IP):50052"
+            - "--root-ca={{ $dir }}/{{ $rootCa }}"
+            - "--client-cert={{ $dir }}/machine_cert.pem"
+            - "--client-key={{ $dir }}/machine_cert.key"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with toYaml .Values.serviceDaemonSet.resources }}
+          resources:
+            limits:
+              {{- . | nindent 14 }}
+            requests:
+              {{- . | nindent 14 }}
+          {{- end }}
+          env:
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE
+              value: "0"
+            - name: RUST_LOG
+              value: "info"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: nico-certs
+              mountPath: {{ .Values.certsDir | default "/opt/nico" }}
+              readOnly: true
+      volumes:
+        - name: nico-certs
+          hostPath:
+            path: {{ .Values.certsDir | default "/opt/nico" }}
+            type: DirectoryOrCreate
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

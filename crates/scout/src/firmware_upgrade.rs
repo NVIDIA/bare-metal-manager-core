@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
+use rpc::scout_firmware_upgrade::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -102,6 +102,7 @@ async fn run_firmware_upgrade(
     // Download file artifacts and verify checksums.
     let download_dir = work_dir.path().join("downloads");
     tokio::fs::create_dir_all(&download_dir).await?;
+    let mut downloaded_artifacts = Vec::with_capacity(task.file_artifacts.len());
     for artifact in &task.file_artifacts {
         let dest = tokio::time::timeout(
             download_timeout,
@@ -123,6 +124,7 @@ async fn run_firmware_upgrade(
             .into());
         }
         tracing::info!("[firmware_upgrade] checksum verified for {}", artifact.url);
+        downloaded_artifacts.push(dest);
     }
 
     tracing::info!(
@@ -133,11 +135,15 @@ async fn run_firmware_upgrade(
     // Execute the script with env vars for context.
     // kill_on_drop ensures the child process is terminated if the timeout fires,
     // preventing orphaned processes and races with tempdir cleanup.
-    let child = tokio::process::Command::new("sh")
+    let mut command = tokio::process::Command::new("sh");
+    command
         .arg(&script_path)
+        .args(&downloaded_artifacts)
         .env("DOWNLOAD_DIR", &download_dir)
         .env("COMPONENT_TYPE", &task.component_type)
-        .env("TARGET_VERSION", &task.target_version)
+        .env("TARGET_VERSION", &task.target_version);
+
+    let child = command
         .current_dir(work_dir.path())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -251,14 +257,14 @@ async fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> 
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(test)]
 mod tests {
     use axum::Router;
     use axum::routing::get;
-    use rpc::forge_agent_control_response::FileArtifact;
+    use rpc::scout_firmware_upgrade::FileArtifact;
     use tokio::net::TcpListener;
 
     use super::*;
@@ -281,7 +287,7 @@ mod tests {
     }
 
     fn sha256_hex(data: &str) -> String {
-        format!("{:x}", Sha256::digest(data.as_bytes()))
+        hex::encode(Sha256::digest(data.as_bytes()))
     }
 
     fn script_artifact(base: &str, path: &str, content: &str) -> FileArtifact {
@@ -391,6 +397,54 @@ mod tests {
         assert!(result.stdout.contains("comp=cpldmb"));
         assert!(result.stdout.contains("ver=3.4.5"));
         assert!(result.stdout.contains("dir="));
+    }
+
+    #[tokio::test]
+    async fn test_script_receives_artifacts_as_args_in_order() {
+        let script = r#"#!/bin/sh
+echo "argc=$#"
+echo "arg1=$(basename "$1")"
+echo "arg2=$(basename "$2")"
+test "$#" = "2"
+test -f "$1"
+test -f "$2"
+test "$(basename "$1")" = "first.bin"
+test "$(basename "$2")" = "second.bin"
+"#;
+        let first_content = "first-binary-data";
+        let second_content = "second-binary-data";
+        let base = start_file_server(vec![
+            ("/scripts/env.sh", script),
+            ("/firmware/first.bin", first_content),
+            ("/firmware/second.bin", second_content),
+        ])
+        .await;
+
+        let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
+            component_type: "cpldmb".into(),
+            target_version: "3.4.5".into(),
+            script: Some(script_artifact(&base, "/scripts/env.sh", script)),
+            execution_timeout_seconds: 30,
+            artifact_download_timeout_seconds: 30,
+            file_artifacts: vec![
+                FileArtifact {
+                    url: format!("{base}/firmware/first.bin"),
+                    sha256: sha256_hex(first_content),
+                },
+                FileArtifact {
+                    url: format!("{base}/firmware/second.bin"),
+                    sha256: sha256_hex(second_content),
+                },
+            ],
+        };
+
+        let result = handle_firmware_upgrade(&reqwest::Client::new(), &task).await;
+
+        assert!(result.success, "error: {}", result.error);
+        assert!(result.stdout.contains("argc=2"));
+        assert!(result.stdout.contains("arg1=first.bin"));
+        assert!(result.stdout.contains("arg2=second.bin"));
     }
 
     #[tokio::test]

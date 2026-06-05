@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::Parser;
 use mac_address::MacAddress;
 use uuid::Uuid;
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug)]
 pub struct Args {

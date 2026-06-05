@@ -28,19 +28,6 @@ pub struct DomainInfo {
     pub masters: Vec<String>,
 }
 
-impl From<DomainInfo> for rpc::protos::dns::DomainInfo {
-    fn from(domain: DomainInfo) -> Self {
-        rpc::protos::dns::DomainInfo {
-            id: Some(domain.id),
-            zone: domain.zone,
-            kind: domain.kind,
-            serial: domain.serial as i32,
-            last_checked: domain.last_check.map(|v| v as i32),
-            notified_serial: domain.notified_serial.map(|v| v as i32),
-        }
-    }
-}
-
 impl From<super::Domain> for DomainInfo {
     fn from(domain: super::Domain) -> Self {
         let soa = domain

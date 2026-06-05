@@ -29,49 +29,25 @@ sqlx = ["carbide-network/sqlx", "dep:sqlx"]
 test-support = [
   "dep:opentelemetry_sdk",
   "dep:prometheus",
-  "dep:opentelemetry-prometheus"
+  "dep:opentelemetry-prometheus",
 ]
 
 [dependencies]
+carbide-network = { path = "../network" }
+
 byte-unit = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
-eyre = { workspace = true }
-itertools = { workspace = true }
-prettytable-rs = { default-features = false, features = [
-  "csv",
-], workspace = true }
-serde = { features = ["derive"], workspace = true }
-serde_json = { workspace = true }
-serde_yaml = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tokio = { workspace = true }
 ipnetwork = { workspace = true }
-sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
-], optional = true }
-tonic = { workspace = true }
-humantime = { workspace = true }
+mac_address = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
-
-# [local-dependencies]
-config-version = { path = "../config-version" }
-carbide-health-report = { path = "../health-report" }
-carbide-network = { path = "../network" }
-carbide-uuid = { path = "../uuid" }
-carbide-rpc = { path = "../rpc" }
+serde = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true, features = ["postgres"], optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

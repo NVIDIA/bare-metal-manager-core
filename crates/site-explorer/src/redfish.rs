@@ -128,12 +128,31 @@ impl RedfishClient {
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
 
+        if service_root.vendor.is_none() {
+            return Err(EndpointExplorationError::MissingVendor);
+        }
+
         let Some(vendor) = service_root.vendor() else {
             tracing::info!("No vendor found for BMC at {bmc_ip_address}");
             return Err(EndpointExplorationError::MissingVendor);
         };
 
         Ok(vendor)
+    }
+
+    pub async fn validate_bmc_credentials(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_direct_redfish_client(bmc_ip_address, credentials, Some(RedfishVendor::Unknown))
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client.get_systems().await.map_err(map_redfish_error)?;
+
+        Ok(())
     }
 
     pub async fn set_bmc_root_password(
@@ -1200,19 +1219,9 @@ pub(crate) fn map_redfish_client_creation_error(
                 details: format!("RedfishClientError::InvalidHeader: {original_error}"),
             }
         }
-        RedfishClientCreationError::MissingBmcEndpoint(argument)
-        | RedfishClientCreationError::MissingArgument(argument) => {
-            EndpointExplorationError::Other {
-                details: format!("Missing argument to RedFish client: {argument}"),
-            }
-        }
-        RedfishClientCreationError::MachineInterfaceLoadError(db_error) => {
-            EndpointExplorationError::Other {
-                details: format!(
-                    "Database error loading the machine interface for the redfish client: {db_error}"
-                ),
-            }
-        }
+        RedfishClientCreationError::MissingArgument(argument) => EndpointExplorationError::Other {
+            details: format!("Missing argument to RedFish client: {argument}"),
+        },
     }
 }
 

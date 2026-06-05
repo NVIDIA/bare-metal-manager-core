@@ -123,7 +123,7 @@ pub async fn spawn(
                             ToBmcMessage::ChannelMsg(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, ..}) => {
                                 let (data, escape_pending) = bmc_vendor.filter_escape_sequences(data.as_ref(), prior_escape_pending);
                                 prior_escape_pending = escape_pending;
-                                ToBmcMessage::ChannelMsg(ChannelMsg::Data { data: data.as_ref().into() })
+                                ToBmcMessage::ChannelMsg(ChannelMsg::Data { data: data.into_owned().into() })
                             }
                             msg => msg,
                         };

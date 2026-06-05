@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-name: Carbide CI
+name: NICo Core CI
 
 on:
   push:
@@ -23,6 +23,7 @@ on:
       - release/*
       - "pull-request/[0-9]+"
     tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
       - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
       - "v[0-9].[0-9].[0-9]-rc[0-9]*"
 
@@ -35,11 +36,59 @@ env:
 
 
 jobs:
+  changes:
+    name: Detect Core CI Gate
+    runs-on: ubuntu-latest
+    outputs:
+      run_core_ci: ${{ steps.gate.outputs.run_core_ci }}
+      non_rest_changed: ${{ steps.non-rest-changes.outputs.non_rest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect non-rest changes
+        id: non-rest-changes
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: dorny/paths-filter@v3
+        with:
+          base: main
+          predicate-quantifier: every
+          filters: |
+            non_rest:
+              - '**'
+              - '!rest-api/**'
+              - '!.github/workflows/rest-*.yml'
+
+      - name: Decide whether Core CI should run
+        id: gate
+        env:
+          REF: ${{ github.ref }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          NON_REST_CHANGED: ${{ steps.non-rest-changes.outputs.non_rest }}
+        run: |
+          run_core_ci=true
+
+          if [[ "${REF}" =~ ^refs/heads/pull-request/[0-9]+$ ]]; then
+            run_core_ci="${NON_REST_CHANGED}"
+          fi
+
+          if [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
+            run_core_ci=true
+          fi
+
+          echo "run_core_ci=${run_core_ci}" >> "$GITHUB_OUTPUT"
+          echo "Core CI gate: ${run_core_ci}"
+
   # ============================================================================
   # PREPARE STAGE
   # ============================================================================
 
   prepare:
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
     runs-on: linux-amd64-cpu4
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -108,7 +157,6 @@ jobs:
 
           # Fetch tags for accurate git describe
           git fetch --tags --force
-          # Get short SHA
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Using Git describe to extract version as VERSION and HELM_VERSION"
@@ -440,7 +488,7 @@ jobs:
   # BUILD STAGE - Release Container
   # ============================================================================
   build-release-container-x86_64:
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     needs:
       - prepare
       - build-container-x86_64
@@ -461,7 +509,7 @@ jobs:
     secrets: inherit
 
   build-release-container-aarch64:
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     needs:
       - prepare
       - build-container-aarch64
@@ -488,7 +536,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-x86_64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
@@ -505,7 +553,7 @@ jobs:
     needs:
       - prepare
       - build-artifacts-container-aarch64
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
@@ -844,8 +892,6 @@ jobs:
           createdb root
 
       - name: Run clippy
-        env:
-          DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
         run: cargo make --no-workspace clippy-flow
 
       - name: Run carbide lints
@@ -865,6 +911,9 @@ jobs:
 
       - name: Check bans
         run: cargo make --no-workspace check-bans
+
+      - name: Check isolated package builds
+        run: cargo xtask check-isolated-package-builds
 
   # ============================================================================
   # BUILD STAGE - Helm Chart
@@ -1009,6 +1058,22 @@ jobs:
       load: false
     secrets: inherit
 
+  build-bluefield-transceiver-exporter:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: bluefield/containers/transceiver-exporter/Dockerfile
+      context_path: .
+      image_name: nvcr.io/0837451325059433/carbide-dev/transceiver-exporter
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
+    secrets: inherit
+
   download-mft-aarch64:
     needs:
       - prepare
@@ -1061,23 +1126,6 @@ jobs:
       download_artifacts: true
     secrets: inherit
 
-  build-bluefield-forge-dpu-otel-agent:
-    needs:
-      - prepare
-      - build-bluefield-binaries
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      dockerfile_path: bluefield/containers/forge-dpu-otel-agent/Dockerfile
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-dpu-otel-agent
-      image_tag: ${{ needs.prepare.outputs.version }}
-      platforms: linux/arm64
-      runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: false
-      download_artifacts: true
-    secrets: inherit
-
   build-bluefield-carbide-fmds:
     needs:
       - prepare
@@ -1108,38 +1156,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate carbide-otelcol chart
+      - name: Validate nico-otelcol chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-otelcol
+          chart-path: bluefield/charts/nico-otelcol
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dpu-agent chart
+      - name: Validate nico-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dpu-agent
+          chart-path: bluefield/charts/nico-dpu-agent
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dhcp-server chart
+      - name: Validate nico-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dhcp-server
+          chart-path: bluefield/charts/nico-dhcp-server
           lint: 'true'
           template: 'true'
 
-      - name: Validate carbide-dpu-otel-agent chart
+      - name: Validate nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
-          chart-path: bluefield/charts/carbide-dpu-otel-agent
-          lint: 'true'
-          template: 'true'
-
-      - name: Validate carbide-fmds chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
-        with:
-          chart-path: bluefield/charts/carbide-fmds
+          chart-path: bluefield/charts/nico-fmds
           lint: 'true'
           template: 'true'
 
@@ -1153,10 +1194,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Package and push carbide-otelcol chart
+      - name: Package and push nico-otelcol chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-otelcol
+          chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1164,10 +1205,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dpu-agent chart
+      - name: Package and push nico-dpu-agent chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dpu-agent
+          chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1175,10 +1216,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dhcp-server chart
+      - name: Package and push nico-dhcp-server chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dhcp-server
+          chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1186,21 +1227,10 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      - name: Package and push carbide-dpu-otel-agent chart
+      - name: Package and push nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
-          chart-path: bluefield/charts/carbide-dpu-otel-agent
-          chart-version: ${{ needs.prepare.outputs.helm_version }}
-          app-version: ${{ needs.prepare.outputs.version }}
-          lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
-          ngc-duplicate: fail
-
-      - name: Package and push carbide-fmds chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
-        with:
-          chart-path: bluefield/charts/carbide-fmds
+          chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1230,8 +1260,9 @@ jobs:
 
   build-summary:
     runs-on: linux-amd64-cpu4
-    if: ${{ always() && github.event_name != 'schedule' }}
+    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     needs:
+      - prepare
       - build-container-x86_64
       - build-container-aarch64
       - build-runtime-container-x86_64
@@ -1258,9 +1289,9 @@ jobs:
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
       - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
-      - build-bluefield-forge-dpu-otel-agent
       - build-bluefield-carbide-fmds
       - build-validate-bluefield-helm-charts
       - build-push-bluefield-helm-charts
@@ -1362,9 +1393,9 @@ jobs:
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
       - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
-      - build-bluefield-forge-dpu-otel-agent
       - build-bluefield-carbide-fmds
       - build-validate-bluefield-helm-charts
       - build-push-bluefield-helm-charts
@@ -1375,7 +1406,7 @@ jobs:
     uses: ./.github/workflows/notify-build-status.yml
     with:
       version: ${{ needs.prepare.outputs.version }}
-      workflow-name: "Carbide Core CI"
+      workflow-name: "NICo Core CI"
       channel-id: C0A0TSKJKSB # #dsx-carbide-feed
       needs-context: ${{ toJson(needs) }}
       notify-on-success: true
@@ -1383,3 +1414,40 @@ jobs:
       notify-on-failure: true
     secrets:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
+
+  # ============================================================================
+  # AGGREGATOR — single required check for branch protection
+  # ============================================================================
+  # Fails iff any leaf job's result is `failure` or `cancelled`.
+  # `skipped` counts as pass — that's how rest-only PRs unblock when the
+  # `changes` gate intentionally skips the core pipeline.
+  # `changes` + `prepare` are in needs so a gate or prepare failure doesn't
+  # silently pass (downstream leaves become SKIPPED in those cases).
+  # Branch protection ruleset should require ONLY this aggregator + rest-ci-pass.
+  core-ci-pass:
+    name: core-ci-pass
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - prepare
+      - build-release-container-x86_64
+      - build-release-container-aarch64
+      - security-secret-scan
+      - lint-police
+    steps:
+      - name: Decide pass/fail
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS_JSON" | jq -e '
+            to_entries
+            | map(select(.value.result == "failure" or .value.result == "cancelled"))
+            | length > 0
+          ' >/dev/null; then
+            echo "::error::One or more required jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "All required jobs OK (success or skipped)"

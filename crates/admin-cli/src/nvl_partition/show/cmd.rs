@@ -17,12 +17,13 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::nvlink::NvLinkPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn handle_show(
@@ -121,7 +122,7 @@ fn convert_nvl_partition_to_nice_format(
                 .map(|logical_partition_id| logical_partition_id.to_string())
                 .unwrap_or_default(),
         ),
-        ("NMX-M-ID", nvl_partition.nmx_m_id),
+        ("NMX-C PARTITION ID", nvl_partition.nmx_m_id),
         (
             "NVLINK DOMAIN UUID",
             nvl_partition.domain_uuid.unwrap_or_default().to_string(),

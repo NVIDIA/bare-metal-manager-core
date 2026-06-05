@@ -15,8 +15,11 @@
  * limitations under the License.
  */
 
+pub(crate) mod auto;
+mod downgrade;
 mod periodic;
 mod sse;
 
+pub use downgrade::{DowngradeEvent, DowngradeReason, LogDowngradeRegistry};
 pub use periodic::{LogsCollector, LogsCollectorConfig};
 pub use sse::{SseLogCollector, SseLogCollectorConfig};

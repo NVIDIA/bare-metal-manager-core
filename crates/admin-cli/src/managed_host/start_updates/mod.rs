@@ -17,11 +17,11 @@
 
 pub mod args;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 use crate::firmware;
 
 impl Run for Args {

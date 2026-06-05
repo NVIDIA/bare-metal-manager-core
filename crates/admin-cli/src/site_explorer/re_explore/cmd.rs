@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::ReExploreEndpointRequest;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn re_explore(api_client: &ApiClient, opts: Args) -> CarbideCliResult<()> {

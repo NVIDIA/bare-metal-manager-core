@@ -17,9 +17,8 @@
 
 use std::collections::VecDeque;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::instance::common::GlobalOptions;
 use crate::machine;
 use crate::rpc::ApiClient;
@@ -69,9 +68,13 @@ pub async fn allocate(
         // Batch mode: all-or-nothing
         let mut requests = Vec::new();
         for i in 0..number {
-            let Some(machine) =
-                machine::get_next_free_machine(api_client, &mut machine_ids, min_interface_count)
-                    .await
+            let Some(machine) = machine::get_next_free_machine(
+                api_client,
+                &mut machine_ids,
+                min_interface_count,
+                allocate_request.zero_dpu,
+            )
+            .await
             else {
                 return Err(CarbideCliError::GenericError(format!(
                     "Need {} machines but only {} available.",
@@ -107,9 +110,13 @@ pub async fn allocate(
     } else {
         // Sequential mode: partial success allowed
         for i in 0..number {
-            let Some(machine) =
-                machine::get_next_free_machine(api_client, &mut machine_ids, min_interface_count)
-                    .await
+            let Some(machine) = machine::get_next_free_machine(
+                api_client,
+                &mut machine_ids,
+                min_interface_count,
+                allocate_request.zero_dpu,
+            )
+            .await
             else {
                 tracing::error!("No available machines.");
                 break;

@@ -17,8 +17,6 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
@@ -32,41 +30,6 @@ pub struct InstanceExtensionServiceConfig {
     pub service_id: ExtensionServiceId,
     pub version: ConfigVersion,
     pub removed: Option<DateTime<Utc>>, // We need to track terminating services
-}
-
-impl TryFrom<rpc::InstanceDpuExtensionServiceConfig> for InstanceExtensionServiceConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: rpc::InstanceDpuExtensionServiceConfig) -> Result<Self, Self::Error> {
-        let service_id = config
-            .service_id
-            .parse::<ExtensionServiceId>()
-            .map_err(|e| {
-                RpcDataConversionError::InvalidUuid("ExtensionServiceId", e.to_string())
-            })?;
-
-        let version = config.version.parse::<ConfigVersion>().map_err(|e| {
-            RpcDataConversionError::InvalidConfigVersion(format!(
-                "Failed to parse version as ConfigVersion: {}",
-                e
-            ))
-        })?;
-
-        Ok(InstanceExtensionServiceConfig {
-            service_id,
-            version,
-            removed: None,
-        })
-    }
-}
-
-impl From<InstanceExtensionServiceConfig> for rpc::InstanceDpuExtensionServiceConfig {
-    fn from(config: InstanceExtensionServiceConfig) -> Self {
-        rpc::InstanceDpuExtensionServiceConfig {
-            service_id: config.service_id.into(),
-            version: config.version.to_string(),
-        }
-    }
 }
 
 /// Extension services configuration for an instance
@@ -198,34 +161,6 @@ impl InstanceExtensionServicesConfig {
                 .any(|&(id, ver)| id == s.service_id && ver == s.version)
         });
         config
-    }
-}
-
-impl TryFrom<rpc::InstanceDpuExtensionServicesConfig> for InstanceExtensionServicesConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: rpc::InstanceDpuExtensionServicesConfig) -> Result<Self, Self::Error> {
-        let service_configs = config
-            .service_configs
-            .into_iter()
-            .map(InstanceExtensionServiceConfig::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(InstanceExtensionServicesConfig { service_configs })
-    }
-}
-
-impl TryFrom<InstanceExtensionServicesConfig> for rpc::InstanceDpuExtensionServicesConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: InstanceExtensionServicesConfig) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceDpuExtensionServicesConfig {
-            service_configs: config
-                .service_configs
-                .into_iter()
-                .map(|config| config.into())
-                .collect(),
-        })
     }
 }
 

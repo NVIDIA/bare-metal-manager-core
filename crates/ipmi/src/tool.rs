@@ -161,7 +161,8 @@ impl IPMIToolImpl {
 mod test {
     use std::sync::Arc;
 
-    use forge_secrets::credentials::{Credentials, TestCredentialManager};
+    use forge_secrets::credentials::Credentials;
+    use forge_secrets::test_support::credentials::TestCredentialManager;
 
     #[test]
     pub fn test_ipmitool_new() {

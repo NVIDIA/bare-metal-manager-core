@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::protos::forge::MachineCertificate;
 use async_trait::async_trait;
 
 use crate::SecretsError;
@@ -24,16 +23,6 @@ pub struct Certificate {
     pub issuing_ca: Vec<u8>,
     pub private_key: Vec<u8>,
     pub public_key: Vec<u8>,
-}
-
-impl From<Certificate> for MachineCertificate {
-    fn from(value: Certificate) -> Self {
-        MachineCertificate {
-            issuing_ca: value.issuing_ca,
-            private_key: value.private_key,
-            public_key: value.public_key,
-        }
-    }
 }
 
 #[async_trait]

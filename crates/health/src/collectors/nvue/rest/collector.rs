@@ -18,13 +18,12 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use nv_redfish::Bmc;
-
-use super::client::RestClient;
+use super::client::{RestClient, UsernamePassword};
 use crate::HealthError;
+use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NvueRestConfig;
-use crate::endpoint::{BmcCredentials, BmcEndpoint, EndpointMetadata};
+use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
@@ -66,6 +65,7 @@ fn diagnostic_opcode_to_f64(code: &str) -> f64 {
 pub struct NvueRestCollectorConfig {
     pub rest_config: NvueRestConfig,
     pub data_sink: Option<Arc<dyn DataSink>>,
+    pub credential_provider: Arc<dyn CredentialProvider>,
 }
 
 pub struct NvueRestCollector {
@@ -73,22 +73,18 @@ pub struct NvueRestCollector {
     switch_id: String,
     event_context: EventContext,
     data_sink: Option<Arc<dyn DataSink>>,
+    addr: BmcAddr,
+    provider: Arc<dyn CredentialProvider>,
 }
 
-impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
+impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
     type Config = NvueRestCollectorConfig;
 
     fn new_runner(
-        _bmc: Arc<B>,
+        _bmc: Arc<crate::bmc::BmcClient>,
         endpoint: Arc<BmcEndpoint>,
         config: Self::Config,
     ) -> Result<Self, HealthError> {
-        let BmcCredentials::UsernamePassword { username, password } = endpoint.credentials() else {
-            return Err(HealthError::GenericError(
-                "NVUE REST collector requires cached credentials at startup".to_string(),
-            ));
-        };
-
         let switch_id = match &endpoint.metadata {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
             _ => endpoint.addr.mac.to_string(),
@@ -101,8 +97,6 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
         let client = RestClient::new(
             switch_id.clone(),
             &switch_ip,
-            Some(username),
-            password,
             rest_cfg.request_timeout,
             true,
             rest_cfg.paths.clone(),
@@ -113,13 +107,31 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
             switch_id,
             event_context,
             data_sink: config.data_sink,
+            addr: endpoint.addr.clone(),
+            provider: config.credential_provider,
         })
     }
 
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
+        if !self.client.has_credentials()
+            && let Err(error) = self.refresh_rest_credentials().await
+        {
+            tracing::warn!(
+                ?error,
+                switch_id = %self.switch_id,
+                "nvue_rest: skipping iteration — credential fetch failed"
+            );
+            return Ok(IterationResult {
+                refresh_triggered: false,
+                entity_count: Some(0),
+                fetch_failures: 1,
+            });
+        }
+
         self.emit_event(CollectorEvent::MetricCollectionStart);
         let mut entity_count = 0usize;
         let mut fetch_failures = 0usize;
+        let mut saw_auth_failure = false;
 
         match self.client.get_system_health().await {
             Ok(Some(health)) => {
@@ -130,6 +142,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
             Ok(None) => {}
             Err(e) => {
                 fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
@@ -155,6 +168,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
             Ok(None) => {}
             Err(e) => {
                 fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
@@ -194,6 +208,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
             Ok(None) => {}
             Err(e) => {
                 fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
@@ -222,12 +237,21 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
             }
             Err(e) => {
                 fetch_failures += 1;
+                saw_auth_failure |= is_auth_error(&e);
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
                 "nvue_rest: failed to collect link diagnostics"
                 );
             }
+        }
+
+        if saw_auth_failure {
+            tracing::warn!(
+                switch_id = %self.switch_id,
+                "nvue_rest: auth failure observed, clearing cached credentials"
+            );
+            self.client.clear_credentials();
         }
 
         self.emit_event(CollectorEvent::MetricCollectionEnd);
@@ -255,6 +279,30 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NvueRestCollector {
 }
 
 impl NvueRestCollector {
+    async fn refresh_rest_credentials(&self) -> Result<(), HealthError> {
+        let creds = tokio::time::timeout(
+            CREDENTIAL_REFRESH_TIMEOUT,
+            self.provider.fetch_credentials(&self.addr),
+        )
+        .await
+        .map_err(|_elapsed| {
+            HealthError::GenericError(format!(
+                "Timed out after {}s fetching NVUE REST credentials",
+                CREDENTIAL_REFRESH_TIMEOUT.as_secs(),
+            ))
+        })??;
+        match creds {
+            BmcCredentials::UsernamePassword { username, password } => {
+                self.client
+                    .set_credentials(UsernamePassword { username, password });
+                Ok(())
+            }
+            _ => Err(HealthError::GenericError(
+                "NVUE REST collector requires username/password credentials".to_string(),
+            )),
+        }
+    }
+
     fn emit_event(&self, event: CollectorEvent) {
         if let Some(data_sink) = &self.data_sink {
             data_sink.handle_event(&self.event_context, &event);
@@ -297,7 +345,17 @@ impl NvueRestCollector {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::str::FromStr;
+    use std::sync::Mutex as StdMutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use mac_address::MacAddress;
+
     use super::*;
+    use crate::bmc::BoxFuture;
+    use crate::config::NvueRestPaths;
 
     #[test]
     fn test_system_health_mapping() {
@@ -331,5 +389,233 @@ mod tests {
         assert_eq!(diagnostic_opcode_to_f64("2"), 1.0);
         assert_eq!(diagnostic_opcode_to_f64("1024"), 1.0);
         assert_eq!(diagnostic_opcode_to_f64("57"), 1.0);
+    }
+
+    struct ScriptedProvider {
+        calls: AtomicUsize,
+        // Each call pops the front of this queue; an empty queue yields an
+        // error. `HealthError` is not `Clone`, so we store and consume by
+        // value rather than indexing + `.cloned()`.
+        responses: StdMutex<std::collections::VecDeque<Result<BmcCredentials, HealthError>>>,
+    }
+
+    impl ScriptedProvider {
+        fn new(responses: Vec<Result<BmcCredentials, HealthError>>) -> Arc<Self> {
+            Arc::new(Self {
+                calls: AtomicUsize::new(0),
+                responses: StdMutex::new(responses.into_iter().collect()),
+            })
+        }
+    }
+
+    impl CredentialProvider for ScriptedProvider {
+        fn fetch_credentials<'a>(
+            &'a self,
+            _endpoint: &'a BmcAddr,
+        ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let response = self
+                .responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| {
+                    Err(HealthError::GenericError(
+                        "scripted provider exhausted".to_string(),
+                    ))
+                });
+            Box::pin(async move { response })
+        }
+    }
+
+    fn test_addr() -> BmcAddr {
+        BmcAddr {
+            ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            port: Some(443),
+            mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+        }
+    }
+
+    fn paths_all_disabled() -> NvueRestPaths {
+        NvueRestPaths {
+            system_health_enabled: false,
+            cluster_apps_enabled: false,
+            sdn_partitions_enabled: false,
+            interfaces_enabled: false,
+        }
+    }
+
+    fn collector_with_provider(provider: Arc<dyn CredentialProvider>) -> NvueRestCollector {
+        let addr = test_addr();
+        let client = RestClient::new(
+            "test-switch".to_string(),
+            &addr.ip.to_string(),
+            Duration::from_millis(10),
+            true,
+            paths_all_disabled(),
+        )
+        .expect("rest client builds");
+
+        let event_context = EventContext {
+            endpoint_key: "test-switch".to_string(),
+            addr: addr.clone(),
+            collector_type: COLLECTOR_NAME,
+            metadata: None,
+            rack_id: None,
+        };
+
+        NvueRestCollector {
+            client,
+            switch_id: "test-switch".to_string(),
+            event_context,
+            data_sink: None,
+            addr,
+            provider,
+        }
+    }
+
+    #[tokio::test]
+    async fn first_iteration_lazy_fetches_credentials_then_runs() {
+        let provider = ScriptedProvider::new(vec![Ok(BmcCredentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: Some("hunter2".to_string()),
+        })]);
+        let mut collector = collector_with_provider(provider.clone());
+
+        assert!(
+            !collector.client.has_credentials(),
+            "client must start credential-less so sharded-out endpoints never trigger a fetch"
+        );
+
+        let result = collector
+            .run_iteration()
+            .await
+            .expect("iteration returns Ok even when all paths are disabled");
+
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert!(collector.client.has_credentials());
+        assert_eq!(
+            result.fetch_failures, 0,
+            "all four paths disabled → no HTTP, no failures"
+        );
+        // Subsequent iterations reuse the already-installed credentials.
+        collector
+            .run_iteration()
+            .await
+            .expect("second iteration ok");
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            1,
+            "credential provider must not be re-hit while creds are still valid"
+        );
+    }
+
+    #[tokio::test]
+    async fn iteration_is_skipped_when_credential_fetch_fails_and_recovers_next_time() {
+        let provider = ScriptedProvider::new(vec![
+            Err(HealthError::GenericError("forge unavailable".to_string())),
+            Ok(BmcCredentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: None,
+            }),
+        ]);
+        let mut collector = collector_with_provider(provider.clone());
+
+        let first = collector.run_iteration().await.expect("first iteration ok");
+        assert_eq!(first.fetch_failures, 1, "credential fetch failure surfaces");
+        assert!(!first.refresh_triggered);
+        assert!(
+            !collector.client.has_credentials(),
+            "failed fetch must NOT install bogus credentials"
+        );
+
+        let second = collector
+            .run_iteration()
+            .await
+            .expect("second iteration ok");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        assert!(collector.client.has_credentials());
+        assert_eq!(
+            second.fetch_failures, 0,
+            "second iteration recovers — credentials now present, no GETs to fail"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_rejects_session_token_credentials() {
+        let provider = ScriptedProvider::new(vec![Ok(BmcCredentials::SessionToken {
+            token: "irrelevant".to_string(),
+        })]);
+        let collector = collector_with_provider(provider);
+
+        let error = collector
+            .refresh_rest_credentials()
+            .await
+            .expect_err("session-token credentials are not usable for NVUE basic auth");
+        match error {
+            HealthError::GenericError(msg) => assert!(
+                msg.contains("requires username/password"),
+                "expected explicit message, got: {msg}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_rest_credentials_respects_timeout() {
+        // Mirrors the `BmcClient::refresh_credentials_respects_timeout`
+        // contract on the NVUE REST side: a hung Forge call must not block
+        // the collector's iteration loop past `CREDENTIAL_REFRESH_TIMEOUT`.
+        struct HangingProvider;
+        impl CredentialProvider for HangingProvider {
+            fn fetch_credentials<'a>(
+                &'a self,
+                _endpoint: &'a BmcAddr,
+            ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
+                Box::pin(std::future::pending())
+            }
+        }
+
+        let collector = Arc::new(collector_with_provider(Arc::new(HangingProvider)));
+        let refresh_collector = collector.clone();
+        let refresh =
+            tokio::spawn(async move { refresh_collector.refresh_rest_credentials().await });
+
+        // Sleep just past the timeout so the tokio timer fires.
+        tokio::time::advance(CREDENTIAL_REFRESH_TIMEOUT + Duration::from_secs(1)).await;
+        let result = refresh.await.expect("task joined");
+        let error = result.expect_err("hanging provider must surface as timeout");
+        match error {
+            HealthError::GenericError(msg) => assert!(
+                msg.contains("Timed out"),
+                "expected timeout message, got: {msg}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn debug_redacts_password() {
+        let creds = UsernamePassword {
+            username: "admin".to_string(),
+            password: Some("hunter2".to_string()),
+        };
+        let rendered = format!("{creds:?}");
+        assert!(
+            !rendered.contains("hunter2"),
+            "Debug must not leak the password; got: {rendered}"
+        );
+        assert!(rendered.contains("admin"));
+        assert!(rendered.contains("<redacted>"));
+
+        let no_password = UsernamePassword {
+            username: "admin".to_string(),
+            password: None,
+        };
+        let rendered = format!("{no_password:?}");
+        assert!(
+            !rendered.contains("<redacted>"),
+            "missing password must not show as redacted; got: {rendered}"
+        );
     }
 }

@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+nameOverride: ""
+namespaceOverride: ""
+
+secrets:
+  # -- Set to false to skip Secret creation (e.g. when migrating from Kustomize with pre-existing Secrets).
+  create: true
+  dbCreds:
+    # -- DB username. Replace with real credentials in production.
+    username: "nico"
+    # -- DB password. Replace with real credentials in production.
+    password: "nico"
+  keycloakClientSecret:
+    # -- Keycloak client secret. Replace in production.
+    value: "nico-local-secret"
+  temporalEncryptionKey:
+    # -- Temporal payload encryption key. Replace in production.
+    value: "local-dev"
+  imagePullSecret:
+    # -- base64-encoded docker config JSON. Default is valid empty auth placeholder ({"auths":{}}).
+    # Replace with real credentials for private registries.
+    dockerconfigjson: "eyJhdXRocyI6e319"
+
+certificate:
+  temporalClientCloud:
+    duration: 2160h
+    renewBefore: 360h
+    dnsNames:
+      - temporal-client
+      - nico-rest-api
+      - cloud-worker
+      - site-worker
+    # -- SPIFFE/SAN URIs for the certificate. When empty, no uris are set.
+    uris: []

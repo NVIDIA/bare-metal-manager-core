@@ -18,42 +18,28 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use async_ssh2_tokio::{AuthMethod, Client, ServerCheckMethod};
-
-#[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct SshError(#[from] pub async_ssh2_tokio::Error);
-
-/// Configuration for russh's SSH client connections
-fn russh_client_config() -> russh::client::Config {
-    russh::client::Config {
-        // Some BMC's use a Diffie-Hellman group size of 2048, which is not allowed by default.
-        gex: russh::client::GexParams::new(2048, 8192, 8192)
-            .expect("BUG: static DH group parameters must be valid"),
-        keepalive_interval: Some(Duration::from_secs(60)),
-        keepalive_max: 2,
-        window_size: 2097152 * 3,
-        maximum_packet_size: 65535,
-        ..Default::default()
-    }
-}
+use crate::SshError;
+use crate::ssh_client::{AuthConfig, HostKeyVerification};
 
 async fn execute_command(
     command: &str,
     ip_address: SocketAddr,
-    username: &str,
-    password: &str,
+    username: String,
+    password: String,
 ) -> Result<(String, u32), SshError> {
-    let auth_method = AuthMethod::with_password(password);
-    let client = Client::connect_with_config(
-        ip_address,
-        username,
-        auth_method,
-        ServerCheckMethod::NoCheck,
-        russh_client_config(),
-    )
+    let host = ip_address.ip().to_string();
+    let auth = AuthConfig::Password { password };
+    let client = crate::ssh_client::SshClientConfig {
+        host: &host,
+        port: 22,
+        username: &username,
+        auth: Some(&auth),
+        host_key_verification: HostKeyVerification::Insecure,
+    }
+    .make_authenticated_client()
     .await?;
-    let result = client.execute(command).await?;
+
+    let result = client.execute_ssh_command(command).await?;
 
     Ok((result.stdout, result.exit_status))
 }
@@ -64,8 +50,7 @@ pub async fn disable_rshim(
     password: String,
 ) -> Result<(), SshError> {
     let command = "systemctl disable --now rshim";
-    let (_stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (_stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(())
 }
 
@@ -75,8 +60,7 @@ pub async fn enable_rshim(
     password: String,
 ) -> Result<(), SshError> {
     let command = "systemctl enable --now rshim";
-    let (_stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (_stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(())
 }
 
@@ -86,8 +70,7 @@ pub async fn is_rshim_enabled(
     password: String,
 ) -> Result<bool, SshError> {
     let command = "systemctl is-active rshim";
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(stdout.trim() == "active")
 }
 
@@ -98,9 +81,8 @@ pub async fn copy_bfb_to_bmc_rshim(
     username: String,
     password: String,
     bfb_path: String,
-    is_bf2: bool,
 ) -> Result<(), SshError> {
-    let timeout_secs: u64 = if is_bf2 { 80 * 60 } else { 30 * 60 };
+    let timeout_secs: u64 = 30 * 60;
 
     scp_cmd_write(
         &bfb_path,
@@ -149,7 +131,6 @@ async fn scp_cmd_write(
 
     let mut child = tokio::process::Command::new("scp")
         .args([
-            "-v",
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
@@ -162,35 +143,23 @@ async fn scp_cmd_write(
         .env("SSH_ASKPASS", &askpass_path)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("DISPLAY", "dummy")
-        .stdout(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(io_ssh_error)?;
 
     let stderr_pipe = child.stderr.take();
     let stderr_handle = tokio::spawn(async move {
-        let mut saw_truncate_error = false;
-        let mut saw_bytes_transferred = false;
-        if let Some(stderr) = stderr_pipe {
-            use tokio::io::{AsyncBufReadExt, BufReader};
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.contains("truncate: Invalid argument") {
-                    saw_truncate_error = true;
-                }
-                if line.contains("Bytes per second:") || line.starts_with("Transferred: sent") {
-                    saw_bytes_transferred = true;
-                }
-            }
+        let mut buf = String::new();
+        if let Some(mut stderr) = stderr_pipe {
+            use tokio::io::AsyncReadExt;
+            let _ = stderr.read_to_string(&mut buf).await;
         }
-        (saw_truncate_error, saw_bytes_transferred)
+        buf
     });
 
-    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await;
-
-    let (saw_truncate_error, saw_bytes_transferred) = stderr_handle.await.unwrap_or((false, false));
-
-    let status = result
+    let status = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait())
+        .await
         .map_err(|_| {
             io_ssh_error(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -199,28 +168,21 @@ async fn scp_cmd_write(
         })?
         .map_err(io_ssh_error)?;
 
+    let stderr_output = stderr_handle.await.unwrap_or_default();
+
     if status.success() {
         tracing::info!(%ip_address, "scp copy to rshim completed");
         return Ok(());
     }
 
-    if saw_truncate_error || saw_bytes_transferred {
-        tracing::info!(
-            %ip_address,
-            saw_truncate_error,
-            saw_bytes_transferred,
-            "scp exited with {status} but transfer succeeded (device file write)",
-        );
-        return Ok(());
-    }
-
     Err(io_ssh_error(std::io::Error::other(format!(
-        "scp failed with {status} and no signs of successful transfer"
+        "scp failed with {status}: {}",
+        stderr_output.trim()
     ))))
 }
 
 fn io_ssh_error(e: std::io::Error) -> SshError {
-    SshError(async_ssh2_tokio::Error::IoError(e))
+    SshError::Io(e)
 }
 
 pub async fn read_obmc_console_log(
@@ -229,8 +191,7 @@ pub async fn read_obmc_console_log(
     password: String,
 ) -> Result<String, SshError> {
     let command = "cat /var/log/obmc-console.log";
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
     Ok(stdout)
 }
 
@@ -244,8 +205,7 @@ pub async fn check_console_for_markers(
     markers: &[&str],
 ) -> Result<bool, SshError> {
     let command = r#"(printf '\n'; sleep 2) | timeout 5 obmc-console-client 2>/dev/null; true"#;
-    let (stdout, _exit_code) =
-        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+    let (stdout, _exit_code) = execute_command(command, ip_address, username, password).await?;
 
     let found = stdout
         .lines()

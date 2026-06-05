@@ -16,9 +16,9 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::forge as forgerpc;
 
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::os_image::common::str_to_rpc_uuid;
 
 #[derive(Parser, Debug, Clone)]

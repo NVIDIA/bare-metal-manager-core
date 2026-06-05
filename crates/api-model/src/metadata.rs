@@ -17,7 +17,6 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
 use serde::Deserialize;
 
 use crate::ConfigValidationError;
@@ -45,54 +44,6 @@ impl Metadata {
 /// default_metadata_for_deserializer returns empty Metadata for serde deserialization of expected device models.
 pub fn default_metadata_for_deserializer() -> Metadata {
     Metadata::default()
-}
-
-impl From<Metadata> for rpc::Metadata {
-    fn from(metadata: Metadata) -> Self {
-        rpc::Metadata {
-            name: metadata.name,
-            description: metadata.description,
-            labels: metadata
-                .labels
-                .iter()
-                .map(|(key, value)| rpc::forge::Label {
-                    key: key.clone(),
-                    value: if value.is_empty() {
-                        None
-                    } else {
-                        Some(value.clone())
-                    },
-                })
-                .collect(),
-        }
-    }
-}
-
-impl TryFrom<rpc::Metadata> for Metadata {
-    type Error = RpcDataConversionError;
-
-    fn try_from(metadata: rpc::Metadata) -> Result<Self, Self::Error> {
-        let mut labels = std::collections::HashMap::new();
-
-        for label in metadata.labels {
-            let key = label.key.clone();
-            let value = label.value.clone().unwrap_or_default();
-
-            if labels.contains_key(&key) {
-                return Err(RpcDataConversionError::InvalidLabel(format!(
-                    "Duplicate key found: {key}"
-                )));
-            }
-
-            labels.insert(key, value);
-        }
-
-        Ok(Metadata {
-            name: metadata.name,
-            description: metadata.description,
-            labels,
-        })
-    }
 }
 
 impl Metadata {
@@ -161,15 +112,6 @@ impl Metadata {
 pub struct LabelFilter {
     pub key: String,
     pub value: Option<String>,
-}
-
-impl From<rpc::forge::Label> for LabelFilter {
-    fn from(label: rpc::forge::Label) -> Self {
-        LabelFilter {
-            key: label.key,
-            value: label.value,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -302,38 +244,5 @@ mod tests {
             metadata.validate(true),
             Err(ConfigValidationError::InvalidValue(_))
         ));
-    }
-
-    #[test]
-    fn label_filter_from_rpc_with_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, Some("prod".to_string()));
-    }
-
-    #[test]
-    fn label_filter_from_rpc_without_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: None,
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, None);
-    }
-
-    #[test]
-    fn label_filter_from_rpc_empty_key() {
-        let rpc_label = rpc::forge::Label {
-            key: String::new(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert!(filter.key.is_empty());
-        assert_eq!(filter.value, Some("prod".to_string()));
     }
 }

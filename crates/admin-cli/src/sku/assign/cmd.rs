@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::SkuMachinePair;
 
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn assign(

@@ -2,22 +2,22 @@
 ## =============================================================================
 ## Vault TLS bootstrap — breaks the chicken-and-egg problem
 ##
-## vault-forge-issuer uses Vault as its PKI backend, so it can't issue Vault's
+## vault-nico-issuer uses Vault as its PKI backend, so it can't issue Vault's
 ## own TLS certs. Instead we use site-issuer (backed by the self-signed
 ## site-root CA) to issue the two secrets Vault needs before it can start:
 ##
-##   forgeca-vault-client  — Vault port 8200 listener cert
+##   nicoca-vault-client  — Vault port 8200 listener cert
 ##   vault-raft-tls        — Vault Raft port 8201 peer cert
 ##
 ## Hook weights:
 ##   -10  selfsigned-bootstrap ClusterIssuer (existing template)
 ##    -9  site-root Certificate              (existing template)
 ##    -5  site-issuer ClusterIssuer          (this file)
-##    -4  forgeca-vault-client Certificate   (this file)
+##    -4  nicoca-vault-client Certificate   (this file)
 ##    -4  vault-raft-tls Certificate         (this file)
 ##     0  (default) everything else
 ##    10  vault-pki-config Job
-##    15  vault-forge-issuer ClusterIssuer
+##    15  vault-nico-issuer ClusterIssuer
 ## =============================================================================
 
 ---
@@ -36,19 +36,19 @@ spec:
     secretName: site-root
 
 ---
-## forgeca-vault-client — TLS cert for the Vault port 8200 listener.
-## Mounted at /vault/userconfig/forgeca-vault/ inside Vault pods.
+## nicoca-vault-client — TLS cert for the Vault port 8200 listener.
+## Mounted at /vault/userconfig/nicoca-vault/ inside Vault pods.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: forgeca-vault-client
+  name: nicoca-vault-client
   namespace: {{ .Values.vaultNamespace }}
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-4"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
-  secretName: forgeca-vault-client
+  secretName: nicoca-vault-client
   duration: 720h0m0s
   renewBefore: 360h0m0s
   privateKey:

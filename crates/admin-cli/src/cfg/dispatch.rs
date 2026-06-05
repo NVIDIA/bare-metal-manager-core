@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
 // Dispatch is a trait implemented by all CLI command types.
 // It provides a unified interface for executing commands with
@@ -35,11 +34,10 @@ pub(crate) use carbide_macros::Dispatch;
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::admin_cli::CarbideCliResult;
-
     use super::Dispatch;
     use crate::cfg::run::Run;
     use crate::cfg::runtime::RuntimeContext;
+    use crate::errors::CarbideCliResult;
 
     // Stub leaf command type that implements Run for the purpose
     // of testing our Dispatch + Run trait handling flow.

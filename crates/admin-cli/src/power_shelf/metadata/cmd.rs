@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 
 use super::args::{
     Args, PowerShelfMetadataCommandAddLabel, PowerShelfMetadataCommandFromExpectedPowerShelf,
     PowerShelfMetadataCommandRemoveLabels, PowerShelfMetadataCommandSet,
     PowerShelfMetadataCommandShow,
 };
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn metadata(

@@ -17,7 +17,7 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{
     self as forgerpc, MachineValidationTestEnableDisableTestRequest,
     MachineValidationTestUpdateRequest, MachineValidationTestVerfiedRequest,
@@ -27,6 +27,7 @@ use prettytable::{Table, row};
 use super::args::{
     AddTestOptions, EnableDisableTestOptions, ShowTestOptions, UpdateTestOptions, VerifyTestOptions,
 };
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn show_tests(

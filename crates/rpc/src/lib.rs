@@ -58,11 +58,19 @@ pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::{fmds, health, site_explorer};
+pub use crate::protos::{fmds, health, scout_firmware_upgrade, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
+pub mod libmlx;
+pub mod measured_boot;
+pub mod network;
 pub mod protos;
+pub mod secrets;
+pub mod utils;
+
+#[cfg(feature = "model")]
+pub mod model;
 
 #[cfg(feature = "cli")]
 pub mod admin_cli;
@@ -559,6 +567,15 @@ impl FromStr for forge::InstanceNvLinkConfig {
     }
 }
 
+impl FromStr for forge::InstanceSpxConfig {
+    type Err = RpcDataConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+            .map_err(|e| RpcDataConversionError::JsonConversionFailure(e.to_string()))
+    }
+}
+
 /*  ****************************************************** */
 // Serialization/deserialization helpers for network
 // security group enums to let admin CLI callers describe
@@ -876,6 +893,12 @@ impl forge_agent_control_response::Action {
     }
 }
 
+impl From<MacAddress> for forge::find_bmc_ips_request::LookupBy {
+    fn from(addr: MacAddress) -> Self {
+        Self::MacAddress(addr.to_string())
+    }
+}
+
 #[cfg(feature = "cli")]
 // This impl allows us to use the RPC RouteServerSourceType type
 // as a first class enum with clap, for the purpose of allowing
@@ -944,12 +967,11 @@ mod tests {
             user_data: Some("def".to_string()),
             variant: Some(Variant::Ipxe(InlineIpxe {
                 ipxe_script: "abc".to_string(),
-                user_data: Some("def".to_string()),
             })),
         };
 
         assert_eq!(
-            "{\"phone_home_enabled\":true,\"run_provisioning_instructions_on_every_boot\":true,\"user_data\":\"def\",\"variant\":{\"Ipxe\":{\"ipxe_script\":\"abc\",\"user_data\":\"def\"}}}",
+            "{\"phone_home_enabled\":true,\"run_provisioning_instructions_on_every_boot\":true,\"user_data\":\"def\",\"variant\":{\"Ipxe\":{\"ipxe_script\":\"abc\"}}}",
             serde_json::to_string(&os).unwrap()
         );
     }

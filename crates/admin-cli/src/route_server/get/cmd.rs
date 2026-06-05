@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as rpc;
 use prettytable::{Cell, Row, Table};
 
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn get(format: OutputFormat, api_client: &ApiClient) -> CarbideCliResult<()> {

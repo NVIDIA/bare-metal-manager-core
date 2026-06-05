@@ -1,0 +1,575 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package model
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	otrace "go.opentelemetry.io/otel/trace"
+)
+
+// reset the tables needed for Fabric tests
+func testFabricSetupSchema(t *testing.T, dbSession *db.Session) {
+	// create Allocation table
+	err := dbSession.DB.ResetModel(context.Background(), (*Allocation)(nil))
+	assert.Nil(t, err)
+	// create Tenant table
+	err = dbSession.DB.ResetModel(context.Background(), (*Tenant)(nil))
+	assert.Nil(t, err)
+	// create Infrastructure Provider table
+	err = dbSession.DB.ResetModel(context.Background(), (*InfrastructureProvider)(nil))
+	assert.Nil(t, err)
+	// create Site table
+	err = dbSession.DB.ResetModel(context.Background(), (*Site)(nil))
+	assert.Nil(t, err)
+	// create NetworkSecurityGroup table
+	err = dbSession.DB.ResetModel(context.Background(), (*NetworkSecurityGroup)(nil))
+	assert.Nil(t, err)
+	// create InstanceType table
+	err = dbSession.DB.ResetModel(context.Background(), (*InstanceType)(nil))
+	assert.Nil(t, err)
+	// create Vpc table
+	err = dbSession.DB.ResetModel(context.Background(), (*Vpc)(nil))
+	assert.Nil(t, err)
+	// create IPBlock table
+	err = dbSession.DB.ResetModel(context.Background(), (*IPBlock)(nil))
+	assert.Nil(t, err)
+	// create Machine table
+	err = dbSession.DB.ResetModel(context.Background(), (*Machine)(nil))
+	assert.Nil(t, err)
+	// create OperatingSystem table
+	err = dbSession.DB.ResetModel(context.Background(), (*OperatingSystem)(nil))
+	assert.Nil(t, err)
+	// create User table
+	err = dbSession.DB.ResetModel(context.Background(), (*User)(nil))
+	assert.Nil(t, err)
+	// create Instance table
+	err = dbSession.DB.ResetModel(context.Background(), (*Instance)(nil))
+	assert.Nil(t, err)
+	// create the Fabric table
+	err = dbSession.DB.ResetModel(context.Background(), (*Fabric)(nil))
+	assert.Nil(t, err)
+}
+
+func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
+	site := TestBuildSite(t, dbSession, ip, "test", user)
+	fbsd := NewFabricDAO(dbSession)
+	fb1, err := fbsd.CreateFromParams(ctx, nil, "IFabricTest1", ip.Org, site.ID, ip.ID, "Ready")
+	assert.Nil(t, err)
+	assert.NotNil(t, fb1)
+
+	fbisd := NewFabricDAO(dbSession)
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc               string
+		fbs                []Fabric
+		expectError        bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc: "create multiple",
+			fbs: []Fabric{
+				{
+					ID: "IFabricTest2", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusPending,
+				},
+				{
+					ID: "IFabricTest3", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusError,
+				},
+			},
+			expectError: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			for _, fb := range tc.fbs {
+				dbfb, err := fbisd.CreateFromParams(ctx, nil, fb.ID, fb.Org, fb.SiteID, fb.InfrastructureProviderID, fb.Status)
+				assert.Equal(t, tc.expectError, err != nil)
+				if !tc.expectError {
+					assert.NotNil(t, dbfb)
+				}
+				if tc.verifyChildSpanner {
+					span := otrace.SpanFromContext(ctx)
+					assert.True(t, span.SpanContext().IsValid())
+					_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+					assert.True(t, ok)
+				}
+			}
+		})
+	}
+}
+
+func TestFabricSQLDAO_GetByID(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
+	site := TestBuildSite(t, dbSession, ip, "test", user)
+	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
+	fbsd := NewFabricDAO(dbSession)
+	fb1, err := fbsd.CreateFromParams(ctx, nil, "IFabricTest1", ip.Org, site.ID, ip.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb1)
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc               string
+		fbID               string
+		siteID             uuid.UUID
+		includeRelations   []string
+		expectNotNilSite   bool
+		expectNotNilIP     bool
+		expectError        bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc:               "success without relations",
+			fbID:               fb1.ID,
+			siteID:             site.ID,
+			includeRelations:   []string{},
+			expectError:        false,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:             "success with relations",
+			fbID:             fb1.ID,
+			siteID:           site.ID,
+			includeRelations: []string{SiteRelationName, InfrastructureProviderRelationName},
+			expectError:      false,
+			expectNotNilSite: true,
+			expectNotNilIP:   true,
+		},
+		{
+			desc:             "error not found when site ID different",
+			fbID:             fb1.ID,
+			siteID:           site2.ID,
+			includeRelations: []string{},
+			expectError:      true,
+		},
+		{
+			desc:             "error when not found",
+			fbID:             "notexits" + "-" + uuid.New().String(),
+			siteID:           site.ID,
+			includeRelations: []string{},
+			expectError:      true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, err := fbsd.GetByID(ctx, nil, tc.fbID, tc.siteID, tc.includeRelations)
+			assert.Equal(t, tc.expectError, err != nil)
+			if !tc.expectError {
+				assert.NotNil(t, got)
+				assert.Equal(t, got.ID, tc.fbID)
+				assert.Equal(t, got.SiteID, tc.siteID)
+				if tc.expectNotNilIP {
+					assert.NotNil(t, got.InfrastructureProvider)
+				}
+				if tc.expectNotNilSite {
+					assert.NotNil(t, got.Site)
+				}
+			}
+			if tc.verifyChildSpanner {
+				span := otrace.SpanFromContext(ctx)
+				assert.True(t, span.SpanContext().IsValid())
+				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+				assert.True(t, ok)
+			}
+		})
+	}
+}
+
+func TestFabricSQLDAO_GetAll(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
+	site := TestBuildSite(t, dbSession, ip, "test", user)
+	fbsd := NewFabricDAO(dbSession)
+	fbs := []*Fabric{}
+	for i := 1; i <= 25; i++ {
+		fb1, err := fbsd.CreateFromParams(ctx, nil, fmt.Sprintf("test-%d", i), ip.Org, site.ID, ip.ID, FabricStatusReady)
+		fbs = append(fbs, fb1)
+		assert.Nil(t, err)
+		assert.NotNil(t, fb1)
+	}
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc             string
+		includeRelations []string
+
+		paramIDs         []string
+		paramOrg         *string
+		paramSiteID      *uuid.UUID
+		paramIpID        *uuid.UUID
+		paramSearchQuery *string
+		paramStatus      *string
+		paramOffset      *int
+		paramLimit       *int
+		paramOrderBy     *paginator.OrderBy
+
+		expectCnt                 int
+		expectTotal               int
+		expectFirstObjectFabricID string
+
+		expectNotNilIP     bool
+		expectNotNilSite   bool
+		expectError        bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc:                      "getall with Fabric IDs filters but no relations returns objects",
+			paramIDs:                  []string{fbs[0].ID, fbs[1].ID},
+			includeRelations:          []string{},
+			expectFirstObjectFabricID: fbs[0].ID,
+			expectError:               false,
+			expectTotal:               2,
+			expectCnt:                 2,
+			verifyChildSpanner:        true,
+		},
+		{
+			desc:             "getall with site filters and relations returns objects",
+			includeRelations: []string{SiteRelationName},
+			paramSiteID:      cutil.GetPtr(site.ID),
+			paramOrderBy: &paginator.OrderBy{
+				Field: "updated",
+				Order: paginator.OrderAscending,
+			},
+			expectFirstObjectFabricID: fbs[0].ID,
+			expectError:               false,
+			expectTotal:               25,
+			expectCnt:                 20,
+			expectNotNilSite:          true,
+		},
+		{
+			desc:             "getall with ip filters and relations returns objects",
+			includeRelations: []string{InfrastructureProviderRelationName},
+			paramIpID:        cutil.GetPtr(ip.ID),
+			paramOrderBy: &paginator.OrderBy{
+				Field: "updated",
+				Order: paginator.OrderAscending,
+			},
+			expectFirstObjectFabricID: fbs[0].ID,
+			expectError:               false,
+			expectTotal:               25,
+			expectCnt:                 20,
+			expectNotNilIP:            true,
+		},
+		{
+			desc:             "getall with offset, limit returns objects",
+			includeRelations: []string{},
+			paramOffset:      cutil.GetPtr(10),
+			paramLimit:       cutil.GetPtr(10),
+			paramOrderBy: &paginator.OrderBy{
+				Field: "updated",
+				Order: paginator.OrderAscending,
+			},
+			expectFirstObjectFabricID: fbs[10].ID,
+			expectError:               false,
+			expectTotal:               25,
+			expectCnt:                 10,
+		},
+		{
+			desc:             "getall with search query returns objects",
+			includeRelations: []string{InfrastructureProviderRelationName},
+			paramIpID:        cutil.GetPtr(ip.ID),
+			paramSearchQuery: cutil.GetPtr("test-10"),
+			paramOrderBy: &paginator.OrderBy{
+				Field: "updated",
+				Order: paginator.OrderAscending,
+			},
+			expectFirstObjectFabricID: fbs[9].ID,
+			expectError:               false,
+			expectTotal:               1,
+			expectCnt:                 1,
+			expectNotNilIP:            true,
+		},
+		{
+			desc:             "case when no objects are returned",
+			includeRelations: []string{},
+			expectError:      false,
+			paramIDs:         []string{uuid.New().String()},
+			expectTotal:      0,
+			expectCnt:        0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			objs, tot, err := fbsd.GetAll(ctx, nil, tc.paramOrg, tc.paramSiteID, tc.paramIpID, tc.paramStatus, tc.paramIDs, tc.paramSearchQuery, tc.includeRelations, tc.paramOffset, tc.paramLimit, tc.paramOrderBy)
+			assert.Equal(t, tc.expectError, err != nil)
+			assert.Equal(t, tc.expectCnt, len(objs))
+			assert.Equal(t, tc.expectTotal, tot)
+			if len(objs) > 0 {
+				if tc.expectFirstObjectFabricID != "" {
+					assert.Equal(t, tc.expectFirstObjectFabricID, objs[0].ID)
+				}
+
+				if tc.expectNotNilIP {
+					assert.NotNil(t, objs[0].InfrastructureProvider)
+				}
+
+				if tc.expectNotNilSite {
+					assert.NotNil(t, objs[0].Site)
+				}
+			}
+			if tc.verifyChildSpanner {
+				span := otrace.SpanFromContext(ctx)
+				assert.True(t, span.SpanContext().IsValid())
+				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+				assert.True(t, ok)
+			}
+		})
+	}
+}
+
+func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
+	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
+	ip2 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test2", "testorg2", user.ID)
+	site2 := TestBuildSite(t, dbSession, ip2, "test2", user)
+	fbsd := NewFabricDAO(dbSession)
+
+	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb1)
+
+	fb2, err := fbsd.CreateFromParams(ctx, nil, "test-2", ip2.Org, site2.ID, ip2.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb2)
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc string
+		id   string
+
+		paramSiteID uuid.UUID
+		paramIpID   *uuid.UUID
+		paramStatus *string
+
+		expectedIpID   *uuid.UUID
+		expectedSiteID *uuid.UUID
+		expectedStatus *string
+
+		expectError        bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc:        "can update all fields",
+			id:          fb1.ID,
+			paramSiteID: site1.ID,
+			paramIpID:   cutil.GetPtr(ip2.ID),
+			paramStatus: cutil.GetPtr(FabricStatusError),
+
+			expectedSiteID: cutil.GetPtr(site2.ID),
+			expectedIpID:   cutil.GetPtr(ip2.ID),
+			expectedStatus: cutil.GetPtr(FabricStatusError),
+
+			expectError:        false,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:        "error when ID not found",
+			id:          "asd82",
+			paramSiteID: site1.ID,
+			expectError: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, err := fbsd.UpdateFromParams(ctx, nil, tc.id, tc.paramSiteID, tc.paramIpID, tc.paramStatus, cutil.GetPtr(true))
+			assert.Equal(t, tc.expectError, err != nil)
+			if err == nil {
+				assert.Equal(t, tc.id, got.ID)
+				assert.Equal(t, tc.expectedIpID.String(), got.InfrastructureProviderID.String())
+				assert.Equal(t, *tc.expectedStatus, got.Status)
+				assert.Equal(t, true, got.IsMissingOnSite)
+			}
+			if tc.verifyChildSpanner {
+				span := otrace.SpanFromContext(ctx)
+				assert.True(t, span.SpanContext().IsValid())
+				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+				assert.True(t, ok)
+			}
+		})
+	}
+}
+
+func TestFabricSQLDAO_DeleteByID(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
+	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
+	fbsd := NewFabricDAO(dbSession)
+
+	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb1)
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc               string
+		id                 string
+		siteID             uuid.UUID
+		expectedError      bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc:               "can delete existing object",
+			id:                 fb1.ID,
+			siteID:             site1.ID,
+			expectedError:      false,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:          "delete non-existing object",
+			id:            "123stg",
+			siteID:        site1.ID,
+			expectedError: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := fbsd.DeleteByID(ctx, nil, tc.id, tc.siteID)
+			assert.Equal(t, tc.expectedError, err != nil)
+			if !tc.expectedError {
+				tmp, err := fbsd.GetByID(ctx, nil, tc.id, tc.siteID, nil)
+				assert.NotNil(t, err)
+				assert.Nil(t, tmp)
+			}
+			if tc.verifyChildSpanner {
+				span := otrace.SpanFromContext(ctx)
+				assert.True(t, span.SpanContext().IsValid())
+				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+				assert.True(t, ok)
+			}
+		})
+	}
+}
+
+func TestFabricSQLDAO_DeleteAll(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	testFabricSetupSchema(t, dbSession)
+	user := testInstanceBuildUser(t, dbSession, "testUser")
+
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
+
+	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
+
+	ip2 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test2", "testorg2", user.ID)
+
+	site2 := TestBuildSite(t, dbSession, ip2, "test2", user)
+
+	fbsd := NewFabricDAO(dbSession)
+
+	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb1)
+
+	fb2, err := fbsd.CreateFromParams(ctx, nil, "test-2", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb2)
+
+	fb3, err := fbsd.CreateFromParams(ctx, nil, "test-3", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb3)
+
+	fb4, err := fbsd.CreateFromParams(ctx, nil, "test-4", ip1.Org, site2.ID, ip2.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb4)
+
+	fb5, err := fbsd.CreateFromParams(ctx, nil, "test-5", ip1.Org, site2.ID, ip2.ID, FabricStatusReady)
+	assert.Nil(t, err)
+	assert.NotNil(t, fb5)
+
+	// OTEL Spanner configuration
+	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
+
+	tests := []struct {
+		desc               string
+		ids                []string
+		siteID             *uuid.UUID
+		expectedError      bool
+		verifyChildSpanner bool
+	}{
+		{
+			desc:               "can delete by ids",
+			ids:                []string{fb1.ID, fb2.ID},
+			siteID:             cutil.GetPtr(site1.ID),
+			expectedError:      false,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:               "can delete by site id",
+			ids:                nil,
+			siteID:             cutil.GetPtr(site2.ID),
+			expectedError:      false,
+			verifyChildSpanner: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := fbsd.DeleteAll(ctx, nil, tc.ids, tc.siteID)
+			assert.Equal(t, tc.expectedError, err != nil)
+			if !tc.expectedError {
+				if tc.ids != nil {
+					for _, id := range tc.ids {
+						tmp, err := fbsd.GetByID(ctx, nil, id, *tc.siteID, nil)
+						assert.NotNil(t, err)
+						assert.Nil(t, tmp)
+					}
+				}
+				if tc.siteID != nil {
+					_, tcount, err := fbsd.GetAll(ctx, nil, nil, nil, tc.siteID, nil, nil, nil, nil, nil, nil, nil)
+					assert.Nil(t, err)
+					assert.Equal(t, tcount, 0)
+				}
+			}
+			if tc.verifyChildSpanner {
+				span := otrace.SpanFromContext(ctx)
+				assert.True(t, span.SpanContext().IsValid())
+				_, ok := ctx.Value(stracer.TracerKey).(otrace.Tracer)
+				assert.True(t, ok)
+			}
+		})
+	}
+}

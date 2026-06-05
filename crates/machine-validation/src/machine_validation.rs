@@ -353,7 +353,7 @@ impl MachineValidation {
                         Ok(data) => data,
                         Err(_) => "".to_owned(),
                     };
-                    stdout_str = stdout_str + &message;
+                    stdout_str += message.as_str();
                 }
                 if test.extra_err_file.is_some() {
                     let message: String = match tokio::fs::read_to_string(
@@ -364,7 +364,7 @@ impl MachineValidation {
                         Ok(data) => data,
                         Err(_) => "".to_owned(),
                     };
-                    stderr_str = stderr_str + &message;
+                    stderr_str += message.as_str();
                 }
 
                 mc_result.start_time = Some(result.start_time.into());

@@ -17,12 +17,13 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, format, row};
 
 use crate::async_write;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::network::Args as NetworkCommand;
 use crate::rpc::ApiClient;
 

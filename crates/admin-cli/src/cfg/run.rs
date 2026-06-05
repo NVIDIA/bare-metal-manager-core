@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
 // Run is a trait implemented by leaf argument structs,
 // allowing them to execute themselves given a RuntimeContext.

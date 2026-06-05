@@ -1,0 +1,185 @@
+## =============================================================================
+## nico-api — Core API server (gRPC + REST)
+## =============================================================================
+## Manages machines, provisioning, networking, firmware updates, and the web UI.
+## Requires PostgreSQL and Vault. See PREREQUISITES.md for required Secrets
+## and ConfigMaps.
+## =============================================================================
+
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+automountServiceAccountToken: true
+annotations:
+  configmap.reloader.stakater.com/reload: '{{ include "nico-api.name" . }}-config-files,{{ include "nico-api.name" . }}-site-config-files'
+
+resources:
+  limits:
+    cpu: 3
+    memory: 32Gi
+  requests:
+    cpu: 1500m
+    memory: 8Gi
+
+## Optional init containers (general-purpose pass-through)
+initContainers: []
+
+## Boot-artifact init containers
+## Each entry is rendered as a Kubernetes init container with the boot-artifacts
+## volume automatically mounted at /boot-artifacts/blobs/internal.
+bootArtifactContainers: []
+# bootArtifactContainers:
+#   - name: boot-artifacts-x86-64
+#     image: <your-registry>/boot-artifacts-x86_64:latest
+#     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+#   - name: boot-artifacts-aarch64
+#     image: <your-registry>/boot-artifacts-aarch64:latest
+#     command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+#   - name: machine-validation-config
+#     image: <your-registry>/machine-validation-config:latest
+#     command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
+
+service:
+  grpc:
+    port: 1079
+  metrics:
+    port: 1080
+  profiler:
+    port: 1081
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on global.namespace
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
+  extraDnsNames: []
+  extraUris: []
+
+migrationJob:
+  sslMode: require
+
+## Container command (override to customise startup).
+## Picks /opt/nico/nico-api if present (renamed image), else /opt/carbide/carbide-api
+## (current image). Configmaps are mounted at both /etc/nico and /etc/forge paths
+## so the binary finds its expected config regardless of which it picks.
+command:
+  - /bin/sh
+  - -c
+  - |
+    if [ -x /opt/nico/nico-api ]; then
+      exec /opt/nico/nico-api run \
+        --config-path /etc/nico/nico-api/nico-api-config.toml \
+        --site-config-path /etc/nico/nico-api/site/nico-api-site-config.toml
+    else
+      exec /opt/carbide/carbide-api run \
+        --config-path /etc/forge/carbide-api/carbide-api-config.toml \
+        --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+    fi
+
+## Environment variables for nico-api
+env:
+  VAULT_PKI_ROLE_NAME: "nico-cluster"
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+## External secret/configmap references mounted into the pod
+envFrom:
+  vaultApproleTokens:
+    secretName: nico-vault-approle-tokens
+  vaultToken:
+    secretName: nico-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+  databaseCredentials:
+    secretName: nico-system.nico.nico-pg-cluster.credentials
+  databaseConfig:
+    configMapName: nico-system-nico-database-config
+  nicoWebHostname:
+    configMapName: nico-web-api-hostname
+
+livenessProbe:
+  httpGet:
+    port: 1080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 20
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+auth:
+  ## Namespace component accepted in service (/<ns>/sa/) and machine
+  ## (/<ns>/machine/) SPIFFE IDs. Empty = deploy namespace; forge-system for legacy.
+  namespace: ""
+  ## SPIFFE service-id principals granted the dhcp / dns roles in the casbin policy.
+  principals:
+    dhcp: nico-dhcp
+    dns: nico-dns
+
+## Config files -- can be overridden with custom content
+configFiles:
+  nicoApiConfig: ""  # If empty, uses the default from files/
+  casbinPolicy: ""      # If empty, uses the default from files/
+
+## Site-specific config (nico-api-site-config-files ConfigMap)
+siteConfig:
+  enabled: true
+  nicoApiSiteConfig: ""  # Override per environment
+
+## NICo Web UI hostname (always created as ConfigMap)
+hostname: "nico.local"
+
+vaultClusterInfo: {}
+#  VAULT_SERVICE: "https://vault.example.com"
+#  NICO_VAULT_MOUNT: "secrets"
+#  NICO_VAULT_PKI_MOUNT: "nicoca"
+
+databaseConfig: {}
+#  DB_HOST: "postgresql.nico-system.svc.cluster.local"
+#  DB_PORT: "5432"
+#  DB_NAME: "nico"
+
+## External LoadBalancer Service (for bare-metal / MetalLB)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}
+  # annotations:
+  #   metallb.universe.tf/loadBalancerIPs: "10.x.x.x"

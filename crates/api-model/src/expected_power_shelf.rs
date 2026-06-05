@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
@@ -70,63 +69,6 @@ impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
     }
 }
 
-impl From<ExpectedPowerShelf> for rpc::forge::ExpectedPowerShelf {
-    fn from(expected_power_shelf: ExpectedPowerShelf) -> Self {
-        rpc::forge::ExpectedPowerShelf {
-            expected_power_shelf_id: expected_power_shelf.expected_power_shelf_id.map(|u| {
-                ::rpc::common::Uuid {
-                    value: u.to_string(),
-                }
-            }),
-            bmc_mac_address: expected_power_shelf.bmc_mac_address.to_string(),
-            bmc_username: expected_power_shelf.bmc_username,
-            bmc_password: expected_power_shelf.bmc_password,
-            shelf_serial_number: expected_power_shelf.serial_number,
-            bmc_ip_address: expected_power_shelf
-                .bmc_ip_address
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            metadata: Some(expected_power_shelf.metadata.into()),
-            rack_id: expected_power_shelf.rack_id,
-            bmc_retain_credentials: expected_power_shelf.bmc_retain_credentials.filter(|&v| v),
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::ExpectedPowerShelf> for ExpectedPowerShelf {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedPowerShelf) -> Result<Self, Self::Error> {
-        let bmc_mac_address = MacAddress::try_from(rpc.bmc_mac_address.as_str())
-            .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address.clone()))?;
-        let expected_power_shelf_id = rpc
-            .expected_power_shelf_id
-            .map(|u| {
-                Uuid::parse_str(&u.value)
-                    .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
-            })
-            .transpose()?;
-        let bmc_ip_address = if rpc.bmc_ip_address.is_empty() {
-            None
-        } else {
-            rpc.bmc_ip_address.parse().ok()
-        };
-        let metadata = Metadata::try_from(rpc.metadata.unwrap_or_default())?;
-
-        Ok(ExpectedPowerShelf {
-            expected_power_shelf_id,
-            bmc_mac_address,
-            bmc_username: rpc.bmc_username,
-            bmc_password: rpc.bmc_password,
-            serial_number: rpc.shelf_serial_number,
-            bmc_ip_address,
-            metadata,
-            rack_id: rpc.rack_id,
-            bmc_retain_credentials: rpc.bmc_retain_credentials,
-        })
-    }
-}
-
 #[derive(FromRow)]
 pub struct LinkedExpectedPowerShelf {
     pub serial_number: String,
@@ -142,46 +84,4 @@ pub struct LinkedExpectedPowerShelf {
 pub struct ExpectedPowerShelfRequest {
     pub expected_power_shelf_id: Option<Uuid>,
     pub bmc_mac_address: Option<MacAddress>,
-}
-
-impl TryFrom<rpc::forge::ExpectedPowerShelfRequest> for ExpectedPowerShelfRequest {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedPowerShelfRequest) -> Result<Self, Self::Error> {
-        let expected_power_shelf_id = rpc
-            .expected_power_shelf_id
-            .map(|u| {
-                Uuid::parse_str(&u.value)
-                    .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
-            })
-            .transpose()?;
-        let bmc_mac_address = if rpc.bmc_mac_address.is_empty() {
-            None
-        } else {
-            Some(
-                MacAddress::try_from(rpc.bmc_mac_address.as_str())
-                    .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address))?,
-            )
-        };
-
-        Ok(ExpectedPowerShelfRequest {
-            expected_power_shelf_id,
-            bmc_mac_address,
-        })
-    }
-}
-
-impl From<LinkedExpectedPowerShelf> for rpc::forge::LinkedExpectedPowerShelf {
-    fn from(l: LinkedExpectedPowerShelf) -> rpc::forge::LinkedExpectedPowerShelf {
-        rpc::forge::LinkedExpectedPowerShelf {
-            shelf_serial_number: l.serial_number,
-            bmc_mac_address: l.bmc_mac_address.to_string(),
-            power_shelf_id: l.power_shelf_id,
-            expected_power_shelf_id: l.expected_power_shelf_id.map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            }),
-            explored_endpoint_address: l.address,
-            rack_id: l.rack_id,
-        }
-    }
 }

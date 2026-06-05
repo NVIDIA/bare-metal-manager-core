@@ -16,7 +16,7 @@ DHCP Request (BMC)
             → Provisioning:
                1. Set DPU boot to HTTP IPv4 UEFI
                2. Power cycle DPU via Redfish
-               3. DPU PXE boots carbide.efi
+               3. DPU PXE boots nico.efi
                4. BIOS config (SR-IOV, etc.)
                5. Set host boot order (DPU first)
                6. Power cycle host via Redfish
@@ -120,13 +120,13 @@ Once all DPUs are matched and validated, the host enters an "ingestable" state a
 
 ## 4. DPU Provisioning
 
-After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `carbide-rest`) with Redfish power control (in `infra-controller-core`).
+After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `nico-rest`) with Redfish power control (in `infra-controller-core`).
 
 ### Boot Configuration
 
 The DPU is configured to boot from HTTP IPv4 UEFI, which directs it to the NICo PXE server. The PXE server serves different artifacts based on architecture:
 
-- **ARM (BlueField DPUs)**: `carbide.efi` with cloud-init user-data containing `machine_id` and `server_uri`
+- **ARM (BlueField DPUs)**: `nico.efi` with cloud-init user-data containing `machine_id` and `server_uri`
 - **x86 (Hosts)**: `scout.efi` with machine discovery parameters (`cli_cmd=auto-detect`)
 
 ### Power Cycle
@@ -143,15 +143,15 @@ The power control operation supports multiple reset types: `On`, `ForceOff`, `Gr
 ### Installation
 
 After PXE boot, the DPU:
-1. Fetches `carbide.efi` from the NICo PXE server over HTTP
+1. Fetches `nico.efi` from the NICo PXE server over HTTP
 2. Receives cloud-init configuration with its `machine_id` and NICo API endpoint
 3. Installs and starts the DPU agent (`dpu-agent`), which connects back to NICo Core via gRPC
 
 **Key files:**
 - `crates/api/src/ipxe.rs` — iPXE instruction generation per architecture
 - `pxe/ipxe/local/embed.ipxe` — iPXE boot script template
-- `carbide-rest/workflow/pkg/workflow/instance/reboot.go` — `RebootInstance` Temporal workflow
-- `carbide-rest/site-workflow/pkg/grpc/client/instance_powercycle.go` — Power cycle gRPC call to site agent
+- `nico-rest/workflow/pkg/workflow/instance/reboot.go` — `RebootInstance` Temporal workflow
+- `nico-rest/site-workflow/pkg/grpc/client/instance_powercycle.go` — Power cycle gRPC call to site agent
 
 ## 5. Host Configuration and Boot
 
@@ -199,7 +199,7 @@ Power cycles are rate-limited to avoid excessive reboots (checked via `time_sinc
 
 ## 6. Ongoing Monitoring
 
-Once hosts are provisioned, the `carbide-hw-health` service continuously monitors **both host BMCs and DPU BMCs** via Redfish. The endpoint discovery calls `find_machine_ids` with `include_dpus: true`, so every BMC known to NICo (host and DPU) gets its own set of collectors:
+Once hosts are provisioned, the `nico-hw-health` service continuously monitors **both host BMCs and DPU BMCs** via Redfish. The endpoint discovery calls `find_machine_ids` with `include_dpus: true`, so every BMC known to NICo (host and DPU) gets its own set of collectors:
 
 - **Health monitor** — sensor collection and health alert reporting
 - **Firmware collector** — firmware inventory polling

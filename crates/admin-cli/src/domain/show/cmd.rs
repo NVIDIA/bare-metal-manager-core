@@ -18,12 +18,13 @@
 use std::fmt::Write;
 
 use ::rpc::Timestamp;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 // timestamp_or_default returns a String representation of

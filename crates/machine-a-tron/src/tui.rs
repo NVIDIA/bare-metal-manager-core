@@ -50,7 +50,7 @@ impl From<&Vpc> for VpcDetails {
     fn from(value: &Vpc) -> Self {
         Self {
             vpc_id: value.vpc_id,
-            vpc_name: Some(value.vpc_name.clone()),
+            vpc_name: Some(value.metadata.name.clone()),
         }
     }
 }

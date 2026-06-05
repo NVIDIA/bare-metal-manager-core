@@ -415,14 +415,14 @@ jobs:
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
               EXPECTED_FILES=(
                 "pxe/static/blobs/internal/x86_64/scout.efi"
-                "pxe/static/blobs/internal/x86_64/scout.cpio.zst"
+                "pxe/static/blobs/internal/x86_64/scout.squashfs"
                 "pxe/static/blobs/internal/x86_64/qcow-imager.efi"
                 # target/debs/* checked separately
               )
             else
               EXPECTED_FILES=(
                 "pxe/static/blobs/internal/aarch64/scout.efi"
-                "pxe/static/blobs/internal/aarch64/scout.cpio.zst"
+                "pxe/static/blobs/internal/aarch64/scout.squashfs"
                 "pxe/static/blobs/internal/aarch64/qcow-imager.efi"
                 # pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/* checked separately
                 # target/debs/* checked separately
@@ -472,13 +472,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          SCOUT_IMAGE="pxe/static/blobs/internal/${{ inputs.arch }}/scout.cpio.zst"
+          SCOUT_IMAGE="pxe/static/blobs/internal/${{ inputs.arch }}/scout.squashfs"
           if [ ! -f "${SCOUT_IMAGE}" ]; then
             echo "ERROR: Missing scout image artifact: ${SCOUT_IMAGE}"
             exit 1
           fi
 
-          if zstd -dc "${SCOUT_IMAGE}" | cpio -it --quiet 2>/dev/null | grep -Eq '(^|\\./)opt/forge/bin/mnv_cli$'; then
+          if unsquashfs -l "${SCOUT_IMAGE}" 2>/dev/null | grep -Eq '^squashfs-root/opt/forge/bin/mnv_cli$'; then
             echo "OK: /opt/forge/bin/mnv_cli is present in ${SCOUT_IMAGE}"
           else
             echo "ERROR: /opt/forge/bin/mnv_cli missing from ${SCOUT_IMAGE}"
@@ -502,9 +502,9 @@ jobs:
             fi
           else
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.cpio.zst", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/scout.efi", "pxe/static/blobs/internal/x86_64/scout.squashfs", "pxe/static/blobs/internal/x86_64/qcow-imager.efi", "target/debs/*"]'
             else
-              ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/scout.cpio.zst", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
+              ARTIFACTS='["pxe/static/blobs/internal/aarch64/scout.efi", "pxe/static/blobs/internal/aarch64/scout.squashfs", "pxe/static/blobs/internal/aarch64/qcow-imager.efi", "pxe/mkosi.profiles/scout-x86_64/mkosi.extra/build-output/*", "target/debs/*"]'
             fi
           fi
 

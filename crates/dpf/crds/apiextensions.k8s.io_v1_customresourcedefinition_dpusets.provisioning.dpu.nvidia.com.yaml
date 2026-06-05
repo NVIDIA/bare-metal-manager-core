@@ -17,7 +17,14 @@ spec:
     singular: dpuset
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: DPUSet is the Schema for the dpusets API
@@ -42,6 +49,53 @@ spec:
           spec:
             description: DPUSetSpec defines the desired state of DPUSet
             properties:
+              dpuDeviceSelector:
+                description: DPUDeviceSelector defines the selector for DPUDevices
+                  that the DPUSet should target and should create a DPU for.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
               dpuNodeSelector:
                 description: Select the DPUNodes with specific labels
                 properties:
@@ -91,7 +145,10 @@ spec:
               dpuSelector:
                 additionalProperties:
                   type: string
-                description: Select the DPU with specific labels
+                description: |-
+                  Select the DPU with specific labels
+
+                  Deprecated: This field is deprecated and will be removed with v26.7.0. Use DPUDeviceSelector instead.
                 type: object
               dpuTemplate:
                 description: Object that describes the DPU that will be created if
@@ -112,6 +169,7 @@ spec:
                           name:
                             description: Specifies name of the bfb CR to use for this
                               DPU
+                            minLength: 1
                             type: string
                         type: object
                       cluster:
@@ -123,14 +181,60 @@ spec:
                             description: NodeLabels specifies the labels to be added
                               to the node.
                             type: object
+                          selector:
+                            description: Selector defines the selector of the DPUClusters
+                              the produced DPUs should join
+                            properties:
+                              matchExpressions:
+                                description: matchExpressions is a list of label selector
+                                  requirements. The requirements are ANDed.
+                                items:
+                                  description: |-
+                                    A label selector requirement is a selector that contains values, a key, and an operator that
+                                    relates the key and values.
+                                  properties:
+                                    key:
+                                      description: key is the label key that the selector
+                                        applies to.
+                                      type: string
+                                    operator:
+                                      description: |-
+                                        operator represents a key's relationship to a set of values.
+                                        Valid operators are In, NotIn, Exists and DoesNotExist.
+                                      type: string
+                                    values:
+                                      description: |-
+                                        values is an array of string values. If the operator is In or NotIn,
+                                        the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                        the values array must be empty. This array is replaced during a strategic
+                                        merge patch.
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                  required:
+                                  - key
+                                  - operator
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                  map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                  operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                type: object
+                            type: object
+                            x-kubernetes-map-type: atomic
                         type: object
                       dpuFlavor:
                         description: DPUFlavor is the name of the DPUFlavor that will
                           be used to deploy the DPU.
+                        minLength: 1
                         type: string
                       nodeEffect:
-                        default:
-                          drain: true
                         description: Specifies how changes to the DPU should affect
                           the Node
                         properties:
@@ -211,8 +315,13 @@ spec:
                             1 : 0) + (has(self.customLabel) ? 1 : 0) + (has(self.drain)
                             ? 1 : 0) + (has(self.customAction) ? 1 : 0) + (has(self.hold)
                             ? 1 : 0) == 1'
+                      secureBoot:
+                        description: SecureBoot specifies whether UEFI Secure Boot
+                          should be enabled.
+                        type: boolean
                     required:
                     - dpuFlavor
+                    - nodeEffect
                     type: object
                 type: object
               strategy:
@@ -230,20 +339,25 @@ spec:
                         description: |-
                           MaxUnavailable is the maximum number of DPUs that can be unavailable during the update.
 
-                          Deprecated: This field is deprecated and will be removed with v26.4.0.
+                          Deprecated: This field is deprecated and will be removed with v26.7.0.
                         x-kubernetes-int-or-string: true
                     type: object
                   type:
-                    default: OnDelete
                     description: Can be "OnDelete" or "RollingUpdate".
                     enum:
                     - OnDelete
                     - RollingUpdate
                     type: string
+                required:
+                - type
                 type: object
             required:
             - dpuTemplate
+            - strategy
             type: object
+            x-kubernetes-validations:
+            - message: only one of dpuSelector or dpuDeviceSelector can be specified
+              rule: '!(has(self.dpuSelector) && has(self.dpuDeviceSelector))'
           status:
             description: DPUSetStatus defines the observed state of DPUSet
             properties:

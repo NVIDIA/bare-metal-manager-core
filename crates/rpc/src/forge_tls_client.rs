@@ -23,13 +23,13 @@ use eyre::Result;
 use forge_http_connector::connector::ForgeHttpConnector;
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use forge_tls::client_config::ClientCert;
+use forge_tls::dummy_tls_verifier::DummyTlsVerifier;
 use hickory_resolver::config::ResolverConfig;
 use hyper::body::Incoming;
 use hyper_util::client::legacy;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
-use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::{ClientConfig, RootCertStore};
 use tonic::body::Body;
 use tonic::transport::Uri;
 use tower::ServiceExt;
@@ -44,6 +44,25 @@ use crate::forge_tls_client::ConfigurationError::CouldNotReadRootCa;
 use crate::protos::forge::forge_client::ForgeClient;
 use crate::protos::nmx_c::nmx_controller_client::NmxControllerClient;
 use crate::{forge_resolver, protos};
+
+/// Formats an error as `"{top}: {root}"` using the deepest source in its chain,
+/// since `Display` alone doesn't walk `source()` and would hide the root cause.
+fn format_error_chain<E: std::error::Error + ?Sized>(err: &E) -> String {
+    // Bound the walk so a cyclic or pathologically deep `source()` chain can't hang us.
+    let max_depth = 16;
+    let out = err.to_string();
+    let source = std::iter::successors(err.source(), |e| e.source())
+        .take(max_depth)
+        .last()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| out.clone());
+
+    if out != source {
+        format!("{out}: {source}")
+    } else {
+        out
+    }
+}
 
 pub type NmxCClientT = NmxControllerClient<
     BoxCloneService<
@@ -61,104 +80,9 @@ pub type ForgeClientT = ForgeClient<
     >,
 >;
 
-//this code was copy and pasted from the implementation of the same struct in sqlx::core,
-//and is only necessary for as long as we're optionally validating TLS
-#[derive(Debug)]
-pub struct DummyTlsVerifier {
-    print_warning: bool,
-}
-
-impl Default for DummyTlsVerifier {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DummyTlsVerifier {
-    #[cfg(not(test))]
-    pub fn new() -> Self {
-        Self {
-            // Warnings are suppressed if this is running in a unit-test
-            print_warning: std::env::var_os("CARGO_MANIFEST_DIR").is_none(),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new() -> Self {
-        Self {
-            // Warnings are suppressed if this is running in a unit-test
-            print_warning: false,
-        }
-    }
-}
-
 pub const DEFAULT_DOMAIN: &str = "forge.local";
 
 const VRF_NAME: &str = "mgmt";
-
-impl ServerCertVerifier for DummyTlsVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        if self.print_warning {
-            eprintln!(
-                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
-            );
-        }
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        if self.print_warning {
-            eprintln!(
-                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
-            );
-        }
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        if self.print_warning {
-            eprintln!(
-                "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS."
-            );
-        }
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        vec![
-            SignatureScheme::RSA_PKCS1_SHA1,
-            SignatureScheme::ECDSA_SHA1_Legacy,
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::ED25519,
-            SignatureScheme::ED448,
-        ]
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct ForgeClientConfig {
@@ -461,10 +385,10 @@ impl<'a> ForgeTlsClient<'a> {
                         tracing::error!(
                             "error connecting client to forge api (url: {}), will retry: {}",
                             api_config.url,
-                            err
+                            format_error_chain(err)
                         );
                     })
-                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
+                    .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
 
                 // ok, ok
                 Ok(Ok(client))
@@ -542,7 +466,8 @@ impl<'a> ForgeTlsClient<'a> {
             error: e,
         })?;
 
-        // only check for the root cert if the uri we were given is actually HTTPS.  That lets tests function properly.
+        // Only check the root and client certs if the uri we were given is actually HTTPS.
+        // That lets tests and plaintext-HTTP environments function properly.
         if let Some(scheme) = uri.scheme()
             && scheme == &tonic::codegen::http::uri::Scheme::HTTPS
         {
@@ -563,6 +488,25 @@ impl<'a> ForgeTlsClient<'a> {
                     .into());
                 }
             }
+
+            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
+                let start = SystemTime::now();
+                let current_time = start
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+                if u64::try_from(cert_expiry)
+                    .ok()
+                    .is_none_or(|v| current_time.as_secs() > v)
+                {
+                    tracing::error!(
+                        "Client certificate is expired, perhaps you need to regenerate your cert?"
+                    );
+                    return Err(ConfigurationError::InvalidClientCert(
+                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
+                    )
+                    .into());
+                }
+            }
         }
 
         let base_config_builder = || {
@@ -580,27 +524,11 @@ impl<'a> ForgeTlsClient<'a> {
                 } else {
                     base_config_builder()
                         .dangerous()
-                        .with_custom_certificate_verifier(std::sync::Arc::new(
-                            DummyTlsVerifier::new(),
-                        ))
+                        .with_custom_certificate_verifier(
+                            Arc::new(DummyTlsVerifier::new_for_prod()),
+                        )
                 }
             };
-
-            if let Some(cert_expiry) = self.forge_client_config.client_cert_expiry() {
-                let start = SystemTime::now();
-                let current_time = start
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards");
-                if current_time.as_secs() > cert_expiry.try_into().unwrap() {
-                    tracing::error!(
-                        "Client certificate is expired, perhaps you need to regenerate your cert?"
-                    );
-                    return Err(ConfigurationError::InvalidClientCert(
-                        rustls::Error::InvalidCertificate(rustls::CertificateError::Expired),
-                    )
-                    .into());
-                }
-            }
 
             if let Some((certs, key)) = self.forge_client_config.read_client_cert() {
                 builder()
@@ -622,7 +550,7 @@ impl<'a> ForgeTlsClient<'a> {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
         // Five seconds is the default, but setting anyway for documentation and future proofing
         let mut resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
@@ -758,10 +686,10 @@ impl<'a> ForgeTlsClient<'a> {
                         tracing::error!(
                             "error connecting client to forge api (url: {}), will retry: {}",
                             api_config.url,
-                            err
+                            format_error_chain(err)
                         );
                     })
-                    .map_err(|e| ForgeTlsClientError::Connection(e.to_string()))?;
+                    .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
 
                 // ok, ok
                 Ok(Ok(client))
@@ -848,7 +776,7 @@ mod tests {
         let resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
 
         let resolver_opts = ForgeResolverOpts::default().timeout(Duration::from_secs(5));
@@ -877,7 +805,7 @@ mod tests {
                 .with_safe_default_protocol_versions()
                 .unwrap()
                 .dangerous()
-                .with_custom_certificate_verifier(std::sync::Arc::new(DummyTlsVerifier::new()))
+                .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier::new_for_tests()))
                 .with_no_client_auth();
 
                 hyper_rustls::HttpsConnectorBuilder::new()
@@ -924,5 +852,31 @@ mod tests {
 
         assert_eq!(attempts_for_addr.unwrap(), max_retries + 1);
         assert_eq!(errors_for_addr.unwrap(), max_retries + 1);
+    }
+
+    #[test]
+    fn format_error_chain_walks_source_chain() {
+        #[derive(thiserror::Error, Debug)]
+        #[error("invalid peer certificate: UnknownIssuer")]
+        struct Inner;
+
+        #[derive(thiserror::Error, Debug)]
+        #[error("client error (Connect)")]
+        struct Outer(#[from] Inner);
+
+        let err: Outer = Inner.into();
+        assert_eq!(
+            format_error_chain(&err),
+            "client error (Connect): invalid peer certificate: UnknownIssuer"
+        );
+    }
+
+    #[test]
+    fn format_error_chain_with_no_source_returns_top_message() {
+        #[derive(thiserror::Error, Debug)]
+        #[error("only message")]
+        struct Plain;
+
+        assert_eq!(format_error_chain(&Plain), "only message");
     }
 }

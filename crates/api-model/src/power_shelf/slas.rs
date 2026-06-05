@@ -32,3 +32,6 @@ pub const CONFIGURING: u64 = 300; // 5 minutes
 
 /// SLA for PowerShelf deleting in seconds
 pub const DELETING: u64 = 300; // 5 minutes
+
+/// SLA for PowerShelf maintenance (PowerOn / PowerOff) in seconds
+pub const MAINTENANCE: u64 = 300; // 5 minutes

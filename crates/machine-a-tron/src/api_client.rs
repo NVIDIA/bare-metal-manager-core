@@ -265,6 +265,7 @@ impl ApiClient {
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         };
 
         let tenant_config = rpc::TenantConfig {
@@ -278,7 +279,6 @@ impl ApiClient {
             os: Some(InstanceOperatingSystemConfig {
                 variant: Some(Variant::Ipxe(InlineIpxe {
                     ipxe_script: "Non-existing-ipxe".to_string(),
-                    user_data: None,
                 })),
                 user_data: None,
                 phone_home_enabled: false,
@@ -286,11 +286,13 @@ impl ApiClient {
             }),
             network: Some(rpc::InstanceNetworkConfig {
                 interfaces: vec![interface_config],
+                auto: false,
             }),
             network_security_group_id: None,
             infiniband: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {
@@ -320,6 +322,7 @@ impl ApiClient {
                 delete_interfaces: true,
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
+                allow_delete_with_orphaned_dpf_crds: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -406,7 +409,6 @@ impl ApiClient {
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
                 id: None,
-                name: "".to_string(),
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
@@ -462,7 +464,7 @@ impl ApiClient {
                 result: 0,
                 message: "".to_string(),
             }),
-            result: 0,
+            ..Default::default()
         };
 
         self.0
@@ -475,14 +477,15 @@ impl ApiClient {
     pub async fn get_pxe_instructions(
         &self,
         arch: rpc::forge::MachineArchitecture,
-        interface_id: MachineInterfaceId,
+        client_ip: std::net::IpAddr,
         product: Option<String>,
     ) -> ClientApiResult<PxeInstructions> {
         self.0
             .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
                 arch: arch.into(),
-                interface_id: Some(interface_id),
                 product,
+                client_ip: Some(client_ip.to_string()),
+                ..Default::default()
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -501,10 +504,13 @@ impl ApiClient {
 
     /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
     /// real environments set it through the admin CLI / API when DHCP discovery is not used.
+    /// `dpu_mode` is the per-host operating mode -- pass `Some(NoDpu)` for zero-DPU mock hosts
+    /// or `Some(NicMode)` for DPU-in-NIC-mode mock hosts; `None` for normal DPU hosts.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
         chassis_serial_number: String,
+        dpu_mode: Option<rpc::forge::DpuMode>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_machine(ExpectedMachine {
@@ -524,7 +530,7 @@ impl ApiClient {
                 is_dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: None,
+                dpu_mode: dpu_mode.map(|m| m as i32),
                 host_lifecycle_profile: None,
             })
             .await

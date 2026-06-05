@@ -60,47 +60,6 @@ pub struct MachineIbInterfaceStatusObservation {
     pub associated_partition_ids: Option<HashSet<IBPartitionId>>,
 }
 
-impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusObservation {
-    fn from(
-        ib_status: MachineInfinibandStatusObservation,
-    ) -> rpc::forge::InfinibandStatusObservation {
-        rpc::forge::InfinibandStatusObservation {
-            ib_interfaces: ib_status
-                .ib_interfaces
-                .into_iter()
-                .map(|interface| interface.into())
-                .collect(),
-            observed_at: Some(ib_status.observed_at.into()),
-        }
-    }
-}
-
-impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterface {
-    fn from(
-        machine_ib_interface: MachineIbInterfaceStatusObservation,
-    ) -> rpc::forge::MachineIbInterface {
-        rpc::forge::MachineIbInterface {
-            pf_guid: None,
-            guid: Some(machine_ib_interface.guid),
-            lid: Some(machine_ib_interface.lid as u32),
-            fabric_id: match machine_ib_interface.fabric_id.is_empty() {
-                true => None,
-                false => Some(machine_ib_interface.fabric_id),
-            },
-            associated_pkeys: machine_ib_interface.associated_pkeys.map(|pkeys| {
-                rpc::common::StringList {
-                    items: pkeys.into_iter().map(|key| key.to_string()).collect(),
-                }
-            }),
-            associated_partition_ids: machine_ib_interface.associated_partition_ids.map(|ids| {
-                rpc::common::StringList {
-                    items: ids.into_iter().map(|id| id.into()).collect(),
-                }
-            }),
-        }
-    }
-}
-
 /// The reason why the IB config is not synced
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IbConfigNotSyncedReason {

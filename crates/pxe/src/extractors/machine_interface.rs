@@ -14,11 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashMap;
-
-use axum::extract::{FromRequestParts, Path, Query};
+use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
-use carbide_uuid::machine::MachineInterfaceId;
+use axum_client_ip::ClientIp;
 use serde::{Deserialize, Serialize};
 
 use crate::common::MachineInterface;
@@ -29,10 +27,6 @@ use crate::rpc_error::PxeRequestError;
 struct MaybeMachineInterface {
     #[serde(rename(deserialize = "buildarch"))]
     build_architecture: String,
-    #[serde(default)]
-    uuid: Option<MachineInterfaceId>,
-    #[serde(default)]
-    uuid_as_param: Option<String>,
     #[serde(default)]
     platform: Option<String>,
     #[serde(default)]
@@ -45,35 +39,6 @@ struct MaybeMachineInterface {
     asset: Option<String>,
 }
 
-impl TryFrom<MaybeMachineInterface> for MachineInterface {
-    type Error = PxeRequestError;
-
-    fn try_from(value: MaybeMachineInterface) -> Result<Self, Self::Error> {
-        let build_architecture = MachineArchitecture::try_from(value.build_architecture.as_str())?;
-
-        let uuid = match (value.uuid, value.uuid_as_param) {
-            (Some(uuid), _) => Ok(uuid),
-            (None, Some(uuid)) => {
-                uuid.parse()
-                    .map_err(|e: carbide_uuid::typed_uuids::UuidError| {
-                        PxeRequestError::UuidConversion(e.into())
-                    })
-            }
-            _ => Err(PxeRequestError::MissingMachineId),
-        }?;
-
-        Ok(MachineInterface {
-            architecture: Some(build_architecture),
-            interface_id: uuid,
-            platform: value.platform,
-            manufacturer: value.manufacturer,
-            product: value.product,
-            serial: value.serial,
-            asset: value.asset,
-        })
-    }
-}
-
 impl<S> FromRequestParts<S> for MachineInterface
 where
     S: Send + Sync,
@@ -81,17 +46,31 @@ where
     type Rejection = PxeRequestError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        if let Ok(maybe) = Query::<MaybeMachineInterface>::from_request_parts(parts, state).await {
-            let mut maybe_machine_interface = maybe.0;
-            maybe_machine_interface.uuid_as_param =
-                Path::<HashMap<String, String>>::from_request_parts(parts, state)
-                    .await
-                    .ok()
-                    .and_then(|params| params.0.get("uuid").cloned());
-            maybe_machine_interface.try_into()
-        } else {
-            // it can only fail to parse because of missing build arch, the other fields are optional.
-            Err(PxeRequestError::InvalidBuildArch)
-        }
+        let Ok(maybe) = Query::<MaybeMachineInterface>::from_request_parts(parts, state).await
+        else {
+            // Query parsing only fails on the required build_architecture
+            // field; everything else is optional.
+            return Err(PxeRequestError::InvalidBuildArch);
+        };
+        let maybe = maybe.0;
+
+        let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())?;
+
+        // ClientIp uses X-Forwarded-For when a proxy injects it, and falls
+        // back to the TCP socket peer otherwise.
+        let client_ip = ClientIp::from_request_parts(parts, state)
+            .await
+            .map_err(PxeRequestError::MissingIp)?
+            .0;
+
+        Ok(MachineInterface {
+            architecture: Some(build_architecture),
+            client_ip,
+            platform: maybe.platform,
+            manufacturer: maybe.manufacturer,
+            product: maybe.product,
+            serial: maybe.serial,
+            asset: maybe.asset,
+        })
     }
 }

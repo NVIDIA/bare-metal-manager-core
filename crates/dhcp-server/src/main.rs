@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
-use carbide_utils::models::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
+use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
@@ -635,7 +635,7 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
-    use carbide_utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
+    use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
     use chrono::{DateTime, Utc};
     use dhcproto::v4::{DhcpOption, Message, MessageType, OptionCode};
     use dhcproto::{Decodable, Decoder, Encodable};

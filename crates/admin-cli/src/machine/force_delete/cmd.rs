@@ -18,11 +18,11 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::AdminForceDeleteMachineRequest;
 use carbide_uuid::machine::MachineId;
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn force_delete(mut query: Args, api_client: &ApiClient) -> CarbideCliResult<()> {

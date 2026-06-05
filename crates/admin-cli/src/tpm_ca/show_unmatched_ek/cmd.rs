@@ -15,8 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn show_unmatched_ek(api_client: &ApiClient) -> CarbideCliResult<()> {

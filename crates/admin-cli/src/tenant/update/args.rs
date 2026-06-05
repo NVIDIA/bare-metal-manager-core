@@ -25,8 +25,7 @@ pub struct Args {
     #[clap(
         short = 'p',
         long,
-        help = "Optional, routing profile name to apply to the tenant",
-        default_value(None)
+        help = "Optional, routing profile name to apply to the tenant"
     )]
     pub routing_profile_type: Option<String>,
 

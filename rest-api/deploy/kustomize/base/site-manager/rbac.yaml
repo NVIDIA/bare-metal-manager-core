@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# RBAC for carbide-rest-site-manager
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+rules:
+  # Access to Site CRDs
+  - apiGroups: ["forge.nvidia.io"]
+    resources: ["sites"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["forge.nvidia.io"]
+    resources: ["sites/status"]
+    verbs: ["get", "update", "patch"]
+  # Access to secrets for TLS
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+subjects:
+  - kind: ServiceAccount
+    name: carbide-rest-site-manager
+roleRef:
+  kind: Role
+  name: carbide-rest-site-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# ClusterRole for CRD access across namespaces (if needed)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+rules:
+  - apiGroups: ["forge.nvidia.io"]
+    resources: ["sites"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["forge.nvidia.io"]
+    resources: ["sites/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+subjects:
+  - kind: ServiceAccount
+    name: carbide-rest-site-manager
+    namespace: carbide-rest
+roleRef:
+  kind: ClusterRole
+  name: carbide-rest-site-manager
+  apiGroup: rbac.authorization.k8s.io

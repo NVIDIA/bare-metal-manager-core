@@ -85,14 +85,6 @@ pub struct RedfishActionId {
     pub request_id: i64,
 }
 
-impl From<rpc::forge::RedfishActionId> for RedfishActionId {
-    fn from(id: rpc::forge::RedfishActionId) -> Self {
-        RedfishActionId {
-            request_id: id.request_id,
-        }
-    }
-}
-
 impl From<i64> for RedfishActionId {
     fn from(request_id: i64) -> Self {
         RedfishActionId { request_id }
@@ -104,14 +96,6 @@ pub struct RedfishListActionsFilter {
     pub machine_ip: Option<String>,
 }
 
-impl From<rpc::forge::RedfishListActionsRequest> for RedfishListActionsFilter {
-    fn from(req: rpc::forge::RedfishListActionsRequest) -> Self {
-        RedfishListActionsFilter {
-            machine_ip: req.machine_ip,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct RedfishCreateAction {
     pub target: String,
@@ -119,56 +103,9 @@ pub struct RedfishCreateAction {
     pub parameters: String,
 }
 
-impl From<rpc::forge::RedfishCreateActionRequest> for RedfishCreateAction {
-    fn from(req: rpc::forge::RedfishCreateActionRequest) -> Self {
-        RedfishCreateAction {
-            target: req.target,
-            action: req.action,
-            parameters: req.parameters,
-        }
-    }
-}
-
-impl From<ActionRequest> for rpc::forge::RedfishAction {
-    fn from(value: ActionRequest) -> Self {
-        Self {
-            request_id: value.request_id,
-            requester: value.requester,
-            approvers: value.approvers,
-            approver_dates: value.approver_dates.into_iter().map(|d| d.into()).collect(),
-            machine_ips: value.machine_ips,
-            board_serials: value.board_serials,
-            target: value.target,
-            action: value.action,
-            parameters: value.parameters,
-            applied_at: value.applied_at.map(|t| t.into()),
-            applier: value.applier,
-            results: value
-                .results
-                .into_iter()
-                .map(|r| rpc::forge::OptionalRedfishActionResult {
-                    result: r.map(|r| rpc::forge::RedfishActionResult {
-                        headers: r.headers,
-                        status: r.status,
-                        body: r.body,
-                        completed_at: Some(r.completed_at.into()),
-                    }),
-                })
-                .collect(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn redfish_action_id_from_rpc() {
-        let rpc_id = rpc::forge::RedfishActionId { request_id: 42 };
-        let id = RedfishActionId::from(rpc_id);
-        assert_eq!(id.request_id, 42);
-    }
 
     #[test]
     fn redfish_action_id_from_i64() {
@@ -181,28 +118,5 @@ mod tests {
         let id = RedfishActionId { request_id: 1 };
         let id2 = id;
         assert_eq!(id.request_id, id2.request_id);
-    }
-
-    #[test]
-    fn redfish_list_actions_filter_from_rpc() {
-        let rpc_req = rpc::forge::RedfishListActionsRequest {
-            machine_ip: Some("10.0.0.1".to_string()),
-        };
-        let filter = RedfishListActionsFilter::from(rpc_req);
-        assert_eq!(filter.machine_ip, Some("10.0.0.1".to_string()));
-    }
-
-    #[test]
-    fn redfish_create_action_from_rpc() {
-        let rpc_req = rpc::forge::RedfishCreateActionRequest {
-            ips: vec!["10.0.0.1".to_string()],
-            action: "Reset".to_string(),
-            target: "/redfish/v1/Systems/1/Actions".to_string(),
-            parameters: r#"{"ResetType":"ForceRestart"}"#.to_string(),
-        };
-        let action = RedfishCreateAction::from(rpc_req);
-        assert_eq!(action.action, "Reset");
-        assert_eq!(action.target, "/redfish/v1/Systems/1/Actions");
-        assert_eq!(action.parameters, r#"{"ResetType":"ForceRestart"}"#);
     }
 }

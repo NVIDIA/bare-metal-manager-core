@@ -17,7 +17,6 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
@@ -57,41 +56,6 @@ impl<'r> FromRow<'r, PgRow> for ExpectedRack {
         Ok(ExpectedRack {
             rack_id: row.try_get("rack_id")?,
             rack_profile_id: row.try_get("rack_profile_id")?,
-            metadata,
-        })
-    }
-}
-
-impl From<ExpectedRack> for rpc::forge::ExpectedRack {
-    fn from(expected_rack: ExpectedRack) -> Self {
-        rpc::forge::ExpectedRack {
-            rack_id: Some(expected_rack.rack_id),
-            rack_profile_id: Some(expected_rack.rack_profile_id),
-            metadata: Some(expected_rack.metadata.into()),
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::ExpectedRack> for ExpectedRack {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedRack) -> Result<Self, Self::Error> {
-        let rack_id = rpc
-            .rack_id
-            .ok_or(RpcDataConversionError::MissingArgument("rack_id"))?;
-        let rack_profile_id = rpc
-            .rack_profile_id
-            .ok_or(RpcDataConversionError::MissingArgument("rack_profile_id"))?;
-        if rack_profile_id.as_str().is_empty() {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "rack_profile_id is required".to_string(),
-            ));
-        }
-        let metadata = Metadata::try_from(rpc.metadata.unwrap_or_default())?;
-
-        Ok(ExpectedRack {
-            rack_id,
-            rack_profile_id,
             metadata,
         })
     }

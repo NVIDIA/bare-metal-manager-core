@@ -1,0 +1,73 @@
+## nico-hardware-health — Collects and reports hardware health metrics
+## Global settings (overridden by umbrella chart)
+global:
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+## Override the release namespace (defaults to helm install -n <namespace>)
+namespaceOverride: ""
+
+replicas: 1
+
+service:
+  port: 9009
+
+certificate:
+  ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
+  extraDnsNames: []
+  extraUris: []
+
+env:
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+  NICO_HEALTH__COLLECTORS__LOGS__ENABLED: "false"
+
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: 9009
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 300
+  failureThreshold: 3
+  successThreshold: 1
+
+## Scrapes /metrics: service operational metrics (discovery, collectors, components).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## Scrapes /telemetry: hardware sensor samples exported by the Prometheus sink
+## (temperature, power, fans, and other Redfish-derived gauge readings per endpoint).
+## High cardinality; enable only when Prometheus retention and scrape budget allow it.
+telemetryServiceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s

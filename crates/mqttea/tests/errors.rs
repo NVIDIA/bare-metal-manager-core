@@ -30,6 +30,9 @@ fn create_test_connection_error() -> ClientError {
 }
 
 fn create_test_decode_error() -> DecodeError {
+    // Deprecation: if they remove DecodeError::new, they hopefully will provide some other way
+    // to impl prost::Message.
+    #[allow(deprecated)]
     DecodeError::new("Test protobuf decode error")
 }
 

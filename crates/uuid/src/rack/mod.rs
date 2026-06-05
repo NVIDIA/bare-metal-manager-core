@@ -23,12 +23,7 @@ use prost::bytes::{Buf, BufMut};
 use prost::encoding::{DecodeContext, WireType};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
-use sqlx::{
-    encode::IsNull,
-    error::BoxDynError,
-    postgres::{PgHasArrayType, PgTypeInfo},
-    {Database, Postgres, Row},
-};
+use sqlx::Row;
 
 use crate::DbPrimaryUuid;
 
@@ -39,7 +34,9 @@ use crate::DbPrimaryUuid;
 /// that the DCIM uses (e.g. "P20", "rack-42-us-west", or the legacy
 /// `ps100...` encoded format).
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[serde(transparent)]
+#[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct RackId(String);
 
 impl RackId {
@@ -101,63 +98,11 @@ impl DbPrimaryUuid for RackId {
     }
 }
 
-// Make RackId bindable directly into a sqlx query.
-#[cfg(feature = "sqlx")]
-impl sqlx::Encode<'_, sqlx::Postgres> for RackId {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
-    ) -> Result<IsNull, BoxDynError> {
-        buf.extend(self.0.as_bytes());
-        Ok(sqlx::encode::IsNull::No)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl<'r, DB> sqlx::Decode<'r, DB> for RackId
-where
-    DB: sqlx::database::Database,
-    String: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as sqlx::database::Database>::ValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        let str_id: String = String::decode(value)?;
-        Ok(RackId(str_id))
-    }
-}
-
 #[cfg(feature = "sqlx")]
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for RackId {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let id: RackId = row.try_get::<RackId, _>(0)?;
         Ok(id)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl<DB> sqlx::Type<DB> for RackId
-where
-    DB: sqlx::Database,
-    String: sqlx::Type<DB>,
-{
-    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
-        String::type_info()
-    }
-
-    fn compatible(ty: &DB::TypeInfo) -> bool {
-        String::compatible(ty)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for RackId {
-    fn array_type_info() -> PgTypeInfo {
-        <&str as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <&str as PgHasArrayType>::array_compatible(ty)
     }
 }
 
@@ -231,7 +176,9 @@ mod legacy_rpc {
 /// in the `[rack_profiles.<id>]` configuration section (e.g. "NVL72",
 /// "NVL36").
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[serde(transparent)]
+#[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct RackProfileId(String);
 
 impl RackProfileId {
@@ -282,57 +229,6 @@ impl From<String> for RackProfileId {
 impl AsRef<str> for RackProfileId {
     fn as_ref(&self) -> &str {
         &self.0
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl sqlx::Encode<'_, sqlx::Postgres> for RackProfileId {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
-    ) -> Result<IsNull, BoxDynError> {
-        buf.extend(self.0.as_bytes());
-        Ok(sqlx::encode::IsNull::No)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl<'r, DB> sqlx::Decode<'r, DB> for RackProfileId
-where
-    DB: sqlx::database::Database,
-    String: sqlx::Decode<'r, DB>,
-{
-    fn decode(
-        value: <DB as sqlx::database::Database>::ValueRef<'r>,
-    ) -> Result<Self, sqlx::error::BoxDynError> {
-        let str_id: String = String::decode(value)?;
-        Ok(RackProfileId(str_id))
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl<DB> sqlx::Type<DB> for RackProfileId
-where
-    DB: sqlx::Database,
-    String: sqlx::Type<DB>,
-{
-    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
-        String::type_info()
-    }
-
-    fn compatible(ty: &DB::TypeInfo) -> bool {
-        String::compatible(ty)
-    }
-}
-
-#[cfg(feature = "sqlx")]
-impl PgHasArrayType for RackProfileId {
-    fn array_type_info() -> PgTypeInfo {
-        <&str as PgHasArrayType>::array_type_info()
-    }
-
-    fn array_compatible(ty: &PgTypeInfo) -> bool {
-        <&str as PgHasArrayType>::array_compatible(ty)
     }
 }
 

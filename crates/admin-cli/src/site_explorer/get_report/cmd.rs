@@ -17,11 +17,12 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use prettytable::{Cell, Row, Table, format, row};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 

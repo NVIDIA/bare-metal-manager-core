@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::net::IpAddr;
 use std::ops::DerefMut;
 use std::str::FromStr;
 
@@ -31,10 +31,12 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::snapshot::{self, InstanceSnapshot, InstanceSnapshotPgJson};
 use model::metadata::Metadata;
 use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
+use sqlx::types::Json;
 
 use crate::db_read::DbReader;
 use crate::operating_system::{self, OperatingSystem as OsRow};
@@ -266,45 +268,80 @@ fn build_operating_system_for_snapshot(
     }
 }
 
+/// Represents the data we get back from find_by_id and related functions that bring in the
+/// operating system as well as the instance.
+#[derive(sqlx::FromRow)]
+struct InstanceAndOsRow {
+    instance: Json<InstanceSnapshotPgJson>,
+    operating_system: Option<Json<OsRow>>,
+}
+
+impl TryFrom<InstanceAndOsRow> for InstanceSnapshot {
+    type Error = DatabaseError;
+    fn try_from(pg_row: InstanceAndOsRow) -> Result<Self, Self::Error> {
+        let instance_row = pg_row.instance.0;
+        let os_row = pg_row.operating_system.map(|r| r.0);
+
+        let snapshot = match os_row {
+            Some(os_row) => {
+                let os = build_operating_system_for_snapshot(&os_row, &instance_row);
+                snapshot::from_pg_json_and_os(instance_row, os).map_err(|e| {
+                    DatabaseError::Internal {
+                        message: format!("instance snapshot from_pg_json_and_os: {e}"),
+                    }
+                })?
+            }
+            None => {
+                // No OS reference: derive OS from instance columns only (legacy behavior).
+                InstanceSnapshot::try_from(instance_row).map_err(|e| DatabaseError::Internal {
+                    message: format!("instance snapshot try_from: {e}"),
+                })?
+            }
+        };
+
+        Ok(snapshot)
+    }
+}
+
 pub async fn find_by_id(
     txn: impl DbReader<'_>,
     id: InstanceId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
     // Single query; LEFT JOIN so we get instance even when operating_system_id is NULL.
-    let query = "SELECT row_to_json(i.*), row_to_json(o.*) FROM instances i
+    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
+        FROM instances i
         LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
         WHERE i.id = $1";
-    let row: Option<(serde_json::Value, Option<serde_json::Value>)> = sqlx::query_as(query)
+    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
         .bind(id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    let Some((instance_json, os_json)) = row else {
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
         return Ok(None);
     };
-    let pg_json: InstanceSnapshotPgJson =
-        serde_json::from_value(instance_json).map_err(|e| DatabaseError::Internal {
-            message: format!("instance snapshot json decode: {e}"),
-        })?;
-    let snapshot = match os_json {
-        Some(oj) => {
-            let os_row: OsRow =
-                serde_json::from_value(oj).map_err(|e| DatabaseError::Internal {
-                    message: format!("operating_system row json decode: {e}"),
-                })?;
-            let os = build_operating_system_for_snapshot(&os_row, &pg_json);
-            snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot from_pg_json_and_os: {e}"),
-            })?
-        }
-        None => {
-            // No OS reference: derive OS from instance columns only (legacy behavior).
-            InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot try_from: {e}"),
-            })?
-        }
+    Ok(Some(instance_and_os_row.try_into()?))
+}
+
+pub async fn find_by_address(
+    txn: impl DbReader<'_>,
+    address: IpAddr,
+) -> Result<Option<InstanceSnapshot>, DatabaseError> {
+    // Single query; LEFT JOIN so we get instance even when operating_system_id is NULL.
+    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
+        FROM instances i
+        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
+        INNER JOIN instance_addresses a ON a.instance_id = i.id
+        WHERE a.address = $1";
+    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
+        .bind(address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
+        return Ok(None);
     };
-    Ok(Some(snapshot))
+    Ok(Some(instance_and_os_row.try_into()?))
 }
 
 pub async fn find_id_by_machine_id(
@@ -370,7 +407,7 @@ pub async fn find_by_extension_service(
         .build_query_as()
         .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+        .map_err(|e| DatabaseError::query(builder.sql().as_str(), e))?;
     resolve_snapshots_from_json_rows(txn, rows).await
 }
 
@@ -466,6 +503,22 @@ pub async fn update_phone_home_last_contact(
         query_result.0
     );
     Ok(query_result.0)
+}
+
+pub async fn clear_phone_home_last_contact(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE instances SET phone_home_last_contact=NULL WHERE id=$1 RETURNING id";
+
+    let _id = sqlx::query_as::<_, InstanceId>(query)
+        .bind(instance_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    tracing::info!("Phone home last contact cleared for instance {instance_id}");
+    Ok(())
 }
 
 /// Updates updateable configurations of an instance
@@ -626,6 +679,22 @@ pub async fn update_nvlink_config(
     .await
 }
 
+/// Updates the desired spx configuration for an instance
+pub async fn update_spx_config(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+    expected_version: ConfigVersion,
+    new_state: &InstanceSpxConfig,
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    batch_update_spx_config(
+        txn,
+        &[(instance_id, expected_version, new_state)],
+        increment_version,
+    )
+    .await
+}
+
 pub async fn trigger_update_network_config_request(
     instance_id: &InstanceId,
     current: &InstanceNetworkConfig,
@@ -739,7 +808,9 @@ pub async fn batch_persist<'a>(
                         extension_services_config,
                         extension_services_config_version,
                         nvlink_config,
-                        nvlink_config_version
+                        nvlink_config_version,
+                        spx_config,
+                        spx_config_version
                     )
                     SELECT 
                             vals.id, vals.machine_id, vals.operating_system_id, vals.os_user_data, vals.os_ipxe_script,
@@ -751,7 +822,7 @@ pub async fn batch_persist<'a>(
                             vals.network_security_group_id, true,
                             vals.instance_type_id, vals.extension_services_config::json, 
                             vals.extension_services_config_version, vals.nvlink_config::json, 
-                            vals.nvlink_config_version
+                            vals.nvlink_config_version, vals.spx_config::json, vals.spx_config_version
                     FROM (VALUES ";
 
     let mut qb = sqlx::QueryBuilder::new(query);
@@ -834,6 +905,12 @@ pub async fn batch_persist<'a>(
             .push_bind_unseparated(serde_json::to_string(&value.config.nvlink).unwrap_or_default());
         separated.push_unseparated(",");
         separated.push_bind_unseparated(value.nvlink_config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.config.spxconfig).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.spx_config_version);
         separated.push_unseparated(")");
     }
 
@@ -842,7 +919,7 @@ pub async fn batch_persist<'a>(
                        ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
                        description, labels, config_version, hostname, network_security_group_id,
                        instance_type_id, extension_services_config, extension_services_config_version,
-                       nvlink_config, nvlink_config_version)
+                       nvlink_config, nvlink_config_version, spx_config, spx_config_version)
             INNER JOIN machines m ON m.id = vals.machine_id 
                 AND (vals.instance_type_id IS NULL OR m.instance_type_id = vals.instance_type_id)");
 
@@ -1048,6 +1125,70 @@ pub async fn batch_update_nvlink_config(
     if result.rows_affected() != expected_count {
         return Err(DatabaseError::FailedPrecondition(
             "NVLink config version mismatch during batch update".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Batch update spx configs for multiple instances
+/// Each update contains (instance_id, expected_version, config)
+pub async fn batch_update_spx_config(
+    txn: &mut PgConnection,
+    updates: &[(InstanceId, ConfigVersion, &InstanceSpxConfig)],
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let expected_count = updates.len() as u64;
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "UPDATE instances SET 
+            spx_config_version = updates.new_version,
+            spx_config = updates.config::json
+        FROM (VALUES ",
+    );
+
+    let mut separated = qb.separated(", ");
+    for (instance_id, expected_version, config) in updates {
+        let new_version = if increment_version {
+            expected_version.increment()
+        } else {
+            *expected_version
+        };
+        separated.push("(");
+        separated.push_bind_unseparated(*instance_id);
+        separated.push_unseparated("::uuid,");
+        separated.push_bind_unseparated(*expected_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(new_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(serde_json::to_string(config).unwrap_or_default());
+        separated.push_unseparated(")");
+    }
+
+    qb.push(
+        ") AS updates(id, expected_version, new_version, config) 
+        WHERE instances.id = updates.id 
+        AND instances.spx_config_version = updates.expected_version",
+    );
+
+    let result = qb
+        .build()
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_update_spx_config", e))?;
+
+    // Verify all rows were updated (version check passed)
+    if result.rows_affected() != expected_count {
+        tracing::error!(
+            "batch_update_spx_config affected != expected: {:#?} != {expected_count}",
+            result.rows_affected()
+        );
+        return Err(DatabaseError::FailedPrecondition(
+            "Spx config version mismatch during batch update".to_string(),
         ));
     }
 

@@ -34,7 +34,7 @@ path = "src/main.rs"
 carbide-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 carbide-rpc = { path = "../rpc" }
-carbide-utils = { path = "../utils" }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-uuid = { path = "../uuid" }
 
 serde_yaml = { workspace = true }

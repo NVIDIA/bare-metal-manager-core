@@ -17,11 +17,12 @@
 
 use std::collections::HashSet;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::network_security_group::common::convert_nsgs_to_table;
 use crate::rpc::ApiClient;
 

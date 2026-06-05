@@ -17,6 +17,8 @@
 
 pub mod cfg;
 pub mod grpc_server;
+pub mod http_request_metrics;
+pub mod identity_signer;
 pub mod nic_init;
 pub mod phone_home;
 pub mod rest_server;

@@ -139,6 +139,16 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
     .await
 }
 
+pub async fn generic_ami_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(HostHardwareType::GenericAmi, vec![])),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 #[cfg(test)]
 mod test {
 

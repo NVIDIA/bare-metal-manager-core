@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}NMX-C Browser{% endblock %}
+
+{% block content %}
+<h1>NMX-C Browser</h1>
+
+<p>
+Choose an operation and chassis serial.
+See the <a href="https://docs.nvidia.com/networking/display/nmxcv11/grpc+api+documentation">NMX-C gRPC API documentation</a> for details.
+</p>
+
+<form id="nmxc_console" method="GET" action="/admin/nmxc-browser">
+	<div>
+		<label for="chassis_serial_input">Chassis serial:</label>
+		<input type=text size="40" id="chassis_serial_input" name="chassis_serial" value="{{ chassis_serial }}" />
+	</div>
+	<div>
+		<label for="operation_input">Operation:</label>
+		<select id="operation_input" name="operation">
+			<option value="" {% if operation.is_empty() %}selected{% endif %}>— choose —</option>
+			<option value="compute_node_info_list" {% if operation == "compute_node_info_list" %}selected{% endif %}>Compute node info list</option>
+			<option value="gpu_info" {% if operation == "gpu_info" %}selected{% endif %}>GPU info (by UID)</option>
+			<option value="gpu_info_list" {% if operation == "gpu_info_list" %}selected{% endif %}>GPU info list (domain)</option>
+		</select>
+	</div>
+	<div>
+		<label for="gpu_uid_input">GPU UID (required for GPU info):</label>
+		<input type=text size="24" id="gpu_uid_input" name="gpu_uid" value="{{ gpu_uid }}" />
+	</div>
+	<input type="submit" value="Run query">
+</form>
+
+{% if !chassis_serial.is_empty() && !operation.is_empty() && (operation != "gpu_info" || !gpu_uid.is_empty()) %}
+
+<h3>Metadata</h3>
+<table class="detailsview">
+	<tr><th>HTTP status</th><td>{{ status_code }} {{ status_string }}</td></tr>
+	{% if !response_headers.is_empty() %}
+	<tr>
+		<th>Response Headers</th>
+		<td>
+			<details>
+				<summary>Expand Headers</summary>
+				<table class="detailsview">
+					{% for header in response_headers %}
+					<tr>
+						<td>{{ header.name }}</td>
+						<td>{{ header.value }}</td>
+					</tr>
+					{% endfor %}
+				</table>
+			</details>
+		</td>
+	</tr>
+	{% endif %}
+</table>
+
+{% if !error.is_empty() %}
+<h3>Error</h3>
+<textarea disabled>{{ error }}</textarea>
+{% endif %}
+
+{% if !response.is_empty() %}
+<h3>Response</h3>
+<table class="detailsview">
+<tbody>
+	<tr>
+		<td>
+			<div style="overflow: auto;">
+				<pre><code class="prettyjson">{{ response }}</code></pre>
+			</div>
+		</td>
+	</tr>
+</tbody>
+</table>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

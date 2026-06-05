@@ -2,11 +2,11 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: forge-unbound-metrics
+  name: nico-unbound-metrics
   namespace: {{ include "unbound.namespace" . }}
   labels:
     {{- include "unbound.labels" . | nindent 4 }}
-    app: forge-unbound
+    app: nico-unbound
   annotations:
     {{- include "unbound.annotations" . | nindent 4 }}
 spec:
@@ -17,7 +17,7 @@ spec:
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
   selector:
     matchLabels:
-      app.kubernetes.io/instance: forge-unbound
+      app.kubernetes.io/instance: nico-unbound
   namespaceSelector:
     any: true
 {{- end }}

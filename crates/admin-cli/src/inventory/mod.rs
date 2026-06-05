@@ -21,12 +21,12 @@ pub mod cmds;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
 impl Run for Cmd {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {

@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use model::component_manager::{
-    FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
+    ComputeTrayComponent, FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
 };
 
+use crate::compute_tray_manager::{
+    Backend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus, ComputeTrayManager,
+    ComputeTrayResult,
+};
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
@@ -13,6 +17,7 @@ use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
     PowerShelfFirmwareVersions, PowerShelfManager,
 };
+use crate::types::FirmwareUpdateOptions;
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;
@@ -43,6 +48,7 @@ impl NvSwitchManager for MockNvSwitchManager {
         endpoints: &[SwitchEndpoint],
         _bundle_version: &str,
         _components: &[NvSwitchComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -103,6 +109,7 @@ impl PowerShelfManager for MockPowerShelfManager {
         endpoints: &[PowerShelfEndpoint],
         _target_version: &str,
         _components: &[PowerShelfComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -141,5 +148,70 @@ impl PowerShelfManager for MockPowerShelfManager {
                 error: None,
             })
             .collect())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct MockComputeTrayManager;
+
+#[async_trait::async_trait]
+impl ComputeTrayManager for MockComputeTrayManager {
+    fn name(&self) -> &str {
+        "mock-ctm"
+    }
+
+    fn backend(&self) -> Backend {
+        Backend::Mock
+    }
+
+    async fn power_control(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        _action: PowerAction,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| ComputeTrayResult {
+                bmc_ip: ep.bmc_ip,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn update_firmware(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        _target_version: &str,
+        _components: &[ComputeTrayComponent],
+        _options: &FirmwareUpdateOptions,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| ComputeTrayResult {
+                bmc_ip: ep.bmc_ip,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn get_firmware_status(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+    ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| ComputeTrayFirmwareUpdateStatus {
+                bmc_ip: ep.bmc_ip,
+                state: FirmwareState::Completed,
+                target_version: "mock-1.0.0".into(),
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
+        Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
     }
 }

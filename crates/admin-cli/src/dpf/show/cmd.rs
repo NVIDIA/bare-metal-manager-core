@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use prettytable::row;
-use rpc::admin_cli::CarbideCliError;
 
 use crate::dpf::common::DpfQuery;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -29,7 +29,7 @@ pub async fn show(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let machine_ids = if let Some(host) = query.host {
-        if host.machine_type() != carbide_uuid::machine::MachineType::Dpu {
+        if host.machine_type() == carbide_uuid::machine::MachineType::Dpu {
             return Err(CarbideCliError::GenericError(
                 "Only host id is expected!!".to_string(),
             ));

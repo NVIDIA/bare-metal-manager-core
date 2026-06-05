@@ -1,0 +1,53 @@
+{{- if .Values.externalService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nico-pxe.name" . }}-external
+  namespace: {{ include "nico-pxe.namespace" . }}
+  labels:
+    {{- include "nico-pxe.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "nico-pxe.name" . }}
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "{{ include "nico-pxe.name" . }}"
+    {{- with .Values.externalService.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  {{- if .Values.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.externalService.externalTrafficPolicy }}
+  {{- end }}
+  selector:
+    {{- include "nico-pxe.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nico-pxe.name" . }}-external-80
+  namespace: {{ include "nico-pxe.namespace" . }}
+  labels:
+    {{- include "nico-pxe.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "nico-pxe.name" . }}
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "{{ include "nico-pxe.name" . }}"
+    {{- with .Values.externalService.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.externalService.type | default "LoadBalancer" }}
+  {{- if .Values.externalService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.externalService.externalTrafficPolicy }}
+  {{- end }}
+  selector:
+    {{- include "nico-pxe.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+      protocol: TCP
+{{- end }}

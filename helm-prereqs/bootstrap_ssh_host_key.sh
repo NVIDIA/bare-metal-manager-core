@@ -24,7 +24,7 @@
 #   "-----BEGIN PRIVATE KEY-----"
 # which ssh-console-rs rejects with an encoding error at startup.
 #
-# This script creates the secret before `helmfile sync -l name=carbide-prereqs`
+# This script creates the secret before `helmfile sync -l name=nico-prereqs`
 # runs. Helm's lookup in templates/_helpers.tpl finds the existing secret and
 # reuses the key, so it is never overwritten with a PKCS8-format key.
 #
@@ -34,7 +34,7 @@
 # =============================================================================
 set -euo pipefail
 
-NAMESPACE="${1:-forge-system}"
+NAMESPACE="${1:-nico-system}"
 
 if kubectl get secret ssh-host-key -n "${NAMESPACE}" &>/dev/null; then
     echo "ssh-host-key already exists in ${NAMESPACE} — skipping"
@@ -52,8 +52,8 @@ kubectl create secret generic ssh-host-key \
 kubectl label secret ssh-host-key -n "${NAMESPACE}" \
     app.kubernetes.io/managed-by=Helm --overwrite
 kubectl annotate secret ssh-host-key -n "${NAMESPACE}" \
-    meta.helm.sh/release-name=carbide-prereqs \
-    meta.helm.sh/release-namespace=forge-system \
+    meta.helm.sh/release-name=nico-prereqs \
+    meta.helm.sh/release-namespace=nico-system \
     --overwrite
 
 rm -f /tmp/ssh_host_ed25519_key /tmp/ssh_host_ed25519_key.pub

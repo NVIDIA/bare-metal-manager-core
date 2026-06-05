@@ -68,7 +68,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             // If a controller got the lock, the maximum delay is higher than for controllers
             // which failed to get the lock, which aims to give another bias to
             // a different controller.
-            use rand::Rng;
+            use rand::RngExt;
             let iteration_max_jitter = if iteration_result.skipped_iteration {
                 err_jitter
             } else {
@@ -122,8 +122,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             otel.status_message = tracing::field::Empty,
             skipped_iteration = tracing::field::Empty,
             num_enqueued_objects = tracing::field::Empty,
-            app_timing_start_time = format!("{:?}", chrono::Utc::now()),
-            app_timing_end_time = tracing::field::Empty,
         );
 
         let res = self
@@ -156,8 +154,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             emitter.emit_iteration_counters_and_histograms(&metrics);
             emitter.set_iteration_span_attributes(&controller_span, &metrics);
         }
-
-        controller_span.record("app_timing_end_time", format!("{:?}", chrono::Utc::now()));
 
         iteration_result
     }

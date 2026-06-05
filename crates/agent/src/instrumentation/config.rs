@@ -17,13 +17,12 @@
 use std::ops::Deref;
 use std::sync::LazyLock;
 
+use carbide_metrics_utils::OtelView;
 use eyre::WrapErr;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_prometheus::ExporterBuilder;
-use opentelemetry_sdk::metrics::{
-    Aggregation, Instrument, InstrumentKind, MetricError, SdkMeterProvider, Stream, View,
-};
+use opentelemetry_sdk::metrics::{Aggregation, InstrumentKind, SdkMeterProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use prometheus::Registry;
 
@@ -111,35 +110,38 @@ pub fn get_dpu_agent_meter() -> Meter {
 /// that track the exact amount of retry attempts up to 3, and 2 additional
 /// buckets up to 10. This is more useful than the default histogram range where
 /// the lowest sets of buckets are 0, 5, 10, 25
-fn create_retry_histogram_view() -> Result<Box<dyn View>, MetricError> {
-    let mut criteria = Instrument::new().name("*_(attempts|retries)_*");
-    criteria.kind = Some(InstrumentKind::Histogram);
-    let mask = Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
-        boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
-        record_min_max: true,
-    });
-    opentelemetry_sdk::metrics::new_view(criteria, mask)
+fn create_retry_histogram_view() -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        "*_(attempts|retries)_*",
+        Some(InstrumentKind::Histogram),
+        Aggregation::ExplicitBucketHistogram {
+            boundaries: vec![0.0, 1.0, 2.0, 3.0, 5.0, 10.0],
+            record_min_max: true,
+        },
+    )
 }
 
-fn create_network_latency_view() -> Result<Box<dyn View>, MetricError> {
-    opentelemetry_sdk::metrics::new_view(
-        Instrument::new().name("*_network_latency*"),
-        Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+fn create_network_latency_view() -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        "*_network_latency*",
+        None,
+        Aggregation::ExplicitBucketHistogram {
             boundaries: vec![
                 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0, 5.0, 10.0, 100.0, 500.0, 1000.0,
             ],
             record_min_max: true,
-        }),
+        },
     )
 }
 
-fn create_network_loss_view() -> Result<Box<dyn View>, MetricError> {
-    opentelemetry_sdk::metrics::new_view(
-        Instrument::new().name("*_network_loss_percentage*"),
-        Stream::new().aggregation(Aggregation::ExplicitBucketHistogram {
+fn create_network_loss_view() -> carbide_metrics_utils::Result<OtelView> {
+    carbide_metrics_utils::new_view(
+        "*_network_loss_percentage*",
+        None,
+        Aggregation::ExplicitBucketHistogram {
             boundaries: vec![0.2, 0.4, 0.6, 0.8, 1.0],
             record_min_max: true,
-        }),
+        },
     )
 }
 

@@ -180,6 +180,11 @@ Use descriptive branch names like:
 - Be responsive to feedback and code review comments.
 - Ensure all CI checks pass before requesting review.
 
+## Build Guide
+
+For pinned dependency updates, image testing, and build optimization trade-offs, see the
+[Build Guide](docs/development/build-guide.md).
+
 ## Questions?
 
 If you have questions about contributing, please open an issue for discussion.

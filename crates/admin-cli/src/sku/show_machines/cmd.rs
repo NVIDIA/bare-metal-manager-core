@@ -15,12 +15,13 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use tokio::io::AsyncWriteExt;
 
 use super::super::common::ShowSkuOptions;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 async fn show_machine_table(

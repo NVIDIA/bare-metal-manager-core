@@ -133,7 +133,7 @@ receivers:
         - job_name: 'doca-telemetry'
           scrape_interval: 1m
           static_configs:
-            - targets: ['localhost:9100']
+            - targets: ['${env:NICO_DTS_METRICS_TARGET}']
           metric_relabel_configs:
             # This filter limits the set of DOCA metrics exported from the DPU
             # to keep CPU and memory load in check on the site controller.

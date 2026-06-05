@@ -17,9 +17,9 @@
 use std::collections::HashMap;
 
 use carbide_uuid::machine::MachineId;
-use casbin::error::ModelError;
 use sqlx::FromRow;
 
+use crate::errors::ModelError;
 use crate::machine::{ManagedHostState, ManagedHostStateSnapshot};
 
 #[derive(Debug, FromRow)]
@@ -27,6 +27,18 @@ pub struct DpuMachineUpdate {
     pub host_machine_id: MachineId,
     pub dpu_machine_id: MachineId,
     pub firmware_version: String,
+}
+
+/// A DPU identified via DPF whose installed BFB no longer matches the
+/// expected one. Produced by the DPF query layer and joined to host snapshots
+/// by [`DpuMachineUpdate::find_outdated_dpus_dpf`].
+#[derive(Debug, Clone)]
+pub struct OutdatedDpfDpu {
+    pub dpu_machine_id: MachineId,
+    /// Expected BFB filename (e.g. `dpf-operator-system-bf-bundle-<hash>.bfb`).
+    /// Used as the `firmware_version` field for traceability when this DPU is
+    /// turned into a [`DpuMachineUpdate`].
+    pub target_bfb: String,
 }
 
 impl DpuMachineUpdate {
@@ -45,12 +57,15 @@ impl DpuMachineUpdate {
         limit: Option<i32>,
         dpu_nic_firmware_update_versions: &[String],
         snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+        dpf_outdated: &[OutdatedDpfDpu],
     ) -> Result<Vec<DpuMachineUpdate>, ModelError> {
         if limit.is_some_and(|l| l <= 0) {
             return Ok(vec![]);
         }
 
-        let outdated_dpus = Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots);
+        let mut outdated_dpus =
+            Self::find_outdated_dpus(dpu_nic_firmware_update_versions, snapshots);
+        outdated_dpus.extend(Self::find_outdated_dpus_dpf(dpf_outdated, snapshots));
 
         let mut scheduled_host_updates = 0;
         let available_outdated_dpus: Vec<DpuMachineUpdate> = outdated_dpus
@@ -94,10 +109,10 @@ impl DpuMachineUpdate {
         unavailable_outdated_dpus
     }
 
-    pub fn find_outdated_dpus(
+    pub fn find_outdated_dpus<'a>(
         dpu_nic_firmware_update_versions: &[String],
-        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-    ) -> Vec<OutdatedHost> {
+        snapshots: &'a HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) -> Vec<OutdatedHost<'a>> {
         snapshots
             .iter()
             .filter_map(|(machine_id, managed_host)| {
@@ -133,7 +148,48 @@ impl DpuMachineUpdate {
                 }
 
                 Some(OutdatedHost {
-                    managed_host: managed_host.clone(),
+                    managed_host,
+                    outdated_dpus,
+                })
+            })
+            .collect()
+    }
+
+    /// Join DPF-identified outdated DPUs (by `MachineId`) to their owning host
+    /// snapshots and produce one [`OutdatedHost`] per host. DPUs that do not
+    /// appear in any snapshot are dropped silently — the upstream DPF query
+    /// layer is responsible for logging that case.
+    pub fn find_outdated_dpus_dpf<'a>(
+        dpf_outdated: &[OutdatedDpfDpu],
+        snapshots: &'a HashMap<MachineId, ManagedHostStateSnapshot>,
+    ) -> Vec<OutdatedHost<'a>> {
+        if dpf_outdated.is_empty() {
+            return vec![];
+        }
+
+        let dpu_to_host: HashMap<MachineId, MachineId> = snapshots
+            .iter()
+            .flat_map(|(host_id, snap)| snap.dpu_snapshots.iter().map(move |d| (d.id, *host_id)))
+            .collect();
+
+        let mut by_host: HashMap<MachineId, Vec<DpuMachineUpdate>> = HashMap::new();
+        for outdated in dpf_outdated {
+            let Some(&host_id) = dpu_to_host.get(&outdated.dpu_machine_id) else {
+                continue;
+            };
+            by_host.entry(host_id).or_default().push(DpuMachineUpdate {
+                host_machine_id: host_id,
+                dpu_machine_id: outdated.dpu_machine_id,
+                firmware_version: outdated.target_bfb.clone(),
+            });
+        }
+
+        by_host
+            .into_iter()
+            .filter_map(|(host_id, outdated_dpus)| {
+                let managed_host = snapshots.get(&host_id)?;
+                Some(OutdatedHost {
+                    managed_host,
                     outdated_dpus,
                 })
             })
@@ -141,12 +197,12 @@ impl DpuMachineUpdate {
     }
 }
 
-pub struct OutdatedHost {
-    pub managed_host: ManagedHostStateSnapshot,
+pub struct OutdatedHost<'a> {
+    pub managed_host: &'a ManagedHostStateSnapshot,
     pub outdated_dpus: Vec<DpuMachineUpdate>,
 }
 
-impl OutdatedHost {
+impl OutdatedHost<'_> {
     pub fn is_available_for_updates(&self) -> bool {
         // Skip any machines that have pending health alerts
         if !self.managed_host.aggregate_health.alerts.is_empty() {

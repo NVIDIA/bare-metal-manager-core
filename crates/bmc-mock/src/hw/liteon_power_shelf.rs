@@ -33,7 +33,7 @@ impl LiteOnPowerShelf<'_> {
             fan: 6,
             power: 12,
             current: 12,
-            leak: 0,
+            voltage: 0,
         }
     }
 

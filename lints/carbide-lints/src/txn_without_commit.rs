@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use rustc_errors::DiagDecorator;
 use rustc_lint_defs::{Lint, LintPass, LintVec};
 use rustc_middle::mir::{self, LocalKind};
 use rustc_middle::ty::{Ty as MiddleTy, TyCtxt};
@@ -130,15 +131,15 @@ impl TxnWithoutCommit {
                 continue;
             }
 
-            tcx.node_span_lint(
+            tcx.emit_node_span_lint(
                 TXN_WITHOUT_COMMIT,
                 body_id.hir_id,
                 decl.source_info.span,
-                |diag| {
+                DiagDecorator(|diag| {
                     diag.primary_message(
                         "sqlx::Transaction is dropped by this function without commit()/rollback(), or being moved out",
                     );
-                },
+                }),
             );
         }
     }

@@ -1,8 +1,8 @@
-# Keycloak for NCX REST
+# Keycloak for NICo REST
 
-Self-contained Keycloak deployment for `carbide-rest-api` authentication.
+Self-contained Keycloak deployment for `nico-rest-api` authentication.
 Uses `quay.io/keycloak/keycloak:24.0` with `--import-realm` to seed the
-`carbide` realm on first boot.
+`nico` realm on first boot.
 
 ## Quick Start
 
@@ -11,31 +11,31 @@ Uses `quay.io/keycloak/keycloak:24.0` with `--import-realm` to seed the
 ./keycloak/clean.sh    # tear down
 ```
 
-## Realm: `carbide`
+## Realm: `nico`
 
 | Setting | Value |
 |---------|-------|
-| Keycloak URL | `http://keycloak.carbide-rest:8082` |
-| Token endpoint | `http://keycloak.carbide-rest:8082/realms/carbide/protocol/openid-connect/token` |
+| Keycloak URL | `http://keycloak.nico-rest:8082` |
+| Token endpoint | `http://keycloak.nico-rest:8082/realms/nico/protocol/openid-connect/token` |
 
 ### Clients
 
 | Client ID | Type | Secret | Realm roles (via service account) |
 |-----------|------|--------|-----------------------------------|
-| `carbide-rest` | API client (audience only; no end-user login) | `carbide-local-secret` | — |
-| `ncx-service` | Service account (M2M, client_credentials) | `carbide-local-secret` | `ncx:FORGE_PROVIDER_ADMIN`, `ncx:FORGE_TENANT_ADMIN` |
+| `nico-rest` | API client (audience only; no end-user login) | `nico-local-secret` | — |
+| `ncx-service` | Service account (M2M, client_credentials) | `nico-local-secret` | `ncx:NICO_PROVIDER_ADMIN`, `ncx:NICO_TENANT_ADMIN` |
 
 ### Users
 
 There are **no human users** in this realm. The only identity is the auto-created
 `service-account-ncx-service` pseudo-user that backs the `ncx-service` client;
-its sole purpose in the realm JSON is to map the `ncx:FORGE_*` realm roles onto
+its sole purpose in the realm JSON is to map the `ncx:NICO_*` realm roles onto
 tokens issued via `client_credentials`.
 
 ## Acquiring a Token (ncx-service)
 
 Tokens must be obtained through the cluster-internal Keycloak URL so the
-JWT issuer matches what `carbide-rest-api` expects. Use the helper script:
+JWT issuer matches what `nico-rest-api` expects. Use the helper script:
 
 ```bash
 ./get-token.sh                        # prints the token and nothing else
@@ -43,16 +43,16 @@ TOKEN=$(./get-token.sh)               # capture for later curl calls
 ```
 
 Use `./example.sh` if you also want the JWT payload decoded and the API
-exercised against `/v2/org/ncx/carbide/user/current`.
+exercised against `/v2/org/ncx/nico/user/current`.
 
 Or the raw curl equivalent:
 
 ```bash
 TOKEN=$(kubectl run -i --rm --restart=Never --image=curlimages/curl curl-token \
-  -n carbide-rest --quiet -- \
-  -sf -X POST http://keycloak.carbide-rest:8082/realms/carbide/protocol/openid-connect/token \
+  -n nico-rest --quiet -- \
+  -sf -X POST http://keycloak.nico-rest:8082/realms/nico/protocol/openid-connect/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=ncx-service&client_secret=carbide-local-secret" \
+  -d "grant_type=client_credentials&client_id=ncx-service&client_secret=nico-local-secret" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 ```
 
@@ -66,11 +66,11 @@ Example payload:
 
 ```json
 {
-    "iss": "http://keycloak.carbide-rest:8082/realms/carbide",
-    "aud": "carbide-rest",
+    "iss": "http://keycloak.nico-rest:8082/realms/nico",
+    "aud": "nico-rest",
     "azp": "ncx-service",
     "realm_access": {
-        "roles": ["ncx:FORGE_PROVIDER_ADMIN", "ncx:FORGE_TENANT_ADMIN"]
+        "roles": ["ncx:NICO_PROVIDER_ADMIN", "ncx:NICO_TENANT_ADMIN"]
     },
     "preferred_username": "service-account-ncx-service",
     "client_id": "ncx-service"
@@ -90,14 +90,14 @@ Manually:
 ```bash
 TOKEN=$(./get-token.sh)
 
-# Port-forward to carbide-rest-api
-kubectl port-forward -n carbide-rest svc/carbide-rest-api 18388:8388 &
+# Port-forward to nico-rest-api
+kubectl port-forward -n nico-rest svc/nico-rest-api 18388:8388 &
 
 # Health check
 curl -s http://localhost:18388/healthz | python3 -m json.tool
 
-# Current user — auto-creates the service-account row in forge.user on first call
-curl -s http://localhost:18388/v2/org/ncx/carbide/user/current \
+# Current user — auto-creates the service-account row in nico.user on first call
+curl -s http://localhost:18388/v2/org/ncx/nico/user/current \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
@@ -117,11 +117,11 @@ Example response:
 ## How It Works
 
 The API parses `realm_access.roles` from the JWT and splits each role on `:`
-to extract the org name. For example, `ncx:FORGE_PROVIDER_ADMIN` means
-org=`ncx`, role=`FORGE_PROVIDER_ADMIN`. The org must match the `{orgName}`
+to extract the org name. For example, `ncx:NICO_PROVIDER_ADMIN` means
+org=`ncx`, role=`NICO_PROVIDER_ADMIN`. The org must match the `{orgName}`
 path parameter in the URL (`/v2/org/ncx/...`).
 
-On first API call, `carbide-rest-api` auto-creates a row in the `"user"`
+On first API call, `nico-rest-api` auto-creates a row in the `"user"`
 table keyed by the token's `sub` (the service-account user's UUID) with
 `org_data` populated from the realm roles.
 
@@ -139,10 +139,10 @@ table keyed by the token's `sub` (the service-account user's UUID) with
 
 ## After `helm-prereqs/setup.sh` finishes
 
-When `keycloak.enabled: true` in `values/ncx-rest.yaml`, the main
+When `keycloak.enabled: true` in `values/nico-rest.yaml`, the main
 `helm-prereqs/setup.sh` prints a short "How to get a token for ncx-service"
 block at the end of the run. That block shows the exact in-cluster curl
 required, the client_id / client_secret / token endpoint, and the
 `curl -H "Authorization: Bearer $TOKEN"` call against
-`/v2/org/ncx/carbide/user/current` so you can verify the realm roles flow
+`/v2/org/ncx/nico/user/current` so you can verify the realm roles flow
 through to the API.

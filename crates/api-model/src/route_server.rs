@@ -43,36 +43,3 @@ pub struct RouteServer {
     pub address: IpAddr,
     pub source_type: RouteServerSourceType,
 }
-
-// Impl to allow us to convert RouteServer instances
-// into gRPC RouteServer messages for returning
-// API responses.
-impl From<RouteServer> for rpc::forge::RouteServer {
-    fn from(rs: RouteServer) -> Self {
-        Self {
-            address: rs.address.to_string(),
-            source_type: rs.source_type as i32,
-        }
-    }
-}
-
-// Impl to allow us to convert RouteServerSourceType instances
-// into gRPC RouteServerSourceType messages for returning
-// API responses.
-impl From<RouteServerSourceType> for rpc::forge::RouteServerSourceType {
-    fn from(source_type: RouteServerSourceType) -> Self {
-        match source_type {
-            RouteServerSourceType::ConfigFile => rpc::forge::RouteServerSourceType::ConfigFile,
-            RouteServerSourceType::AdminApi => rpc::forge::RouteServerSourceType::AdminApi,
-        }
-    }
-}
-
-impl From<rpc::forge::RouteServerSourceType> for RouteServerSourceType {
-    fn from(source_type: rpc::forge::RouteServerSourceType) -> Self {
-        match source_type {
-            rpc::forge::RouteServerSourceType::ConfigFile => RouteServerSourceType::ConfigFile,
-            rpc::forge::RouteServerSourceType::AdminApi => RouteServerSourceType::AdminApi,
-        }
-    }
-}

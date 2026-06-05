@@ -110,7 +110,7 @@ pub fn build(
                 hasher.update(c.endpoint.as_bytes());
                 hasher.update(c.scrape_interval_seconds.to_ne_bytes());
 
-                let id = format!("prom-{:X}", hasher.finalize());
+                let id = format!("prom-{}", hex::encode_upper(hasher.finalize()));
 
                 if unique_configs.insert(id.clone()) {
                     params.Prometheus.push(TmplPrometheus {
@@ -123,7 +123,7 @@ pub fn build(
             }
             DpuExtensionServiceObservabilityConfigType::Logging(ref c) => {
                 hasher.update(c.path.as_bytes());
-                let id = format!("log-{:X}", hasher.finalize());
+                let id = format!("log-{}", hex::encode_upper(hasher.finalize()));
 
                 if unique_configs.insert(id.clone()) {
                     params.Logging.push(TmplLogging {

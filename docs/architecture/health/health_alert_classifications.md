@@ -22,6 +22,8 @@ site-wide fleet-health. This is achieved by metrics/alerting queries ignoring th
 Hosts with this classification will not be counted towards state machine transition time SLA.
 This classification is mostly used to prevent the state machine from continuously alerting when some manual operations are being performed on the machine.
 
+It is applied automatically (together with `PreventAllocations` and `SuppressExternalAlerting`) when a host is placed into maintenance mode via the `SetMaintenance` RPC, so that stuck-instance / state-machine SLA alerts do not page on-call for hosts an operator is actively working on — regardless of which state or substate the host is in at the time.
+
 ### `StopRebootForAutomaticRecoveryFromStateMachine`
 
 For hosts with this classification, the NICo state machine will not automatically
@@ -34,17 +36,17 @@ Indicates a hardware-related issue and is used as a broad bucket for hardware/BM
 ### `SensorWarning`
 
 Indicates that a sensor reading violated a caution/warning threshold.
-In `carbide-hardware-health`, this corresponds to crossing `lower_caution`/`upper_caution` thresholds.
+In `nico-hardware-health`, this corresponds to crossing `lower_caution`/`upper_caution` thresholds.
 
 ### `SensorCritical`
 
 Indicates that a sensor reading violated a critical threshold.
-In `carbide-hardware-health`, this corresponds to crossing `lower_critical`/`upper_critical` thresholds.
+In `nico-hardware-health`, this corresponds to crossing `lower_critical`/`upper_critical` thresholds.
 
 ### `SensorFailure`
 
 Indicates that a sensor reading is outside the advertised valid range.
-In `carbide-hardware-health`, this corresponds to values outside `range_min`/`range_max` when that range is well-formed.
+In `nico-hardware-health`, this corresponds to values outside `range_min`/`range_max` when that range is well-formed.
 
 For `BmcSensor` alerts, severity is evaluated in this order:
 `SensorFailure` -> `SensorCritical` -> `SensorWarning`.

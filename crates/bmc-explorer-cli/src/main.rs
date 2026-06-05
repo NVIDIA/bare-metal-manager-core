@@ -24,7 +24,8 @@ use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_site_explorer::BmcEndpointExplorer;
 use carbide_site_explorer::config::SiteExplorerExploreMode;
 use clap::Parser;
-use forge_secrets::credentials::{Credentials, TestCredentialManager};
+use forge_secrets::credentials::Credentials;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use mac_address::MacAddress;
 use tracing_subscriber::fmt;
 
@@ -78,7 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password: args.password,
     };
 
-    let rf_pool = libredfish::RedfishClientPool::builder().build()?;
+    let rf_pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()?;
     let proxy_address = Arc::new(ArcSwap::new(None.into()));
     let credential_provider = Arc::new(TestCredentialManager::new(fallback_credentials.clone()));
 

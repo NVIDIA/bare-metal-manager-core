@@ -9,7 +9,7 @@ metadata:
   name: machine-a-tron-config
 data:
   mat.toml: |
-    carbide_api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+    carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
     interface = "NOTUSED"
     tui_enabled = false
     use_pxe_api = true
@@ -20,6 +20,7 @@ data:
     mock_bmc_ssh_server = true
     mock_bmc_ssh_port = 2222
     persist_dir = "/tmp/machine-a-tron-data"
+    register_expected_machines = true
 
     # machine-a-tron config generated from "just setup-k3s-env-ips"
     [machines.config]
@@ -51,10 +52,10 @@ spec:
     name: local-ca-issuer
     group: cert-manager.io
   dnsNames:
-    - machine-a-tron.forge-system.svc.cluster.local
-    - machine-a-tron-bmc-mock.forge-system.svc.cluster.local
+    - machine-a-tron.nico-system.svc.cluster.local
+    - machine-a-tron-bmc-mock.nico-system.svc.cluster.local
   uris:
-    - spiffe://forge.local/forge-system/sa/machine-a-tron
+    - spiffe://nico.local/nico-system/sa/machine-a-tron
 ---
 apiVersion: v1
 kind: Service

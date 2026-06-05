@@ -21,51 +21,15 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_host_support::cpu::aggregate_cpus;
-use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
 use serde::{Deserialize, Serialize};
 
 use crate::machine::machine_id::MissingHardwareInfo;
-use crate::try_convert_vec;
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-#[derive(Deserialize)]
-struct HardwareInfoDeserialized {
-    #[serde(default)]
-    network_interfaces: Vec<NetworkInterface>,
-    #[serde(default)]
-    infiniband_interfaces: Vec<InfinibandInterface>,
-    #[serde(default)]
-    cpu_info: Vec<CpuInfo>,
-    #[serde(default)]
-    block_devices: Vec<BlockDevice>,
-    // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
-    // the DB, so renaming it requires a migration or custom Serialize impl.
-    machine_type: CpuArchitecture,
-    #[serde(default)]
-    nvme_devices: Vec<NvmeDevice>,
-    #[serde(default)]
-    dmi_data: Option<DmiData>,
-    tpm_ek_certificate: Option<TpmEkCertificate>,
-    #[serde(default)]
-    dpu_info: Option<DpuData>,
-    #[serde(default)]
-    gpus: Vec<Gpu>,
-    #[serde(default)]
-    memory_devices: Vec<MemoryDevice>,
-    #[serde(default)]
-    cpus: Vec<Cpu>, // Deprecated in favor of `cpu_info`
-    #[serde(default)]
-    tpm_description: Option<TpmDescription>,
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "HardwareInfoDeserialized")]
 pub struct HardwareInfo {
     #[serde(default)]
     pub network_interfaces: Vec<NetworkInterface>,
@@ -107,25 +71,6 @@ pub struct InfinibandInterface {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
-}
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Cpu {
-    #[serde(default)]
-    pub vendor: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub frequency: String,
-    #[serde(default)]
-    pub number: u32,
-    #[serde(default)]
-    pub core: u32,
-    #[serde(default)]
-    pub node: i32,
-    #[serde(default)]
-    pub socket: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,584 +264,6 @@ pub struct TpmDescription {
     pub tpm_spec: String,
 }
 
-impl From<rpc::machine_discovery::TpmDescription> for TpmDescription {
-    fn from(value: rpc::machine_discovery::TpmDescription) -> Self {
-        TpmDescription {
-            vendor: value.vendor.trim_matches('\0').to_string(),
-            firmware_version: value.firmware_version.trim_matches('\0').to_string(),
-            tpm_spec: value.tpm_spec.trim_matches('\0').to_string(),
-        }
-    }
-}
-
-impl From<TpmDescription> for rpc::machine_discovery::TpmDescription {
-    fn from(value: TpmDescription) -> Self {
-        rpc::machine_discovery::TpmDescription {
-            vendor: value.vendor,
-            firmware_version: value.firmware_version,
-            tpm_spec: value.tpm_spec,
-        }
-    }
-}
-
-// These defines conversions functions from the RPC data model into the internal
-// data model (which might also be used in the database).
-// It might actually be nicer to have those closer to the rpc crate to avoid
-// polluting the internal data model with API concerns, but since this is a
-// separate crate we can't have it there (unless we also make the model a
-// separate crate).
-//
-
-// The reverse, rpc::machine_discovery::Cpu -> Cpu, isn't needed going forward because
-// rpc::machine_discovery::Cpu instances parsed from /proc/cpuinfo are now aggregated directly into
-// CpuInfo rather than converted to Cpu. Only when reading the old format back from the
-// machine_topologies table in the database do we need this conversion to leverage that same
-// aggregation logic as if parsing from /proc/cpuinfo.
-// TODO: Remove when there's no longer a need to handle the old topology format
-impl TryFrom<&Cpu> for rpc::machine_discovery::Cpu {
-    type Error = RpcDataConversionError;
-
-    fn try_from(cpu: &Cpu) -> Result<Self, Self::Error> {
-        Ok(Self {
-            vendor: cpu.vendor.clone(),
-            model: cpu.model.clone(),
-            frequency: cpu.frequency.clone(),
-            number: cpu.number,
-            core: cpu.core,
-            node: cpu.node,
-            socket: cpu.socket,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::CpuInfo> for CpuInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(cpu_info: rpc::machine_discovery::CpuInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: cpu_info.model,
-            vendor: cpu_info.vendor,
-            sockets: cpu_info.sockets,
-            cores: cpu_info.cores,
-            threads: cpu_info.threads,
-        })
-    }
-}
-
-impl TryFrom<CpuInfo> for rpc::machine_discovery::CpuInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(cpu_info: CpuInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: cpu_info.model,
-            vendor: cpu_info.vendor,
-            sockets: cpu_info.sockets,
-            cores: cpu_info.cores,
-            threads: cpu_info.threads,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::BlockDevice> for BlockDevice {
-    type Error = RpcDataConversionError;
-
-    fn try_from(dev: rpc::machine_discovery::BlockDevice) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: dev.model,
-            revision: dev.revision,
-            serial: dev.serial,
-            device_type: dev.device_type,
-        })
-    }
-}
-
-impl TryFrom<BlockDevice> for rpc::machine_discovery::BlockDevice {
-    type Error = RpcDataConversionError;
-
-    fn try_from(dev: BlockDevice) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: dev.model,
-            revision: dev.revision,
-            serial: dev.serial,
-            device_type: dev.device_type,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
-    type Error = RpcDataConversionError;
-
-    fn try_from(dev: rpc::machine_discovery::NvmeDevice) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: dev.model,
-            firmware_rev: dev.firmware_rev,
-            serial: dev.serial,
-        })
-    }
-}
-
-impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
-    type Error = RpcDataConversionError;
-
-    fn try_from(dev: NvmeDevice) -> Result<Self, Self::Error> {
-        Ok(Self {
-            model: dev.model,
-            firmware_rev: dev.firmware_rev,
-            serial: dev.serial,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::DmiData> for DmiData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: rpc::machine_discovery::DmiData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            board_name: data.board_name,
-            board_version: data.board_version,
-            bios_version: data.bios_version,
-            bios_date: data.bios_date,
-            product_serial: data.product_serial,
-            board_serial: data.board_serial,
-            chassis_serial: data.chassis_serial,
-            product_name: data.product_name,
-            sys_vendor: data.sys_vendor,
-        })
-    }
-}
-
-impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: DmiData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            board_name: data.board_name,
-            board_version: data.board_version,
-            bios_version: data.bios_version,
-            bios_date: data.bios_date,
-            product_serial: data.product_serial,
-            board_serial: data.board_serial,
-            chassis_serial: data.chassis_serial,
-            product_name: data.product_name,
-            sys_vendor: data.sys_vendor,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: rpc::machine_discovery::LldpSwitchData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: data.name,
-            id: data.id,
-            description: data.description,
-            local_port: data.local_port,
-            ip_address: data.ip_address,
-            remote_port: data.remote_port,
-        })
-    }
-}
-
-impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: LldpSwitchData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: data.name,
-            id: data.id,
-            description: data.description,
-            local_port: data.local_port,
-            ip_address: data.ip_address,
-            remote_port: data.remote_port,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: rpc::machine_discovery::DpuData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            part_number: data.part_number,
-            part_description: data.part_description,
-            product_version: data.product_version,
-            factory_mac_address: data.factory_mac_address,
-            firmware_version: data.firmware_version,
-            firmware_date: data.firmware_date,
-            switches: try_convert_vec(data.switches)?,
-        })
-    }
-}
-
-impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
-    type Error = RpcDataConversionError;
-
-    fn try_from(data: DpuData) -> Result<Self, Self::Error> {
-        Ok(Self {
-            part_number: data.part_number,
-            part_description: data.part_description,
-            product_version: data.product_version,
-            factory_mac_address: data.factory_mac_address,
-            firmware_version: data.firmware_version,
-            firmware_date: data.firmware_date,
-            switches: try_convert_vec(data.switches)?,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
-    type Error = RpcDataConversionError;
-
-    fn try_from(iface: rpc::machine_discovery::NetworkInterface) -> Result<Self, Self::Error> {
-        let pci_properties = match iface.pci_properties.map(PciDeviceProperties::try_from) {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(props)) => Some(props),
-            None => None,
-        };
-
-        // Do what deserialize_ch_64 does in this case.
-        let mac_string = if iface.mac_address == MELLANOX_SF_VF_MAC_ADDRESS_IN {
-            MELLANOX_SF_VF_MAC_ADDRESS_OUT.to_string()
-        } else {
-            iface.mac_address
-        };
-
-        let mac_address: MacAddress = mac_string
-            .parse()
-            .map_err(|_| RpcDataConversionError::InvalidMacAddress(mac_string.clone()))?;
-
-        Ok(Self {
-            mac_address,
-            pci_properties,
-        })
-    }
-}
-
-impl TryFrom<NetworkInterface> for rpc::machine_discovery::NetworkInterface {
-    type Error = RpcDataConversionError;
-
-    fn try_from(iface: NetworkInterface) -> Result<Self, Self::Error> {
-        let pci_properties = match iface
-            .pci_properties
-            .map(rpc::machine_discovery::PciDeviceProperties::try_from)
-        {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(props)) => Some(props),
-            None => None,
-        };
-
-        Ok(Self {
-            mac_address: iface.mac_address.to_string(),
-            pci_properties,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::InfinibandInterface> for InfinibandInterface {
-    type Error = RpcDataConversionError;
-
-    fn try_from(ibface: rpc::machine_discovery::InfinibandInterface) -> Result<Self, Self::Error> {
-        let pci_properties = match ibface.pci_properties.map(PciDeviceProperties::try_from) {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(props)) => Some(props),
-            None => None,
-        };
-
-        Ok(Self {
-            guid: ibface.guid,
-            pci_properties,
-        })
-    }
-}
-
-impl TryFrom<InfinibandInterface> for rpc::machine_discovery::InfinibandInterface {
-    type Error = RpcDataConversionError;
-
-    fn try_from(ibface: InfinibandInterface) -> Result<Self, Self::Error> {
-        let pci_properties = match ibface
-            .pci_properties
-            .map(rpc::machine_discovery::PciDeviceProperties::try_from)
-        {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(props)) => Some(props),
-            None => None,
-        };
-
-        Ok(Self {
-            guid: ibface.guid,
-            pci_properties,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::PciDeviceProperties> for PciDeviceProperties {
-    type Error = RpcDataConversionError;
-
-    fn try_from(props: rpc::machine_discovery::PciDeviceProperties) -> Result<Self, Self::Error> {
-        Ok(Self {
-            vendor: props.vendor,
-            device: props.device,
-            path: props.path,
-            numa_node: props.numa_node,
-            description: props.description,
-            slot: props.slot,
-        })
-    }
-}
-
-impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDeviceProperties {
-    type Error = RpcDataConversionError;
-
-    fn try_from(props: PciDeviceProperties) -> Result<Self, Self::Error> {
-        Ok(Self {
-            vendor: props.vendor,
-            device: props.device,
-            path: props.path,
-            numa_node: props.numa_node,
-            description: props.description,
-            slot: props.slot,
-        })
-    }
-}
-
-impl TryFrom<GpuPlatformInfo> for rpc::machine_discovery::GpuPlatformInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(info: GpuPlatformInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            chassis_serial: info.chassis_serial,
-            slot_number: info.slot_number,
-            tray_index: info.tray_index,
-            host_id: info.host_id,
-            module_id: info.module_id,
-            fabric_guid: info.fabric_guid,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::GpuPlatformInfo> for GpuPlatformInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(info: rpc::machine_discovery::GpuPlatformInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            chassis_serial: info.chassis_serial,
-            slot_number: info.slot_number,
-            tray_index: info.tray_index,
-            host_id: info.host_id,
-            module_id: info.module_id,
-            fabric_guid: info.fabric_guid,
-        })
-    }
-}
-
-impl TryFrom<Gpu> for rpc::machine_discovery::Gpu {
-    type Error = RpcDataConversionError;
-
-    fn try_from(gpu: Gpu) -> Result<Self, Self::Error> {
-        let platform_info = match gpu
-            .platform_info
-            .map(rpc::machine_discovery::GpuPlatformInfo::try_from)
-        {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(info)) => Some(info),
-            None => None,
-        };
-
-        Ok(Self {
-            name: gpu.name,
-            serial: gpu.serial,
-            driver_version: gpu.driver_version,
-            vbios_version: gpu.vbios_version,
-            inforom_version: gpu.inforom_version,
-            total_memory: gpu.total_memory,
-            frequency: gpu.frequency,
-            pci_bus_id: gpu.pci_bus_id,
-            platform_info,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::Gpu> for Gpu {
-    type Error = RpcDataConversionError;
-
-    fn try_from(gpu: rpc::machine_discovery::Gpu) -> Result<Self, Self::Error> {
-        let platform_info = match gpu.platform_info.map(GpuPlatformInfo::try_from) {
-            Some(Err(e)) => return Err(e),
-            Some(Ok(info)) => Some(info),
-            None => None,
-        };
-
-        Ok(Self {
-            name: gpu.name,
-            serial: gpu.serial,
-            driver_version: gpu.driver_version,
-            vbios_version: gpu.vbios_version,
-            inforom_version: gpu.inforom_version,
-            total_memory: gpu.total_memory,
-            frequency: gpu.frequency,
-            pci_bus_id: gpu.pci_bus_id,
-            platform_info,
-        })
-    }
-}
-
-impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
-    fn from(value: rpc::machine_discovery::MemoryDevice) -> Self {
-        MemoryDevice {
-            size_mb: value.size_mb,
-            mem_type: value.mem_type,
-        }
-    }
-}
-
-impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
-    fn from(value: MemoryDevice) -> Self {
-        rpc::machine_discovery::MemoryDevice {
-            size_mb: value.size_mb,
-            mem_type: value.mem_type,
-        }
-    }
-}
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
-    type Error = RpcDataConversionError;
-
-    fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
-        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
-            // Convert V1 -> V2 format
-            let cpus: Vec<rpc::machine_discovery::Cpu> = info
-                .cpus
-                .iter()
-                .map(rpc::machine_discovery::Cpu::try_from)
-                .collect::<Result<Vec<_>, _>>()?;
-            aggregate_cpus(&cpus)
-                .into_iter()
-                .map(CpuInfo::try_from)
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            info.cpu_info
-        };
-
-        Ok(HardwareInfo {
-            network_interfaces: info.network_interfaces,
-            infiniband_interfaces: info.infiniband_interfaces,
-            cpu_info,
-            block_devices: info.block_devices,
-            machine_type: info.machine_type,
-            nvme_devices: info.nvme_devices,
-            dmi_data: info.dmi_data,
-            tpm_ek_certificate: info.tpm_ek_certificate,
-            dpu_info: info.dpu_info,
-            gpus: info.gpus,
-            memory_devices: info.memory_devices,
-            tpm_description: info.tpm_description,
-        })
-    }
-}
-
-impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
-    type Error = RpcDataConversionError;
-
-    #[allow(deprecated)]
-    fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
-        let tpm_ek_certificate = info
-            .tpm_ek_certificate
-            .map(|base64| {
-                BASE64_STANDARD
-                    .decode(base64)
-                    .map_err(|_| RpcDataConversionError::InvalidBase64Data("tpm_ek_certificate"))
-            })
-            .transpose()?;
-
-        let machine_arch = match info.machine_arch {
-            // new
-            Some(arch) => arch.into(),
-            // old
-            None => {
-                tracing::warn!("DiscoveryInfo missing machine_arch.");
-                info.machine_type.parse().unwrap_or_else(|e| {
-                    // Unfortunately we don't have the machine_id here.
-                    tracing::error!(error = %e, "Error parsing grpc DiscoveryInfo");
-                    CpuArchitecture::Unknown
-                })
-            }
-        };
-
-        // TODO: Remove "cpus" when there's no longer a need to handle the old topology format
-        let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
-            match try_convert_vec(info.cpus) {
-                Ok(v1_cpus) => aggregate_cpus(&v1_cpus)
-                    .into_iter()
-                    .map(CpuInfo::try_from)
-                    .collect::<Result<Vec<_>, _>>()?,
-                Err(_) => Vec::new(),
-            }
-        } else {
-            try_convert_vec(info.cpu_info)?
-        };
-
-        Ok(Self {
-            network_interfaces: try_convert_vec(info.network_interfaces)?,
-            infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
-            cpu_info,
-            block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: machine_arch,
-            nvme_devices: try_convert_vec(info.nvme_devices)?,
-            dmi_data: info.dmi_data.map(DmiData::try_from).transpose()?,
-            tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
-            dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
-            gpus: try_convert_vec(info.gpus)?,
-            memory_devices: info
-                .memory_devices
-                .into_iter()
-                .map(MemoryDevice::from)
-                .collect(),
-            tpm_description: info.tpm_description.map(std::convert::Into::into),
-        })
-    }
-}
-
-impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
-    type Error = RpcDataConversionError;
-
-    // TODO: Remove this directive when there's no longer a need to handle the old topology format
-    #[allow(deprecated)]
-    fn try_from(info: HardwareInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            network_interfaces: try_convert_vec(info.network_interfaces)?,
-            infiniband_interfaces: try_convert_vec(info.infiniband_interfaces)?,
-            cpu_info: try_convert_vec(info.cpu_info)?,
-            block_devices: try_convert_vec(info.block_devices)?,
-            machine_type: info.machine_type.to_string(),
-            machine_arch: Some(info.machine_type.into()),
-            nvme_devices: try_convert_vec(info.nvme_devices)?,
-            dmi_data: info
-                .dmi_data
-                .map(rpc::machine_discovery::DmiData::try_from)
-                .transpose()?,
-            tpm_ek_certificate: info
-                .tpm_ek_certificate
-                .map(|cert| BASE64_STANDARD.encode(cert.into_bytes())),
-            dpu_info: info
-                .dpu_info
-                .map(rpc::machine_discovery::DpuData::try_from)
-                .transpose()?,
-            gpus: try_convert_vec(info.gpus)?,
-            memory_devices: info
-                .memory_devices
-                .into_iter()
-                .map(rpc::machine_discovery::MemoryDevice::from)
-                .collect(),
-            tpm_description: info.tpm_description.map(std::convert::Into::into),
-            attest_key_info: None,
-            // TODO: Remove cpus when there's no longer a need to handle the old topology format
-            cpus: vec![],
-        })
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum HardwareInfoError {
     #[error("DPU Info is missing.")]
@@ -949,6 +316,12 @@ impl HardwareInfo {
             .as_ref()
             .is_some_and(|dmi| dmi.product_name.contains("GB200")) // TODO: for now just do GB200
     }
+
+    pub fn is_dgx_h100(&self) -> bool {
+        self.dmi_data
+            .as_ref()
+            .is_some_and(|dmi| dmi.sys_vendor == "NVIDIA" && dmi.product_name == "DGXH100")
+    }
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -969,109 +342,16 @@ impl Display for MachineInventorySoftwareComponent {
     }
 }
 
-impl TryFrom<::rpc::forge::MachineInventory> for MachineInventory {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::MachineInventory) -> Result<Self, Self::Error> {
-        Ok(MachineInventory {
-            components: value
-                .components
-                .into_iter()
-                .map(MachineInventorySoftwareComponent::try_from)
-                .collect::<Result<_, _>>()?,
-        })
-    }
-}
-
-impl TryFrom<::rpc::forge::MachineInventorySoftwareComponent>
-    for MachineInventorySoftwareComponent
-{
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::MachineInventorySoftwareComponent) -> Result<Self, Self::Error> {
-        Ok(MachineInventorySoftwareComponent {
-            name: value.name,
-            version: value.version,
-            url: value.url,
-        })
-    }
-}
-
-impl From<MachineInventory> for rpc::forge::MachineInventory {
-    fn from(value: MachineInventory) -> Self {
-        rpc::forge::MachineInventory {
-            components: value
-                .components
-                .into_iter()
-                .map(|c| rpc::forge::MachineInventorySoftwareComponent {
-                    name: c.name,
-                    version: c.version,
-                    url: c.url,
-                })
-                .collect(),
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineNvLinkInfo {
     pub domain_uuid: NvLinkDomainId,
+    /// Chassis serial from the first GPU `GpuPlatformInfo` at discovery (or operator RPC).
+    pub chassis_serial: String,
     pub gpus: Vec<NvLinkGpu>,
-}
-
-impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
-    fn from(value: MachineNvLinkInfo) -> Self {
-        rpc::forge::MachineNvLinkInfo {
-            domain_uuid: Some(value.domain_uuid),
-            gpus: value
-                .gpus
-                .into_iter()
-                .map(rpc::forge::NvLinkGpu::from)
-                .collect(),
-        }
-    }
-}
-
-impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
-    fn from(value: NvLinkGpu) -> Self {
-        rpc::forge::NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
-            tray_index: value.tray_index,
-            slot_id: value.slot_id,
-            device_id: value.device_id,
-            guid: value.guid,
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
-    type Error = rpc::errors::RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::MachineNvLinkInfo) -> Result<Self, Self::Error> {
-        Ok(MachineNvLinkInfo {
-            domain_uuid: value.domain_uuid.ok_or(
-                rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
-            )?,
-            gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
-        })
-    }
-}
-
-impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
-    fn from(value: rpc::forge::NvLinkGpu) -> Self {
-        NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
-            tray_index: value.tray_index,
-            slot_id: value.slot_id,
-            device_id: value.device_id,
-            guid: value.guid,
-        }
-    }
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NvLinkGpu {
-    pub nmx_m_id: String,
     pub tray_index: i32,
     pub slot_id: i32,
     pub device_id: i32, // For GB200s, 1-based index of GPU in compute tray.
@@ -1081,7 +361,6 @@ pub struct NvLinkGpu {
 impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
     fn from(gpu: libnmxm::nmxm_model::Gpu) -> Self {
         NvLinkGpu {
-            nmx_m_id: gpu.id.unwrap_or_default(),
             tray_index: gpu
                 .location_info
                 .as_ref()
@@ -1100,16 +379,12 @@ impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
 
 #[cfg(test)]
 mod tests {
-    use prost::Message;
 
     use super::*;
 
     const DPU_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_info.json");
     const DPU_BF3_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_bf3_info.json");
     const X86_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/x86_info.json");
-    // TODO: Remove when there's no longer a need to handle the old topology format
-    const X86_V1_CPU_INFO_JSON: &[u8] =
-        include_bytes!("hardware_info/test_data/x86_v1_cpu_info.json");
 
     #[test]
     fn test_machine_inventory_json_representation() {
@@ -1304,27 +579,5 @@ mod tests {
             deserialized.cert.as_ref().map(|cert| cert.as_bytes()),
             Some(cert_data.as_slice())
         );
-    }
-
-    // TODO: Remove this test when there's no longer a need to handle the old topology format
-    #[test]
-    #[allow(deprecated)]
-    fn test_v1_discovery_info_decode() -> Result<(), Box<dyn std::error::Error>> {
-        let hardware_info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
-        let mut info =
-            rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
-        info.cpus = serde_json::from_slice::<Vec<Cpu>>(X86_V1_CPU_INFO_JSON)
-            .unwrap()
-            .iter()
-            .map(rpc::machine_discovery::Cpu::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        info.cpu_info = Vec::new();
-
-        let bytes = info.encode_to_vec();
-        let decoded = rpc::machine_discovery::DiscoveryInfo::decode(&*bytes).unwrap();
-        let decoded_hardware_info = HardwareInfo::try_from(decoded).unwrap();
-
-        assert_eq!(decoded_hardware_info, hardware_info);
-        Ok(())
     }
 }

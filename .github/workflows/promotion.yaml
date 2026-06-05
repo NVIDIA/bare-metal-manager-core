@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to promote (e.g., v0.1.0-rc2-0-g85ed21555)'
+        description: 'Version to promote (e.g., 1.5.0-85ed215)'
         required: true
         type: string
 

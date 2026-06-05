@@ -18,11 +18,11 @@
 use std::io;
 use std::io::Write;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::CommandFactory;
 
 use super::args::Shell;
 use crate::cfg::cli_options::CliOptions;
+use crate::errors::CarbideCliResult;
 
 pub fn generate(shell: Shell) -> CarbideCliResult<()> {
     let mut cmd = CliOptions::command();

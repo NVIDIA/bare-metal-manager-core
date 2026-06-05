@@ -24,11 +24,11 @@ pub mod ipmi;
 
 mod auth_router;
 mod bmc_state;
-pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
 mod hw;
+pub mod injection;
 mod json;
 mod machine_info;
 mod middleware_router;
@@ -65,6 +65,8 @@ pub enum HostHardwareType {
     NvidiaSwitchNd5200Ld,
     #[serde(rename = "nvidia_dgx_h100")]
     NvidiaDgxH100,
+    #[serde(rename = "generic_ami")]
+    GenericAmi,
 }
 
 impl fmt::Display for HostHardwareType {
@@ -76,6 +78,7 @@ impl fmt::Display for HostHardwareType {
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
+            Self::GenericAmi => "Generic AMI Server".fmt(f),
         }
     }
 }
@@ -92,6 +95,7 @@ impl HostHardwareType {
             Self::LiteOnPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
+            Self::GenericAmi => None,
         }
     }
 }

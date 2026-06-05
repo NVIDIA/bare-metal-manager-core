@@ -30,6 +30,17 @@ address = "0.0.0.0:7777"
 [telemetry]
 metrics-address = "0.0.0.0:8888"
 
+# Optional [machine-identity]: rate limits and timeouts for GET …/meta-data/identity (e.g. /latest/meta-data/identity).
+# If you omit this section, defaults are: requests-per-second=3, burst=8,
+# wait-timeout-secs=2, sign-timeout-secs=5.
+# [machine-identity]
+# requests-per-second = 3   # 1–20 (sustained admission / GCRA refill per second)
+# burst = 8                 # 1–40 (max burst before rate limit)
+# wait-timeout-secs = 2     # 1–10 (max wait for a rate-limit permit)
+# sign-timeout-secs = 5     # 1–60 (Forge gRPC or HTTP proxy wall time)
+# sign-proxy-url = "https://sign-proxy.example.com/prefix"  # optional; HTTP pass-through to signing service instead of Forge gRPC
+# sign-proxy-tls-root-ca = "/etc/forge/sign_proxy_root.pem"  # optional; PEM roots for private CA (requires sign-proxy-url; HTTPS)
+
 [hbn]
 root-dir = "/var/lib/hbn"
 skip-reload = false

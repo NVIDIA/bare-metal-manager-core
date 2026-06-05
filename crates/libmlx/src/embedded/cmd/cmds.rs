@@ -18,13 +18,14 @@
 use std::fs;
 use std::time::Duration;
 
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
-use {serde_json, tracing};
+use serde_json;
+use tracing;
 
 use crate::device::cmd::device::args::DeviceArgs;
 use crate::device::cmd::device::cmds::handle as handle_device;
-use crate::device::info::MlxDeviceInfo;
 use crate::embedded::cmd::args::{
     Cli, Commands, FirmwareAction, OutputFormat, ProfileCommands, RegistryAction, RunnerCommands,
 };

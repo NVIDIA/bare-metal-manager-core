@@ -17,10 +17,10 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::{CredentialType, forge as forgerpc};
 
 use crate::credential::common::{BmcCredentialType, password_validator};
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

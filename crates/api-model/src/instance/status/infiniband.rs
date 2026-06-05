@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
 use config_version::Versioned;
-use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
@@ -60,21 +58,6 @@ pub struct InstanceInfinibandStatus {
     /// for the Forge operating team to debug settings that to do do not go in-sync
     /// without having to attach to the database.
     pub configs_synced: SyncState,
-}
-
-impl TryFrom<InstanceInfinibandStatus> for rpc::InstanceInfinibandStatus {
-    type Error = RpcDataConversionError;
-
-    fn try_from(status: InstanceInfinibandStatus) -> Result<Self, Self::Error> {
-        let mut ib_interfaces = Vec::with_capacity(status.ib_interfaces.len());
-        for iface in status.ib_interfaces {
-            ib_interfaces.push(rpc::InstanceIbInterfaceStatus::try_from(iface)?);
-        }
-        Ok(rpc::InstanceInfinibandStatus {
-            ib_interfaces,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
-        })
-    }
 }
 
 impl InstanceInfinibandStatus {
@@ -192,26 +175,4 @@ pub struct InstanceIbInterfaceStatus {
     /// The local id of this IB interface
     /// If interface configuration has not been completed, the value is 0
     pub lid: u32,
-}
-
-impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
-    type Error = RpcDataConversionError;
-    fn try_from(status: InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
-        Ok(Self {
-            pf_guid: status.pf_guid.clone(),
-            guid: status.guid.clone(),
-            lid: status.lid,
-        })
-    }
-}
-
-impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
-    type Error = RpcDataConversionError;
-    fn try_from(status: rpc::InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
-        Ok(Self {
-            pf_guid: status.pf_guid.clone(),
-            guid: status.guid.clone(),
-            lid: status.lid,
-        })
-    }
 }

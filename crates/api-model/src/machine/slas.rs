@@ -41,6 +41,12 @@ pub const HOST_REPROVISION: Duration = Duration::from_secs(40 * 60);
 
 pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: Duration = Duration::from_secs(30 * 60);
 
+pub const SPDM_ATTESTATION_TRIGGER: Duration = Duration::from_secs(30);
+
+pub const SPDM_ATTESTATION_RESULT_POLL: Duration = Duration::from_secs(10 * 60);
+
+pub const START_ASSIGNMENT_CYCLE: Duration = Duration::from_secs(60);
+
 pub const BOM_VALIDATION: Duration = Duration::from_secs(5 * 60);
 
 // ASSIGNED state, any substate other than Ready and BootingWithDiscoveryImage
@@ -60,8 +66,8 @@ pub struct MachineSlaConfig {
 
 impl Default for MachineSlaConfig {
     fn default() -> Self {
-        // Default failure_retry_time is 30 minutes.
-        Self::new(chrono::Duration::minutes(30))
+        // Default failure_retry_time is 90 minutes.
+        Self::new(chrono::Duration::minutes(90))
     }
 }
 
@@ -69,7 +75,7 @@ impl MachineSlaConfig {
     pub fn new(failure_retry_time: chrono::Duration) -> Self {
         let failure_retry_time = failure_retry_time
             .to_std()
-            .unwrap_or(Duration::from_secs(30 * 60));
+            .unwrap_or(Duration::from_secs(90 * 60));
         Self {
             // Set to 1.1 * failure_retry_time so the SLA fires
             // shortly after the retry would have triggered.

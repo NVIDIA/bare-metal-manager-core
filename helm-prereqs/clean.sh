@@ -18,13 +18,13 @@
 # clean.sh — full teardown, inverse of setup.sh
 #
 # Destroys in reverse order:
-#   0. NCX stack           (carbide-rest helm, temporal, keycloak, ncx postgres)
-#   1. carbide core        (separate helm release, if installed)
-#   2. helmfile releases   (carbide-prereqs, external-secrets, vault, cert-manager,
+#   0. NCX stack           (nico-rest helm, temporal, keycloak, ncx postgres)
+#   1. nico core        (separate helm release, if installed)
+#   2. helmfile releases   (nico-prereqs, external-secrets, vault, cert-manager,
 #                           postgres-operator)
 #   3. cluster-scoped hook resources (ClusterIssuers, ClusterSecretStore, etc.)
 #   4. vault init secrets  (vault-cluster-keys, vaultunsealkeys, vaultroottoken)
-#   5. namespaces          (forge-system, cert-manager, vault, external-secrets, postgres)
+#   5. namespaces          (nico-system, cert-manager, vault, external-secrets, postgres)
 #   6. local-path-persistent PVs owned by this stack (Retain policy — not deleted with namespace)
 #   7. local-path-provisioner + StorageClass (applied via kubectl, not helm-managed)
 # =============================================================================
@@ -34,37 +34,41 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
 # ---------------------------------------------------------------------------
-# 0. NCX stack — uninstall before carbide since it depends on carbide's
+# 0. NCX stack — uninstall before nico since it depends on nico's
 #    cert-manager and ClusterIssuers.
 # ---------------------------------------------------------------------------
-echo "=== [0/8] Uninstalling NCX REST stack ==="
-helm uninstall carbide-rest-site-agent -n carbide-rest 2>/dev/null || true
-helm uninstall carbide-rest            -n carbide-rest 2>/dev/null || true
+echo "=== [0/8] Uninstalling NICo REST stack ==="
+# Flow goes first — it talks to Temporal + nico-api and depends on credentials
+# from both nico-prereqs (DB creds, vault tokens) and the REST stack.
+helm uninstall flow                 -n flow                            2>/dev/null || true
+kubectl delete ns flow --wait=false --ignore-not-found                 2>/dev/null || true
+helm uninstall nico-rest-site-agent -n nico-rest                       2>/dev/null || true
+helm uninstall nico-rest            -n nico-rest                       2>/dev/null || true
 helm uninstall temporal                -n temporal     2>/dev/null || true
 
-if kubectl get deploy keycloak -n carbide-rest &>/dev/null; then
+if kubectl get deploy keycloak -n nico-rest &>/dev/null; then
     echo "  Cleaning up Keycloak..."
     "${SCRIPT_DIR}/keycloak/clean.sh" 2>/dev/null || true
 else
     echo "  Keycloak not deployed — skipping cleanup"
 fi
 
-kubectl delete clusterissuer carbide-rest-ca-issuer --ignore-not-found 2>/dev/null || true
-kubectl delete ns carbide-rest temporal \
+kubectl delete clusterissuer nico-rest-ca-issuer --ignore-not-found 2>/dev/null || true
+kubectl delete ns nico-rest temporal flow \
     --wait=false --ignore-not-found 2>/dev/null || true
-echo "Waiting for carbide-rest and temporal namespaces to terminate..."
-kubectl wait --for=delete ns/carbide-rest ns/temporal \
+echo "Waiting for nico-rest, temporal, and flow namespaces to terminate..."
+kubectl wait --for=delete ns/nico-rest ns/temporal ns/flow \
     --timeout=120s 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 1. Carbide core (separate helm release, not in helmfile)
+# 1. NICo core (separate helm release, not in helmfile)
 # ---------------------------------------------------------------------------
-echo "=== [1/8] Uninstalling carbide core ==="
-helm uninstall carbide -n forge-system 2>/dev/null || true
+echo "=== [1/8] Uninstalling nico core ==="
+helm uninstall nico -n nico-system 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # 2. All helmfile releases in reverse dependency order:
-#    carbide-prereqs → external-secrets → vault → cert-manager → metallb
+#    nico-prereqs → external-secrets → vault → cert-manager → metallb
 # ---------------------------------------------------------------------------
 echo "=== [2/8] Destroying helmfile releases ==="
 
@@ -134,11 +138,11 @@ kubectl get clusterrole,clusterrolebinding -o name \
 kubectl delete mutatingwebhookconfiguration vault-agent-injector-cfg \
     --ignore-not-found 2>/dev/null || true
 
-# carbide-rest cluster-scoped RBAC (ClusterRole/Binding created by the carbide-rest
+# nico-rest cluster-scoped RBAC (ClusterRole/Binding created by the nico-rest
 # umbrella chart — not cleaned up by helm uninstall if originally deployed by ArgoCD)
-echo "Removing carbide-rest cluster-scoped RBAC..."
+echo "Removing nico-rest cluster-scoped RBAC..."
 kubectl get clusterrole,clusterrolebinding -o name \
-    | grep carbide-rest \
+    | grep nico-rest \
     | xargs kubectl delete --ignore-not-found 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -148,18 +152,20 @@ kubectl get clusterrole,clusterrolebinding -o name \
 # ---------------------------------------------------------------------------
 echo "=== [3/8] Removing cluster-scoped hook resources ==="
 kubectl delete clusterissuer \
-    vault-forge-issuer site-issuer selfsigned-bootstrap \
+    vault-nico-issuer site-issuer selfsigned-bootstrap \
     --ignore-not-found 2>/dev/null || true
 kubectl delete clustersecretstore \
     cert-manager-ns-secretstore postgres-ns-secretstore \
     --ignore-not-found 2>/dev/null || true
-kubectl delete clusterexternalsecret forge-roots-eso carbide-db-eso \
+kubectl delete clusterexternalsecret \
+    nico-roots-eso nico-db-eso \
+    flow-db-eso psm-db-eso nsm-db-eso \
     --ignore-not-found 2>/dev/null || true
 kubectl delete clusterrole \
-    vault-pki-config-reader eso-postgres-ns-role \
+    vault-pki-config-reader eso-postgres-ns-role flow-vault-tokens-writer \
     --ignore-not-found 2>/dev/null || true
 kubectl delete clusterrolebinding \
-    vault-pki-config-reader eso-postgres-ns-rolebinding \
+    vault-pki-config-reader eso-postgres-ns-rolebinding flow-vault-tokens-writer \
     --ignore-not-found 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -179,12 +185,12 @@ kubectl delete secret vault-cluster-keys vaultunsealkeys vaultroottoken \
 #    conflict with setup.sh's helmfile install into the external-secrets ns.
 # ---------------------------------------------------------------------------
 echo "=== [5/8] Deleting namespaces ==="
-kubectl delete ns forge-system cert-manager vault external-secrets postgres metallb-system \
+kubectl delete ns nico-system cert-manager vault external-secrets postgres metallb-system \
     --wait=false --ignore-not-found 2>/dev/null || true
 
 echo "Waiting for namespaces to terminate..."
 kubectl wait --for=delete \
-    ns/forge-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/metallb-system \
+    ns/nico-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/metallb-system \
     --timeout=180s 2>/dev/null || true
 
 echo "Purging default namespace (ESO and other non-kubespray resources)..."
@@ -192,8 +198,8 @@ kubectl delete deployment,replicaset,pod,service,secret,serviceaccount,configmap
     -n default \
     -l "app.kubernetes.io/name=external-secrets" \
     --ignore-not-found 2>/dev/null || true
-# Also remove any lingering ESO webhook secret and forge secrets by name
-kubectl delete secret external-secrets-webhook forge-root forge-roots \
+# Also remove any lingering ESO webhook secret and nico secrets by name
+kubectl delete secret external-secrets-webhook nico-root nico-roots \
     -n default --ignore-not-found 2>/dev/null || true
 kubectl delete serviceaccount argo-workflow eso-default-ns \
     external-secrets external-secrets-cert-controller external-secrets-webhook \
@@ -219,7 +225,7 @@ echo "=== [6/8] Removing Released PersistentVolumes owned by this stack ==="
 kubectl get pv -o json 2>/dev/null \
     | jq -r '.items[] | select(
         .spec.storageClassName == "local-path-persistent" and
-        (.spec.claimRef.namespace // "" | test("^(forge-system|cert-manager|vault|external-secrets|postgres|metallb-system|carbide-rest|temporal)$"))
+        (.spec.claimRef.namespace // "" | test("^(nico-system|cert-manager|vault|external-secrets|postgres|metallb-system|nico-rest|temporal)$"))
       ) | .metadata.name' \
     | xargs -r kubectl delete pv --ignore-not-found 2>/dev/null || true
 

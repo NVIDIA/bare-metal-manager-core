@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use carbide_uuid::machine::MachineId;
+use rpc::admin_cli::OutputFormat;
 
 use crate::dpf::common::DpfQuery;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn modify_dpf_state(
@@ -28,7 +29,20 @@ pub async fn modify_dpf_state(
     enabled: bool,
 ) -> CarbideCliResult<()> {
     let host: MachineId = query.try_into()?;
+
+    // Prevent disabling DPF if it was used for ingestion.
+    if !enabled {
+        let dpf_states = api_client.get_dpf_state(vec![host], 1).await?;
+        if dpf_states.iter().any(|s| s.used_for_ingestion) {
+            return Err(CarbideCliError::GenericError(
+                "Cannot disable DPF: machine was ingested via DPF. \
+                 Disabling would leave DPF CRDs in an inconsistent state."
+                    .to_string(),
+            ));
+        }
+    }
+
     api_client.modify_dpf_state(host, enabled).await?;
-    println!("DPF state modified for machine {host} with state {enabled} successfully!!",);
+    println!("DPF state modified for machine {host} with state {enabled} successfully!!");
     Ok(())
 }

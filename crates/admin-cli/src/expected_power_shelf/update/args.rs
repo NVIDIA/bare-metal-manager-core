@@ -17,12 +17,13 @@
 
 use std::net::IpAddr;
 
-use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[

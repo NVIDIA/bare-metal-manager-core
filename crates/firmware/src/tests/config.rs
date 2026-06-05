@@ -106,3 +106,59 @@ default = true
     );
     Ok(())
 }
+
+#[test]
+fn cx7_component_config_parses_as_first_class_component() -> eyre::Result<()> {
+    let cfg = r#"
+model = "DGXH100"
+vendor = "Nvidia"
+ordering = ["hgxbmc", "combinedbmcuefi", "uefi", "bmc", "cx7"]
+
+[components.cx7]
+current_version_reported_as = "^CX7_[0-9]+$"
+
+[[components.cx7.known_firmware]]
+version = "28.47.2682"
+filename = "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/cx7.bin"
+filenames = ["/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/cx7.bin"]
+default = true
+power_drains_needed = 1
+
+[[components.cx7.known_firmware.files]]
+filename = "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/cx7.bin"
+sha256 = "abc123"
+
+[components.cx7.known_firmware.scout]
+execution_timeout_seconds = 1800
+artifact_download_timeout_seconds = 600
+
+[components.cx7.known_firmware.scout.script]
+filename = "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/scripts/cx7_upgrade.sh"
+sha256 = "def456"
+"#;
+    let mut config: FirmwareConfig = Default::default();
+    config.add_test_override(cfg.to_string());
+
+    let snapshot = config.create_snapshot();
+    let server = snapshot.data.get("nvidia:dgxh100").unwrap();
+    assert_eq!(
+        server.ordering.last().copied(),
+        Some(FirmwareComponentType::Cx7)
+    );
+
+    let cx7 = server.components.get(&FirmwareComponentType::Cx7).unwrap();
+    assert!(cx7.current_version_reported_as.is_some());
+    let firmware = cx7.known_firmware.first().unwrap();
+    assert_eq!(firmware.version, "28.47.2682");
+    assert_eq!(firmware.power_drains_needed, Some(1));
+    assert_eq!(firmware.files.len(), 1);
+
+    let scout = firmware.scout.as_ref().unwrap();
+    assert_eq!(scout.execution_timeout_seconds, 1800);
+    assert_eq!(scout.artifact_download_timeout_seconds, 600);
+    assert_eq!(
+        scout.script.filename,
+        "/opt/carbide/firmware/nvidia-dgxh100-cx7-28.47.2682/scripts/cx7_upgrade.sh"
+    );
+    Ok(())
+}

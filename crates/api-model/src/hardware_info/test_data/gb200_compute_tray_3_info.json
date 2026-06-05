@@ -247,8 +247,8 @@
                 "slot_number": 1,
                 "tray_index": 1,
                 "host_id": 1,
-                "module_id": 0,
-                "fabric_guid": "688ad73d9db488cb17978480"
+                "module_id": 1,
+                "fabric_guid": "0xfb488cb17978480"
             }
         },
         {
@@ -265,8 +265,8 @@
                 "slot_number": 1,
                 "tray_index": 1,
                 "host_id": 1,
-                "module_id": 1,
-                "fabric_guid": "688ad73d9db488cb17978481"
+                "module_id": 2,
+                "fabric_guid": "0xfb488cb17978481"
             }
         },
         {
@@ -283,8 +283,8 @@
                 "slot_number": 1,
                 "tray_index": 1,
                 "host_id": 1,
-                "module_id": 2,
-                "fabric_guid": "688ad73d9db488cb17978482"
+                "module_id": 3,
+                "fabric_guid": "0xfb488cb17978482"
             }
         },
         {
@@ -301,8 +301,8 @@
                 "slot_number": 1,
                 "tray_index": 1,
                 "host_id": 1,
-                "module_id": 3,
-                "fabric_guid": "688ad73d9db488cb17978483"
+                "module_id": 4,
+                "fabric_guid": "0xfb488cb17978483"
             }
         }
     ],

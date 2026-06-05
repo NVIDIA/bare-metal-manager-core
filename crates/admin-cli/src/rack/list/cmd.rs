@@ -22,6 +22,21 @@ use rpc::admin_cli::OutputFormat;
 use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
+fn build_rack_table(racks: &[rpc::forge::Rack]) -> Table {
+    let mut table = Table::new();
+    let headers = vec!["Rack ID", "Rack State"];
+    table.set_titles(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+    for r in racks {
+        table.add_row(prettytable::row![
+            r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
+            r.rack_state.as_str(),
+        ]);
+    }
+    table
+}
+
 pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Result<()> {
     let response = api_client.get_all_racks(config.page_size).await?;
     let racks = response.racks;
@@ -33,54 +48,7 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
     let format = OutputFormat::AsciiTable;
     match format {
         OutputFormat::AsciiTable => {
-            let mut table = Table::new();
-            let headers = vec![
-                "Rack ID",
-                "Rack State",
-                "Expected Compute Trays",
-                "Current Compute Tray IDs",
-                "Expected Power Shelves",
-                "Current Power Shelf IDs",
-                "Expected NVLink Switches",
-                "Current NVLink Switch IDs",
-            ];
-            table.set_titles(Row::new(
-                headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
-            ));
-            for r in racks {
-                let expected_compute_trays = r.expected_compute_trays.join("\n");
-                let current_compute_trays: String = r
-                    .compute_trays
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let expected_power_shelves = r.expected_power_shelves.join("\n");
-                let current_power_shelves: String = r
-                    .power_shelves
-                    .iter()
-                    .map(|ps| ps.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let expected_nvlink_switches = r.expected_nvlink_switches.join("\n");
-                let current_switches: String = r
-                    .switches
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                table.add_row(prettytable::row![
-                    r.id.map(|id| id.to_string()).unwrap_or_default(),
-                    r.rack_state.as_str(),
-                    expected_compute_trays,
-                    current_compute_trays,
-                    expected_power_shelves,
-                    current_power_shelves,
-                    expected_nvlink_switches,
-                    current_switches,
-                ]);
-            }
-            table.printstd();
+            build_rack_table(&racks).printstd();
         }
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&racks)?);
@@ -90,4 +58,80 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rpc::forge::{Metadata, Rack};
+
+    use super::*;
+
+    fn make_rack(id: Option<&str>, state: &str) -> Rack {
+        Rack {
+            id: id.map(|s| s.parse().unwrap()),
+            rack_state: state.to_string(),
+            metadata: Some(Metadata {
+                name: "NVL72".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn table_to_string(table: &Table) -> String {
+        let mut buf = Vec::new();
+        table.print(&mut buf).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    /////////////////////////////////////////////////////////////////////////////
+    // Table structure
+
+    /// The rendered table contains "Rack ID" and "Rack State" headers and no
+    /// component columns. Regression guard against re-adding removed columns.
+    #[test]
+    fn rack_list_table_has_rack_id_and_state_headers() {
+        let racks = vec![make_rack(Some("Rack1"), "Created")];
+        let rendered = table_to_string(&build_rack_table(&racks));
+        assert!(rendered.contains("Rack ID"), "expected 'Rack ID' header");
+        assert!(
+            rendered.contains("Rack State"),
+            "expected 'Rack State' header"
+        );
+        assert!(!rendered.contains("Compute"), "unexpected 'Compute' column");
+        assert!(!rendered.contains("Power"), "unexpected 'Power' column");
+        assert!(!rendered.contains("Switch"), "unexpected 'Switch' column");
+    }
+
+    /// Each Rack produces one row with the correct ID and state values.
+    #[test]
+    fn rack_list_table_row_maps_id_and_state() {
+        let racks = vec![make_rack(Some("Rack1"), "Created")];
+        let table = build_rack_table(&racks);
+        assert_eq!(table.len(), 1);
+        let row = table.get_row(0).unwrap();
+        assert_eq!(row.get_cell(0).unwrap().get_content(), "Rack1");
+        assert_eq!(row.get_cell(1).unwrap().get_content(), "Created");
+    }
+
+    /// A Rack with no ID falls back to an empty string in the ID cell.
+    #[test]
+    fn rack_list_table_empty_id_falls_back_to_empty_string() {
+        let racks = vec![make_rack(None, "Created")];
+        let table = build_rack_table(&racks);
+        let row = table.get_row(0).unwrap();
+        assert_eq!(row.get_cell(0).unwrap().get_content(), "");
+    }
+
+    /// Multiple racks produce the correct number of rows.
+    #[test]
+    fn rack_list_table_multiple_racks_produce_correct_row_count() {
+        let racks = vec![
+            make_rack(Some("Rack1"), "Created"),
+            make_rack(Some("Rack2"), "Provisioned"),
+            make_rack(Some("Rack3"), "Maintenance"),
+        ];
+        let table = build_rack_table(&racks);
+        assert_eq!(table.len(), 3);
+    }
 }

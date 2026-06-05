@@ -27,13 +27,31 @@ name = "rpc"
 [features]
 sqlx = ["dep:sqlx"]
 cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
+model = [
+  "dep:carbide-api-model",
+  "dep:once_cell",
+  "dep:itertools",
+  "dep:itertools",
+  "dep:regex",
+  "dep:base64",
+]
+test-support = ["dep:carbide-prost-builder"]
 
 [dependencies]
 
 # [local-dependencies]
+carbide-api-model = { path = "../api-model", optional = true }
 carbide-http-connector = { path = "../http-connector" }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-tls = { path = "../tls" }
 carbide-health-report = { path = "../health-report" }
+carbide-libmlx-model = { path = "../libmlx-model" }
+carbide-measured-boot = { path = "../measured-boot", default-features = false }
+carbide-prost-builder = { path = "../prost-builder", optional = true }
+carbide-secrets = { path = "../secrets" }
+carbide-network = { path = "../network" }
+carbide-utils = { path = "../utils" }
+config-version = { path = "../config-version" }
 tonic-client-wrapper = { path = "../tonic-client-wrapper", default-features = false }
 dns-record = { path = "../dns-record" }
 carbide-uuid = { path = "../uuid" }
@@ -75,24 +93,33 @@ async-trait = { workspace = true }
 nonempty = { workspace = true }
 clap = { features = ["derive"], optional = true, workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio",
+  "tls-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ], optional = true }
 prettytable-rs = { optional = true, default-features = false, features = [
-    "csv",
+  "csv",
 ], workspace = true }
 serde_yaml = { optional = true, workspace = true }
 data-encoding = { workspace = true }
 sha2 = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
 csv = { optional = true, workspace = true }
+
+once_cell = { workspace = true, optional = true }
+itertools = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+
+[dev-dependencies]
+carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

@@ -19,11 +19,11 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge as rpc_forge;
 use serde::{Deserialize, Serialize};
 
 use super::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::expected_rack::common::ExpectedRackJson;
 use crate::rpc::ApiClient;
 

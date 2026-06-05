@@ -186,6 +186,28 @@ impl Containers {
         Ok(Containers { containers })
     }
 
+    /// Keep only the latest attempt for each container name.
+    ///
+    /// `crictl ps -a` returns historical attempts; this function only keeps latest attempt.
+    pub fn filter_by_latest_attempt(self) -> Self {
+        let mut latest_by_name: HashMap<String, ContainerSummary> = HashMap::new();
+
+        for container in self.containers {
+            let name = container.metadata.name.clone();
+            if let Some(existing) = latest_by_name.get(&name)
+                && container.metadata.attempt <= existing.metadata.attempt
+            {
+                continue;
+            }
+            latest_by_name.insert(name, container);
+        }
+
+        let mut containers: Vec<_> = latest_by_name.into_values().collect();
+        containers.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
+
+        Containers { containers }
+    }
+
     pub fn find_by_name<T>(self, name: T) -> eyre::Result<ContainerSummary>
     where
         T: AsRef<str>,
@@ -344,5 +366,79 @@ mod tests {
         let container_images = Images::list().await.unwrap();
         let filtered = container_images.find_by_name("doca_hbn").unwrap();
         assert_eq!(filtered.names[0].version(), "2.3.0-doca2.8.0".to_string());
+    }
+
+    #[test]
+    fn test_filter_container_by_latest_attempt() {
+        let old_exited = ContainerSummary {
+            id: "old".to_string(),
+            sandbox_id: "pod1".to_string(),
+            metadata: ContainerMetadata {
+                name: "svc-a".to_string(),
+                attempt: 0,
+            },
+            image: ContainerImage {
+                id: "img".to_string(),
+                annotations: HashMap::new(),
+            },
+            image_ref: Vec::new(),
+            state: ContainerState::Exited,
+            created_at: "1".to_string(),
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+        };
+
+        let new_running = ContainerSummary {
+            id: "new".to_string(),
+            sandbox_id: "pod1".to_string(),
+            metadata: ContainerMetadata {
+                name: "svc-a".to_string(),
+                attempt: 1,
+            },
+            image: ContainerImage {
+                id: "img".to_string(),
+                annotations: HashMap::new(),
+            },
+            image_ref: Vec::new(),
+            state: ContainerState::Running,
+            created_at: "2".to_string(),
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+        };
+
+        let unaffected = ContainerSummary {
+            id: "other".to_string(),
+            sandbox_id: "pod1".to_string(),
+            metadata: ContainerMetadata {
+                name: "svc-b".to_string(),
+                attempt: 0,
+            },
+            image: ContainerImage {
+                id: "img2".to_string(),
+                annotations: HashMap::new(),
+            },
+            image_ref: Vec::new(),
+            state: ContainerState::Running,
+            created_at: "3".to_string(),
+            labels: HashMap::new(),
+            annotations: HashMap::new(),
+        };
+
+        let got = Containers {
+            containers: vec![old_exited, new_running, unaffected],
+        }
+        .filter_by_latest_attempt();
+
+        assert_eq!(got.containers.len(), 2);
+        assert!(
+            got.containers
+                .iter()
+                .any(|c| c.metadata.name == "svc-a" && c.metadata.attempt == 1)
+        );
+        assert!(
+            got.containers
+                .iter()
+                .any(|c| c.metadata.name == "svc-b" && c.metadata.attempt == 0)
+        );
     }
 }

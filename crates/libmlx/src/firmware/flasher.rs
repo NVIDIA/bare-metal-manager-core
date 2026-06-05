@@ -31,12 +31,12 @@
 
 use std::path::PathBuf;
 
+use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use tracing;
 
 use crate::firmware::config::{FirmwareFlasherProfile, FirmwareSpec, FlashSpec};
 use crate::firmware::error::{FirmwareError, FirmwareResult};
 use crate::firmware::reset::{DEFAULT_RESET_LEVEL, MlxFwResetRunner};
-use crate::firmware::result::FirmwareFlashReport;
 use crate::lockdown::runner::FlintRunner;
 use crate::runner::applier::MlxConfigApplier;
 use crate::runner::exec_options::ExecOptions;

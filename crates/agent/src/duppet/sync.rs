@@ -160,8 +160,8 @@ pub fn maybe_update_file(
     let mut existing = String::new();
     File::open(dest_path)?.read_to_string(&mut existing)?;
 
-    let src_hash = Sha256::digest(file_spec.content.as_bytes());
-    let dst_hash = Sha256::digest(existing.as_bytes());
+    let src_hash = hex::encode(Sha256::digest(file_spec.content.as_bytes()));
+    let dst_hash = hex::encode(Sha256::digest(existing.as_bytes()));
 
     // If the observed data isn't the expected
     // data, lets update it!
@@ -170,8 +170,8 @@ pub fn maybe_update_file(
             dest_path,
             &file_spec.content,
             &existing,
-            src_hash,
-            dst_hash,
+            &src_hash,
+            &dst_hash,
             options,
         )?;
         updated = true;
@@ -202,7 +202,7 @@ pub fn maybe_update_file(
 
     logln!(
         options,
-        "{}: {} (sha256: {:x})",
+        "{}: {} (sha256: {})",
         maybe_colorize("Destination file unchanged", |s| s.blue().bold(), options),
         dest_path.display(),
         dst_hash
@@ -219,11 +219,11 @@ pub fn create_file(
     file_spec: &FileSpec,
     options: &SyncOptions,
 ) -> io::Result<()> {
-    let hash = Sha256::digest(file_spec.content.as_bytes());
+    let hash = hex::encode(Sha256::digest(file_spec.content.as_bytes()));
 
     logln!(
         options,
-        "{}: {} (sha256: {:x})",
+        "{}: {} (sha256: {})",
         maybe_colorize("Creating new file", |s| s.green().bold(), options),
         dest_path.display(),
         hash
@@ -256,14 +256,14 @@ pub fn update_file(
     dest_path: &Path,
     source_content: &str,
     existing_content: &str,
-    src_hash: impl std::fmt::LowerHex,
-    dst_hash: impl std::fmt::LowerHex,
+    src_hash: &str,
+    dst_hash: &str,
     options: &SyncOptions,
 ) -> io::Result<()> {
     let diff = build_diff(source_content, existing_content);
     logln!(
         options,
-        "{}: {} (expected sha256: {:x}, observed sha256: {:x}), diff:\n{}",
+        "{}: {} (expected sha256: {}, observed sha256: {}), diff:\n{}",
         maybe_colorize("Updating existing file", |s| s.yellow().bold(), options),
         dest_path.display(),
         src_hash,

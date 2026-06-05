@@ -55,10 +55,6 @@ spec:
               cniInstaller:
                 description: CNIInstaller is the configuration for the cni-installer
                 properties:
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -198,7 +194,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the DPUDetector Container.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `daemon` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -282,10 +278,19 @@ spec:
                     description: |-
                       Image overrides the container image used by the DPUService controller.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -363,10 +368,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -382,7 +383,7 @@ spec:
                     description: |-
                       Images overrides the container images used by flannel
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new fields `cni` and `daemon` instead.
                     properties:
                       flannelCNI:
@@ -478,15 +479,270 @@ spec:
                     description: |-
                       Image overrides the container image used by the Kamaji Cluster Manager.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    default: 2
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
+              monitoring:
+                description: Monitoring is the configuration for monitoring resources.
+                properties:
+                  disable:
+                    description: |-
+                      Disable controls whether monitoring resources are installed.
+                      When enabled (default), the controller:
+                      - Creates ServiceMonitors for Kamaji clusters to scrape control-plane metrics.
+                      - Deploys kube-state-metrics as a DPUService to expose metrics for custom resources.
+                      - Deploys node-problem-detector as a DaemonSet on DPU nodes to detect and report node-level problems.
+                      - Deploys opentelemetry-collector as a DaemonSet on DPU nodes to collect and forward logs.
+                    type: boolean
+                  kubeStateMetrics:
+                    description: KubeStateMetrics is the configuration for kube-state-metrics
+                    properties:
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the kube-state-metrics component.
+                          It contains the image for kube-state-metrics and its resource requirements.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                          resources:
+                            description: |-
+                              Resources defines the memory and CPU resource requests and limits for the component.
+                              This field is optional, and if not set, the component will use the default resource.
+                            properties:
+                              limits:
+                                description: Limits defines the resource limits for
+                                  the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                              requests:
+                                description: Requests defines the resource requests
+                                  for the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                            type: object
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                    type: object
+                  nodeProblemDetector:
+                    description: NodeProblemDetector is the configuration for node-problem-detector
+                    properties:
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the node-problem-detector component.
+                          It contains the image for node-problem-detector and its resource requirements.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                          resources:
+                            description: |-
+                              Resources defines the memory and CPU resource requests and limits for the component.
+                              This field is optional, and if not set, the component will use the default resource.
+                            properties:
+                              limits:
+                                description: Limits defines the resource limits for
+                                  the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                              requests:
+                                description: Requests defines the resource requests
+                                  for the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                            type: object
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                    type: object
+                  openTelemetryCollector:
+                    description: OpenTelemetryCollector is the configuration for opentelemetry-collector
+                    properties:
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the opentelemetry-collector component.
+                          It contains the image for opentelemetry-collector and its resource requirements.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                          resources:
+                            description: |-
+                              Resources defines the memory and CPU resource requests and limits for the component.
+                              This field is optional, and if not set, the component will use the default resource.
+                            properties:
+                              limits:
+                                description: Limits defines the resource limits for
+                                  the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                              requests:
+                                description: Requests defines the resource requests
+                                  for the component.
+                                properties:
+                                  cpu:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: CPU is the amount of CPU requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  memory:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Memory is the amount of Memory requested
+                                      by the component.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                type: object
+                            type: object
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                      logging:
+                        description: |-
+                          Logging contains the configuration for the opentelemetry-collector logging component.
+                          If not specified, logging will not be streamed.
+                        properties:
+                          endpoint:
+                            description: |-
+                              Endpoint is the OTLP endpoint where the DPU cluster opentelemetry-collector sends data to.
+                              This could be the management cluster's opentelemetry-collector endpoint.
+                              If not specified, nothing will be forwarded from DPU clusters.
+                            type: string
+                        required:
+                        - endpoint
+                        type: object
+                    type: object
+                type: object
               multus:
                 description: Multus is the configuration for Multus
                 properties:
@@ -548,10 +804,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -567,7 +819,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the Multus Container.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `cni` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -597,6 +849,107 @@ spec:
                       The default is 1500.
                     maximum: 9216
                     minimum: 1280
+                    type: integer
+                type: object
+              nodeSRIOVDevicePluginController:
+                description: |-
+                  NodeSRIOVDevicePluginController is the configuration for the NodeSRIOVDevicePlugin controller.
+                  This controller manages per-node SRIOV device plugin pods based on DPU configurations.
+                  The controller is disabled by default.
+                properties:
+                  controller:
+                    description: |-
+                      Controller contains the configuration for the NodeSRIOVDevicePlugin controller component.
+                      It contains the image for the controller and its resource requirements.
+                    properties:
+                      image:
+                        description: Image is a reference to a container image.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                      resources:
+                        description: |-
+                          Resources defines the memory and CPU resource requests and limits for the component.
+                          This field is optional, and if not set, the component will use the default resource.
+                        properties:
+                          limits:
+                            description: Limits defines the resource limits for the
+                              component.
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: CPU is the amount of CPU requested by
+                                  the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: Memory is the amount of Memory requested
+                                  by the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          requests:
+                            description: Requests defines the resource requests for
+                              the component.
+                            properties:
+                              cpu:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: CPU is the amount of CPU requested by
+                                  the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              memory:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: Memory is the amount of Memory requested
+                                  by the component.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  devicePlugin:
+                    description: |-
+                      DevicePlugin contains the configuration for the SRIOV device plugin pods
+                      managed by this controller.
+                    properties:
+                      defaultResourcePrefix:
+                        description: |-
+                          DefaultResourcePrefix is the default resource prefix for the SRIOV device plugin resources.
+                          Defaults to "nvidia.com".
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      image:
+                        description: Image overrides the container image for the SRIOV
+                          device plugin.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                      initImage:
+                        description: |-
+                          InitImage overrides the container image for the init container
+                          that generates device plugin configuration.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
+                    type: object
+                  disable:
+                    description: Disable ensures the component is not deployed when
+                      set to true.
+                    type: boolean
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
                     type: integer
                 type: object
               nvipam:
@@ -660,10 +1013,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -679,7 +1028,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the NVIPAM controller.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -688,6 +1037,10 @@ spec:
                       Node contains the configuration for the NVIPAM node component.
                       It contains the image for the node and its resource requirements.
                     properties:
+                      image:
+                        description: Image is a reference to a container image.
+                        pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                        type: string
                       resources:
                         description: |-
                           Resources defines the memory and CPU resource requests and limits for the component.
@@ -747,6 +1100,14 @@ spec:
                   Overrides exposes a set of fields which impact the recommended behavior of the DPF Operator.
                   These fields should only be set for advanced use cases. The fields here have no stability guarantees.
                 properties:
+                  argoCDNamespace:
+                    description: |-
+                      ArgoCDNamespace is the namespace where ArgoCD is deployed.
+                      AppProjects and cluster secrets required by DPF will be created in this namespace.
+                      Defaults to the namespace of the DPFOperatorConfig.
+                    maxLength: 63
+                    minLength: 1
+                    type: string
                   dpuCNIBinPath:
                     description: |-
                       DPUCNIBinPath is the path at which the CNI binaries will be installed to on the DPU.
@@ -870,10 +1231,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -889,7 +1246,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the OVS CNI.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `cni` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -906,11 +1263,14 @@ spec:
                       BFCFGTemplateConfigMap is the name of a configMap containing a template for the BF.cfg file used by the DPU controller.
                       By default the provisioning controller use a hardcoded BF.cfg e.g. https://github.com/NVIDIA/doca-platform/blob/release-v24.10/internal/provisioning/controllers/dpu/bfcfg/bf.cfg.template
                       Note: Replacing the bf.cfg is an advanced use case. The default bf.cfg is designed for most use cases.
+
+                      Deprecated: BFCFGTemplateConfigMap is deprecated and will be removed in a future release.
+                      Use enableDynamicBFCFGTemplates instead for custom bf.cfg templates.
                     type: string
                   bfbPVCName:
-                    description: BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim
-                      used by dpf-provisioning-controller
-                    minLength: 1
+                    description: |-
+                      BFBPersistentVolumeClaimName is the name of the PersistentVolumeClaim used by dpf-provisioning-controller
+                      If not provided, the controller will use local host storage (hostPath)
                     type: string
                   controller:
                     description: |-
@@ -984,11 +1344,28 @@ spec:
                       a DMS API must respond, 0 is unlimited
                     minimum: 1
                     type: integer
+                  enableDynamicBFCFGTemplates:
+                    description: |-
+                      EnableDynamicBFCFGTemplates enables runtime discovery of bf.cfg templates via ConfigMaps.
+                      When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
+                      name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
+                    type: boolean
+                  hostAgentDNSPolicy:
+                    description: |-
+                      HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
+                      Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'.
+                      Defaults to 'ClusterFirstWithHostNet'.
+                    enum:
+                    - ClusterFirstWithHostNet
+                    - ClusterFirst
+                    - Default
+                    - None
+                    type: string
                   image:
                     description: |-
                       Image overrides the container image used by the Provisioning controller.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1069,6 +1446,23 @@ spec:
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
+                  nodeEffectRemovalTimeout:
+                    default: 0s
+                    description: |-
+                      NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
+                      If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
+                      When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
+                  osInstallTimeout:
+                    default: 45m
+                    description: |-
+                      OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
+                      If the installation exceeds this timeout, the DPU will transition to an error state.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   registry:
                     description: Registry is the configuration for the BFB Registry
                     properties:
@@ -1078,30 +1472,42 @@ spec:
                           By default, the BFB Registry can be accessed via its Service.
                           For non-kubernetes environments, this must be set due to the lack of kubelet on worker nodes.
                           For zero-trust environments, this must be set so that the BFB Registry can be accessed from DPU BMC.
+                          Deprecated: Address is deprecated and will be removed in a future release.
+                        pattern: ^http://
+                        type: string
+                      loadBalancerAddress:
+                        description: |-
+                          LoadBalancerAddress is the address of the load balancer for the BFB Registry which the hostagent/redfish use to fetch the BFB and generated bf.cfg.
+                          To enable the load balancer, you need to deploy your own load balancer controller and configure the LoadBalancerAddress field.
+                          Then check the bfb-registry nodeport service and make your load balancer controller to distribute the requests to the bfb-registry nodeport.
                         pattern: ^http://
                         type: string
                       port:
-                        description: Port is the port on which the registry instances
-                          will listen
+                        description: |-
+                          Port is the port on which the registry instances will listen
+                          Deprecated: Address is deprecated and will be removed in a future release.
                         maximum: 65535
                         minimum: 1
                         type: integer
                     type: object
-                  zeroTrustInstallTimeout:
-                    default: 45m
+                  replicas:
+                    default: 2
                     description: |-
-                      ZeroTrustInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
-                      If the installation exceeds this timeout, the DPU will transition to an error state.
-                    format: duration
-                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
-                    type: string
-                required:
-                - bfbPVCName
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
+                - message: bfCFGTemplateConfigMap and enableDynamicBFCFGTemplates
+                    are mutually exclusive
+                  rule: '!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates)
+                    && self.enableDynamicBFCFGTemplates)'
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:
@@ -1163,10 +1569,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -1182,10 +1584,19 @@ spec:
                     description: |-
                       Image overrides the container image used by the ServiceChainSet Controller.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -1252,10 +1663,6 @@ spec:
                             type: object
                         type: object
                     type: object
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   disable:
                     description: Disable ensures the component is not deployed when
                       set to true.
@@ -1271,7 +1678,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the SFC controller.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1289,10 +1696,6 @@ spec:
               sriovDevicePlugin:
                 description: SRIOVDevicePlugin is the configuration for the SRIOVDevicePlugin
                 properties:
-                  deployInTargetCluster:
-                    description: 'Deprecated: this field is not supported and will
-                      be removed with v26.4.0.'
-                    type: boolean
                   deviceplugin:
                     description: |-
                       DevicePlugin contains the configuration for the SRIOV Device Plugin component.
@@ -1366,7 +1769,7 @@ spec:
                     description: |-
                       Image overrides the container image used by the SRIOV Device Plugin container.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `deviceplugin` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
@@ -1444,10 +1847,19 @@ spec:
                     description: |-
                       Image overrides the container image used by the Static Cluster Manager.
 
-                      Deprecated: This field is deprecated and will be removed with v26.4.0.
+                      Deprecated: This field is deprecated and will be removed with v26.7.0.
                       Use the new field `controller` instead.
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      This is used for High Availability. Leader election is enabled by default.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'

@@ -20,7 +20,6 @@ use std::fmt::Display;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
-use itertools::Itertools;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
@@ -39,12 +38,12 @@ pub enum LldpError {
 // TODO: Delete a switch when no DPU is connected to it.
 #[derive(Debug, Clone)]
 pub struct NetworkDevice {
-    id: String,
-    name: String,
-    description: Option<String>,
-    ip_addresses: Vec<IpAddr>,
-    device_type: NetworkDeviceType,
-    discovered_via: NetworkDeviceDiscoveredVia,
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub ip_addresses: Vec<IpAddr>,
+    pub device_type: NetworkDeviceType,
+    pub discovered_via: NetworkDeviceDiscoveredVia,
 
     pub dpus: Vec<DpuToNetworkDeviceMap>,
 }
@@ -121,10 +120,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkDevice {
 // debugging.
 #[derive(Debug, Clone, FromRow)]
 pub struct DpuToNetworkDeviceMap {
-    dpu_id: MachineId,
-    local_port: DpuLocalPorts,
-    remote_port: String,
-    network_device_id: String,
+    pub dpu_id: MachineId,
+    pub local_port: DpuLocalPorts,
+    pub remote_port: String,
+    pub network_device_id: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -135,56 +134,5 @@ pub struct NetworkTopologyData {
 impl NetworkDevice {
     pub fn id(&self) -> &str {
         &self.id
-    }
-}
-
-impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
-    fn from(value: NetworkTopologyData) -> Self {
-        let mut network_devices = vec![];
-
-        for network_device in value.network_devices {
-            let devices = network_device.dpus.into_iter().map_into().collect_vec();
-
-            network_devices.push(rpc::forge::NetworkDevice {
-                id: network_device.id,
-                name: network_device.name,
-                description: network_device.description,
-                mgmt_ip: network_device
-                    .ip_addresses
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect_vec(),
-                devices,
-                discovered_via: network_device.discovered_via.to_string(),
-                device_type: network_device.device_type.to_string(),
-            });
-        }
-
-        rpc::forge::NetworkTopologyData { network_devices }
-    }
-}
-
-impl From<DpuToNetworkDeviceMap> for rpc::forge::ConnectedDevice {
-    fn from(value: DpuToNetworkDeviceMap) -> Self {
-        Self {
-            id: value.dpu_id.into(),
-            local_port: value.local_port.to_string(),
-            remote_port: value.remote_port.clone(),
-            network_device_id: Some(value.network_device_id),
-        }
-    }
-}
-
-impl From<NetworkDevice> for rpc::forge::NetworkDevice {
-    fn from(value: NetworkDevice) -> Self {
-        Self {
-            id: value.id.clone(),
-            name: value.name.clone(),
-            description: value.description.clone(),
-            mgmt_ip: value.ip_addresses.iter().map(|i| i.to_string()).collect(),
-            discovered_via: value.discovered_via.to_string(),
-            device_type: value.device_type.to_string(),
-            devices: value.dpus.into_iter().map_into().collect(),
-        }
     }
 }

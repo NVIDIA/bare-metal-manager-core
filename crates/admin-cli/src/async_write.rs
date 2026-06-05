@@ -69,7 +69,7 @@ macro_rules! async_write_table_as_csv {
         let mut output = Vec::default();
         $table
             .to_csv(&mut output)
-            .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;
+            .map_err(|e| $crate::errors::CarbideCliError::GenericError(e.to_string()))?;
         let mut result = $writer.write_all(output.as_slice()).await;
         if result.is_ok() {
             let flush_result = $writer.flush().await;

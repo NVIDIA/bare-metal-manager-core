@@ -38,6 +38,7 @@ port = 443
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.1.1"
@@ -45,7 +46,23 @@ port = 443
 mac = "11:22:33:44:55:66"
 username = "admin"
 password = "secret"
-switch_serial = "SN-SWITCH-001"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-BMC-001", endpoint_role = "bmc", slot_number = 7, tray_index = 3 }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+port = 443
+mac = "11:22:33:44:55:77"
+username = "admin"
+password = "secret"
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-HOST-001", endpoint_role = "host", is_primary = true, slot_number = 7, tray_index = 3 }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.2.1"
+port = 443
+mac = "22:33:44:55:66:77"
+username = "admin"
+password = "secret"
+power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-POWER-SHELF-001" }
 
 # ==============================================================================
 # Sinks: Where collector events are sent
@@ -75,6 +92,31 @@ client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
 api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
 workers = 8
+skip_empty_reports = true
+
+[sinks.rack_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
+skip_empty_reports = true
+
+[sinks.switch_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
+skip_empty_reports = true
+
+[sinks.power_shelf_health_report]
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+client_key = "/var/run/secrets/spiffe.io/tls.key"
+api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+workers = 2
+skip_empty_reports = true
 
 # ==============================================================================
 # Rate Limiting
@@ -86,7 +128,7 @@ bucket_replenish = "35ms"
 max_jitter = "40ms"
 
 # ==============================================================================
-# Collectors: What data to collect from BMCs and Switches (NMX-T/NVUE REST)
+# BMC Collectors: What data to collect from BMCs
 # ==============================================================================
 
 [collectors.sensors]
@@ -99,14 +141,47 @@ include_sensor_thresholds = true
 [collectors.firmware]
 firmware_refresh_interval = "30m"
 
-[collectors.logs]
-mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)
+[collectors.leak_detector]
+poll_interval = "1m"
+state_refresh_interval = "30m"
 
-# required when mode = "periodic", must not be set when mode = "sse"
-# [collectors.logs.periodic]
-# logs_collection_interval = "5m"
-# state_refresh_interval = "30m"
-# logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+[collectors.logs]
+#  "auto": (default)
+#       - spawn SSE per endpoint
+#       - if SSE not supported, downgrade to periodic collection
+#       - if reconnects exceeds budget, downgrade to periodic collection
+#       - reset downgrades after server restart
+#  "sse": always SSE; retry with exp. backoff on connect failure
+#  "periodic": always poll
+mode = "auto"
+
+# auto-mode downgrade thresholds and periodic fallback; read only when
+# mode = "auto". omit the whole section to use defaults.
+[collectors.logs.auto]
+# auto uses [collectors.logs.sse] while attempting SSE, then switches to
+# these periodic fallback parameters after downgrade.
+sse_not_available_threshold = 1
+connect_failure_window = "5m"
+connect_failure_threshold = 5
+logs_collection_interval = "5m"
+state_refresh_interval = "30m"
+logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+
+# SSE reconnect backoff; read when mode = "sse" and during auto-mode SSE attempts.
+[collectors.logs.sse]
+initial_backoff = "1s"
+max_backoff = "30s"
+
+# required when
+# mode = "periodic"; must not be set when mode = "sse"
+[collectors.logs.periodic]
+logs_collection_interval = "5m"
+state_refresh_interval = "30m"
+logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+
+# ==============================================================================
+# Switch Host Collectors: What data to collect from NVLink Switch Hosts
+# ==============================================================================
 
 [collectors.nmxt]
 scrape_interval = "1m"
@@ -138,5 +213,6 @@ leaking_tray_threshold = 2
 # ==============================================================================
 
 [metrics]
+# Listener exposes /metrics (service), /telemetry (Prometheus sink hardware samples), /livez (health).
 endpoint = "0.0.0.0:9009"
 prefix = "carbide_hardware_health"

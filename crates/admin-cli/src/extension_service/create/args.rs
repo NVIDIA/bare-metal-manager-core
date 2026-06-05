@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::dpu_extension_service_credential::Type;
 use clap::Parser;
 
 use super::super::common::ExtensionServiceType;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

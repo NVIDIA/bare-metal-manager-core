@@ -37,4 +37,7 @@ pub mod measured_boot;
 pub mod mlx_device;
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
+pub mod scout_firmware_upgrade;
+#[allow(non_snake_case, unknown_lints, clippy::all)]
+#[rustfmt::skip]
 pub mod site_explorer;

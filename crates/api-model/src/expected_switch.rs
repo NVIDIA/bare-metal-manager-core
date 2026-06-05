@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
@@ -44,6 +43,11 @@ pub struct ExpectedSwitch {
     pub nvos_password: Option<String>,
     #[serde(default)]
     pub bmc_ip_address: Option<IpAddr>,
+    /// Static IP reservation for the single wired NVOS port. Only meaningful
+    /// when `nvos_mac_addresses` has exactly one entry; handlers reject this
+    /// being set otherwise so the (mac, ip) pairing stays unambiguous.
+    #[serde(default)]
+    pub nvos_ip_address: Option<IpAddr>,
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
     pub rack_id: Option<RackId>,
@@ -75,84 +79,10 @@ impl<'r> FromRow<'r, PgRow> for ExpectedSwitch {
             nvos_username: row.try_get("nvos_username")?,
             nvos_password: row.try_get("nvos_password")?,
             bmc_ip_address: row.try_get("bmc_ip_address").ok(),
+            nvos_ip_address: row.try_get("nvos_ip_address").ok(),
             metadata,
             rack_id: row.try_get("rack_id")?,
             bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
-        })
-    }
-}
-
-impl From<ExpectedSwitch> for rpc::forge::ExpectedSwitch {
-    fn from(expected_switch: ExpectedSwitch) -> Self {
-        rpc::forge::ExpectedSwitch {
-            expected_switch_id: expected_switch
-                .expected_switch_id
-                .map(|u| ::rpc::common::Uuid {
-                    value: u.to_string(),
-                }),
-            bmc_mac_address: expected_switch.bmc_mac_address.to_string(),
-            nvos_mac_addresses: expected_switch
-                .nvos_mac_addresses
-                .iter()
-                .map(|m| m.to_string())
-                .collect(),
-            bmc_username: expected_switch.bmc_username,
-            bmc_password: expected_switch.bmc_password,
-            switch_serial_number: expected_switch.serial_number,
-            nvos_username: expected_switch.nvos_username,
-            nvos_password: expected_switch.nvos_password,
-            bmc_ip_address: expected_switch
-                .bmc_ip_address
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            metadata: Some(expected_switch.metadata.into()),
-            rack_id: expected_switch.rack_id,
-            bmc_retain_credentials: expected_switch.bmc_retain_credentials.filter(|&v| v),
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::ExpectedSwitch> for ExpectedSwitch {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedSwitch) -> Result<Self, Self::Error> {
-        let bmc_mac_address = MacAddress::try_from(rpc.bmc_mac_address.as_str())
-            .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address.clone()))?;
-        let nvos_mac_addresses = rpc
-            .nvos_mac_addresses
-            .into_iter()
-            .map(|s| {
-                MacAddress::try_from(s.as_str())
-                    .map_err(|_| RpcDataConversionError::InvalidMacAddress(s))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let expected_switch_id = rpc
-            .expected_switch_id
-            .map(|u| {
-                Uuid::parse_str(&u.value)
-                    .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
-            })
-            .transpose()?;
-        let metadata = Metadata::try_from(rpc.metadata.unwrap_or_default())?;
-        let bmc_ip_address = if rpc.bmc_ip_address.is_empty() {
-            None
-        } else {
-            rpc.bmc_ip_address.parse().ok()
-        };
-
-        Ok(ExpectedSwitch {
-            expected_switch_id,
-            bmc_mac_address,
-            bmc_username: rpc.bmc_username,
-            bmc_password: rpc.bmc_password,
-            serial_number: rpc.switch_serial_number,
-            nvos_username: rpc.nvos_username,
-            nvos_password: rpc.nvos_password,
-            bmc_ip_address,
-            metadata,
-            rack_id: rpc.rack_id,
-            nvos_mac_addresses,
-            bmc_retain_credentials: rpc.bmc_retain_credentials,
         })
     }
 }
@@ -172,46 +102,4 @@ pub struct LinkedExpectedSwitch {
 pub struct ExpectedSwitchRequest {
     pub expected_switch_id: Option<Uuid>,
     pub bmc_mac_address: Option<MacAddress>,
-}
-
-impl TryFrom<rpc::forge::ExpectedSwitchRequest> for ExpectedSwitchRequest {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedSwitchRequest) -> Result<Self, Self::Error> {
-        let expected_switch_id = rpc
-            .expected_switch_id
-            .map(|u| {
-                Uuid::parse_str(&u.value)
-                    .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
-            })
-            .transpose()?;
-        let bmc_mac_address = if rpc.bmc_mac_address.is_empty() {
-            None
-        } else {
-            Some(
-                MacAddress::try_from(rpc.bmc_mac_address.as_str())
-                    .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address))?,
-            )
-        };
-
-        Ok(ExpectedSwitchRequest {
-            expected_switch_id,
-            bmc_mac_address,
-        })
-    }
-}
-
-impl From<LinkedExpectedSwitch> for rpc::forge::LinkedExpectedSwitch {
-    fn from(l: LinkedExpectedSwitch) -> rpc::forge::LinkedExpectedSwitch {
-        rpc::forge::LinkedExpectedSwitch {
-            switch_serial_number: l.serial_number,
-            bmc_mac_address: l.bmc_mac_address.to_string(),
-            switch_id: l.switch_id,
-            expected_switch_id: l.expected_switch_id.map(|id| ::rpc::common::Uuid {
-                value: id.to_string(),
-            }),
-            explored_endpoint_address: l.address,
-            rack_id: l.rack_id,
-        }
-    }
 }

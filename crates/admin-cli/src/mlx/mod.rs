@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use clap::Parser;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 mod config;

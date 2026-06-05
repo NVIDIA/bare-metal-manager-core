@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-
 use super::super::update_metadata;
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn bulk_update_metadata(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {

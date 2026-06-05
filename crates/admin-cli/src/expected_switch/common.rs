@@ -36,5 +36,7 @@ pub struct ExpectedSwitchJson {
     pub rack_id: Option<RackId>,
     pub bmc_ip_address: Option<IpAddr>,
     #[serde(default)]
+    pub nvos_ip_address: Option<IpAddr>,
+    #[serde(default)]
     pub bmc_retain_credentials: Option<bool>,
 }

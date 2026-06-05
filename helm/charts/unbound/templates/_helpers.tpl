@@ -41,7 +41,7 @@ Selector labels — used in Deployment matchLabels and Service selector
 */}}
 {{- define "unbound.selectorLabels" -}}
 app.kubernetes.io/component: recursive-dns
-app.kubernetes.io/instance: forge-unbound
+app.kubernetes.io/instance: nico-unbound
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: unbound
 {{- end }}
@@ -51,7 +51,7 @@ Pod template labels
 */}}
 {{- define "unbound.podLabels" -}}
 app.kubernetes.io/component: recursive-dns
-app.kubernetes.io/instance: forge-unbound
+app.kubernetes.io/instance: nico-unbound
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: unbound
 {{- end }}

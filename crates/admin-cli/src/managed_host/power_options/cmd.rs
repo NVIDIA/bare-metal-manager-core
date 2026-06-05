@@ -17,12 +17,13 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use mac_address::MacAddress;
 use prettytable::{Cell, Row, Table};
 use rpc::forge::{BmcEndpointRequest, PowerOptions};
 
 use super::args::{ShowPowerOptions, UpdatePowerOptions};
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn power_options_show(

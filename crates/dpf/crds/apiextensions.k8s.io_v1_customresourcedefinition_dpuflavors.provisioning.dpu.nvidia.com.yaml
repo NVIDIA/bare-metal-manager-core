@@ -80,8 +80,10 @@ spec:
                     type: string
                 type: object
               dpuMode:
-                default: dpu
-                description: 'Specifies the DPU Mode type: one of dpu,zero-trust'
+                description: |-
+                  Specifies the DPU Mode type: one of dpu,zero-trust.
+                  When not specified, defaults to "zero-trust" if the DPF deployment uses Redfish install interface,
+                  otherwise defaults to "dpu".
                 enum:
                 - dpu
                 - zero-trust
@@ -134,22 +136,27 @@ spec:
                         Both global and per-interface NVConfig settings can coexist without collision.
                       properties:
                         device:
-                          description: Device is the device to which the configuration
-                            applies. If not specified, the configuration applies to
-                            all.
-                          type: string
-                        hostPowerCycleRequired:
                           description: |-
-                            HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
-
-                            Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
-                          type: boolean
+                            Device is the device to which the configuration applies. If not specified, the configuration applies to all.
+                            Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive.
+                          enum:
+                          - '*'
+                          - p0
+                          - p1
+                          - P0
+                          - P1
+                          type: string
                         parameters:
                           description: Parameters are the parameters to be set for
                             the device.
                           items:
+                            maxLength: 200
+                            pattern: ^[^=\s]+=[^\s]*$
                             type: string
+                          maxItems: 32
+                          minItems: 1
                           type: array
+                          x-kubernetes-list-type: atomic
                       type: object
                     portNumber:
                       description: PortNumber identifies which port this configuration
@@ -164,28 +171,51 @@ spec:
                 type: array
               nvconfig:
                 description: |-
-                  NVConfig contains the global DPU-wide configuration (firmware settings, global device parameters).
-                  This applies to the DPU device and should not overlap with per-interface NVConfig settings.
+                  NVConfig contains the device-specific configuration (firmware settings, device parameters).
+                  Each entry specifies a device (wildcard '*', or port identifiers 'p0'/'P0'/'p1'/'P1') and its parameters.
+                  If device is '*' or unspecified (defaults to '*'), it applies to all devices and must be the only entry.
+                  Each device (including unspecified as '*') must be unique across all nvconfig entries (case-insensitive).
+                  Validation enforces: device enum values, parameter format (KEY=VALUE), case-insensitive uniqueness, and size limits.
                 items:
                   properties:
                     device:
-                      description: Device is the device to which the configuration
-                        applies. If not specified, the configuration applies to all.
-                      type: string
-                    hostPowerCycleRequired:
                       description: |-
-                        HostPowerCycleRequired indicates if the host needs to be power cycled after applying the configuration.
-
-                        Deprecated: This field is unused and deprecated. It will be removed with the release v26.4.0.
-                      type: boolean
+                        Device is the device to which the configuration applies. If not specified, the configuration applies to all.
+                        Supported values: "*" (wildcard for all devices), "p0"/"P0" (port 0), "p1"/"P1" (port 1). Case-insensitive.
+                      enum:
+                      - '*'
+                      - p0
+                      - p1
+                      - P0
+                      - P1
+                      type: string
                     parameters:
                       description: Parameters are the parameters to be set for the
                         device.
                       items:
+                        maxLength: 200
+                        pattern: ^[^=\s]+=[^\s]*$
                         type: string
+                      maxItems: 32
+                      minItems: 1
                       type: array
+                      x-kubernetes-list-type: atomic
                   type: object
+                maxItems: 3
                 type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: when device is '*', it must be the only nvconfig entry
+                  rule: size(self) == 0 || !self.exists(x, has(x.device) && x.device
+                    == '*') || size(self) == 1
+                - message: when device is unspecified (defaults to '*'), it must be
+                    the only nvconfig entry
+                  rule: size(self) == 0 || !self.exists(x, !has(x.device)) || size(self)
+                    == 1
+                - message: each nvconfig.device (including unspecified as '*') must
+                    be unique (case-insensitive)
+                  rule: 'self.all(p1, self.exists_one(p2, (has(p1.device) ? p1.device.lowerAscii()
+                    : ''*'') == (has(p2.device) ? p2.device.lowerAscii() : ''*'')))'
               ovs:
                 description: OVS contains the OVS configuration for the DPUFlavor.
                 properties:

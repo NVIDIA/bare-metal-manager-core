@@ -16,10 +16,10 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::{CredentialType, forge as forgerpc};
 
 use crate::credential::common::url_validator;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

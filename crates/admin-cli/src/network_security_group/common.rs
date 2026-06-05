@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 /// Produces a table for printing a non-JSON representation of a
 /// network security group to standard out.

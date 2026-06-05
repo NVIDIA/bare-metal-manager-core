@@ -5,9 +5,9 @@ metadata:
   labels:
     app: keycloak
 data:
-  carbide-realm.json: |
+  nico-realm.json: |
     {
-      "realm": "carbide",
+      "realm": "nico",
       "enabled": true,
       "displayName": "NCX Infra Controller",
       "sslRequired": "none",
@@ -20,16 +20,16 @@ data:
       "roles": {
         "realm": [
           {
-            "name": "ncx:FORGE_PROVIDER_ADMIN",
-            "description": "NCX Provider Administrator"
+            "name": "ncx:NICO_PROVIDER_ADMIN",
+            "description": "NICo Provider Administrator"
           },
           {
-            "name": "ncx:FORGE_TENANT_ADMIN",
-            "description": "NCX Tenant Administrator"
+            "name": "ncx:NICO_TENANT_ADMIN",
+            "description": "NICo Tenant Administrator"
           },
           {
-            "name": "ncx:FORGE_PROVIDER_VIEWER",
-            "description": "NCX Provider Viewer"
+            "name": "ncx:NICO_PROVIDER_VIEWER",
+            "description": "NICo Provider Viewer"
           },
           {
             "name": "admin",
@@ -41,21 +41,21 @@ data:
           }
         ],
         "client": {
-          "carbide-rest": [
+          "nico-rest": [
             {
               "name": "api-access",
-              "description": "Access to NCX REST API"
+              "description": "Access to NICo REST API"
             }
           ]
         }
       },
       "clients": [
         {
-          "clientId": "carbide-rest",
-          "name": "NCX REST API",
+          "clientId": "nico-rest",
+          "name": "NICo REST API",
           "enabled": true,
           "clientAuthenticatorType": "client-secret",
-          "secret": "carbide-local-secret",
+          "secret": "nico-local-secret",
           "redirectUris": ["*"],
           "webOrigins": ["*"],
           "publicClient": false,
@@ -79,7 +79,7 @@ data:
               "protocolMapper": "oidc-audience-mapper",
               "consentRequired": false,
               "config": {
-                "included.client.audience": "carbide-rest",
+                "included.client.audience": "nico-rest",
                 "id.token.claim": "true",
                 "access.token.claim": "true"
               }
@@ -102,10 +102,10 @@ data:
         },
         {
           "clientId": "ncx-service",
-          "name": "NCX Service Account",
+          "name": "NICo Service Account",
           "enabled": true,
           "clientAuthenticatorType": "client-secret",
-          "secret": "carbide-local-secret",
+          "secret": "nico-local-secret",
           "publicClient": false,
           "protocol": "openid-connect",
           "directAccessGrantsEnabled": false,
@@ -143,11 +143,11 @@ data:
           "enabled": true,
           "serviceAccountClientId": "ncx-service",
           "realmRoles": [
-            "ncx:FORGE_PROVIDER_ADMIN",
-            "ncx:FORGE_TENANT_ADMIN"
+            "ncx:NICO_PROVIDER_ADMIN",
+            "ncx:NICO_TENANT_ADMIN"
           ],
           "clientRoles": {
-            "carbide-rest": ["api-access"]
+            "nico-rest": ["api-access"]
           }
         }
       ],

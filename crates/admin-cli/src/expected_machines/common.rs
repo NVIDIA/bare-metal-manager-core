@@ -45,8 +45,9 @@ pub struct ExpectedMachineJson {
     pub bmc_ip_address: Option<String>,
     #[serde(default)]
     pub bmc_retain_credentials: Option<bool>,
-    /// Per-host DPU operating mode. None == site default (which
-    /// means to use the site-level `force_dpu_nic_mode` flag).
+    /// Per-host DPU operating mode. None == defer to the site-wide
+    /// `[site_explorer] dpu_mode` setting (falls back to `DpuMode::DpuMode`
+    /// if that's also unset).
     #[serde(default)]
     pub dpu_mode: Option<rpc::forge::DpuMode>,
     /// Per-host lifecycle profile for settings that affect state-machine progression.

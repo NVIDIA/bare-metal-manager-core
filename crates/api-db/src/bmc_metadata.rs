@@ -22,7 +22,7 @@ use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};
 
-pub async fn update_bmc_network_into_topologies(
+async fn update_bmc_network_into_topologies(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     bmc_info: &BmcInfo,
@@ -48,6 +48,52 @@ pub async fn update_bmc_network_into_topologies(
             id: machine_id.to_string(),
         })?;
     Ok(())
+}
+
+pub async fn update_bmc_network_into_machine_interfaces(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    bmc_info: &mut BmcInfo,
+) -> DatabaseResult<()> {
+    let Some(bmc_mac_address) = bmc_info.mac else {
+        return Err(DatabaseError::internal(format!(
+            "BMC Info does not have a MAC address for machine {machine_id}"
+        )));
+    };
+
+    let interface = if let Some(interface_id) = bmc_info.machine_interface_id {
+        crate::machine_interface::find_one(&mut *txn, interface_id).await?
+    } else if let Some(bmc_ip) = bmc_info.ip.as_ref() {
+        let bmc_ip_address = bmc_ip.parse()?;
+        crate::machine_interface::find_by_ip(&mut *txn, bmc_ip_address)
+            .await?
+            .ok_or_else(|| DatabaseError::NotFoundError {
+                kind: "machine_interfaces.address",
+                id: bmc_ip.to_string(),
+            })?
+    } else {
+        crate::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| DatabaseError::NotFoundError {
+                kind: "machine_interfaces.mac_address",
+                id: bmc_mac_address.to_string(),
+            })?
+    };
+
+    if interface.mac_address != bmc_mac_address {
+        return Err(DatabaseError::internal(format!(
+            "BMC interface {} MAC {} does not match BMC Info MAC {} for machine {machine_id}",
+            interface.id, interface.mac_address, bmc_mac_address
+        )));
+    }
+
+    crate::machine_interface::associate_bmc_interface_with_machine(&interface.id, machine_id, txn)
+        .await?;
+    bmc_info.machine_interface_id = Some(interface.id);
+
+    update_bmc_network_into_topologies(txn, machine_id, bmc_info).await
 }
 
 // enrich_mac_address queries the MachineInterfaces table to populate the BMC mac address of the BmcMetaDataInfo structure in memory if it does not exist
@@ -80,6 +126,7 @@ pub async fn enrich_mac_address(
                 bmc_machine_interface.mac_address,
             );
             bmc_info.mac = Some(bmc_mac_address);
+            bmc_info.machine_interface_id = Some(bmc_machine_interface.id);
             if persist {
                 update_bmc_network_into_topologies(txn, machine_id, bmc_info).await?;
             }

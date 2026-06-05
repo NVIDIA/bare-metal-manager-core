@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# carbide-rest-site-manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: carbide-rest-site-manager
+  labels:
+    app: carbide-rest-site-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: carbide-rest-site-manager
+  template:
+    metadata:
+      labels:
+        app: carbide-rest-site-manager
+    spec:
+      imagePullSecrets:
+        - name: image-pull-secret
+      serviceAccountName: carbide-rest-site-manager
+      containers:
+        - name: site-manager
+          image: carbide-rest-site-manager
+          imagePullPolicy: IfNotPresent
+          args:
+            - --listen-port=8100
+            - --creds-manager-url=https://carbide-rest-cert-manager.carbide-rest:8000
+            - --tls-cert-path=/etc/tls/tls.crt
+            - --tls-key-path=/etc/tls/tls.key
+            - --namespace=carbide-rest
+            - --debug
+          ports:
+            - containerPort: 8100
+              name: https
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls
+              readOnly: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8100
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8100
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: site-manager-tls

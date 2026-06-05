@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-
 use super::args::Args;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 pub async fn handle_delete(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
     if !ctx.config.cloud_unsafe_op_enabled {

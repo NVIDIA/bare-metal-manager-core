@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 use serde_json::json;
 
 use crate::json::{JsonExt, JsonPatch};
@@ -58,12 +58,12 @@ pub struct Layout {
     pub fan: usize,
     pub power: usize,
     pub current: usize,
-    pub leak: usize,
+    pub voltage: usize,
 }
 
 impl Layout {
     pub const fn total(&self) -> usize {
-        self.temperature + self.fan + self.power + self.current + self.leak
+        self.temperature + self.fan + self.power + self.current + self.voltage
     }
 }
 
@@ -307,7 +307,7 @@ enum SensorKind {
     Fan,
     Power,
     Current,
-    LeakDetector,
+    Voltage,
 }
 
 enum SensorReading {
@@ -338,7 +338,7 @@ impl SensorKind {
             "Rotational" => Some(Self::Fan),
             "Power" => Some(Self::Power),
             "Current" => Some(Self::Current),
-            "Voltage" => Some(Self::LeakDetector),
+            "Voltage" => Some(Self::Voltage),
             _ => None,
         }
     }
@@ -349,7 +349,7 @@ impl SensorKind {
             SensorKind::Fan => "Fan",
             SensorKind::Power => "Power",
             SensorKind::Current => "Current",
-            SensorKind::LeakDetector => "LeakDetector",
+            SensorKind::Voltage => "Voltage",
         }
     }
 
@@ -359,7 +359,7 @@ impl SensorKind {
             SensorKind::Fan => "Fan Sensor",
             SensorKind::Power => "Power Sensor",
             SensorKind::Current => "Current Sensor",
-            SensorKind::LeakDetector => "Leak Detector Sensor",
+            SensorKind::Voltage => "Voltage Sensor",
         }
     }
 
@@ -369,7 +369,7 @@ impl SensorKind {
             SensorKind::Fan => "Rotational",
             SensorKind::Power => "Power",
             SensorKind::Current => "Current",
-            SensorKind::LeakDetector => "Voltage",
+            SensorKind::Voltage => "Voltage",
         }
     }
 
@@ -379,7 +379,7 @@ impl SensorKind {
             SensorKind::Fan => "RPM",
             SensorKind::Power => "W",
             SensorKind::Current => "A",
-            SensorKind::LeakDetector => "V",
+            SensorKind::Voltage => "V",
         }
     }
 
@@ -389,17 +389,17 @@ impl SensorKind {
             SensorKind::Fan => "Fan",
             SensorKind::Power => "PowerSupply",
             SensorKind::Current => "SystemBoard",
-            SensorKind::LeakDetector => "SystemBoard",
+            SensorKind::Voltage => "SystemBoard",
         }
     }
 
     fn random_reading(self, rng: &mut impl Rng) -> SensorReading {
         match self {
-            Self::Temperature => SensorReading::Float(random_tenths(rng, 25.0..=45.0)),
-            Self::Fan => SensorReading::Unsigned(rng.random_range(0..=9400)),
-            Self::Power => SensorReading::Float(random_tenths(rng, 130.0..=780.0)),
+            Self::Temperature => SensorReading::Float(random_tenths(rng, 25.0..=37.0)),
+            Self::Fan => SensorReading::Unsigned(rng.random_range(5000..=9400)),
+            Self::Power => SensorReading::Float(random_tenths(rng, 220.0..=680.0)),
             Self::Current => SensorReading::Float(random_tenths(rng, 1.5..=42.0)),
-            Self::LeakDetector => SensorReading::Float(random_tenths(rng, 1.2..=1.85)),
+            Self::Voltage => SensorReading::Float(random_tenths(rng, 1.55..=1.85)),
         }
     }
 
@@ -422,7 +422,7 @@ impl SensorKind {
                 ..Default::default()
             },
             Self::Current => Thresholds::default(),
-            Self::LeakDetector => Thresholds {
+            Self::Voltage => Thresholds {
                 lower_critical: Some(1.5),
                 ..Default::default()
             },
@@ -468,8 +468,8 @@ pub fn generate_chassis_sensors(chassis_id: &str, layout: Layout) -> Vec<Sensor>
     append_sensors(
         &mut sensors,
         chassis_id,
-        layout.leak,
-        SensorKind::LeakDetector,
+        layout.voltage,
+        SensorKind::Voltage,
         &mut rng,
     );
     sensors
@@ -517,7 +517,7 @@ mod tests {
                 fan: 10,
                 power: 20,
                 current: 10,
-                leak: 4,
+                voltage: 4,
             },
         );
         assert_eq!(sensors.len(), 54);
@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn sensor_status_is_ok_when_reading_within_thresholds() {
-        let sensor = builder(&chassis_resource("System.Embedded.1", "LeakDetector_1"))
+        let sensor = builder(&chassis_resource("System.Embedded.1", "Voltage_1"))
             .reading_f64(1.7)
             .thresholds(Thresholds {
                 lower_critical: Some(1.5),
@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     fn sensor_status_is_critical_when_crossing_critical_threshold() {
-        let sensor = builder(&chassis_resource("System.Embedded.1", "LeakDetector_1"))
+        let sensor = builder(&chassis_resource("System.Embedded.1", "Voltage_1"))
             .reading_f64(1.4)
             .thresholds(Thresholds {
                 lower_critical: Some(1.5),

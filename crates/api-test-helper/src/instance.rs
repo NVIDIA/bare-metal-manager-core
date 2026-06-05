@@ -67,10 +67,17 @@ pub async fn create(
             },
             "os": os,
         }),
-        // omit network from config if we're not specifying a segment (in
-        // the zero-DPU case, the allocator auto-picks a HostInband segment).
+        // segment_id is None, i.e. this is the zero-DPU path.
+        // The allocator requires `auto: true` and an empty `interfaces`
+        // list, and will resolve the host's HostInband segments into
+        // the stored config (status reflects the resolved per-interface
+        // details).
         None => serde_json::json!({
             "tenant": tenant,
+            "network": {
+                "interfaces": [],
+                "auto": true,
+            },
             "os": os,
         }),
     };
@@ -172,17 +179,6 @@ pub async fn release(
     instance_id: &str,
     wait_until_ready: bool,
 ) -> eyre::Result<()> {
-    let data = serde_json::json!({
-        "machine_ids": [{"id": host_machine_id}],
-    });
-    let resp = grpcurl(addrs, "FindMachinesByIds", Some(data)).await?;
-    let response: serde_json::Value = serde_json::from_str(&resp)?;
-    let machine_json = &response["machines"][0];
-    let ip_address = machine_json["interfaces"][0]["address"][0]
-        .as_str()
-        .unwrap()
-        .to_string();
-
     tracing::info!("Releasing instance {instance_id} on machine: {host_machine_id}");
 
     let data = serde_json::json!({
@@ -198,7 +194,27 @@ pub async fn release(
     wait_for_instance_state(addrs, instance_id, "TERMINATING").await?;
     wait_for_state(addrs, host_machine_id, "Assigned/BootingWithDiscoveryImage").await?;
 
-    tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
+    let data = serde_json::json!({
+        "instance_ids": [{"value": instance_id}]
+    });
+    let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
+    let resp: serde_json::Value = serde_json::from_str(&response)?;
+    let ip_address = resp["instances"]
+        .as_array()
+        .and_then(|instances| instances.first())
+        .and_then(|instance| instance["status"]["network"]["interfaces"].as_array())
+        .and_then(|interfaces| {
+            interfaces.iter().find_map(|interface| {
+                interface["addresses"]
+                    .as_array()
+                    .and_then(|addresses| addresses.iter().find_map(|address| address.as_str()))
+            })
+        });
+    if let Some(ip_address) = ip_address {
+        tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
+    } else {
+        tracing::info!("Instance with ID {instance_id} is terminating");
+    }
 
     wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup").await?;
     let data = serde_json::json!({

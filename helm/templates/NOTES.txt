@@ -1,34 +1,34 @@
 =====================================================================
- Carbide Bare Metal Manager — Umbrella Chart
+ NICo Bare Metal Manager — Umbrella Chart
 =====================================================================
 
 Namespace : {{ .Release.Namespace }}
 Release   : {{ .Release.Name }}
 
 Deployed sub-charts:
-{{- if index .Values "carbide-api" "enabled" | default true }}
-  ✓ carbide-api
+{{- if index .Values "nico-api" "enabled" | default true }}
+  ✓ nico-api
 {{- end }}
-{{- if index .Values "carbide-bmc-proxy" "enabled" | default false }}
-  ✓ carbide-bmc-proxy
+{{- if index .Values "nico-bmc-proxy" "enabled" | default false }}
+  ✓ nico-bmc-proxy
 {{- end }}
-{{- if index .Values "carbide-dhcp" "enabled" | default true }}
-  ✓ carbide-dhcp
+{{- if index .Values "nico-dhcp" "enabled" | default true }}
+  ✓ nico-dhcp
 {{- end }}
-{{- if index .Values "carbide-dns" "enabled" | default true }}
-  ✓ carbide-dns
+{{- if index .Values "nico-dns" "enabled" | default true }}
+  ✓ nico-dns
 {{- end }}
-{{- if index .Values "carbide-dsx-exchange-consumer" "enabled" | default true }}
-  ✓ carbide-dsx-exchange-consumer
+{{- if index .Values "nico-dsx-exchange-consumer" "enabled" | default true }}
+  ✓ nico-dsx-exchange-consumer
 {{- end }}
-{{- if index .Values "carbide-hardware-health" "enabled" | default true }}
-  ✓ carbide-hardware-health
+{{- if index .Values "nico-hardware-health" "enabled" | default true }}
+  ✓ nico-hardware-health
 {{- end }}
-{{- if index .Values "carbide-pxe" "enabled" | default true }}
-  ✓ carbide-pxe
+{{- if index .Values "nico-pxe" "enabled" | default true }}
+  ✓ nico-pxe
 {{- end }}
-{{- if index .Values "carbide-ssh-console-rs" "enabled" | default true }}
-  ✓ carbide-ssh-console-rs
+{{- if index .Values "nico-ssh-console-rs" "enabled" | default true }}
+  ✓ nico-ssh-console-rs
 {{- end }}
 {{- if index .Values "unbound" "enabled" | default false }}
   ✓ unbound
@@ -40,7 +40,7 @@ Check pod status:
 Check certificates:
   kubectl get certificates -n {{ .Release.Namespace }}
 
-NOTE: carbide-api depends on PostgreSQL + migration job.
+NOTE: nico-api depends on PostgreSQL + migration job.
       Pods may restart briefly until the database is ready.
 
 =====================================================================

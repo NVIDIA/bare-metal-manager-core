@@ -36,9 +36,11 @@ path = "src/main.rs"
 config-version = { path = "../config-version" }
 carbide-certs = { path = "../certs" }
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
+carbide-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
 carbide-dpu-remediation = { path = "../dpu-remediation" }
 carbide-host-support = { path = "../host-support" }
 carbide-http-connector = { path = "../http-connector" }
+carbide-metrics-utils = { path = "../metrics-utils" }
 carbide-network = { path = "../network" }
 carbide-systemd = { path = "../systemd" }
 carbide-tls = { path = "../tls" }
@@ -46,6 +48,7 @@ carbide-uuid = { path = "../uuid" }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc" }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils" }
 nvue-client = { path = "../nvue-client" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
@@ -70,6 +73,7 @@ governor = { workspace = true }
 gtmpl = { workspace = true }
 gtmpl_derive = { workspace = true }
 gtmpl_value = { workspace = true }
+hex = { workspace = true }
 hickory-resolver = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
@@ -110,12 +114,13 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "stream",
 ], workspace = true }
 tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 uzers = { workspace = true }
 version-compare = { workspace = true }

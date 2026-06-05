@@ -22,6 +22,7 @@ use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
+use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
@@ -56,6 +57,18 @@ impl ColumnInfo<'_> for NameColumn {
         "name"
     }
 }
+
+#[derive(Copy, Clone)]
+pub struct BmcMacAddressColumn;
+impl ColumnInfo<'_> for BmcMacAddressColumn {
+    type TableType = Switch;
+    type ColumnType = mac_address::MacAddress;
+
+    fn column_name(&self) -> &'static str {
+        "bmc_mac_address"
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SwitchSearchConfig {
     // pub include_history: bool, // unused
@@ -159,6 +172,21 @@ pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult
     }
 }
 
+// TODO(chet): Per Issue #925, the goal is to link machines to BMCs via
+// the machine_interfaces table, but for now this is going to be like
+// this until I take care of the issue.
+pub async fn find_by_bmc_mac_address(
+    txn: &mut PgConnection,
+    bmc_mac_address: mac_address::MacAddress,
+) -> DatabaseResult<Option<Switch>> {
+    let switches = find_by(
+        txn,
+        ObjectColumnFilter::One(BmcMacAddressColumn, &bmc_mac_address),
+    )
+    .await?;
+    Ok(switches.into_iter().next())
+}
+
 pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::switch::SwitchSearchFilter,
@@ -175,9 +203,9 @@ pub async fn find_ids(
 
     qb.push(" WHERE TRUE");
 
-    if filter.rack_id.is_some() {
+    if let Some(rack_id) = filter.rack_id {
         qb.push(" AND s.rack_id = ");
-        qb.push_bind(filter.rack_id.unwrap());
+        qb.push_bind(rack_id);
     }
 
     match filter.deleted {
@@ -200,6 +228,14 @@ pub async fn find_ids(
         qb.push(" AND ");
         qb.push_bind(mac);
         qb.push(" = ANY(es_nvos.nvos_mac_addresses)");
+    }
+
+    if let Some(ovrrd_str) = &filter.only_with_health_alert {
+        qb.push(" AND health_reports->'merges' ? ");
+        qb.push_bind(ovrrd_str.clone());
+        qb.push(" AND jsonb_array_length(health_reports->'merges'->");
+        qb.push_bind(ovrrd_str);
+        qb.push("->'alerts') > 0");
     }
 
     qb.build_query_as()
@@ -424,34 +460,6 @@ pub async fn update(switch: &Switch, txn: &mut PgConnection) -> Result<Switch, D
     Ok(switch.clone())
 }
 
-use mac_address::MacAddress;
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct SwitchBmcInfoRow {
-    pub serial_number: String,
-    pub bmc_mac_address: MacAddress,
-    pub ip_address: IpAddr,
-}
-
-pub async fn list_switch_bmc_info(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchBmcInfoRow>> {
-    let sql = r#"
-        SELECT 
-            es.serial_number,
-            es.bmc_mac_address,
-            mia.address as ip_address
-        FROM expected_switches es
-        JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address
-        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
-        JOIN network_segments ns ON ns.id = mi.segment_id
-        WHERE ns.network_segment_type = 'underlay'
-    "#;
-
-    sqlx::query_as(sql)
-        .fetch_all(txn)
-        .await
-        .map_err(|err| DatabaseError::new("list_switch_bmc_info", err))
-}
-
 /// Resolve SwitchIds to BMC IPs via the FK path:
 ///   switches.bmc_mac_address -> expected_switches.bmc_mac_address
 ///   -> machine_interfaces -> machine_interface_addresses (underlay) -> IP
@@ -574,38 +582,6 @@ pub async fn update_metadata(
             e => DatabaseError::query(query, e),
         }),
     }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-pub struct SwitchBmcRow {
-    pub switch_id: SwitchId,
-    pub bmc_mac: MacAddress,
-    pub bmc_ip: IpAddr,
-}
-
-/// Resolve SwitchIds to BMC MAC + IP via machine_interfaces.
-pub async fn find_bmc_info_by_switch_ids(
-    db: impl crate::db_read::DbReader<'_>,
-    switch_ids: &[SwitchId],
-) -> DatabaseResult<Vec<SwitchBmcRow>> {
-    let sql = r#"
-        SELECT DISTINCT ON (mi.switch_id)
-            mi.switch_id,
-            mi.mac_address   AS bmc_mac,
-            mia.address      AS bmc_ip
-        FROM machine_interfaces mi
-        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
-        JOIN network_segments ns ON ns.id = mi.segment_id
-        WHERE mi.switch_id = ANY($1)
-          AND ns.network_segment_type = 'underlay'
-        ORDER BY mi.switch_id
-    "#;
-
-    sqlx::query_as(sql)
-        .bind(switch_ids)
-        .fetch_all(db)
-        .await
-        .map_err(|err| DatabaseError::new("switch::find_bmc_info_by_switch_ids", err))
 }
 
 /// A switch resolved by its BMC MAC address, along with the rack it belongs

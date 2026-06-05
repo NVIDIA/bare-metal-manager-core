@@ -52,7 +52,7 @@ impl ListenerOrAddress {
 #[derive(Debug)]
 pub struct CombinedServer {
     join_handle: Option<JoinHandle<std::io::Result<()>>>,
-    axum_handle: axum_server::Handle,
+    axum_handle: axum_server::Handle<SocketAddr>,
     pub address: SocketAddr,
 }
 
@@ -84,10 +84,15 @@ impl CombinedServer {
                 addr,
                 axum_server::bind_rustls(addr, config).handle(axum_handle.clone()),
             ),
-            Some(ListenerOrAddress::Listener(listener)) => (
-                listener.local_addr().unwrap(),
-                axum_server::from_tcp_rustls(listener, config).handle(axum_handle.clone()),
-            ),
+            Some(ListenerOrAddress::Listener(listener)) => {
+                listener.set_nonblocking(true).ok();
+                (
+                    listener.local_addr().unwrap(),
+                    // Note: This only fails if the listener is not configured as non-blocking. If
+                    // we couldn't configure it as such, it was likely in use.
+                    axum_server::from_tcp_rustls(listener, config).expect("BUG: Failure confguring rustls listner: Socket could not be configured as nonblocking. Maybe already in use?").handle(axum_handle.clone()),
+                )
+            }
             None => {
                 let addr = SocketAddr::from(([0, 0, 0, 0], 1266));
                 (

@@ -27,11 +27,8 @@ use bmc_proxy::{BmcProxyError, BmcProxyParams};
 use clap::Parser;
 use config::{Config, ConfigError};
 use setup::{SetupError, setup_logging, setup_metrics};
-use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing_log::AsLog;
 
 #[derive(Parser)]
 #[clap(name = "carbide-bmc-proxy")]
@@ -54,8 +51,6 @@ enum Error {
     Setup(#[from] SetupError),
     #[error("Error running bmc-proxy: {0}")]
     BmcProxy(#[from] BmcProxyError),
-    #[error("Error connecting to database: {0}")]
-    DatabaseConnection(sqlx::Error),
     #[error("Error running metrics endpoint: {0}")]
     Metrics(io::Error),
 }
@@ -105,9 +100,7 @@ async fn main() -> Result<(), Error> {
     // Run the BMC proxy
     bmc_proxy::start(
         BmcProxyParams {
-            pg_pool: connect_to_database(&config).await?,
             config: Arc::new(config),
-            credential_config: Default::default(),
             meter,
         },
         cancel_token.clone(),
@@ -125,27 +118,4 @@ async fn main() -> Result<(), Error> {
     join_set.join_all().await;
 
     Ok(())
-}
-
-async fn connect_to_database(config: &Config) -> Result<PgPool, Error> {
-    // We need logs to be enabled at least at `INFO` level. Otherwise
-    // our global logging filter would reject the logs before they get injected
-    // into the `SqlxQueryTracing` layer.
-    let mut database_connect_options = config
-        .database_url
-        .parse::<sqlx::postgres::PgConnectOptions>()
-        .map_err(|e| ConfigError::DatabaseUrl(e.to_string()))?
-        .log_statements(tracing::metadata::Level::INFO.as_log().to_level_filter());
-    let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
-    if !tls_disabled {
-        tracing::info!("using TLS for postgres connection.");
-        database_connect_options = database_connect_options
-            .ssl_mode(PgSslMode::Require)
-            .ssl_root_cert(&config.tls.root_cafile_path);
-    }
-    sqlx::pool::PoolOptions::new()
-        .max_connections(config.max_database_connections)
-        .connect_with(database_connect_options)
-        .await
-        .map_err(Error::DatabaseConnection)
 }

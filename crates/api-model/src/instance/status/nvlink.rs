@@ -17,10 +17,8 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use config_version::Versioned;
-use rpc::forge as rpc;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
@@ -33,22 +31,6 @@ pub struct InstanceNvLinkStatus {
     pub nvlink_gpus: Vec<InstanceNvLinkGpuStatus>,
     /// similar to InstanceNetworkStatus
     pub configs_synced: SyncState,
-}
-
-impl TryFrom<InstanceNvLinkStatus> for rpc::InstanceNvLinkStatus {
-    type Error = RpcDataConversionError;
-
-    fn try_from(status: InstanceNvLinkStatus) -> Result<Self, Self::Error> {
-        let mut gpu_statuses: Vec<rpc::InstanceNvLinkGpuStatus> = Vec::new();
-        for gpu in status.nvlink_gpus.iter() {
-            let g = rpc::InstanceNvLinkGpuStatus::try_from(gpu.clone())?;
-            gpu_statuses.push(g);
-        }
-        Ok(Self {
-            gpu_statuses,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
-        })
-    }
 }
 
 impl InstanceNvLinkStatus {
@@ -85,7 +67,7 @@ impl InstanceNvLinkStatus {
                     InstanceNvLinkGpuStatus {
                         logical_partition_id: obs.logical_partition_id,
                         domain_id: obs.domain_id,
-                        gpu_guid: obs.guid.to_string(), // This is the DeviceUID field returned from NMX-M, which I think matches nvidia-smi GUID
+                        gpu_guid: obs.guid.to_string(), // This is the DeviceUID field returned by the NVLink manager, which should match the nvidia-smi GUID.
                     }
                 }
                 None => {
@@ -130,26 +112,4 @@ pub struct InstanceNvLinkGpuStatus {
     pub gpu_guid: String,
     pub domain_id: NvLinkDomainId,
     pub logical_partition_id: Option<NvLinkLogicalPartitionId>,
-}
-
-impl TryFrom<InstanceNvLinkGpuStatus> for rpc::InstanceNvLinkGpuStatus {
-    type Error = RpcDataConversionError;
-    fn try_from(status: InstanceNvLinkGpuStatus) -> Result<Self, Self::Error> {
-        Ok(Self {
-            logical_partition_id: status.logical_partition_id,
-            gpu_guid: Some(status.gpu_guid.clone()),
-            domain_id: Some(status.domain_id),
-        })
-    }
-}
-
-impl TryFrom<rpc::InstanceNvLinkGpuStatus> for InstanceNvLinkGpuStatus {
-    type Error = RpcDataConversionError;
-    fn try_from(status: rpc::InstanceNvLinkGpuStatus) -> Result<Self, Self::Error> {
-        Ok(Self {
-            logical_partition_id: status.logical_partition_id,
-            gpu_guid: status.gpu_guid.unwrap_or_default(),
-            domain_id: status.domain_id.unwrap_or_default(),
-        })
-    }
 }

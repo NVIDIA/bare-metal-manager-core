@@ -21,205 +21,70 @@ use model::machine_validation::{
     MachineValidationTestUpdateRequest, MachineValidationTestsGetRequest,
 };
 use regex::Regex;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
-/// Method to generate an SQL update query based on the fields that are `Some`
-fn build_update_query(
-    req: MachineValidationTestUpdatePayload,
-    table: &str,
-    version: String,
-    test_id: &str,
-    modified_by: &str,
-) -> DatabaseResult<String> {
-    let json_value = match serde_json::to_value(req.clone()) {
-        Ok(json_value) => json_value,
-        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
-    };
-    let json_object = match json_value {
-        serde_json::Value::Object(map) => map,
-        _ => {
-            return Err(DatabaseError::InvalidArgument(
-                "Invalid argument".to_string(),
-            ));
-        }
-    };
-    let mut updates = vec![];
-
-    for (key, value) in json_object {
-        if !value.is_null() {
-            match value {
-                serde_json::Value::String(s) => updates.push(format!("{key} = '{s}'")),
-                serde_json::Value::Number(n) => updates.push(format!("{key} = {n}")),
-                serde_json::Value::Bool(b) => updates.push(format!("{key} = {b}")),
-                serde_json::Value::Array(v) => {
-                    let mut vector = match serde_json::to_string(&v) {
-                        Ok(msg) => msg,
-                        Err(_) => "[]".to_string(),
-                    };
-                    if vector != "[]" {
-                        vector = vector.replace("\"", "\'");
-                        updates.push(format!("{key} = ARRAY{vector}"));
-                    }
-                }
-                _ => {}
-            }
-        }
+/// `None` means "do not change this column" for `UPDATE ... COALESCE($n, col)` (bind `NULL`).
+/// For slice fields from a patch payload, an empty slice is treated like "omit" (same as historical
+/// dynamic SQL that skipped empty JSON arrays).
+fn patch_vec(values: &[String]) -> Option<Vec<String>> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.to_vec())
     }
-    if updates.is_empty() {
-        return Err(DatabaseError::InvalidArgument(
-            "Nothing to update".to_string(),
-        ));
-    }
-    // If the verified is not set then any
-    // update would require re-verify the test
-    if req.verified.is_none() {
-        updates.push(format!("verified = '{}'", false));
-    }
-    // updates.push(format!("version = '{}'", version));
-    updates.push(format!("modified_by = '{modified_by}'"));
-    let mut query: String = format!("UPDATE {table} SET ");
-    query.push_str(&updates.join(", "));
-    query.push_str(&format!(
-        " WHERE test_id = '{test_id}' AND version = '{version}' RETURNING test_id"
-    ));
-
-    Ok(query)
-}
-
-fn build_insert_query(
-    req: MachineValidationTestAddRequest,
-    table: &str,
-    version: String,
-    test_id: &str,
-    modified_by: &str,
-) -> DatabaseResult<String> {
-    let json_value = match serde_json::to_value(req) {
-        Ok(json_value) => json_value,
-        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
-    };
-    let json_object = match json_value {
-        serde_json::Value::Object(map) => map,
-        _ => {
-            return Err(DatabaseError::InvalidArgument(
-                "Invalid argument".to_string(),
-            ));
-        }
-    };
-
-    let mut columns = vec![];
-    let mut values = vec![];
-
-    for (key, value) in json_object {
-        if !value.is_null() {
-            columns.push(key.clone());
-            match value {
-                serde_json::Value::String(s) => values.push(format!("'{s}'")), // wrap strings in quotes
-                serde_json::Value::Number(n) => values.push(format!("{n}")),
-                serde_json::Value::Bool(b) => values.push(format!("{b}")),
-                serde_json::Value::Array(v) => {
-                    let mut vector = match serde_json::to_string(&v) {
-                        Ok(msg) => msg,
-                        Err(_) => "[]".to_string(),
-                    };
-                    if vector == "[]" {
-                        // Remove the key
-                        columns.pop();
-                    } else {
-                        vector = vector.replace("\"", "\'");
-                        values.push(format!("ARRAY{vector}"));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    if columns.is_empty() || values.is_empty() {
-        return Err(DatabaseError::InvalidArgument(
-            "Nothing to insert".to_string(),
-        ));
-    }
-    columns.push("version".to_string());
-    values.push(format!("'{version}'"));
-
-    columns.push("test_id".to_string());
-    values.push(format!("'{test_id}'"));
-
-    columns.push("modified_by".to_string());
-    values.push(format!("'{modified_by}'"));
-
-    // Build the final query
-    let query = format!(
-        "INSERT INTO {} ({}) VALUES ({}) RETURNING test_id",
-        table,
-        columns.join(", "),
-        values.join(", ")
-    );
-
-    Ok(query)
-}
-fn build_select_query(
-    req: MachineValidationTestsGetRequest,
-    table: &str,
-    // version: ConfigVersion,
-) -> DatabaseResult<String> {
-    let json_value = match serde_json::to_value(req) {
-        Ok(json_value) => json_value,
-        Err(e) => return Err(DatabaseError::InvalidArgument(e.to_string())),
-    };
-    let json_object = match json_value {
-        serde_json::Value::Object(map) => map,
-        _ => {
-            return Err(DatabaseError::InvalidArgument(
-                "Invalid argument".to_string(),
-            ));
-        }
-    };
-    let mut wheres = vec![];
-    wheres.push(format!("{}={}", "1", "1"));
-    for (key, value) in json_object {
-        if !value.is_null() {
-            match value {
-                serde_json::Value::String(s) => wheres.push(format!("LOWER({key})=LOWER('{s}')")),
-                serde_json::Value::Number(n) => wheres.push(format!("{key}={n}")),
-                serde_json::Value::Bool(b) => wheres.push(format!("{key}={b}")),
-                serde_json::Value::Array(v) => {
-                    let mut vector = match serde_json::to_string(&v) {
-                        Ok(msg) => msg,
-                        Err(_) => "[]".to_string(),
-                    };
-                    if vector == "[]" {
-                        continue;
-                    } else {
-                        vector = vector.replace("\"", "\'");
-                        wheres.push(format!("{key}&&ARRAY{vector}"));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    // Build the final query
-    let query = format!(
-        "SELECT * FROM {} WHERE {} ORDER BY version DESC, name ASC",
-        table,
-        wheres.join(" AND ")
-    );
-
-    Ok(query)
 }
 
 pub async fn find(
     txn: impl DbReader<'_>,
     req: MachineValidationTestsGetRequest,
 ) -> DatabaseResult<Vec<MachineValidationTest>> {
-    let query = build_select_query(req, "machine_validation_tests")?;
-    let ret = sqlx::query_as(&query)
+    let mut qb: QueryBuilder<Postgres> =
+        QueryBuilder::new("SELECT * FROM machine_validation_tests WHERE 1 = 1");
+
+    if !req.supported_platforms.is_empty() {
+        qb.push(" AND supported_platforms && ");
+        qb.push_bind(req.supported_platforms);
+    }
+    if !req.contexts.is_empty() {
+        qb.push(" AND contexts && ");
+        qb.push_bind(req.contexts);
+    }
+    if let Some(ref test_id) = req.test_id {
+        qb.push(" AND LOWER(test_id) = LOWER(");
+        qb.push_bind(test_id);
+        qb.push(")");
+    }
+    if let Some(ro) = req.read_only {
+        qb.push(" AND read_only = ");
+        qb.push_bind(ro);
+    }
+    if !req.custom_tags.is_empty() {
+        qb.push(" AND custom_tags && ");
+        qb.push_bind(req.custom_tags);
+    }
+    if let Some(ref ver) = req.version {
+        qb.push(" AND version = ");
+        qb.push_bind(ver);
+    }
+    if let Some(en) = req.is_enabled {
+        qb.push(" AND is_enabled = ");
+        qb.push_bind(en);
+    }
+    if let Some(v) = req.verified {
+        qb.push(" AND verified = ");
+        qb.push_bind(v);
+    }
+
+    qb.push(" ORDER BY version DESC, name ASC");
+
+    let q = qb.build_query_as::<MachineValidationTest>();
+    let ret = q
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query("SELECT machine_validation_tests", e))?;
     Ok(ret)
 }
 
@@ -241,17 +106,87 @@ pub async fn save(
         .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
         .collect();
 
-    let query = build_insert_query(
-        req,
-        "machine_validation_tests",
-        version.version_string(),
-        &test_id,
-        "User",
-    )?;
-    sqlx::query_as::<_, ()>(&query)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+    let description = req.description.unwrap_or_default();
+    let execute_in_host = req.execute_in_host.unwrap_or(false);
+    let timeout = req.timeout.unwrap_or(7200);
+    let read_only = req.read_only.unwrap_or(false);
+    let is_enabled = req.is_enabled.unwrap_or(true);
+    let img_name = req.img_name.clone();
+    let container_arg = req.container_arg.clone();
+    let external_config_file = req.external_config_file.clone();
+    let extra_output_file = req.extra_output_file.clone();
+    let extra_err_file = req.extra_err_file.clone();
+    let pre_condition = req.pre_condition.clone();
+    let custom_tags = if req.custom_tags.is_empty() {
+        None::<Vec<String>>
+    } else {
+        Some(req.custom_tags.clone())
+    };
+    let components = if req.components.is_empty() {
+        vec!["Compute".to_string()]
+    } else {
+        req.components.clone()
+    };
+    let version_str = version.version_string();
+    let modified_by = "User";
+
+    sqlx::query_scalar::<Postgres, String>(
+        r#"
+        INSERT INTO machine_validation_tests (
+            test_id,
+            name,
+            description,
+            img_name,
+            container_arg,
+            execute_in_host,
+            external_config_file,
+            command,
+            args,
+            extra_output_file,
+            extra_err_file,
+            pre_condition,
+            contexts,
+            timeout,
+            version,
+            supported_platforms,
+            modified_by,
+            verified,
+            read_only,
+            custom_tags,
+            components,
+            is_enabled
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+        )
+        RETURNING test_id
+        "#,
+    )
+    .bind(&test_id)
+    .bind(&req.name)
+    .bind(&description)
+    .bind(img_name.as_ref())
+    .bind(container_arg.as_ref())
+    .bind(execute_in_host)
+    .bind(external_config_file.as_ref())
+    .bind(&req.command)
+    .bind(&req.args)
+    .bind(extra_output_file.as_ref())
+    .bind(extra_err_file.as_ref())
+    .bind(pre_condition.as_ref())
+    .bind(&req.contexts)
+    .bind(timeout)
+    .bind(&version_str)
+    .bind(&req.supported_platforms)
+    .bind(modified_by)
+    .bind(false)
+    .bind(read_only)
+    .bind(custom_tags.as_ref())
+    .bind(&components)
+    .bind(is_enabled)
+    .fetch_one(txn)
+    .await
+    .map_err(|e| DatabaseError::query("INSERT machine_validation_tests", e))?;
+
     Ok(test_id)
 }
 
@@ -270,19 +205,88 @@ pub async fn update(
         .iter()
         .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
         .collect();
-    let query = build_update_query(
-        payload,
-        "machine_validation_tests",
-        req.version,
-        &req.test_id,
-        "User",
-    )?;
 
-    sqlx::query_as::<_, ()>(&query)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
-    Ok(req.test_id)
+    // Match prior behavior: any update without an explicit `verified` forces re-verification.
+    let verified = payload.verified.unwrap_or(false);
+    let modified_by = "User";
+
+    let contexts = patch_vec(&payload.contexts);
+    let supported_platforms = patch_vec(&payload.supported_platforms);
+    let custom_tags = patch_vec(&payload.custom_tags);
+    let components = patch_vec(&payload.components);
+
+    let name = payload.name.as_deref();
+    let description = payload.description.as_deref();
+    let img_name = payload.img_name.as_deref();
+    let container_arg = payload.container_arg.as_deref();
+    let execute_in_host = payload.execute_in_host;
+    let external_config_file = payload.external_config_file.as_deref();
+    let command = payload.command.as_deref();
+    let args = payload.args.as_deref();
+    let extra_output_file = payload.extra_output_file.as_deref();
+    let extra_err_file = payload.extra_err_file.as_deref();
+    let pre_condition = payload.pre_condition.as_deref();
+    let timeout = payload.timeout;
+    let is_enabled = payload.is_enabled;
+
+    let test_id = sqlx::query_scalar::<Postgres, String>(
+        r#"
+        UPDATE machine_validation_tests SET
+            name = COALESCE($1, name),
+            description = COALESCE($2, description),
+            img_name = COALESCE($3, img_name),
+            container_arg = COALESCE($4, container_arg),
+            execute_in_host = COALESCE($5, execute_in_host),
+            external_config_file = COALESCE($6, external_config_file),
+            command = COALESCE($7, command),
+            args = COALESCE($8, args),
+            extra_output_file = COALESCE($9, extra_output_file),
+            extra_err_file = COALESCE($10, extra_err_file),
+            pre_condition = COALESCE($11, pre_condition),
+            contexts = COALESCE($12, contexts),
+            timeout = COALESCE($13, timeout),
+            supported_platforms = COALESCE($14, supported_platforms),
+            custom_tags = COALESCE($15, custom_tags),
+            components = COALESCE($16, components),
+            is_enabled = COALESCE($17, is_enabled),
+            verified = $18,
+            modified_by = $19
+        WHERE test_id = $20 AND version = $21
+        RETURNING test_id
+        "#,
+    )
+    .bind(name)
+    .bind(description)
+    .bind(img_name)
+    .bind(container_arg)
+    .bind(execute_in_host)
+    .bind(external_config_file)
+    .bind(command)
+    .bind(args)
+    .bind(extra_output_file)
+    .bind(extra_err_file)
+    .bind(pre_condition)
+    .bind(contexts.as_ref())
+    .bind(timeout)
+    .bind(supported_platforms.as_ref())
+    .bind(custom_tags.as_ref())
+    .bind(components.as_ref())
+    .bind(is_enabled)
+    .bind(verified)
+    .bind(modified_by)
+    .bind(&req.test_id)
+    .bind(&req.version)
+    .fetch_optional(txn)
+    .await
+    .map_err(|e| DatabaseError::query("UPDATE machine_validation_tests", e))?
+    .ok_or_else(|| {
+        DatabaseError::InvalidArgument(format!(
+            "No row updated for test_id={} version={}",
+            req.test_id, req.version
+        ))
+    })?;
+
+    Ok(test_id)
 }
 
 pub async fn clone(
@@ -362,46 +366,8 @@ mod tests {
     }
 
     #[test]
-    fn test_build_select_query_uses_lower_for_strings() {
-        let req = MachineValidationTestsGetRequest {
-            test_id: Some("Forge_MyTest".to_string()),
-            ..Default::default()
-        };
-        let query = build_select_query(req, "machine_validation_tests").unwrap();
-        assert!(
-            query.contains("LOWER("),
-            "Expected LOWER() in query, got: {query}"
-        );
-        assert!(
-            query.contains("LOWER(test_id)=LOWER('Forge_MyTest')"),
-            "Expected case-insensitive test_id comparison, got: {query}"
-        );
-    }
-
-    #[test]
-    fn test_build_select_query_no_lower_for_non_strings() {
-        let req = MachineValidationTestsGetRequest {
-            is_enabled: Some(true),
-            ..Default::default()
-        };
-        let query = build_select_query(req, "machine_validation_tests").unwrap();
-        assert!(
-            query.contains("is_enabled=true"),
-            "Boolean fields should not use LOWER(), got: {query}"
-        );
-    }
-
-    #[test]
-    fn test_build_select_query_empty_request_returns_all() {
-        let req = MachineValidationTestsGetRequest::default();
-        let query = build_select_query(req, "machine_validation_tests").unwrap();
-        assert!(
-            query.contains("WHERE 1=1"),
-            "Empty request should have no extra filters, got: {query}"
-        );
-        assert!(
-            !query.contains("LOWER("),
-            "Empty request should have no LOWER(), got: {query}"
-        );
+    fn patch_vec_empty_is_none() {
+        assert!(patch_vec(&[]).is_none());
+        assert_eq!(patch_vec(&["a".into()]), Some(vec!["a".to_string()]));
     }
 }

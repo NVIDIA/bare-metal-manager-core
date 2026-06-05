@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-NS="${KEYCLOAK_NS:-carbide-rest}"
+NS="${KEYCLOAK_NS:-nico-rest}"
 
 echo "  Removing Keycloak resources..."
 kubectl delete deploy keycloak -n "${NS}" --ignore-not-found 2>/dev/null || true

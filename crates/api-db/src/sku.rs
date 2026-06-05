@@ -61,7 +61,7 @@ pub async fn find_matching_with_exclusion(
         builder.push_bind(excluded_sku_id);
     }
 
-    let sql = builder.sql().to_string();
+    let sql = builder.sql().as_str().to_string();
     let mut sku_stream = builder.build_query_as().fetch(txn);
 
     while let Some(result) = sku_stream.next().await {

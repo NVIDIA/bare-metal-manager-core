@@ -113,7 +113,10 @@ impl MlxVariableRegistry {
 
     // matches_device checks if a device matches this registry's filters.
     // Returns true if no filters are configured (allows all devices).
-    pub fn matches_device(&self, device_info: &crate::device::info::MlxDeviceInfo) -> bool {
+    pub fn matches_device(
+        &self,
+        device_info: &carbide_libmlx_model::device::info::MlxDeviceInfo,
+    ) -> bool {
         self.filters
             .as_ref()
             .is_none_or(|filter_set| filter_set.matches(device_info))

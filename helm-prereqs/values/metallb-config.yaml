@@ -23,11 +23,11 @@
 # ---------------------------------------------------------------------------
 # IP Address Pools
 #
-# Define one pool per logical VIP segment. NCX Core LoadBalancer services
-# (carbide-api, DHCP, DNS, PXE, SSH console) are allocated IPs from these pools.
+# Define one pool per logical VIP segment. NICo Core LoadBalancer services
+# (nico-api, DHCP, DNS, PXE, SSH console) are allocated IPs from these pools.
 #
 # Typical production setup: separate internal and external pools so that
-# management traffic (carbide-api) can be routed differently from data-plane VIPs.
+# management traffic (nico-api) can be routed differently from data-plane VIPs.
 #
 # addresses: list of CIDRs or ranges:
 #   CIDR format:  "10.x.x.160/28"       (16 addresses: .160 – .175)

@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 
-NAMESPACE="${LOCAL_DEV_NAMESPACE:-forge-system}"
+NAMESPACE="${LOCAL_DEV_NAMESPACE:-nico-system}"
 CERT_MANAGER_NAMESPACE="${LOCAL_DEV_CERT_MANAGER_NAMESPACE:-cert-manager}"
 VALUES_FILE="${LOCAL_DEV_VALUES_FILE:-${REPO_ROOT}/dev/deployment/devspace/values.generated.yaml}"
 
@@ -31,9 +31,9 @@ INSTALL_VAULT="${LOCAL_DEV_INSTALL_VAULT:-1}"
 POSTGRES_NAMESPACE="${POSTGRES_NAMESPACE:-postgres}"
 POSTGRES_HOST="${LOCAL_DEV_POSTGRES_HOST:-postgres.${POSTGRES_NAMESPACE}.svc.cluster.local}"
 POSTGRES_PORT="${LOCAL_DEV_POSTGRES_PORT:-5432}"
-POSTGRES_DB="${LOCAL_DEV_POSTGRES_DB:-carbide}"
-POSTGRES_USER="${LOCAL_DEV_POSTGRES_USER:-carbide}"
-POSTGRES_PASSWORD="${LOCAL_DEV_POSTGRES_PASSWORD:-carbide}"
+POSTGRES_DB="${LOCAL_DEV_POSTGRES_DB:-nico}"
+POSTGRES_USER="${LOCAL_DEV_POSTGRES_USER:-nico}"
+POSTGRES_PASSWORD="${LOCAL_DEV_POSTGRES_PASSWORD:-nico}"
 POSTGRES_SSL_MODE="${LOCAL_DEV_POSTGRES_SSL_MODE:-disable}"
 
 VAULT_NAMESPACE="${VAULT_NAMESPACE:-vault}"
@@ -41,7 +41,7 @@ VAULT_ADDR="${LOCAL_DEV_VAULT_ADDR:-http://vault.${VAULT_NAMESPACE}.svc.cluster.
 VAULT_TOKEN="${LOCAL_DEV_VAULT_TOKEN:-root}"
 VAULT_KV_MOUNT="${LOCAL_DEV_VAULT_KV_MOUNT:-secrets}"
 VAULT_PKI_MOUNT="${LOCAL_DEV_VAULT_PKI_MOUNT:-certs}"
-VAULT_PKI_ROLE_NAME="${LOCAL_DEV_VAULT_PKI_ROLE_NAME:-forge-cluster}"
+VAULT_PKI_ROLE_NAME="${LOCAL_DEV_VAULT_PKI_ROLE_NAME:-nico-cluster}"
 VAULT_AUTH_MODE="${LOCAL_DEV_VAULT_AUTH_MODE:-root-token}"
 
 CERT_ISSUER_KIND="${LOCAL_DEV_CERT_ISSUER_KIND:-Issuer}"
@@ -87,7 +87,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: forge-system.carbide.forge-pg-cluster.credentials
+  name: nico-system.nico.nico-pg-cluster.credentials
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
@@ -101,7 +101,7 @@ stringData:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: forge-system-carbide-database-config
+  name: nico-system-nico-database-config
   namespace: ${NAMESPACE}
 data:
   DB_HOST: ${POSTGRES_HOST}
@@ -111,7 +111,7 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: carbide-vault-token
+  name: nico-vault-token
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
@@ -120,7 +120,7 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: carbide-vault-approle-tokens
+  name: nico-vault-approle-tokens
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
@@ -310,7 +310,7 @@ EOF
       allow_localhost=true \
       require_cn=false \
       max_ttl='72h' \
-      allowed_uri_sans='spiffe://forge.local/*' >/dev/null
+      allowed_uri_sans='spiffe://nico.local/*' >/dev/null
 
     vault kv get '${VAULT_KV_MOUNT}/machines/bmc/site/root' >/dev/null 2>&1 || \
       echo '{\"UsernamePassword\":{\"username\":\"root\",\"password\":\"vault-password\"}}' | \
@@ -343,12 +343,12 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: forge-local-ca
+  name: nico-local-ca
   namespace: ${NAMESPACE}
 spec:
   isCA: true
-  commonName: forge-local-ca
-  secretName: forge-local-ca
+  commonName: nico-local-ca
+  secretName: nico-local-ca
   privateKey:
     algorithm: ECDSA
     size: 384
@@ -364,17 +364,17 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   ca:
-    secretName: forge-local-ca
+    secretName: nico-local-ca
 EOF
 
-  kubectl wait --for=condition=Ready certificate/forge-local-ca -n "${NAMESPACE}" --timeout=180s >/dev/null
+  kubectl wait --for=condition=Ready certificate/nico-local-ca -n "${NAMESPACE}" --timeout=180s >/dev/null
 }
 
-sync_forge_roots_secret() {
+sync_nico_roots_secret() {
   local ca_b64=""
 
-  if kubectl get secret forge-local-ca -n "${NAMESPACE}" >/dev/null 2>&1; then
-    ca_b64="$(kubectl get secret forge-local-ca -n "${NAMESPACE}" -o jsonpath='{.data.tls\.crt}')"
+  if kubectl get secret nico-local-ca -n "${NAMESPACE}" >/dev/null 2>&1; then
+    ca_b64="$(kubectl get secret nico-local-ca -n "${NAMESPACE}" -o jsonpath='{.data.tls\.crt}')"
   fi
 
   if [[ -z "${ca_b64}" ]]; then
@@ -385,7 +385,7 @@ sync_forge_roots_secret() {
 apiVersion: v1
 kind: Secret
 metadata:
-  name: forge-roots
+  name: nico-roots
   namespace: ${NAMESPACE}
 type: Opaque
 data:
@@ -414,24 +414,24 @@ global:
       name: ${CERT_ISSUER_NAME}
       group: ${CERT_ISSUER_GROUP}
 
-carbide-api:
+nico-api:
   automountServiceAccountToken: ${automount}
   migrationJob:
     enabled: true
     sslMode: ${POSTGRES_SSL_MODE}
   vaultClusterInfo:
     VAULT_SERVICE: ${VAULT_ADDR}
-    FORGE_VAULT_MOUNT: ${VAULT_KV_MOUNT}
-    FORGE_VAULT_PKI_MOUNT: ${VAULT_PKI_MOUNT}
+    NICO_VAULT_MOUNT: ${VAULT_KV_MOUNT}
+    NICO_VAULT_PKI_MOUNT: ${VAULT_PKI_MOUNT}
   databaseConfig: {}
 ${disable_tls_enforcement}
 
-carbide-bmc-proxy:
+nico-bmc-proxy:
   automountServiceAccountToken: ${automount}
   vaultClusterInfo:
     VAULT_SERVICE: ${VAULT_ADDR}
-    FORGE_VAULT_MOUNT: ${VAULT_KV_MOUNT}
-    FORGE_VAULT_PKI_MOUNT: ${VAULT_PKI_MOUNT}
+    NICO_VAULT_MOUNT: ${VAULT_KV_MOUNT}
+    NICO_VAULT_PKI_MOUNT: ${VAULT_PKI_MOUNT}
   databaseConfig: {}
 ${disable_tls_enforcement}
 EOF
@@ -463,7 +463,7 @@ main() {
   apply_local_postgres
   apply_local_vault
   apply_local_issuer
-  sync_forge_roots_secret
+  sync_nico_roots_secret
   write_generated_values
   print_summary
 }

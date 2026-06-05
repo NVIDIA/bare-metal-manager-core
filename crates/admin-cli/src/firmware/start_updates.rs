@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge as forgerpc;
 use chrono::TimeZone;
 
+use crate::errors::CarbideCliError;
 use crate::managed_host::StartUpdates;
 use crate::rpc::ApiClient;
 

@@ -17,13 +17,12 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use chrono::{DateTime, Utc};
-use config_version::{ConfigVersion, Versioned};
+use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -33,11 +32,9 @@ use crate::instance::config::InstanceConfig;
 use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
+use crate::instance::config::spx::InstanceSpxConfig;
 use crate::instance::config::tenant_config::TenantConfig;
-use crate::instance::status::{InstanceStatus, InstanceStatusObservations};
-use crate::machine::infiniband::MachineInfinibandStatusObservation;
-use crate::machine::nvlink::MachineNvLinkStatusObservation;
-use crate::machine::{ManagedHostState, ReprovisionRequest};
+use crate::instance::status::InstanceStatusObservations;
 use crate::metadata::Metadata;
 use crate::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use crate::tenant::TenantOrganizationId;
@@ -84,6 +81,8 @@ pub struct InstanceSnapshot {
 
     pub nvlink_config_version: ConfigVersion,
 
+    pub spx_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -109,38 +108,6 @@ pub struct InstanceSnapshot {
     // pub(crate) finished: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-impl InstanceSnapshot {
-    /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
-    /// snapshot information about the instance
-    pub fn derive_status(
-        &self,
-        dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
-        managed_host_state: ManagedHostState,
-        reprovision_request: Option<ReprovisionRequest>,
-        ib_status: Option<&MachineInfinibandStatusObservation>,
-        nvlink_status: Option<&MachineNvLinkStatusObservation>,
-    ) -> Result<InstanceStatus, RpcDataConversionError> {
-        InstanceStatus::from_config_and_observation(
-            dpu_id_to_device_map,
-            Versioned::new(&self.config, self.config_version),
-            Versioned::new(&self.config.network, self.network_config_version),
-            Versioned::new(&self.config.infiniband, self.ib_config_version),
-            Versioned::new(
-                &self.config.extension_services,
-                self.extension_services_config_version,
-            ),
-            Versioned::new(&self.config.nvlink, self.nvlink_config_version),
-            &self.observations,
-            managed_host_state,
-            self.deleted.is_some(),
-            reprovision_request,
-            ib_status,
-            nvlink_status,
-            self.update_network_config_request.is_some(),
-        )
-    }
-}
-
 /// This represents the structure of an instance we get from postgres via the row_to_json or
 /// JSONB_AGG functions. Its fields need to match the column names of the instances table exactly.
 /// It's expected that we read this directly from the JSON returned by the query, and then
@@ -160,6 +127,8 @@ pub struct InstanceSnapshotPgJson {
     storage_config_version: String,
     nvlink_config: InstanceNvLinkConfig,
     nvlink_config_version: String,
+    spx_config: InstanceSpxConfig,
+    spx_config_version: String,
     config_version: String,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
@@ -220,6 +189,7 @@ pub fn from_pg_json_and_os(
         os,
         network: value.network_config,
         infiniband: value.ib_config,
+        spxconfig: value.spx_config,
         nvlink: value.nvlink_config,
         network_security_group_id: value.network_security_group_id,
         extension_services: value.extension_services_config,
@@ -252,6 +222,12 @@ pub fn from_pg_json_and_os(
         nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
             sqlx::error::Error::ColumnDecode {
                 index: "nvl_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        spx_config_version: value.spx_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "spx_config_version".to_string(),
                 source: Box::new(e),
             }
         })?,
@@ -331,6 +307,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             nvlink: value.nvlink_config,
             network_security_group_id: value.network_security_group_id,
             extension_services: value.extension_services_config,
+            spxconfig: value.spx_config,
         };
 
         Ok(InstanceSnapshot {
@@ -360,6 +337,12 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "nvl_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            spx_config_version: value.spx_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "spx_config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,
@@ -401,6 +384,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::os::{InlineIpxe, OperatingSystemVariant};
 
     fn minimal_pg_json() -> InstanceSnapshotPgJson {
         let version = ConfigVersion::initial().version_string();
@@ -420,6 +404,8 @@ mod tests {
             storage_config_version: version.clone(),
             nvlink_config: InstanceNvLinkConfig::default(),
             nvlink_config_version: version.clone(),
+            spx_config: InstanceSpxConfig::default(),
+            spx_config_version: version.clone(),
             config_version: version.clone(),
             phone_home_last_contact: None,
             use_custom_pxe_on_boot: false,

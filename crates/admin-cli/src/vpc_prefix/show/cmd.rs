@@ -16,13 +16,17 @@
  */
 
 use std::borrow::Cow;
+use std::fs::File;
+use std::io::{Write, stdout};
 
-use ::rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use ::rpc::admin_cli::output::OutputFormat;
+use prettytable::{Row, Table};
 use rpc::forge::{PrefixMatchType, VpcPrefix};
 use serde::Serialize;
 
 use super::args::Args;
+use crate::Destination;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::vpc_prefix::common::{VpcPrefixSelector, get_by_ids, match_all, search};
 
@@ -36,7 +40,7 @@ pub async fn show(
     let output = fetch(api_client, batch_size, show_method).await?;
 
     output
-        .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
+        .write_output(output_format, crate::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 
@@ -97,7 +101,71 @@ async fn fetch(
     }
 }
 
-impl FormattedOutput for ShowOutput {}
+impl ShowOutput {
+    /// Format the output data as bytes (probably UTF-8 text).
+    pub fn format_output(&self, format: OutputFormat) -> Vec<u8> {
+        match format {
+            OutputFormat::Json => {
+                serde_json::to_vec_pretty(self).expect("Could not serialize as JSON")
+            }
+            OutputFormat::Yaml => {
+                let mut out = Vec::new();
+                serde_yaml::to_writer(&mut out, self).expect("Could not serialize as YAML");
+                out
+            }
+            OutputFormat::AsciiTable => self.render_ascii_table(),
+            OutputFormat::Csv => self.render_csv_table(),
+        }
+    }
+
+    /// Format the output data and write it to the specified destination.
+    pub fn write_output(
+        &self,
+        format: OutputFormat,
+        destination: Destination,
+    ) -> std::io::Result<()> {
+        let output = self.format_output(format);
+        match destination {
+            Destination::Stdout() => {
+                let mut stdout_guard = stdout().lock();
+                stdout_guard.write_all(output.as_slice())
+            }
+            Destination::Path(path) => {
+                File::create(path).and_then(|mut file| file.write_all(output.as_slice()))
+            }
+        }
+    }
+
+    fn render_ascii_table(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let table = self.make_table();
+        table.print(&mut out).expect("Couldn't render ASCII table");
+        out
+    }
+
+    fn render_csv_table(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let table = self.make_table();
+        table.to_csv(&mut out).expect("Couldn't render CSV table");
+        out
+    }
+
+    // This is not a trait method in order to keep the `prettytable` types
+    // out of the public API.
+    fn make_table(&self) -> Table {
+        let mut table = Table::new();
+        let header = Row::from(self.header());
+        table.set_titles(header);
+        let rows = self.all_rows();
+        rows.iter().for_each(|row| {
+            let values = Self::row_values(row);
+            let row = Row::from(values);
+            table.add_row(row);
+        });
+
+        table
+    }
+}
 
 impl Serialize for ShowOutput {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -111,9 +179,7 @@ impl Serialize for ShowOutput {
     }
 }
 
-impl IntoTable for ShowOutput {
-    type Row = VpcPrefix;
-
+impl ShowOutput {
     fn header(&self) -> &[&str] {
         &[
             "VpcPrefixId",
@@ -125,11 +191,11 @@ impl IntoTable for ShowOutput {
         ]
     }
 
-    fn all_rows(&self) -> &[Self::Row] {
+    fn all_rows(&self) -> &[VpcPrefix] {
         self.as_slice()
     }
 
-    fn row_values(row: &'_ Self::Row) -> Vec<Cow<'_, str>> {
+    fn row_values(row: &'_ VpcPrefix) -> Vec<Cow<'_, str>> {
         let vpc_prefix_id: Cow<str> = row.id.map(|id| id.to_string().into()).unwrap_or("".into());
         let vpc_id: Cow<str> = row
             .vpc_id
@@ -137,7 +203,11 @@ impl IntoTable for ShowOutput {
             .map(|id| id.to_string().into())
             .unwrap_or("".into());
         let prefix = row.prefix.as_str();
-        let name = row.name.as_str();
+        let name = row
+            .metadata
+            .as_ref()
+            .map(|x| x.name.as_str())
+            .unwrap_or("<no name>");
         let mut r = vec![vpc_prefix_id, vpc_id, prefix.into(), name.into()];
 
         if let Some(status) = &row.status {

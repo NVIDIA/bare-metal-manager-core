@@ -21,8 +21,8 @@ use std::time::Duration;
 use eyre::eyre;
 use futures_util::TryStreamExt;
 use ipnetwork::IpNetwork;
-use netlink_packet_route::address::AddressAttribute;
-use rtnetlink::Handle;
+use rtnetlink::packet_route::address::AddressAttribute;
+use rtnetlink::{Handle, LinkUnspec};
 use tokio::process::Command as TokioCommand;
 
 const LINK_LOOKUP_RETRIES: u32 = 15;
@@ -49,7 +49,11 @@ pub async fn assign_address(name: &str, cidr: IpNetwork) -> eyre::Result<()> {
         tracing::info!(interface = name, %cidr, "assigned address");
     }
 
-    handle.link().set(index).up().execute().await?;
+    handle
+        .link()
+        .set(LinkUnspec::new_with_index(index).up().build())
+        .execute()
+        .await?;
     Ok(())
 }
 

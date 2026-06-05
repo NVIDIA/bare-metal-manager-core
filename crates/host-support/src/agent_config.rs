@@ -18,6 +18,9 @@
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 
+use forge_dpu_agent_utils::machine_identity::defaults::{
+    BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
+};
 use forge_tls::default as tls_default;
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +60,7 @@ pub struct ForgeSystemConfigFromPxe {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct MachineConfigFromPxe {
-    pub interface_id: uuid::Uuid,
+    pub interface_id: carbide_uuid::machine::MachineInterfaceId,
 }
 
 /// Describes the format of the configuration files that is used by Forge agents
@@ -82,6 +85,12 @@ pub struct AgentConfig {
     pub updates: UpdateConfig,
     #[serde(default, rename = "fmds-armos-networking")]
     pub fmds_armos_networking: FmdsDpuNetworkingConfig,
+    #[serde(
+        default,
+        rename = "machine-identity",
+        skip_serializing_if = "MachineIdentityConfig::is_default"
+    )]
+    pub machine_identity: MachineIdentityConfig,
 }
 
 impl AgentConfig {
@@ -161,6 +170,164 @@ impl Default for MetadataServiceConfig {
         Self {
             address: INSTANCE_METADATA_SERVICE_ADDRESS.to_string(),
         }
+    }
+}
+
+/// Rate limit and timeout for `GET …/meta-data/identity` on the embedded metadata service
+/// (paths such as `/latest/meta-data/identity` and `/2009-04-04/meta-data/identity`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct MachineIdentityConfig {
+    /// Sustained admission rate (Generic Cell Rate Algorithm refill), in requests per second.
+    /// Valid range: 1–20.
+    #[serde(default = "default_machine_identity_requests_per_second")]
+    pub requests_per_second: u8,
+    /// Maximum burst (cells) allowed by the rate limiter. Valid range: 1–40.
+    #[serde(default = "default_machine_identity_burst")]
+    pub burst: u8,
+    /// Max time to wait for a rate-limit permit before failing the request (seconds).
+    /// Applies to governor wait (`until_ready`), not to the Forge signing call.
+    /// Valid range: 1–10.
+    #[serde(default = "default_machine_identity_wait_timeout_secs")]
+    pub wait_timeout_secs: u8,
+    /// Wall-clock limit for the full Forge signing path on `GET …/meta-data/identity`
+    /// (client build including connect retries, plus `SignMachineIdentity` RPC).
+    /// Valid range: 1–60 seconds. Applies to the Forge gRPC signing path and to the optional
+    /// HTTP sign proxy origin (`sign-proxy-url`).
+    #[serde(default = "default_machine_identity_sign_timeout_secs")]
+    pub sign_timeout_secs: u8,
+    /// When set, `GET …/meta-data/identity` is forwarded over HTTP to `{url}/latest/meta-data/identity`
+    /// with the same query string; the upstream response (status, body, `Content-Type`) is returned
+    /// verbatim. When unset, the agent uses `SignMachineIdentity` gRPC to Forge.
+    #[serde(default, rename = "sign-proxy-url")]
+    pub sign_proxy_url: Option<String>,
+    /// PEM file (one or more concatenated certificates) trusted as additional TLS roots when
+    /// connecting to `sign-proxy-url` over HTTPS. Ignored for `http:` sign-proxy URLs.
+    /// Requires `sign-proxy-url` to be set.
+    #[serde(default, rename = "sign-proxy-tls-root-ca")]
+    pub sign_proxy_tls_root_ca: Option<String>,
+}
+
+fn default_machine_identity_requests_per_second() -> u8 {
+    REQUESTS_PER_SECOND
+}
+
+fn default_machine_identity_burst() -> u8 {
+    BURST
+}
+
+fn default_machine_identity_wait_timeout_secs() -> u8 {
+    WAIT_TIMEOUT_SECS
+}
+
+fn default_machine_identity_sign_timeout_secs() -> u8 {
+    SIGN_TIMEOUT_SECS
+}
+
+impl Default for MachineIdentityConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_second: default_machine_identity_requests_per_second(),
+            burst: default_machine_identity_burst(),
+            wait_timeout_secs: default_machine_identity_wait_timeout_secs(),
+            sign_timeout_secs: default_machine_identity_sign_timeout_secs(),
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
+        }
+    }
+}
+
+impl MachineIdentityConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        use forge_dpu_agent_utils::machine_identity::limits::{
+            BURST_MAX, BURST_MIN, REQUESTS_PER_SECOND_MAX, REQUESTS_PER_SECOND_MIN,
+            SIGN_TIMEOUT_SECS_MAX, SIGN_TIMEOUT_SECS_MIN, WAIT_TIMEOUT_SECS_MAX,
+            WAIT_TIMEOUT_SECS_MIN,
+        };
+
+        if !(REQUESTS_PER_SECOND_MIN..=REQUESTS_PER_SECOND_MAX).contains(&self.requests_per_second)
+        {
+            return Err(format!(
+                "machine-identity.requests-per-second: must be between {REQUESTS_PER_SECOND_MIN} and {REQUESTS_PER_SECOND_MAX} (inclusive)"
+            ));
+        }
+        if !(BURST_MIN..=BURST_MAX).contains(&self.burst) {
+            return Err(format!(
+                "machine-identity.burst: must be between {BURST_MIN} and {BURST_MAX} (inclusive)"
+            ));
+        }
+        if !(WAIT_TIMEOUT_SECS_MIN..=WAIT_TIMEOUT_SECS_MAX).contains(&self.wait_timeout_secs) {
+            return Err(format!(
+                "machine-identity.wait-timeout-secs: must be between {WAIT_TIMEOUT_SECS_MIN} and {WAIT_TIMEOUT_SECS_MAX} (inclusive)"
+            ));
+        }
+        if !(SIGN_TIMEOUT_SECS_MIN..=SIGN_TIMEOUT_SECS_MAX).contains(&self.sign_timeout_secs) {
+            return Err(format!(
+                "machine-identity.sign-timeout-secs: must be between {SIGN_TIMEOUT_SECS_MIN} and {SIGN_TIMEOUT_SECS_MAX} (inclusive)"
+            ));
+        }
+        if let Some(ref raw) = self.sign_proxy_url {
+            let s = raw.trim();
+            if s.is_empty() {
+                return Err(
+                    "machine-identity.sign-proxy-url: must not be empty or whitespace-only"
+                        .to_string(),
+                );
+            }
+            let u = url::Url::parse(s)
+                .map_err(|e| format!("machine-identity.sign-proxy-url: invalid URL ({e})"))?;
+            match u.scheme() {
+                "http" | "https" => {}
+                other => {
+                    return Err(format!(
+                        "machine-identity.sign-proxy-url: scheme must be http or https, got {other}"
+                    ));
+                }
+            }
+        }
+        if let Some(ref raw_ca) = self.sign_proxy_tls_root_ca {
+            let path = raw_ca.trim();
+            if path.is_empty() {
+                return Err(
+                    "machine-identity.sign-proxy-tls-root-ca: must not be empty or whitespace-only"
+                        .to_string(),
+                );
+            }
+            let url_ok = self
+                .sign_proxy_url
+                .as_ref()
+                .is_some_and(|u| !u.trim().is_empty());
+            if !url_ok {
+                return Err(
+                    "machine-identity.sign-proxy-tls-root-ca: requires machine-identity.sign-proxy-url"
+                        .to_string(),
+                );
+            }
+            let pem = std::fs::read(path).map_err(|e| {
+                format!("machine-identity.sign-proxy-tls-root-ca: failed to read {path}: {e}")
+            })?;
+            if pem.is_empty() {
+                return Err(format!(
+                    "machine-identity.sign-proxy-tls-root-ca: file is empty: {path}"
+                ));
+            }
+            let mut cursor = std::io::Cursor::new(&pem[..]);
+            let certs: Vec<_> = rustls_pemfile::certs(&mut cursor)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    format!("machine-identity.sign-proxy-tls-root-ca: invalid PEM in {path}: {e}")
+                })?;
+            if certs.is_empty() {
+                return Err(format!(
+                    "machine-identity.sign-proxy-tls-root-ca: no certificates found in {path}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -301,6 +468,158 @@ mod tests {
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test");
 
     #[test]
+    fn machine_identity_config_validate_accepts_defaults() {
+        assert!(MachineIdentityConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_rps_out_of_range() {
+        let c = MachineIdentityConfig {
+            requests_per_second: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            requests_per_second: 21,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_burst_out_of_range() {
+        let c = MachineIdentityConfig {
+            burst: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            burst: 41,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_boundary_values() {
+        let c = MachineIdentityConfig {
+            requests_per_second: 20,
+            burst: 40,
+            wait_timeout_secs: 10,
+            sign_timeout_secs: 1,
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 60,
+            ..c
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_timeout_out_of_range() {
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            sign_timeout_secs: 61,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_sign_proxy_url() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://idp.example.com/prefix".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_url_whitespace_only() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("   ".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_url_scheme() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("ftp://x".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_without_url() {
+        let c = MachineIdentityConfig {
+            sign_proxy_tls_root_ca: Some("/etc/forge/sign_proxy_ca.pem".to_string()),
+            ..Default::default()
+        };
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("sign-proxy-url"));
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_whitespace_only() {
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://x.example".to_string()),
+            sign_proxy_tls_root_ca: Some("  \t  ".to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_accepts_sign_proxy_tls_root_ca_with_pem_file() {
+        let pem_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../dev/certs/forge_root.pem"
+        );
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://sign-proxy.example".to_string()),
+            sign_proxy_tls_root_ca: Some(pem_path.to_string()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_sign_proxy_tls_root_ca_invalid_pem() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        use std::io::Write;
+        f.write_all(b"not a certificate").unwrap();
+        let c = MachineIdentityConfig {
+            sign_proxy_url: Some("https://x".to_string()),
+            sign_proxy_tls_root_ca: Some(f.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn machine_identity_config_validate_rejects_wait_timeout_out_of_range() {
+        let c = MachineIdentityConfig {
+            wait_timeout_secs: 0,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+        let c = MachineIdentityConfig {
+            wait_timeout_secs: 11,
+            ..Default::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
     // Load up the input, which is a minimum barebones
     // config, and then dump it back out to a string,
     // which should then have defaults set (and match
@@ -376,6 +695,34 @@ addresses = ["168.254.169.254/30"]
     }
 
     #[test]
+    fn test_load_forge_agent_config_machine_identity_section() {
+        let raw = r#"[forge-system]
+api-server = "https://127.0.0.1:1234"
+root-ca = "/opt/forge/forge_root.pem"
+
+[machine]
+interface-id = "91609f10-c91d-470d-a260-6293ea0c1200"
+
+[machine-identity]
+requests-per-second = 7
+burst = 12
+wait-timeout-secs = 4
+sign-timeout-secs = 9
+"#;
+
+        let config: AgentConfig = toml::from_str(raw).unwrap();
+
+        assert_eq!(config.machine_identity.requests_per_second, 7);
+        assert_eq!(config.machine_identity.burst, 12);
+        assert_eq!(config.machine_identity.wait_timeout_secs, 4);
+        assert_eq!(config.machine_identity.sign_timeout_secs, 9);
+        assert!(config.machine_identity.sign_proxy_url.is_none());
+        assert!(config.machine_identity.sign_proxy_tls_root_ca.is_none());
+
+        config.machine_identity.validate().unwrap();
+    }
+
+    #[test]
     fn test_load_forge_agent_config_without_services() {
         let config = "[forge-system]
 api-server = \"https://127.0.0.1:1234\"
@@ -396,6 +743,7 @@ interface-id = \"91609f10-c91d-470d-a260-6293ea0c1200\"
 
         assert_eq!(config.metadata_service, MetadataServiceConfig::default());
         assert_eq!(config.telemetry, TelemetryConfig::default());
+        assert_eq!(config.machine_identity, MachineIdentityConfig::default());
 
         assert_eq!(config.hbn.root_dir, PathBuf::from(HBN_DEFAULT_ROOT));
         assert!(!config.hbn.skip_reload);

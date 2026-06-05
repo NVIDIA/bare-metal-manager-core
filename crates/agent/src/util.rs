@@ -25,8 +25,8 @@ use carbide_uuid::machine::MachineId;
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
 use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
-use hickory_resolver::Name;
 use hickory_resolver::config::ResolverConfig;
+use hickory_resolver::proto::rr::Name;
 use hyper::service::Service;
 use resolv_conf::Config;
 use rpc::forge::{
@@ -129,7 +129,7 @@ impl UrlResolver {
         let hickory_resolver_config = ResolverConfig::from_parts(
             forge_resolver_config.0.domain,
             forge_resolver_config.0.search_domain,
-            forge_resolver_config.0.inner.into_inner(),
+            forge_resolver_config.0.inner,
         );
 
         let updated_opts = ForgeResolverOpts::new()

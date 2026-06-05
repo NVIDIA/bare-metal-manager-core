@@ -8,12 +8,54 @@ SELECT
 m.*,
 sku.device_type as hw_sku_device_type,
 COALESCE(i.json, '[]') AS interfaces,
-COALESCE(t.json, '[]') AS topology
+COALESCE(t.json, '[]') AS topology,
+COALESCE(bmc.json, t.bmc_info, '{}'::jsonb) AS bmc_info
 __HISTORY_SELECT__
 FROM machines m
 LEFT JOIN machine_skus sku on  m.hw_sku = sku.id
 
--- (1) Read related interfaces as JSON
+-- (1) Read the latest topology as JSON
+LEFT JOIN LATERAL (
+    SELECT
+    json_build_array(json_build_object(
+        'machine_id', mt2.machine_id,
+        'topology', mt2.topology,
+        'created', mt2.created,
+        'updated', mt2.updated,
+        'topology_update_needed', mt2.topology_update_needed
+    )) AS json,
+    mt2.topology->'bmc_info' AS bmc_info
+    FROM machine_topologies mt2
+    WHERE mt2.machine_id = m.id
+    ORDER BY mt2.created DESC
+    LIMIT 1
+) AS t ON true
+
+-- (2) Read the linked BMC interface as JSON
+LEFT JOIN LATERAL (
+    SELECT jsonb_strip_nulls(
+        COALESCE(t.bmc_info, '{}'::jsonb) ||
+        jsonb_build_object(
+            'machine_interface_id', bmc_i.id,
+            'ip', COALESCE(host(bmc_addr.address), t.bmc_info->>'ip'),
+            'mac', COALESCE(bmc_i.mac_address::text, t.bmc_info->>'mac')
+        )
+    ) AS json
+    FROM machine_interfaces bmc_i
+    LEFT JOIN LATERAL (
+        SELECT a.address
+        FROM machine_interface_addresses a
+        WHERE a.interface_id = bmc_i.id
+        ORDER BY family(a.address), a.address
+        LIMIT 1
+    ) AS bmc_addr ON true
+    WHERE bmc_i.machine_id = m.id
+      AND bmc_i.interface_type = 'Bmc'
+    ORDER BY bmc_i.created ASC
+    LIMIT 1
+) AS bmc ON true
+
+-- (3) Read related non-BMC interfaces as JSON
 LEFT JOIN LATERAL (
     SELECT json_agg(x) AS json
     FROM (
@@ -39,27 +81,9 @@ LEFT JOIN LATERAL (
         ) AS v ON true
         INNER JOIN network_segments ns ON ns.id = i2.segment_id
         WHERE i2.machine_id = m.id
+          AND i2.interface_type != 'Bmc'
     ) x
 ) AS i ON true
 
--- (2) Read the latest topology as JSON
-LEFT JOIN LATERAL (
-    SELECT
-    json_agg(x.json) AS json
-    FROM (
-        SELECT
-        mt2.machine_id,
-        json_build_object('machine_id', mt2.machine_id, 'topology', mt2.topology, 'created', mt2.created, 'updated', mt2.updated, 'topology_update_needed', mt2.topology_update_needed) AS json,
-        row_number() OVER (
-            PARTITION BY mt2.machine_id
-            ORDER BY mt2.created DESC
-        ) AS rn
-        FROM machine_topologies mt2
-        WHERE mt2.machine_id = m.id
-    ) x
-    WHERE x.rn = 1
-) AS t ON true
-
--- (3) Read the history as JSON
+-- (4) Read the history as JSON
 __HISTORY_JOIN__
-

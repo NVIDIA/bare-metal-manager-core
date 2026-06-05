@@ -21,7 +21,10 @@ use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
+use model::power_shelf::{
+    NewPowerShelf, PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation,
+    PowerShelfMaintenanceRequest,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -58,6 +61,17 @@ impl ColumnInfo<'_> for NameColumn {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct BmcMacAddressColumn;
+impl ColumnInfo<'_> for BmcMacAddressColumn {
+    type TableType = PowerShelf;
+    type ColumnType = mac_address::MacAddress;
+
+    fn column_name(&self) -> &'static str {
+        "bmc_mac_address"
+    }
+}
+
 pub async fn create(
     txn: &mut PgConnection,
     new_power_shelf: &NewPowerShelf,
@@ -82,7 +96,7 @@ pub async fn create(
     };
 
     let query = sqlx::query_as::<_, PowerShelfId>(
-        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
     );
     let _: PowerShelfId = query
         .bind(new_power_shelf.id)
@@ -90,6 +104,7 @@ pub async fn create(
         .bind(sqlx::types::Json(&new_power_shelf.config))
         .bind(sqlx::types::Json(&state))
         .bind(controller_state_version)
+        .bind(new_power_shelf.bmc_mac_address)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
@@ -103,6 +118,7 @@ pub async fn create(
         config: new_power_shelf.config.clone(),
         status: None,
         deleted: None,
+        bmc_mac_address: new_power_shelf.bmc_mac_address,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -111,6 +127,7 @@ pub async fn create(
         metadata,
         version,
         rack_id: new_power_shelf.rack_id.clone(),
+        power_shelf_maintenance_requested: None,
         health_reports: Default::default(),
     })
 }
@@ -160,6 +177,21 @@ pub async fn find_by_id(
     }
 }
 
+// TODO(chet): Per Issue #925, the goal is to link machines to BMCs via
+// the machine_interfaces table, but for now this is going to be like
+// this until I take care of the issue.
+pub async fn find_by_bmc_mac_address(
+    txn: &mut PgConnection,
+    bmc_mac_address: mac_address::MacAddress,
+) -> DatabaseResult<Option<PowerShelf>> {
+    let power_shelves = find_by(
+        txn,
+        ObjectColumnFilter::One(BmcMacAddressColumn, &bmc_mac_address),
+    )
+    .await?;
+    Ok(power_shelves.into_iter().next())
+}
+
 pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::power_shelf::PowerShelfSearchFilter,
@@ -172,9 +204,9 @@ pub async fn find_ids(
 
     qb.push(" WHERE TRUE");
 
-    if filter.rack_id.is_some() {
+    if let Some(rack_id) = filter.rack_id {
         qb.push(" AND ps.rack_id = ");
-        qb.push_bind(filter.rack_id.unwrap());
+        qb.push_bind(rack_id);
     }
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
@@ -244,6 +276,40 @@ pub async fn update_controller_state_outcome(
         .await
         .map_err(|e| DatabaseError::new("update_controller_state_outcome", e))?;
 
+    Ok(())
+}
+
+pub async fn set_power_shelf_maintenance_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    initiator: &str,
+    operation: PowerShelfMaintenanceOperation,
+) -> DatabaseResult<()> {
+    let req = PowerShelfMaintenanceRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        operation,
+    };
+    let query = "UPDATE power_shelves SET power_shelf_maintenance_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_power_shelf_maintenance_requested", e))?;
+    Ok(())
+}
+
+pub async fn clear_power_shelf_maintenance_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET power_shelf_maintenance_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_power_shelf_maintenance_requested", e))?;
     Ok(())
 }
 
@@ -499,4 +565,202 @@ pub async fn remove_health_report(
 ) -> Result<(), DatabaseError> {
     crate::health_report::remove_health_report(txn, "power_shelves", power_shelf_id, mode, source)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::power_shelf::{HardwareHash, PowerShelfIdSource, PowerShelfType};
+    use model::metadata::Metadata;
+    use model::power_shelf::PowerShelfConfig;
+
+    use super::*;
+
+    /// Build a unique `PowerShelfId` for the test. The `seed` byte is used to
+    /// derive a deterministic 32-byte hardware hash so multiple shelves can
+    /// coexist within a single `sqlx_test` transaction without colliding.
+    fn test_power_shelf_id(seed: u8) -> PowerShelfId {
+        let hash: HardwareHash = [seed; 32];
+        PowerShelfId::new(
+            PowerShelfIdSource::ProductBoardChassisSerial,
+            hash,
+            PowerShelfType::Rack,
+        )
+    }
+
+    async fn create_test_power_shelf(
+        txn: &mut PgConnection,
+        seed: u8,
+        name: &str,
+    ) -> Result<PowerShelf, DatabaseError> {
+        let new_power_shelf = NewPowerShelf {
+            id: test_power_shelf_id(seed),
+            config: PowerShelfConfig {
+                name: name.to_string(),
+                capacity: Some(5000),
+                voltage: Some(240),
+            },
+            bmc_mac_address: None,
+            metadata: Some(Metadata {
+                name: name.to_string(),
+                description: String::new(),
+                labels: Default::default(),
+            }),
+            rack_id: None,
+        };
+        create(txn, &new_power_shelf).await
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_power_on(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 1, "PowerOn shelf").await?;
+        assert!(
+            shelf.power_shelf_maintenance_requested.is_none(),
+            "freshly created power shelf should have no maintenance request"
+        );
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "operator (TICKET-123)",
+            PowerShelfMaintenanceOperation::PowerOn,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected a maintenance request to be persisted");
+        assert_eq!(
+            request.operation,
+            PowerShelfMaintenanceOperation::PowerOn,
+            "operation should round-trip as PowerOn"
+        );
+        assert_eq!(request.initiator, "operator (TICKET-123)");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_power_off(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 2, "PowerOff shelf").await?;
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "admin-cli",
+            PowerShelfMaintenanceOperation::PowerOff,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected a maintenance request to be persisted");
+        assert_eq!(
+            request.operation,
+            PowerShelfMaintenanceOperation::PowerOff,
+            "operation should round-trip as PowerOff"
+        );
+        assert_eq!(request.initiator, "admin-cli");
+
+        Ok(())
+    }
+
+    /// Calling `set_power_shelf_maintenance_requested` a second time should
+    /// overwrite the previous request (e.g., switching from PowerOn to
+    /// PowerOff before the controller has acted on it).
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_overwrites(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 3, "Overwrite shelf").await?;
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "first",
+            PowerShelfMaintenanceOperation::PowerOn,
+        )
+        .await?;
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "second",
+            PowerShelfMaintenanceOperation::PowerOff,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected the second maintenance request to be persisted");
+        assert_eq!(request.operation, PowerShelfMaintenanceOperation::PowerOff);
+        assert_eq!(request.initiator, "second");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_clear_power_shelf_maintenance_requested(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 4, "Clear shelf").await?;
+
+        // Test clearing both flavors of operation.
+        for operation in [
+            PowerShelfMaintenanceOperation::PowerOn,
+            PowerShelfMaintenanceOperation::PowerOff,
+        ] {
+            set_power_shelf_maintenance_requested(&mut txn, shelf.id, "operator", operation)
+                .await?;
+            assert!(
+                find_by_id(&mut txn, &shelf.id)
+                    .await?
+                    .unwrap()
+                    .power_shelf_maintenance_requested
+                    .is_some(),
+                "request should be set before clear (op={:?})",
+                operation
+            );
+
+            clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
+            assert!(
+                find_by_id(&mut txn, &shelf.id)
+                    .await?
+                    .unwrap()
+                    .power_shelf_maintenance_requested
+                    .is_none(),
+                "request should be cleared after clear (op={:?})",
+                operation
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Clearing a maintenance request when none is set must be a no-op
+    /// (idempotent), since the state controller may call this after the
+    /// request has already been cleared by another path.
+    #[crate::sqlx_test]
+    async fn test_clear_power_shelf_maintenance_requested_when_none(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 5, "Idempotent clear shelf").await?;
+        assert!(shelf.power_shelf_maintenance_requested.is_none());
+
+        clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        assert!(reloaded.power_shelf_maintenance_requested.is_none());
+
+        Ok(())
+    }
 }

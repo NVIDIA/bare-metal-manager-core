@@ -17,7 +17,9 @@
 
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
-use sqlx::{Database, Describe, Either, Execute, PgConnection, PgExecutor, PgPool, Postgres};
+use sqlx::{
+    Database, Describe, Either, Execute, PgConnection, PgExecutor, PgPool, Postgres, SqlStr,
+};
 
 /// A trait describing a database handle intended for use in read-only database operations.
 ///
@@ -262,20 +264,20 @@ impl<'c> sqlx::Executor<'c> for &'c mut PgPoolReader {
         self.inner.fetch_optional(query)
     }
 
-    fn prepare_with<'e, 'q: 'e>(
+    fn prepare_with<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
         parameters: &'e [<Self::Database as Database>::TypeInfo],
-    ) -> BoxFuture<'e, Result<<Self::Database as Database>::Statement<'q>, sqlx::Error>>
+    ) -> BoxFuture<'e, Result<<Self::Database as Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
         self.inner.prepare_with(sql, parameters)
     }
 
-    fn describe<'e, 'q: 'e>(
+    fn describe<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
     ) -> BoxFuture<'e, Result<Describe<Self::Database>, sqlx::Error>>
     where
         'c: 'e,
@@ -315,20 +317,20 @@ impl<'c, 'txn> sqlx::Executor<'c> for &'c mut crate::Transaction<'txn> {
         self.inner.fetch_optional(query)
     }
 
-    fn prepare_with<'e, 'q: 'e>(
+    fn prepare_with<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
         parameters: &'e [<Self::Database as Database>::TypeInfo],
-    ) -> BoxFuture<'e, Result<<Self::Database as Database>::Statement<'q>, sqlx::Error>>
+    ) -> BoxFuture<'e, Result<<Self::Database as Database>::Statement, sqlx::Error>>
     where
         'c: 'e,
     {
         self.inner.prepare_with(sql, parameters)
     }
 
-    fn describe<'e, 'q: 'e>(
+    fn describe<'e>(
         self,
-        sql: &'q str,
+        sql: SqlStr,
     ) -> BoxFuture<'e, Result<Describe<Self::Database>, sqlx::Error>>
     where
         'c: 'e,

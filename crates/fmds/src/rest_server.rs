@@ -19,8 +19,11 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::header::HeaderMap;
+use axum::http::{StatusCode, Uri};
+use axum::response::Response;
 use axum::routing::{get, post};
+use forge_dpu_fmds_shared::machine_identity;
 
 use crate::state::FmdsState;
 
@@ -65,6 +68,10 @@ pub fn get_fmds_router(state: Arc<FmdsState>) -> Router {
         .route(&format!("/{PHONE_HOME_CATEGORY}"), post(post_phone_home))
         .route(&format!("/{INSTANCE_ID_CATEGORY}"), get(get_instance_id))
         .route(&format!("/{MACHINE_ID_CATEGORY}"), get(get_machine_id))
+        .route(
+            &format!("/{}", machine_identity::META_DATA_IDENTITY_CATEGORY),
+            get(get_metadata_identity),
+        )
         .route("/{category}", get(get_metadata_parameter));
 
     let metadata_router = Router::new()
@@ -119,6 +126,14 @@ fn extract_metadata(category: String, state: &FmdsState) -> (StatusCode, String)
     }
 }
 
+async fn get_metadata_identity(
+    State(state): State<Arc<FmdsState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    machine_identity::serve_meta_data_identity(state.as_ref(), uri, headers).await
+}
+
 async fn get_machine_id(State(state): State<Arc<FmdsState>>) -> (StatusCode, String) {
     let config = match state.config.load_full() {
         Some(config) => config,
@@ -170,6 +185,7 @@ async fn get_metadata_params(State(_state): State<Arc<FmdsState>>) -> (StatusCod
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n"),
     )
@@ -341,7 +357,10 @@ async fn post_phone_home(State(state): State<Arc<FmdsState>>) -> (StatusCode, St
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
     use axum::http;
+    use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
     use http_body_util::{BodyExt, Full};
     use hyper::body::Bytes;
     use hyper_util::rt::TokioExecutor;
@@ -350,7 +369,7 @@ mod tests {
     use crate::state::{FmdsConfig, IBDeviceConfig, IBInstanceConfig};
 
     fn make_test_state() -> Arc<FmdsState> {
-        Arc::new(FmdsState::new("https://api.test".to_string(), None))
+        Arc::new(FmdsState::try_new("https://api.test".to_string(), None).unwrap())
     }
 
     fn make_test_config() -> FmdsConfig {
@@ -376,10 +395,9 @@ mod tests {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         let server_port = listener.local_addr().unwrap().port();
-        let std_listener = listener.into_std().unwrap();
 
         let server = tokio::spawn(async move {
-            axum_server::Server::from_tcp(std_listener)
+            axum_server::Server::<SocketAddr>::from_listener(listener)
                 .serve(router.into_make_service())
                 .await
                 .unwrap();
@@ -521,7 +539,15 @@ mod tests {
         state.update_config(make_test_config());
         let (server, port) = setup_server(state).await;
 
-        let expected = ["hostname", "sitename", "machine-id", "instance-id", "asn"].join("\n");
+        let expected = [
+            "hostname",
+            "sitename",
+            "machine-id",
+            "instance-id",
+            "asn",
+            machine_identity::META_DATA_IDENTITY_CATEGORY,
+        ]
+        .join("\n");
 
         let (status, body) = get_request(port, "meta-data").await;
         assert_eq!(status, StatusCode::OK);
@@ -690,6 +716,7 @@ mod tests {
             user_data: "grpc-user-data".to_string(),
             ib_devices: vec![],
             asn: 12345,
+            machine_identity: Some(MachineIdentityParams::default().into()),
         };
         grpc_server
             .update_config(Request::new(UpdateConfigRequest {

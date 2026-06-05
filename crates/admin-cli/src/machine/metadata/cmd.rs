@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use rpc::Machine;
@@ -24,6 +24,7 @@ use super::args::{
     Args, MachineMetadataCommandAddLabel, MachineMetadataCommandFromExpectedMachine,
     MachineMetadataCommandRemoveLabels, MachineMetadataCommandSet, MachineMetadataCommandShow,
 };
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn metadata(

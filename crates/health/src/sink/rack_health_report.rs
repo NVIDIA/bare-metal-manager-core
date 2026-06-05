@@ -20,7 +20,9 @@ use std::sync::Arc;
 use carbide_uuid::rack::RackId;
 
 use super::dedup_queue::DedupQueue;
-use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
+use super::{
+    CollectorEvent, DataSink, EventContext, HealthReport, HealthReportTarget, ReportSource,
+};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::RackHealthReportSinkConfig;
@@ -33,6 +35,7 @@ struct RackHealthReportKey {
 
 pub struct RackHealthReportSink {
     queue: Arc<DedupQueue<RackHealthReportKey, Arc<HealthReport>>>,
+    skip_empty_reports: bool,
 }
 
 impl RackHealthReportSink {
@@ -87,7 +90,10 @@ impl RackHealthReportSink {
             });
         }
 
-        Ok(Self { queue })
+        Ok(Self {
+            queue,
+            skip_empty_reports: config.skip_empty_reports,
+        })
     }
 }
 
@@ -101,14 +107,22 @@ impl DataSink for RackHealthReportSink {
             return;
         };
 
-        if report.source != ReportSource::RackLeakDetection {
+        if report.target != Some(HealthReportTarget::Rack) {
+            return;
+        }
+
+        if self.skip_empty_reports && report.is_empty() {
+            tracing::debug!(
+                source = ?report.source,
+                "Skipping empty rack health report"
+            );
             return;
         }
 
         let Some(rack_id) = context.rack_id() else {
             tracing::warn!(
                 endpoint_key = context.endpoint_key(),
-                "Received RackLeakDetection report without rack_id context"
+                "Received rack-target HealthReport event without rack_id context"
             );
             return;
         };

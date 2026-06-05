@@ -30,7 +30,10 @@ use crate::sharding::ShardManager;
 use crate::sink::DataSink;
 
 fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
-    sharded_endpoints.iter().map(|e| e.hash_key()).collect()
+    sharded_endpoints
+        .iter()
+        .map(|endpoint| Cow::Owned(endpoint.key()))
+        .collect()
 }
 
 pub async fn run_discovery_iteration(
@@ -70,8 +73,11 @@ pub async fn run_discovery_iteration(
         );
     }
 
+    // prune before respawn so downgraded auto-mode endpoints get replaced
+    ctx.collectors.prune_finished_logs();
+
     for endpoint in &sharded_endpoints {
-        spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix).await?;
+        spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
 
     let active_endpoints = active_keys(&sharded_endpoints);
@@ -93,13 +99,28 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_uuid::rack::RackId;
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, SwitchData};
+    use crate::endpoint::test_support::endpoint_with_creds;
+    use crate::endpoint::{
+        BmcAddr, BmcCredentials, EndpointMetadata, SwitchData, SwitchEndpointRole,
+    };
 
-    fn endpoint(mac: MacAddress, switch: bool) -> Arc<BmcEndpoint> {
-        Arc::new(BmcEndpoint::with_fixed_credentials(
+    fn endpoint(mac: MacAddress, switch: bool, rack_id: Option<RackId>) -> Arc<BmcEndpoint> {
+        let metadata = switch.then(|| {
+            EndpointMetadata::Switch(SwitchData {
+                id: None,
+                serial: format!("serial-{mac}"),
+                slot_number: None,
+                tray_index: None,
+                endpoint_role: SwitchEndpointRole::Host,
+                is_primary: false,
+                nmxt_enabled: false,
+            })
+        });
+        Arc::new(endpoint_with_creds(
             BmcAddr {
                 ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
                 port: Some(443),
@@ -109,24 +130,30 @@ mod tests {
                 username: "user".to_string(),
                 password: Some("pass".to_string()),
             },
-            if switch {
-                Some(EndpointMetadata::Switch(SwitchData {
-                    serial: format!("serial-{mac}"),
-                }))
-            } else {
-                None
-            },
-            None,
+            metadata,
+            rack_id,
         ))
     }
 
-    #[test]
-    fn test_active_keys_includes_all_endpoints() {
-        let ep1 = endpoint(MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(), false);
-        let ep2 = endpoint(MacAddress::from_str("11:22:33:44:55:66").unwrap(), true);
+    #[tokio::test]
+    async fn test_active_keys_includes_all_endpoints() {
+        let ep1 = endpoint(
+            MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
+            false,
+            Some(RackId::new("rack-a")),
+        );
+        let ep2 = endpoint(
+            MacAddress::from_str("11:22:33:44:55:66").unwrap(),
+            true,
+            None,
+        );
 
         let keys = active_keys(&[ep1.clone(), ep2.clone()]);
 
-        assert_eq!(keys, HashSet::from([ep1.hash_key(), ep2.hash_key()]));
+        assert_eq!(
+            keys,
+            HashSet::from([Cow::Owned(ep1.key()), Cow::Owned(ep2.key())])
+        );
+        assert_ne!(ep1.hash_key(), Cow::<str>::Owned(ep1.key()));
     }
 }

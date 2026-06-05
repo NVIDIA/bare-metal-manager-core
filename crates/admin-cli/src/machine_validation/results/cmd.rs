@@ -18,11 +18,12 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use prettytable::{Table, row};
 
 use super::args::ShowResultsOptions;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn handle_results_show(

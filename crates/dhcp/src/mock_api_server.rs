@@ -21,13 +21,16 @@
 ///
 /// Module only included if #cfg(test)
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::{SocketAddr, SocketAddrV4};
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use ::rpc::forge as rpc;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
+use http_body_util::BodyExt;
+use hyper::body::{Body as HttpBody, Bytes, Frame, Incoming};
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper::{Request, Response, body, header};
@@ -65,9 +68,24 @@ pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
 
 // Encode a DhcpRecord to match gRPC HTTP/2 DATA frame that API server (via hyper) produces.
 pub fn dhcp_response(mac_address_str: &str) -> Vec<u8> {
+    dhcp_response_with_override(mac_address_str, None)
+}
+
+/// Same as `dhcp_response` but allows the caller to override the `address`
+/// field on the response. `Some("")` is meaningful: it simulates a Machine
+/// that has no IPv4 binding (which the lease4 hooks should treat as
+/// "refuse to allocate").
+pub fn dhcp_response_with_override(
+    mac_address_str: &str,
+    address_override: Option<String>,
+) -> Vec<u8> {
     let mac_address = mac_address_str.parse::<MacAddress>().unwrap();
 
     let mut r = base_dhcp_response(mac_address);
+
+    if let Some(addr) = address_override {
+        r.address = addr;
+    }
 
     // Specialization of response based on mac address
     // Meant to be extended, if let ()... isn't what we want here
@@ -106,6 +124,10 @@ pub struct MockAPIServer {
     tx: Option<tokio::sync::oneshot::Sender<()>>,
     local_addr: String,
     inject_failure: Arc<Mutex<bool>>,
+    /// Per-MAC override for the `address` field of the DhcpRecord response.
+    /// A value of `""` is meaningful: it simulates a Machine with no IPv4
+    /// binding, which the lease4_* hooks should treat as "refuse to allocate".
+    address_overrides: Arc<Mutex<HashMap<String, String>>>,
 }
 
 #[derive(Debug)]
@@ -132,6 +154,8 @@ impl MockAPIServer {
         let i2 = inject_failure.clone();
         let calls = Arc::new(Mutex::new(HashMap::new()));
         let c2 = calls.clone();
+        let address_overrides = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+        let a2 = address_overrides.clone();
         let listener = TcpListener::bind(addr).await.unwrap();
         let local_addr = listener.local_addr().unwrap().to_string();
         let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
@@ -139,6 +163,7 @@ impl MockAPIServer {
             loop {
                 let c3 = c2.clone();
                 let i3 = i2.clone();
+                let a3 = a2.clone();
                 tokio::select! {
                     result = listener.accept() => {
                         let (stream, _) = result.unwrap();
@@ -146,8 +171,9 @@ impl MockAPIServer {
                             http2::Builder::new(TokioExecutor::new()).serve_connection(TokioIo::new(stream), service_fn(move |req: Request<body::Incoming>| {
                                 let c3 = c3.clone();
                                 let i3 = i3.clone();
+                                let a3 = a3.clone();
                                 async move {
-                                    Ok::<Response<Full<Bytes>>, hyper::Error>(MockAPIServer::handler(req, c3.clone(), i3.clone()).await.unwrap())
+                                    Ok::<Response<GrpcBody>, hyper::Error>(MockAPIServer::handler(req, c3.clone(), i3.clone(), a3.clone()).await.unwrap())
                                 }
                             })).await.inspect_err(|e| eprintln!("ERROR: {e:?}")).unwrap()
                         });
@@ -166,7 +192,17 @@ impl MockAPIServer {
             local_addr: format!("http://{local_addr}"),
             tx: Some(tx),
             inject_failure,
+            address_overrides,
         }
+    }
+
+    /// Override what address the mock returns for a specific MAC on subsequent
+    /// `DiscoverDhcp` calls. Pass `""` to simulate "Machine has no IPv4 binding".
+    pub fn set_address_override(&self, mac_address: &str, address: &str) {
+        self.address_overrides
+            .lock()
+            .unwrap()
+            .insert(mac_address.to_string(), address.to_string());
     }
 
     // The HTTP address of the server
@@ -192,7 +228,8 @@ impl MockAPIServer {
         req: Request<Incoming>,
         calls: Arc<Mutex<HashMap<String, usize>>>,
         fail: Arc<Mutex<bool>>,
-    ) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
+        address_overrides: Arc<Mutex<HashMap<String, String>>>,
+    ) -> Result<Response<GrpcBody>, MockAPIServerError> {
         let path = req.uri().path();
         calls
             .lock()
@@ -207,8 +244,8 @@ impl MockAPIServer {
                 if inject_failure {
                     Err(MockAPIServerError::MockAPIFetchMachineError)
                 } else {
-                    Ok(Response::new(
-                        MockAPIServer::discover_dhcp(req).await.into(),
+                    Ok(grpc_response(
+                        MockAPIServer::discover_dhcp(req, address_overrides).await,
                     ))
                 }
             }
@@ -228,12 +265,20 @@ impl MockAPIServer {
         }
     }
 
-    async fn discover_dhcp(req: Request<Incoming>) -> Vec<u8> {
+    async fn discover_dhcp(
+        req: Request<Incoming>,
+        address_overrides: Arc<Mutex<HashMap<String, String>>>,
+    ) -> Vec<u8> {
         let input_bytes = req.into_body().collect().await.unwrap().to_bytes();
 
         // slice is to strip the gRPC parts: 1 byte is_compressed and a 4 byte message length
         let disco = rpc::DhcpDiscovery::decode(input_bytes.slice(5..)).unwrap();
-        dhcp_response(&disco.mac_address)
+        let override_for_mac = address_overrides
+            .lock()
+            .unwrap()
+            .get(&disco.mac_address)
+            .cloned();
+        dhcp_response_with_override(&disco.mac_address, override_for_mac)
     }
 }
 
@@ -245,8 +290,60 @@ impl Drop for MockAPIServer {
     }
 }
 
-/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
-fn respond(out: impl prost::Message) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
+struct GrpcBody {
+    data: Option<Bytes>,
+    trailers: Option<hyper::HeaderMap>,
+}
+
+impl GrpcBody {
+    fn new(data: Vec<u8>) -> Self {
+        let mut trailers = hyper::HeaderMap::new();
+        trailers.insert(
+            header::HeaderName::from_static("grpc-status"),
+            header::HeaderValue::from_static("0"),
+        );
+
+        Self {
+            data: Some(Bytes::from(data)),
+            trailers: Some(trailers),
+        }
+    }
+}
+
+impl HttpBody for GrpcBody {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        if let Some(data) = this.data.take() {
+            return Poll::Ready(Some(Ok(Frame::data(data))));
+        }
+        if let Some(trailers) = this.trailers.take() {
+            return Poll::Ready(Some(Ok(Frame::trailers(trailers))));
+        }
+
+        Poll::Ready(None)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.data.is_none() && self.trailers.is_none()
+    }
+}
+
+fn grpc_response(body: Vec<u8>) -> Response<GrpcBody> {
+    Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, "application/grpc+tonic")
+        .body(GrpcBody::new(body))
+        .unwrap()
+}
+
+/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC response
+fn respond(out: impl prost::Message) -> Result<Response<GrpcBody>, MockAPIServerError> {
     let msg_len = out.encoded_len() as u32;
     let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
     // first byte is compression: 0 means none
@@ -256,9 +353,5 @@ fn respond(out: impl prost::Message) -> Result<Response<Full<Bytes>>, MockAPISer
     // and finally the message
     out.encode(&mut body).unwrap();
 
-    Ok(Response::builder()
-        .status(200)
-        .header(header::CONTENT_TYPE, "application/grpc+tonic")
-        .body(body.into())
-        .unwrap())
+    Ok(grpc_response(body))
 }

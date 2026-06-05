@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nico-rest-cert-manager
+  namespace: {{ include "nico-rest-cert-manager.namespace" . }}
+  labels:
+    {{- include "nico-rest-cert-manager.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nico-rest-cert-manager.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-rest-cert-manager.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      serviceAccountName: nico-rest-cert-manager
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: cert-manager
+          image: "{{ include "nico-rest-cert-manager.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - --ca-common-name={{ .Values.config.caCommonName }}
+            - --ca-organization={{ .Values.config.caOrganization }}
+            - --ca-cert-file={{ .Values.config.caCertFile }}
+            - --ca-key-file={{ .Values.config.caKeyFile }}
+            - --tls-port={{ .Values.config.tlsPort }}
+            - --insecure-port={{ .Values.config.insecurePort }}
+            - --ca-base-dns={{ .Values.config.caBaseDns }}
+            {{- if .Values.config.debug }}
+            - --debug
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.config.tlsPort }}
+              name: https
+            - containerPort: {{ .Values.config.insecurePort }}
+              name: http
+          volumeMounts:
+            - name: ca-signing-secret
+              mountPath: /etc/pki/ca
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.config.insecurePort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.config.insecurePort }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: ca-signing-secret
+          secret:
+            secretName: {{ .Values.secrets.caSigningSecret }}
+        - name: tmp
+          emptyDir: {}

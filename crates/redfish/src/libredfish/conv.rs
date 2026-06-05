@@ -16,6 +16,7 @@
  */
 
 use bmc_vendor::BMCVendor;
+use model::attestation::spdm::{CaCertificate, Evidence};
 use model::firmware::FirmwareComponentType;
 use model::machine::{MachineLastRebootRequestedMode, PowerState as MachinePowerState};
 use model::site_explorer::{BootOption, NicMode, PCIeDevice, PowerState, SystemStatus};
@@ -37,6 +38,7 @@ impl IntoLibredfish<libredfish::model::update_service::ComponentType> for Firmwa
             FirmwareComponentType::HGXBmc => ComponentType::HGXBMC,
             FirmwareComponentType::CombinedBmcUefi => ComponentType::Unknown,
             FirmwareComponentType::Gpu => ComponentType::Unknown,
+            FirmwareComponentType::Cx7 => ComponentType::Unknown,
             FirmwareComponentType::Unknown => ComponentType::Unknown,
         }
     }
@@ -161,5 +163,31 @@ pub fn bmc_vendor(r: libredfish::model::service_root::RedfishVendor) -> BMCVendo
         RedfishVendor::LiteOnPowerShelf => BMCVendor::Liteon,
         RedfishVendor::Supermicro => BMCVendor::Supermicro,
         RedfishVendor::Unknown => BMCVendor::Unknown,
+    }
+}
+
+impl IntoModel<CaCertificate> for libredfish::model::component_integrity::CaCertificate {
+    fn into_model(self) -> CaCertificate {
+        CaCertificate {
+            certificate_string: self.certificate_string,
+            certificate_type: self.certificate_type,
+            certificate_usage_types: self.certificate_usage_types,
+            id: self.id,
+            name: self.name,
+            spdm: model::attestation::spdm::SlotInfo {
+                slot_id: self.spdm.slot_id,
+            },
+        }
+    }
+}
+
+impl IntoModel<Evidence> for libredfish::model::component_integrity::Evidence {
+    fn into_model(self) -> Evidence {
+        Evidence {
+            hashing_algorithm: self.hashing_algorithm,
+            signed_measurements: self.signed_measurements,
+            signing_algorithm: self.signing_algorithm,
+            version: self.version,
+        }
     }
 }

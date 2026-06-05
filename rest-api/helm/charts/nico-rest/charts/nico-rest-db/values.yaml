@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+nameOverride: ""
+namespaceOverride: ""
+
+image:
+  name: nico-rest-db
+
+waitForPostgres:
+  image: postgres:14.4-alpine
+
+db:
+  host: postgres.postgres
+  port: "5432"
+  name: nico
+  user: nico
+
+secrets:
+  dbCreds: db-creds
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "100m"
+
+ttlSecondsAfterFinished: 300
+backoffLimit: 30

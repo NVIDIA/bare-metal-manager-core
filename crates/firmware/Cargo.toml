@@ -19,6 +19,7 @@ carbide-api-model = { path = "../api-model", default-features = false }
 # these are alphabetized
 eyre = { workspace = true }
 futures-util = { workspace = true }
+hex = { workspace = true }
 md5 = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

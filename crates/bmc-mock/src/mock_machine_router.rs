@@ -16,17 +16,12 @@
  */
 use std::sync::Arc;
 
-use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::Response;
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use tokio::sync::oneshot;
 
 use crate::auth_router::Authorizer;
 use crate::bmc_state::BmcState;
-use crate::bug::InjectedBugs;
-use crate::json::JsonExt;
+use crate::injection::InjectionStore;
 use crate::redfish::manager::ManagerState;
 use crate::{Callbacks, MachineInfo, SystemPowerControl, auth_router, middleware_router, redfish};
 
@@ -78,17 +73,14 @@ pub fn machine_router(
     let oem_state = machine_info.oem_state();
     let factory_default_account = machine_info.factory_default_account();
     let router = Router::new()
-        // Couple routes for bug injection.
-        .route(
-            "/InjectedBugs",
-            get(get_injected_bugs).post(post_injected_bugs),
-        )
+        .add_routes(crate::injection::add_routes)
         .add_routes(crate::redfish::service_root::add_routes)
         .add_routes(crate::redfish::chassis::add_routes)
         .add_routes(crate::redfish::manager::add_routes)
         .add_routes(crate::redfish::update_service::add_routes)
         .add_routes(crate::redfish::task_service::add_routes)
         .add_routes(crate::redfish::account_service::add_routes)
+        .add_routes(crate::redfish::session_service::add_routes)
         .add_routes(|routes| crate::redfish::computer_system::add_routes(routes, bmc_vendor))
         .add_routes(crate::ipmi::add_routes);
     let router = match &machine_info {
@@ -110,7 +102,9 @@ pub fn machine_router(
     let account_service_state = Arc::new(
         crate::redfish::account_service::AccountServiceState::new(factory_default_account),
     );
-    let injected_bugs = Arc::new(InjectedBugs::default());
+    let session_service_state =
+        Arc::new(crate::redfish::session_service::SessionServiceState::new());
+    let injection = Arc::new(InjectionStore::new());
     let state = BmcState {
         bmc_vendor,
         bmc_product,
@@ -121,41 +115,29 @@ pub fn machine_router(
         chassis_state,
         update_service_state,
         account_service_state,
-        injected_bugs: injected_bugs.clone(),
+        session_service_state,
+        injection: injection.clone(),
         callbacks: Some(callbacks.clone()),
     };
     let account_service_state = state.account_service_state.clone();
+    let session_service_state = state.session_service_state.clone();
     let router = ([
         Box::new(redfish::expander_router::append),
         Box::new(move |router| {
             if redfish_auth {
-                auth_router::append(router, Authorizer::new(account_service_state))
+                auth_router::append(
+                    router,
+                    Authorizer::new(account_service_state, session_service_state),
+                )
             } else {
                 router
             }
         }),
         Box::new(move |router| {
-            middleware_router::append(mat_host_id, router, injected_bugs, callbacks)
+            middleware_router::append(mat_host_id, router, injection, callbacks)
         }),
     ] as [Box<dyn FnOnce(axum::Router) -> axum::Router>; _])
         .into_iter()
         .fold(router.with_state(state.clone()), |router, f| f(router));
     (router, state)
-}
-
-async fn get_injected_bugs(State(state): State<BmcState>) -> Response {
-    state.injected_bugs.get().into_ok_response()
-}
-
-async fn post_injected_bugs(
-    State(state): State<BmcState>,
-    Json(bug_args): Json<serde_json::Value>,
-) -> Response {
-    state
-        .injected_bugs
-        .update(bug_args)
-        .map(|_| state.injected_bugs.get().into_ok_response())
-        .unwrap_or_else(|err| {
-            serde_json::json!({"error": format!("{err:?}")}).into_response(StatusCode::BAD_REQUEST)
-        })
 }

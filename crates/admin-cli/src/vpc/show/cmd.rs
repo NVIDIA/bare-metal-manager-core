@@ -17,12 +17,13 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc};
 use carbide_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -123,7 +124,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 
         table.add_row(row![
             vpc.id.unwrap_or_default(),
-            vpc.name,
+            metadata.name,
             vpc.tenant_organization_id,
             vpc.network_security_group_id.unwrap_or_default(),
             vpc.version,
@@ -149,9 +150,15 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
+    let vpc_name = vpc
+        .metadata
+        .as_ref()
+        .map(|x| Cow::Borrowed(x.name.as_str()))
+        .unwrap_or("<no name>".into());
+
     let data: Vec<(&'static str, Cow<str>)> = vec![
         ("ID", vpc.id.unwrap_or_default().to_string().into()),
-        ("NAME", vpc.name.as_str().into()),
+        ("NAME", vpc_name),
         ("TENANT ORG", vpc.tenant_organization_id.as_str().into()),
         (
             "NETWORK SECURITY GROUP",

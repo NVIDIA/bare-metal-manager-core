@@ -124,6 +124,9 @@ impl NvidiaSwitchNd5200Ld<'_> {
                             ..Default::default()
                         },
                     )),
+                    leak_detectors: Some(redfish::leak_detector::generate_chassis_leak_detectors(
+                        8,
+                    )),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ]

@@ -27,9 +27,18 @@ const TMPL_BRIDGING: &str = include_str!("../templates/update_intercept_bridging
 // What we need for the commands to configure the bridge.
 pub struct TrafficInterceptBridgingConfig {
     pub secondary_overlay_vtep_ip: String,
+    pub secondary_vtep_aggregate_prefixes: Vec<String>,
     pub vf_intercept_bridge_ip: String,
     pub vf_intercept_bridge_name: String,
     pub intercept_bridge_prefix_len: u8,
+    pub host_representor_bridge_vni_mappings: Vec<TrafficInterceptBridgeMapping>,
+}
+
+pub struct TrafficInterceptBridgeMapping {
+    pub bridge: String,
+    pub patch_port: String,
+    pub gateway: String,
+    pub vni: u32,
 }
 
 //
@@ -38,19 +47,41 @@ pub struct TrafficInterceptBridgingConfig {
 
 #[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
+pub struct TmplTrafficInterceptBridgeMapping {
+    Bridge: String,
+    Gateway: String,
+    PatchPort: String,
+    VNI: u32,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug)]
 struct TmplTrafficInterceptBridging {
     SecondaryOverlayVtepIP: String,
+    SecondaryVtepAggregatePrefixes: Vec<String>,
     VfInterceptBridgeIP: String,
     VfInterceptBridgeName: String,
     InterceptBridgePrefixLen: u8,
+    HostRepresentorBridgeMappings: Vec<TmplTrafficInterceptBridgeMapping>,
 }
 
 pub fn build(conf: TrafficInterceptBridgingConfig) -> eyre::Result<String> {
     let params = TmplTrafficInterceptBridging {
         SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip,
+        SecondaryVtepAggregatePrefixes: conf.secondary_vtep_aggregate_prefixes,
         VfInterceptBridgeIP: conf.vf_intercept_bridge_ip,
         VfInterceptBridgeName: conf.vf_intercept_bridge_name,
         InterceptBridgePrefixLen: conf.intercept_bridge_prefix_len,
+        HostRepresentorBridgeMappings: conf
+            .host_representor_bridge_vni_mappings
+            .iter()
+            .map(|i| TmplTrafficInterceptBridgeMapping {
+                Bridge: i.bridge.clone(),
+                Gateway: i.gateway.clone(),
+                PatchPort: i.patch_port.clone(),
+                VNI: i.vni,
+            })
+            .collect(),
     };
 
     gtmpl::template(TMPL_BRIDGING, params).map_err(|e| {

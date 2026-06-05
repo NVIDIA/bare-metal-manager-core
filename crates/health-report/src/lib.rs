@@ -21,6 +21,11 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+/// `HealthReportSources::merges` key for the auto-repair (`RequestRepair`) override.
+pub const REPAIR_REQUEST_MERGE_SOURCE: &str = "repair-request";
+/// `HealthReportSources::merges` key for online repair gating (`RequestOnlineRepair` override).
+pub const REQUEST_ONLINE_REPAIR_MERGE_SOURCE: &str = "request-online-repair";
+
 /// Reports the aggregate health of a system or subsystem
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
@@ -678,6 +683,12 @@ impl HealthAlertClassification {
         Self("PreventAllocations".to_string())
     }
 
+    /// When present on aggregate health, carbide-api refuses tenant `ReleaseInstance` until cleared.
+    /// Storing the classification alone does not enforce policy; callers must interpret it.
+    pub fn prevent_instance_deletion() -> Self {
+        Self("PreventInstanceDeletion".to_string())
+    }
+
     /// The threshold that is used to externally alert on unhealthy hosts in the datacenter
     /// (e.g. via Prometheus/AlertManager alerts)
     /// will not take hosts with this classification into account
@@ -724,6 +735,8 @@ pub enum HealthReportConversionError {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -741,6 +754,40 @@ mod tests {
         assert_eq!(
             format!("{classification:?} {classification}").as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
+        );
+    }
+
+    #[test]
+    fn prevent_instance_deletion_classification_string() {
+        let c = HealthAlertClassification::prevent_instance_deletion();
+        assert_eq!(c.as_str(), "PreventInstanceDeletion");
+    }
+
+    #[test]
+    fn request_online_repair_merge_includes_prevent_instance_deletion() {
+        // Shape matches admin-cli `HealthReportTemplates::RequestOnlineRepair` (merge source
+        // `request-online-repair`, probe id `RequestOnlineRepair`).
+        let report = HealthReport {
+            source: REQUEST_ONLINE_REPAIR_MERGE_SOURCE.to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId::from_str("RequestOnlineRepair").unwrap(),
+                target: Some(REQUEST_ONLINE_REPAIR_MERGE_SOURCE.to_string()),
+                in_alert_since: None,
+                message: "test".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::suppress_external_alerting(),
+                    HealthAlertClassification::prevent_instance_deletion(),
+                ],
+            }],
+        };
+        assert!(
+            report.has_classification(&HealthAlertClassification::prevent_instance_deletion()),
+            "RequestOnlineRepair template must include PreventInstanceDeletion for release gating"
         );
     }
 

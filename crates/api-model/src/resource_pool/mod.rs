@@ -23,9 +23,10 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 pub use define::{Range, ResourcePoolDef, ResourcePoolType};
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+
+use crate::errors::ModelError;
 
 /// State of an entry inside the resource pool
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,18 +109,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
     }
 }
 
-impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
-    fn from(rp: ResourcePoolSnapshot) -> Self {
-        rpc::forge::ResourcePool {
-            name: rp.name,
-            min: rp.min,
-            max: rp.max,
-            total: (rp.stats.free + rp.stats.used) as u64,
-            allocated: rp.stats.used as u64,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ResourcePoolEntry {
     pub pool_name: String,
@@ -177,18 +166,18 @@ pub enum OwnerType {
     Vpc,
 
     /// owner_type for East West Networks
-    Dpa,
+    SpxPartition,
 }
 
 impl FromStr for OwnerType {
-    type Err = RpcDataConversionError;
+    type Err = ModelError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "machine" => Ok(Self::Machine),
             "network_segment" => Ok(Self::NetworkSegment),
             "ib_partition" => Ok(Self::IBPartition),
             "vpc" => Ok(Self::Vpc),
-            x => Err(RpcDataConversionError::InvalidArgument(format!(
+            x => Err(ModelError::InvalidArgument(format!(
                 "Unknown owner_type '{x}'"
             ))),
         }
@@ -202,7 +191,7 @@ impl fmt::Display for OwnerType {
             Self::NetworkSegment => write!(f, "network_segment"),
             Self::IBPartition => write!(f, "ib_partition"),
             Self::Vpc => write!(f, "vpc"),
-            Self::Dpa => write!(f, "dpa"),
+            Self::SpxPartition => write!(f, "spx_partition"),
         }
     }
 }

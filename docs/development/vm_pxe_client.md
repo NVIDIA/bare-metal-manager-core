@@ -10,7 +10,7 @@ To allow the QEMU VM to join the bridge network that is used
 for development, create or edit the file '/etc/qemu/bridge.conf' such that its contents are:
 ```
 $ cat /etc/qemu/bridge.conf
-allow carbide0
+allow nico0
 ```
 
 ## TPM setup
@@ -69,9 +69,9 @@ is restarted. You need to restart the tool if you are restarting the VM.
 ## Start the services and seed the database
 
 - `docker-compose up`
-- `cargo make bootstrap-forge-docker`
+- `cargo make bootstrap-nico-docker`
 
-If you see "No network segment defined for relay address: 172.20.0.11" in the carbide-dhcp output, you forgot to run `cargo make bootstrap-forge-docker`.
+If you see "No network segment defined for relay address: 172.20.0.11" in the nico-dhcp output, you forgot to run `cargo make bootstrap-nico-docker`.
 
 ## Start the VM
 
@@ -103,8 +103,8 @@ With TPM:
 sudo qemu-system-x86_64 -boot n -nographic -display none \
   -serial mon:stdio -cpu host \
   -accel kvm -device virtio-serial-pci \
-  -netdev bridge,id=carbidevm,br=carbide0 \
-  -device virtio-net-pci,netdev=carbidevm \
+  -netdev bridge,id=nicovm,br=nico0 \
+  -device virtio-net-pci,netdev=nicovm \
   -bios /usr/share/ovmf/OVMF.fd -m 4096 \
   -chardev socket,id=chrtpm,path=/tmp/emulated_tpm/swtpm-sock \
   -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0
@@ -116,18 +116,16 @@ Without TPM:
 sudo qemu-system-x86_64 -boot n -nographic -display none \
   -serial mon:stdio -cpu host \
   -accel kvm -device virtio-serial-pci \
-  -netdev bridge,id=carbidevm,br=carbide0 \
-  -device virtio-net-pci,netdev=carbidevm \
+  -netdev bridge,id=nicovm,br=nico0 \
+  -device virtio-net-pci,netdev=nicovm \
   -bios /usr/share/ovmf/OVMF.fd -m 4096
 ```
 
 On Fedora change the `-bios` line to `-bios /usr/share/OVMF/OVMF_CODE.fd`.
 
-**Note**: As of a prior commit, there is a bug that will cause the ipxe dhcp to fail the first time it is run. Wait for it to fail,
-and in the EFI Shell just type `reset` and it will restart the whole pxe process and it will run the ipxe image properly the second time.
-See https://jirasw.nvidia.com/browse/FORGE-243 for more information.
+**Note**: There is a known issue where iPXE DHCP fails on the first run. If this occurs, type `reset` in the EFI Shell to restart the PXE process; it will complete successfully on the second attempt.
 
-**Note:** I had to validate that the /usr/share/ovmf path was correct, it depends on where ovmf installed the file, sometimes its under a subdirectory called "x64", sometimes not.
+**Note:** Verify the OVMF path for your system — depending on how the `ovmf` package was installed, the file may be under a subdirectory called `x64`.
 
 **Note:** Known older issue on first boot that you'll land on a UEFI shell, have to `exit` back into the BIOS and select "Continue" in order to proceed into normal login.
 

@@ -18,23 +18,22 @@
 use std::convert::TryFrom;
 use std::fmt::Display;
 use std::net::IpAddr;
-use std::str::FromStr;
 
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
+use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use itertools::Itertools;
-use libmlx::device::info::MlxDeviceInfo;
-use libmlx::firmware::result::FirmwareFlashReport;
 use mac_address::MacAddress;
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::instance::snapshot::InstanceSnapshot;
+use crate::machine::spx::MachineSpxStatusObservation;
 use crate::state_history::StateHistoryRecord;
 
 mod slas;
@@ -64,12 +63,8 @@ pub enum DpaInterfaceControllerState {
     ApplyProfile,
     /// Lock the card
     Locking,
-    /// The VNI associated with the DPA interface is being set
-    WaitingForSetVNI,
     /// The Dpa Interface has been configured with a non-zero VNI
     Assigned,
-    /// The VNI associated with the DPA interface is being reset
-    WaitingForResetVNI,
 }
 
 impl Display for DpaInterfaceControllerState {
@@ -107,18 +102,6 @@ pub struct DpaInterfaceQuarantineState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DpaInterfaceQuarantineMode {
     BlockAllTraffic,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DpaInterfaceNetworkStatusObservation {
-    pub observed_at: DateTime<Utc>,
-    pub network_config_version: Option<ConfigVersion>,
-}
-
-impl Display for DpaInterfaceNetworkStatusObservation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -185,19 +168,222 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
         DpaInterfaceControllerState::Unlocking => {
             StateSla::with_sla(slas::UNLOCKING, time_in_state)
         }
-        DpaInterfaceControllerState::WaitingForSetVNI => {
-            StateSla::with_sla(slas::WAITINGFORSETVNI, time_in_state)
-        }
         DpaInterfaceControllerState::Assigned => StateSla::no_sla(),
-        DpaInterfaceControllerState::WaitingForResetVNI => {
-            StateSla::with_sla(slas::WAITINGFORRESETVNI, time_in_state)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DpaInterface {
+    pub id: DpaInterfaceId,
+    pub machine_id: MachineId,
+
+    pub mac_address: MacAddress,
+    pub pci_name: String,
+
+    pub underlay_ip: Option<IpAddr>,
+    pub overlay_ip: Option<IpAddr>,
+
+    pub created: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+    pub deleted: Option<DateTime<Utc>>,
+
+    pub controller_state: Versioned<DpaInterfaceControllerState>,
+
+    // Last time we issued a heartbeat command to the DPA
+    pub last_hb_time: DateTime<Utc>,
+
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    pub network_config: Versioned<DpaInterfaceNetworkConfig>,
+
+    pub card_state: Option<CardState>,
+
+    // device_info and its corresponding timestamp are used to
+    // keep track of the latest MlxDeviceInfo received by scout
+    // for the target Mellanox device. This contains information
+    // like the part number, PSID, firmware version(s), MAC address,
+    // etc. We store the received timestamp alongside it to detect
+    // if we're acting on potentially stale MlxDeviceInfo data.
+    pub device_info: Option<MlxDeviceInfo>,
+    pub device_info_ts: Option<DateTime<Utc>>,
+
+    // mlxconfig_profile is the name of an MlxConfigProfile from
+    // the mlx-config-profiles config map. When set, this profile
+    // will be applied to the device during the ApplyProfile state.
+    // When None, ApplyProfile will simply perform an mlxconfig
+    // reset and not apply any subsequent defaults, ensuring the
+    // card is back to stock before the next tenancy.
+    pub mlxconfig_profile: Option<String>,
+
+    pub history: Vec<StateHistoryRecord>,
+
+    pub device_description: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewDpaInterface {
+    pub machine_id: MachineId,
+    pub mac_address: MacAddress,
+    pub device_type: String,
+    pub pci_name: String,
+    pub device_description: Option<String>,
+}
+
+impl NewDpaInterface {
+    /// from_device_info builds a NewDpaInterface instance for a given
+    /// MachineId from a given MlxDeviceInfo, since it contains everything
+    /// we use as input for an interface.
+    ///
+    /// Right now the only reason this would fail is if base_mac was unset,
+    /// at which point we'll just return None, meaning the caller knows that
+    /// the base_mac was unset. Since the mac_address is the latter half of
+    /// what is effectively a (machine_id, mac_address) compound primary key,
+    /// it's kind of important to have.
+    pub fn from_device_info(machine_id: MachineId, info: &MlxDeviceInfo) -> Option<Self> {
+        Some(Self {
+            machine_id,
+            mac_address: info.base_mac?,
+            device_type: info.device_type.clone(),
+            pci_name: info.pci_name.clone(),
+            device_description: info.device_description.clone(),
+        })
+    }
+}
+
+impl DpaInterface {
+    pub fn use_admin_network(&self) -> bool {
+        self.network_config.use_admin_network.unwrap_or(true)
+    }
+
+    pub fn get_machine_id(&self) -> MachineId {
+        self.machine_id
+    }
+
+    // If the DPA machine is an instance, the config version sent to the card will
+    // the spx_config_version of the instance.
+    // If the DPA machine is a managed host, the config version sent to the card will
+    // be the network_config.version of the DPA interface.
+    pub fn managed_host_network_config_version_synced(
+        &self,
+        instance: &Option<InstanceSnapshot>,
+        spx_status_observation: &Option<MachineSpxStatusObservation>,
+    ) -> bool {
+        let dpa_expected_version = match instance {
+            Some(instance) if !instance.config.spxconfig.spx_attachments.is_empty() => {
+                instance.spx_config_version
+            }
+            _ => self.network_config.version,
+        };
+
+        let Some(spx_status_observation) = spx_status_observation else {
+            return false;
+        };
+
+        for obs in spx_status_observation.spx_attachments.iter() {
+            if obs.mac_address == self.mac_address
+                && let Some(config_version) = obs.config_version
+            {
+                return config_version == dpa_expected_version;
+            }
         }
+
+        false
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.controller_state.value == DpaInterfaceControllerState::Ready
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for DpaInterface {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let json: serde_json::value::Value = row.try_get(0)?;
+        DpaInterfaceSnapshotPgJson::deserialize(json)
+            .map_err(|err| sqlx::Error::Decode(err.into()))?
+            .try_into()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DpaInterfaceSnapshotPgJson {
+    pub id: DpaInterfaceId,
+    pub machine_id: MachineId,
+    pub mac_address: MacAddress,
+    pub created: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+    pub deleted: Option<DateTime<Utc>>,
+    pub last_hb_time: DateTime<Utc>,
+    pub controller_state: DpaInterfaceControllerState,
+    pub controller_state_version: String,
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    pub network_config: DpaInterfaceNetworkConfig,
+    pub network_config_version: String,
+    pub card_state: Option<CardState>,
+    pub pci_name: String,
+    pub underlay_ip: Option<IpAddr>,
+    pub overlay_ip: Option<IpAddr>,
+    #[serde(default, alias = "device_info_report")]
+    pub device_info: Option<MlxDeviceInfo>,
+    #[serde(default, alias = "device_info_report_ts")]
+    pub device_info_ts: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub mlxconfig_profile: Option<String>,
+    #[serde(default)]
+    pub history: Vec<StateHistoryRecord>,
+    #[serde(default)]
+    pub device_description: Option<String>,
+}
+
+impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
+    type Error = sqlx::Error;
+
+    fn try_from(value: DpaInterfaceSnapshotPgJson) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: value.id,
+            machine_id: value.machine_id,
+            mac_address: value.mac_address,
+            created: value.created,
+            updated: value.updated,
+            deleted: value.deleted,
+            last_hb_time: value.last_hb_time,
+            controller_state: Versioned {
+                value: value.controller_state,
+                version: value.controller_state_version.parse().map_err(|e| {
+                    sqlx::error::Error::ColumnDecode {
+                        index: "controller_state_version".to_string(),
+                        source: Box::new(e),
+                    }
+                })?,
+            },
+            controller_state_outcome: value.controller_state_outcome,
+            network_config: Versioned {
+                value: value.network_config,
+                version: value.network_config_version.parse().map_err(|e| {
+                    sqlx::error::Error::ColumnDecode {
+                        index: "network_config_version".to_string(),
+                        source: Box::new(e),
+                    }
+                })?,
+            },
+            card_state: value.card_state,
+            device_info: value.device_info,
+            device_info_ts: value.device_info_ts,
+            mlxconfig_profile: value.mlxconfig_profile,
+            history: value.history,
+            pci_name: value.pci_name,
+            underlay_ip: value.underlay_ip,
+            overlay_ip: value.overlay_ip,
+            device_description: value.device_description,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use libmlx::device::info::MlxDeviceInfo;
+    use std::str::FromStr;
+
+    use carbide_libmlx_model::device::info::MlxDeviceInfo;
 
     use super::*;
 
@@ -282,269 +468,5 @@ mod tests {
             serde_json::from_str::<DpaInterfaceControllerState>(&serialized).unwrap(),
             state
         );
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DpaInterface {
-    pub id: DpaInterfaceId,
-    pub machine_id: MachineId,
-
-    pub mac_address: MacAddress,
-    pub pci_name: String,
-
-    pub underlay_ip: Option<IpAddr>,
-    pub overlay_ip: Option<IpAddr>,
-
-    pub created: DateTime<Utc>,
-    pub updated: DateTime<Utc>,
-    pub deleted: Option<DateTime<Utc>>,
-
-    pub controller_state: Versioned<DpaInterfaceControllerState>,
-
-    // Last time we issued a heartbeat command to the DPA
-    pub last_hb_time: DateTime<Utc>,
-
-    /// The result of the last attempt to change state
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
-
-    pub network_config: Versioned<DpaInterfaceNetworkConfig>,
-    pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
-
-    pub card_state: Option<CardState>,
-
-    // device_info and its corresponding timestamp are used to
-    // keep track of the latest MlxDeviceInfo received by scout
-    // for the target Mellanox device. This contains information
-    // like the part number, PSID, firmware version(s), MAC address,
-    // etc. We store the received timestamp alongside it to detect
-    // if we're acting on potentially stale MlxDeviceInfo data.
-    pub device_info: Option<MlxDeviceInfo>,
-    pub device_info_ts: Option<DateTime<Utc>>,
-
-    // mlxconfig_profile is the name of an MlxConfigProfile from
-    // the mlx-config-profiles config map. When set, this profile
-    // will be applied to the device during the ApplyProfile state.
-    // When None, ApplyProfile will simply perform an mlxconfig
-    // reset and not apply any subsequent defaults, ensuring the
-    // card is back to stock before the next tenancy.
-    pub mlxconfig_profile: Option<String>,
-
-    pub history: Vec<StateHistoryRecord>,
-}
-
-#[derive(Clone, Debug)]
-pub struct NewDpaInterface {
-    pub machine_id: MachineId,
-    pub mac_address: MacAddress,
-    pub device_type: String,
-    pub pci_name: String,
-}
-
-impl NewDpaInterface {
-    /// from_device_info builds a NewDpaInterface instance for a given
-    /// MachineId from a given MlxDeviceInfo, since it contains everything
-    /// we use as input for an interface.
-    ///
-    /// Right now the only reason this would fail is if base_mac was unset,
-    /// at which point we'll just return None, meaning the caller knows that
-    /// the base_mac was unset. Since the mac_address is the latter half of
-    /// what is effectively a (machine_id, mac_address) compound primary key,
-    /// it's kind of important to have.
-    pub fn from_device_info(machine_id: MachineId, info: &MlxDeviceInfo) -> Option<Self> {
-        Some(Self {
-            machine_id,
-            mac_address: info.base_mac?,
-            device_type: info.device_type.clone(),
-            pci_name: info.pci_name.clone(),
-        })
-    }
-}
-
-impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::DpaInterfaceCreationRequest) -> Result<Self, Self::Error> {
-        let machine_id = value
-            .machine_id
-            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
-        let mac_address = MacAddress::from_str(&value.mac_addr)
-            .map_err(|_| RpcDataConversionError::InvalidMacAddress(value.mac_addr.to_string()))?;
-        Ok(NewDpaInterface {
-            machine_id,
-            mac_address,
-            device_type: value.device_type,
-            pci_name: value.pci_name,
-        })
-    }
-}
-
-impl DpaInterface {
-    pub fn get_machine_id(&self) -> MachineId {
-        self.machine_id
-    }
-
-    pub fn managed_host_network_config_version_synced(&self) -> bool {
-        let dpa_expected_version = self.network_config.version;
-        let dpa_observation = self.network_status_observation.as_ref();
-
-        let dpa_observed_version: ConfigVersion = match dpa_observation {
-            Some(network_status) => match network_status.network_config_version {
-                Some(version) => version,
-                None => return false,
-            },
-            None => return false,
-        };
-
-        dpa_expected_version == dpa_observed_version
-    }
-
-    pub fn is_ready(&self) -> bool {
-        self.controller_state.value == DpaInterfaceControllerState::Ready
-    }
-}
-
-impl<'r> FromRow<'r, PgRow> for DpaInterface {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        DpaInterfaceSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
-    }
-}
-
-impl From<DpaInterface> for rpc::forge::DpaInterface {
-    fn from(src: DpaInterface) -> Self {
-        let (controller_state, controller_state_version) = src.controller_state.take();
-        let (network_config, network_config_version) = src.network_config.take();
-
-        let outcome = match src.controller_state_outcome {
-            Some(psho) => psho.to_string(),
-            None => "None".to_string(),
-        };
-
-        let network_status_observation = match src.network_status_observation {
-            Some(nso) => nso.to_string(),
-            None => "None".to_string(),
-        };
-
-        let cstate = match src.card_state {
-            Some(cs) => cs.to_string(),
-            None => "None".to_string(),
-        };
-
-        let underlay = match src.underlay_ip {
-            Some(ip) => ip.to_string(),
-            None => String::new(),
-        };
-
-        let overlay = match src.overlay_ip {
-            Some(ip) => ip.to_string(),
-            None => String::new(),
-        };
-
-        let history: Vec<rpc::forge::StateHistoryRecord> = src
-            .history
-            .into_iter()
-            .sorted_by(|s1: &StateHistoryRecord, s2: &StateHistoryRecord| {
-                Ord::cmp(&s1.state_version.timestamp(), &s2.state_version.timestamp())
-            })
-            .map(Into::into)
-            .collect();
-
-        rpc::forge::DpaInterface {
-            id: Some(src.id),
-            created: Some(src.created.into()),
-            updated: Some(src.updated.into()),
-            deleted: src.deleted.map(|t| t.into()),
-            last_hb_time: Some(src.last_hb_time.into()),
-            mac_addr: src.mac_address.to_string(),
-            machine_id: Some(src.machine_id),
-            controller_state: controller_state.to_string(),
-            controller_state_version: controller_state_version.to_string(),
-            network_config: network_config.to_string(),
-            network_config_version: network_config_version.to_string(),
-            controller_state_outcome: outcome,
-            network_status_observation,
-            history,
-            card_state: cstate,
-            pci_name: src.pci_name,
-            underlay_ip: underlay,
-            overlay_ip: overlay,
-            mlxconfig_profile: src.mlxconfig_profile,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DpaInterfaceSnapshotPgJson {
-    pub id: DpaInterfaceId,
-    pub machine_id: MachineId,
-    pub mac_address: MacAddress,
-    pub created: DateTime<Utc>,
-    pub updated: DateTime<Utc>,
-    pub deleted: Option<DateTime<Utc>>,
-    pub last_hb_time: DateTime<Utc>,
-    pub controller_state: DpaInterfaceControllerState,
-    pub controller_state_version: String,
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
-    pub network_config: DpaInterfaceNetworkConfig,
-    pub network_config_version: String,
-    pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
-    pub card_state: Option<CardState>,
-    pub pci_name: String,
-    pub underlay_ip: Option<IpAddr>,
-    pub overlay_ip: Option<IpAddr>,
-    #[serde(default, alias = "device_info_report")]
-    pub device_info: Option<MlxDeviceInfo>,
-    #[serde(default, alias = "device_info_report_ts")]
-    pub device_info_ts: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub mlxconfig_profile: Option<String>,
-    #[serde(default)]
-    pub history: Vec<StateHistoryRecord>,
-}
-
-impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
-    type Error = sqlx::Error;
-
-    fn try_from(value: DpaInterfaceSnapshotPgJson) -> sqlx::Result<Self> {
-        Ok(Self {
-            id: value.id,
-            machine_id: value.machine_id,
-            mac_address: value.mac_address,
-            created: value.created,
-            updated: value.updated,
-            deleted: value.deleted,
-            last_hb_time: value.last_hb_time,
-            controller_state: Versioned {
-                value: value.controller_state,
-                version: value.controller_state_version.parse().map_err(|e| {
-                    sqlx::error::Error::ColumnDecode {
-                        index: "controller_state_version".to_string(),
-                        source: Box::new(e),
-                    }
-                })?,
-            },
-            controller_state_outcome: value.controller_state_outcome,
-            network_config: Versioned {
-                value: value.network_config,
-                version: value.network_config_version.parse().map_err(|e| {
-                    sqlx::error::Error::ColumnDecode {
-                        index: "network_config_version".to_string(),
-                        source: Box::new(e),
-                    }
-                })?,
-            },
-            network_status_observation: value.network_status_observation,
-            card_state: value.card_state,
-            device_info: value.device_info,
-            device_info_ts: value.device_info_ts,
-            mlxconfig_profile: value.mlxconfig_profile,
-            history: value.history,
-            pci_name: value.pci_name,
-            underlay_ip: value.underlay_ip,
-            overlay_ip: value.overlay_ip,
-        })
     }
 }

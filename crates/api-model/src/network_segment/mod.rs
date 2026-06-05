@@ -22,9 +22,6 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use itertools::Itertools;
-use rpc::TenantState;
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -41,15 +38,6 @@ mod slas;
 pub struct NetworkSegmentSearchFilter {
     pub name: Option<String>,
     pub tenant_org_id: Option<String>,
-}
-
-impl From<rpc::forge::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
-    fn from(filter: rpc::forge::NetworkSegmentSearchFilter) -> Self {
-        NetworkSegmentSearchFilter {
-            name: filter.name,
-            tenant_org_id: filter.tenant_org_id,
-        }
-    }
 }
 
 /// State of a network segment as tracked by the controller
@@ -110,6 +98,7 @@ pub struct NetworkDefinition {
 pub enum NetworkDefinitionSegmentType {
     Admin,
     Underlay,
+    HostInband,
     // Tenant networks are created via the API, not the config file
 }
 
@@ -137,221 +126,51 @@ pub fn state_sla(state: &NetworkSegmentControllerState, state_version: &ConfigVe
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serialize_controller_state() {
-        let state = NetworkSegmentControllerState::Provisioning {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"provisioning\"}");
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
-        );
-
-        let state = NetworkSegmentControllerState::Ready {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"ready\"}");
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
-        );
-
-        let deletion_time: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
-        let state = NetworkSegmentControllerState::Deleting {
-            deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
-                delete_at: deletion_time,
-            },
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            "{\"state\":\"deleting\",\"deletion_state\":{\"state\":\"drainallocatedips\",\"delete_at\":\"2022-12-13T04:41:38Z\"}}"
-        );
-        assert_eq!(
-            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
-            state
-        );
-    }
-
-    fn make_test_creation_request(
-        prefixes: Vec<rpc::forge::NetworkPrefix>,
-        segment_type: NetworkSegmentType,
-    ) -> rpc::forge::NetworkSegmentCreationRequest {
-        rpc::forge::NetworkSegmentCreationRequest {
-            id: None,
-            mtu: Some(1500),
-            name: "TEST_SEGMENT".to_string(),
-            prefixes,
-            subdomain_id: None,
-            vpc_id: None,
-            segment_type: match segment_type {
-                NetworkSegmentType::Admin => rpc::forge::NetworkSegmentType::Admin as i32,
-                NetworkSegmentType::Tenant => rpc::forge::NetworkSegmentType::Tenant as i32,
-                NetworkSegmentType::Underlay => rpc::forge::NetworkSegmentType::Underlay as i32,
-                NetworkSegmentType::HostInband => rpc::forge::NetworkSegmentType::HostInband as i32,
-            },
-        }
-    }
-
-    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
-            id: None,
-            prefix: prefix.to_string(),
-            gateway: gateway.map(|g| g.to_string()),
-            reserve_first: 1,
-            free_ip_count: 0,
-            svi_ip: None,
-        }
-    }
-
-    fn ipv6_prefix(prefix: &str) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
-            id: None,
-            prefix: prefix.to_string(),
-            gateway: None,
-            reserve_first: 0,
-            free_ip_count: 0,
-            svi_ip: None,
-        }
-    }
-
-    #[test]
-    fn test_ipv6_prefix_accepted() {
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::/64")],
-            NetworkSegmentType::Admin,
-        );
-        let result = NewNetworkSegment::try_from(request);
-        assert!(result.is_ok(), "IPv6 prefix should be accepted: {result:?}");
-        let segment = result.unwrap();
-        assert_eq!(segment.prefixes.len(), 1);
-        assert!(segment.prefixes[0].prefix.is_ipv6());
-    }
-
-    #[test]
-    fn test_dual_stack_prefixes_accepted() {
-        let request = make_test_creation_request(
-            vec![
-                ipv4_prefix("192.0.2.0/24", Some("192.0.2.1")),
-                ipv6_prefix("2001:db8::/64"),
-            ],
-            NetworkSegmentType::Admin,
-        );
-        let result = NewNetworkSegment::try_from(request);
-        assert!(result.is_ok(), "Dual-stack should be accepted: {result:?}");
-        let segment = result.unwrap();
-        assert_eq!(segment.prefixes.len(), 2);
-    }
-
-    #[test]
-    fn test_ipv6_tenant_prefix_size_validation() {
-        // /64 should be allowed for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::/64")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_ok(),
-            "/64 IPv6 prefix should be allowed for tenant segments"
-        );
-
-        // /127 should be rejected for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::1/127")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_err(),
-            "/127 IPv6 prefix should be rejected for tenant segments"
-        );
-
-        // /128 should be rejected for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::1/128")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_err(),
-            "/128 IPv6 prefix should be rejected for tenant segments"
-        );
-    }
-
-    #[test]
-    fn test_ipv4_tenant_prefix_size_validation_unchanged() {
-        // /24 should be allowed
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(NewNetworkSegment::try_from(request).is_ok());
-
-        // /31 should be rejected
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/31", Some("192.0.2.1"))],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(NewNetworkSegment::try_from(request).is_err());
-
-        // /32 should be rejected
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/32", None)],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(NewNetworkSegment::try_from(request).is_err());
-    }
-}
-
-const DEFAULT_MTU_TENANT: i32 = 9000;
-const DEFAULT_MTU_OTHER: i32 = 1500;
-
 #[derive(Debug, Copy, Clone, Default)]
 pub struct NetworkSegmentSearchConfig {
     pub include_history: bool,
     pub include_num_free_ips: bool,
 }
 
-impl From<rpc::forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
-    fn from(value: rpc::forge::NetworkSegmentSearchConfig) -> Self {
-        NetworkSegmentSearchConfig {
-            include_history: value.include_history,
-            include_num_free_ips: value.include_num_free_ips,
-        }
-    }
+/// User-controlled configuration for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentConfig {
+    pub name: String,
+    pub subdomain_id: Option<DomainId>,
+    pub mtu: i32,
+    pub segment_type: NetworkSegmentType,
+    pub allocation_strategy: AllocationStrategy,
+    pub vpc_id: Option<VpcId>,
+}
+
+/// System-observed status for a network segment.
+#[derive(Debug, Clone)]
+pub struct NetworkSegmentStatus {
+    pub controller_state: Versioned<NetworkSegmentControllerState>,
+    /// The result of the last attempt to change state
+    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// History of state changes.
+    pub history: Vec<StateHistoryRecord>,
+    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
+    pub vni: Option<i32>,
+    pub can_stretch: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
 pub struct NetworkSegment {
     pub id: NetworkSegmentId,
     pub version: ConfigVersion,
-    pub name: String,
-    pub subdomain_id: Option<DomainId>,
-    pub vpc_id: Option<VpcId>,
-    pub mtu: i32,
+    pub config: NetworkSegmentConfig,
+    pub status: NetworkSegmentStatus,
 
-    pub controller_state: Versioned<NetworkSegmentControllerState>,
-
-    /// The result of the last attempt to change state
-    pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    /// Prefixes are kept top-level because each NetworkPrefix contains both
+    /// user-specified fields (CIDR, gateway, reserve_first) and system-populated
+    /// fields (id, svi_ip, free_ip_count).
+    pub prefixes: Vec<NetworkPrefix>,
 
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
-
-    pub prefixes: Vec<NetworkPrefix>,
-    /// History of state changes.
-    pub history: Vec<StateHistoryRecord>,
-
-    pub vlan_id: Option<i16>, // vlan_id are [0-4096) range, enforced via DB constraint
-    pub vni: Option<i32>,
-
-    pub segment_type: NetworkSegmentType,
-
-    pub can_stretch: Option<bool>,
-
-    pub allocation_strategy: AllocationStrategy,
 }
 
 impl NetworkSegment {
@@ -415,25 +234,6 @@ pub struct NewNetworkSegment {
     pub allocation_strategy: AllocationStrategy,
 }
 
-impl TryFrom<i32> for NetworkSegmentType {
-    type Error = RpcDataConversionError;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(match value {
-            x if x == rpc::forge::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
-            x if x == rpc::forge::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
-            x if x == rpc::forge::NetworkSegmentType::Underlay as i32 => {
-                NetworkSegmentType::Underlay
-            }
-            x if x == rpc::forge::NetworkSegmentType::HostInband as i32 => {
-                NetworkSegmentType::HostInband
-            }
-            _ => {
-                return Err(RpcDataConversionError::InvalidNetworkSegmentType(value));
-            }
-        })
-    }
-}
-
 impl FromStr for NetworkSegmentType {
     type Err = ModelError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -486,165 +286,29 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
         Ok(NetworkSegment {
             id: row.try_get("id")?,
             version: row.try_get("version")?,
-            name: row.try_get("name")?,
-            subdomain_id: row.try_get("subdomain_id")?,
-            vpc_id: row.try_get("vpc_id")?,
-            controller_state: Versioned::new(
-                controller_state.0,
-                row.try_get("controller_state_version")?,
-            ),
-            controller_state_outcome: state_outcome.map(|x| x.0),
+            config: NetworkSegmentConfig {
+                name: row.try_get("name")?,
+                subdomain_id: row.try_get("subdomain_id")?,
+                mtu: row.try_get("mtu")?,
+                segment_type: row.try_get("network_segment_type")?,
+                allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
+                vpc_id: row.try_get("vpc_id")?,
+            },
+            status: NetworkSegmentStatus {
+                controller_state: Versioned::new(
+                    controller_state.0,
+                    row.try_get("controller_state_version")?,
+                ),
+                controller_state_outcome: state_outcome.map(|x| x.0),
+                history,
+                vlan_id: row.try_get("vlan_id").unwrap_or_default(),
+                vni: row.try_get("vni_id").unwrap_or_default(),
+                can_stretch: row.try_get("can_stretch")?,
+            },
+            prefixes,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
             deleted: row.try_get("deleted")?,
-            mtu: row.try_get("mtu")?,
-            prefixes,
-            history,
-            vlan_id: row.try_get("vlan_id").unwrap_or_default(),
-            vni: row.try_get("vni_id").unwrap_or_default(),
-            segment_type: row.try_get("network_segment_type")?,
-            can_stretch: row.try_get("can_stretch")?,
-            allocation_strategy: row.try_get("allocation_strategy").unwrap_or_default(),
-        })
-    }
-}
-
-/// Converts from Protobuf NetworkSegmentCreationRequest into NewNetworkSegment
-///
-/// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
-/// Use try_from in order to return a Result where Result is an error if the conversion
-/// from String -> UUID fails
-impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
-        if value.prefixes.is_empty() {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "Prefixes are empty.".to_string(),
-            ));
-        }
-
-        let prefixes = value
-            .prefixes
-            .into_iter()
-            .map(NewNetworkPrefix::try_from)
-            .collect::<Result<Vec<NewNetworkPrefix>, RpcDataConversionError>>()?;
-
-        let id = value.id.unwrap_or_else(|| uuid::Uuid::new_v4().into());
-
-        let segment_type: NetworkSegmentType = value.segment_type.try_into()?;
-        if segment_type == NetworkSegmentType::Tenant
-            && prefixes.iter().any(|ip| match ip.prefix {
-                ipnetwork::IpNetwork::V4(v4) => v4.prefix() >= 31,
-                ipnetwork::IpNetwork::V6(v6) => v6.prefix() >= 127,
-            })
-        {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "IPv4 prefix /31 and /32 (or IPv6 /127 and /128) are not allowed for tenant segments.".to_string(),
-            ));
-        }
-
-        // This TryFrom implementation is part of the API handler logic for
-        // network segment creation, and is not used by FNN. Therefore, the only
-        // type of tenant segment we could be creating is a stretchable one.
-        let can_stretch = matches!(segment_type, NetworkSegmentType::Tenant).then_some(true);
-
-        Ok(NewNetworkSegment {
-            id,
-            name: value.name,
-            subdomain_id: value.subdomain_id,
-            vpc_id: value.vpc_id,
-            mtu: value.mtu.unwrap_or(match segment_type {
-                NetworkSegmentType::Tenant => DEFAULT_MTU_TENANT,
-                _ => DEFAULT_MTU_OTHER,
-            }),
-            prefixes,
-            vlan_id: None,
-            vni: None,
-            segment_type,
-            can_stretch,
-            allocation_strategy: AllocationStrategy::Dynamic,
-        })
-    }
-}
-
-///
-/// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
-///
-/// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
-impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
-    type Error = RpcDataConversionError;
-    fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
-        // Note that even thought the segment might already be ready,
-        // we only return `Ready` after
-        // the state machine also noticed that. Otherwise we would need to also
-        // allow address allocation before the controller state is ready, which
-        // spreads out the state mismatch to a lot more places.
-        let mut state = match &src.controller_state.value {
-            NetworkSegmentControllerState::Provisioning => TenantState::Provisioning,
-            NetworkSegmentControllerState::Ready => TenantState::Ready,
-            NetworkSegmentControllerState::Deleting { .. } => TenantState::Terminating,
-        };
-        // If deletion is requested, we immediately overwrite the state to terminating.
-        // Even though the state controller hasn't caught up - it eventually will
-        if src.is_marked_as_deleted() {
-            state = TenantState::Terminating;
-        }
-
-        let mut history = Vec::with_capacity(src.history.len());
-
-        for state in src.history {
-            history.push(state.into());
-        }
-
-        let flags: Vec<i32> = {
-            use rpc::forge::NetworkSegmentFlag::*;
-
-            let mut flags = vec![];
-
-            let can_stretch = src.can_stretch.unwrap_or_else(|| {
-                // If the segment's can_stretch flag is NULL in the database,
-                // we're going to have to go off of what an FNN-created
-                // segment's prefixes would look like, and then assume any such
-                // FNN segment is _not_ stretchable.
-                src.prefixes.iter().all(|p| !p.smells_like_fnn())
-            });
-            if can_stretch {
-                flags.push(CanStretch);
-            }
-
-            // Just so a gRPC client can tell the difference between a missing
-            // `flags` field and an empty one.
-            if flags.is_empty() {
-                flags.push(NoOp);
-            }
-
-            flags.into_iter().map(|flag| flag as i32).collect()
-        };
-
-        Ok(rpc::NetworkSegment {
-            id: Some(src.id),
-            version: src.version.version_string(),
-            name: src.name,
-            subdomain_id: src.subdomain_id,
-            mtu: Some(src.mtu),
-            created: Some(src.created.into()),
-            updated: Some(src.updated.into()),
-            deleted: src.deleted.map(|t| t.into()),
-            prefixes: src
-                .prefixes
-                .into_iter()
-                .map(rpc::forge::NetworkPrefix::from)
-                .collect_vec(),
-            vpc_id: src.vpc_id,
-            state: state as i32,
-            state_reason: src.controller_state_outcome.map(|r| r.into()),
-            state_sla: Some(
-                state_sla(&src.controller_state.value, &src.controller_state.version).into(),
-            ),
-            history,
-            segment_type: src.segment_type as i32,
-            flags,
         })
     }
 }
@@ -654,15 +318,16 @@ impl NewNetworkSegment {
         name: &str,
         domain_id: DomainId,
         value: &NetworkDefinition,
-    ) -> Result<Self, RpcDataConversionError> {
-        let prefix =
-            NewNetworkPrefix {
-                prefix: value.prefix.parse()?,
-                gateway: Some(value.gateway.parse().map_err(|_| {
-                    RpcDataConversionError::InvalidIpAddress(value.gateway.clone())
-                })?),
-                num_reserved: value.reserve_first,
-            };
+    ) -> Result<Self, ModelError> {
+        let prefix = NewNetworkPrefix {
+            prefix: value.prefix.parse().map_err(|_| {
+                ModelError::InvalidArgument(format!("Invalid network prefix: {}", value.prefix))
+            })?,
+            gateway: Some(value.gateway.parse().map_err(|_| {
+                ModelError::InvalidArgument(format!("Invalid gateway address: {}", value.gateway))
+            })?),
+            num_reserved: value.reserve_first,
+        };
         Ok(NewNetworkSegment {
             id: uuid::Uuid::new_v4().into(),
             name: name.to_string(), // Set by the caller later
@@ -675,9 +340,50 @@ impl NewNetworkSegment {
             segment_type: match value.segment_type {
                 NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
                 NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
+                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
             },
             can_stretch: None,
             allocation_strategy: value.allocation_strategy,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialize_controller_state() {
+        let state = NetworkSegmentControllerState::Provisioning {};
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, "{\"state\":\"provisioning\"}");
+        assert_eq!(
+            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
+            state
+        );
+
+        let state = NetworkSegmentControllerState::Ready {};
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, "{\"state\":\"ready\"}");
+        assert_eq!(
+            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
+            state
+        );
+
+        let deletion_time: DateTime<Utc> = "2022-12-13T04:41:38Z".parse().unwrap();
+        let state = NetworkSegmentControllerState::Deleting {
+            deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps {
+                delete_at: deletion_time,
+            },
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            "{\"state\":\"deleting\",\"deletion_state\":{\"state\":\"drainallocatedips\",\"delete_at\":\"2022-12-13T04:41:38Z\"}}"
+        );
+        assert_eq!(
+            serde_json::from_str::<NetworkSegmentControllerState>(&serialized).unwrap(),
+            state
+        );
     }
 }

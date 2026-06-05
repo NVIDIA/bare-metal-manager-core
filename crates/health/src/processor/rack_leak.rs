@@ -23,8 +23,8 @@ use dashmap::DashMap;
 
 use super::{EventContext, EventProcessor};
 use crate::sink::{
-    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess, Probe,
-    ReportSource,
+    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
+    HealthReportTarget, Probe, ReportSource,
 };
 
 struct RackLeakState {
@@ -48,6 +48,7 @@ impl RackLeakProcessor {
         if leaking_count >= self.leaking_tray_threshold {
             HealthReport {
                 source: ReportSource::RackLeakDetection,
+                target: Some(HealthReportTarget::Rack),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![],
                 alerts: vec![HealthReportAlert {
@@ -63,6 +64,7 @@ impl RackLeakProcessor {
         } else {
             HealthReport {
                 source: ReportSource::RackLeakDetection,
+                target: Some(HealthReportTarget::Rack),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![HealthReportSuccess {
                     probe_id: Probe::LeakDetection,
@@ -96,6 +98,10 @@ impl EventProcessor for RackLeakProcessor {
         };
 
         if report.source != ReportSource::TrayLeakDetection {
+            return Vec::new();
+        }
+
+        if report.target != Some(HealthReportTarget::Machine) {
             return Vec::new();
         }
 
@@ -164,6 +170,7 @@ mod tests {
         let report = if leaking {
             HealthReport {
                 source: ReportSource::TrayLeakDetection,
+                target: Some(HealthReportTarget::Machine),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![],
                 alerts: vec![HealthReportAlert {
@@ -176,6 +183,7 @@ mod tests {
         } else {
             HealthReport {
                 source: ReportSource::TrayLeakDetection,
+                target: Some(HealthReportTarget::Machine),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![HealthReportSuccess {
                     probe_id: Probe::LeakDetection,
@@ -193,6 +201,7 @@ mod tests {
         let ctx = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
         let report = HealthReport {
             source: ReportSource::BmcSensors,
+            target: Some(HealthReportTarget::Machine),
             observed_at: None,
             successes: vec![],
             alerts: vec![],
@@ -222,6 +231,7 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.source, ReportSource::RackLeakDetection);
+        assert_eq!(report.target, Some(HealthReportTarget::Rack));
         assert!(report.alerts.is_empty());
         assert_eq!(report.successes.len(), 1);
     }
@@ -240,6 +250,7 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.source, ReportSource::RackLeakDetection);
+        assert_eq!(report.target, Some(HealthReportTarget::Rack));
         assert_eq!(report.alerts.len(), 1);
         assert!(report.alerts[0].message.contains("2 leaking trays"));
     }

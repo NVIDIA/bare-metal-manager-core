@@ -87,6 +87,12 @@ impl FmdsConfigService for FmdsGrpcServer {
 
         self.state.update_config(config);
 
+        if let Some(machine_identity) = update.machine_identity {
+            self.state
+                .apply_machine_identity_from_proto(machine_identity)
+                .map_err(Status::invalid_argument)?;
+        }
+
         tracing::info!(agent_address, "Received config update from agent");
 
         Ok(Response::new(UpdateConfigResponse {}))
@@ -95,12 +101,13 @@ impl FmdsConfigService for FmdsGrpcServer {
 
 #[cfg(test)]
 mod tests {
-    use rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance};
+    use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
+    use rpc::fmds::{FmdsConfigUpdate, FmdsMachineIdentityConfig, IbDevice, IbInstance};
 
     use super::*;
 
     fn make_test_state() -> Arc<FmdsState> {
-        Arc::new(FmdsState::new("https://api.test".to_string(), None))
+        Arc::new(FmdsState::try_new("https://api.test".to_string(), None).unwrap())
     }
 
     fn make_test_update() -> FmdsConfigUpdate {
@@ -117,7 +124,52 @@ mod tests {
             user_data: "cloud-init-data".to_string(),
             ib_devices: vec![],
             asn: 65000,
+            machine_identity: Some(MachineIdentityParams::default().into()),
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_config_omitted_machine_identity_preserves_serving() {
+        let state = make_test_state();
+        let server = FmdsGrpcServer::new(state.clone());
+
+        let mut first = make_test_update();
+        first.machine_identity = Some(FmdsMachineIdentityConfig {
+            requests_per_second: 5,
+            burst: 10,
+            wait_timeout_secs: 3,
+            sign_timeout_secs: 6,
+            sign_proxy_url: None,
+            sign_proxy_tls_root_ca: None,
+        });
+
+        server
+            .update_config(Request::new(UpdateConfigRequest {
+                config_update: Some(first),
+            }))
+            .await
+            .unwrap();
+
+        let ptr_after_first = Arc::as_ptr(&state.machine_identity.load_full());
+
+        let mut second = make_test_update();
+        second.address = "10.0.0.2".to_string();
+        second.machine_identity = None;
+
+        server
+            .update_config(Request::new(UpdateConfigRequest {
+                config_update: Some(second),
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            Arc::as_ptr(&state.machine_identity.load_full()),
+            ptr_after_first
+        );
+
+        let config = state.config.load_full().unwrap();
+        assert_eq!(config.address, "10.0.0.2");
     }
 
     #[tokio::test]

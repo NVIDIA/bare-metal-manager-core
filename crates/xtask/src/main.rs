@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+mod isolated_package_builds;
 mod workspace_deps;
 
 use clap::Parser;
@@ -26,6 +27,11 @@ enum Xtask {
         about = "Check for any dependency versions defined in crate-level Cargo.toml's instead of the workspace root"
     )]
     CheckWorkspaceDeps(CheckWorkspaceDeps),
+    #[clap(
+        name = "check-isolated-package-builds",
+        about = "Check that each workspace package builds independently with its default features"
+    )]
+    IsolatedPackageBuilds,
 }
 
 #[derive(Parser, Debug)]
@@ -43,5 +49,6 @@ fn main() -> eyre::Result<()> {
         Xtask::CheckWorkspaceDeps(CheckWorkspaceDeps { fix }) => {
             workspace_deps::check(fix)?.report_and_exit()
         }
-    };
+        Xtask::IsolatedPackageBuilds => isolated_package_builds::check(),
+    }
 }

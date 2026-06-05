@@ -17,7 +17,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
 use rcgen::{CertifiedKey, generate_simple_self_signed};
@@ -89,39 +89,41 @@ pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<Machine
 pub async fn send_pxe_boot_request(
     app_context: &MachineATronContext,
     arch: MachineArchitecture,
-    interface_id: MachineInterfaceId,
+    client_ip: std::net::IpAddr,
     product: Option<String>,
-    forward_ip: Option<String>,
 ) -> Result<PxeResponse, PxeError> {
     let pxe_script: String =
         if app_context.app_config.use_pxe_api {
             let response = app_context
                 .api_client()
-                .get_pxe_instructions(arch, interface_id, product)
+                .get_pxe_instructions(arch, client_ip, product)
                 .await?;
             tracing::info!("PXE Request successful");
             response.pxe_script
         } else {
             let url =
                 format!(
-                    "http://{}:{}/api/v0/pxe/boot?uuid={}&buildarch={}",
+                    "http://{}:{}/api/v0/pxe/boot?buildarch={}",
                     app_context.app_config.pxe_server_host.as_ref().expect(
                         "Config error: use_pxe_api is false but pxe_server_host is not set"
                     ),
                     app_context.app_config.pxe_server_port.as_ref().expect(
                         "Config error: use_pxe_api is false but pxe_server_port is not set"
                     ),
-                    interface_id,
                     match arch {
                         MachineArchitecture::X86 => "x86_64",
                         MachineArchitecture::Arm => "arm64",
                     }
                 );
 
-            let mut request = ClientBuilder::new().build().unwrap().get(&url);
-            if let Some(forward_ip) = forward_ip {
-                request = request.header("X-Forwarded-For", forward_ip);
-            }
+            // carbide-pxe identifies the machine by the request's client
+            // IP (via X-Forwarded-For when fronted by a proxy), so spoof
+            // it via XFF here.
+            let request = ClientBuilder::new()
+                .build()
+                .unwrap()
+                .get(&url)
+                .header("X-Forwarded-For", client_ip.to_string());
 
             let response = request.send().await?;
             if !response.status().is_success() {

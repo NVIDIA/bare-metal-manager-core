@@ -96,33 +96,6 @@ impl From<&str> for AgentUpgradePolicy {
     }
 }
 
-// From the RPC
-impl From<i32> for AgentUpgradePolicy {
-    fn from(rpc_policy: i32) -> Self {
-        use rpc::forge::AgentUpgradePolicy::*;
-        match rpc_policy {
-            n if n == Off as i32 => AgentUpgradePolicy::Off,
-            n if n == UpOnly as i32 => AgentUpgradePolicy::UpOnly,
-            n if n == UpDown as i32 => AgentUpgradePolicy::UpDown,
-            _ => {
-                unreachable!();
-            }
-        }
-    }
-}
-
-// To the RPC
-impl From<AgentUpgradePolicy> for i32 {
-    fn from(p: AgentUpgradePolicy) -> Self {
-        use AgentUpgradePolicy::*;
-        match p {
-            Off => rpc::forge::AgentUpgradePolicy::Off as i32,
-            UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly as i32,
-            UpDown => rpc::forge::AgentUpgradePolicy::UpDown as i32,
-        }
-    }
-}
-
 // From the config file
 impl From<AgentUpgradePolicyChoice> for AgentUpgradePolicy {
     fn from(c: AgentUpgradePolicyChoice) -> Self {

@@ -34,7 +34,7 @@ fi
 pxe_uri=$(sed 's/ /\n/g' /proc/cmdline | grep '^pxe_uri=' | cut -d'=' -f2)
 static_pxe_base_url=${pxe_uri:-http://carbide-static-pxe.forge}
 arch=$(uname -m)
-scout_url="${static_pxe_base_url}/public/blobs/internal/${arch}/scout.cpio.zst"
+scout_url="${static_pxe_base_url}/public/blobs/internal/${arch}/scout.squashfs"
 www_last_modified_str=$(curl -sf --head ${scout_url} 2>/dev/null | sed 's/\r//g' | grep Last-Modified)
 if (( $? != 0 ))
 then

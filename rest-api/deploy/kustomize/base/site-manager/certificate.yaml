@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Certificate for site-manager TLS, managed by cert-manager.io
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: site-manager-tls
+spec:
+  # Secret where cert-manager will store the certificate
+  secretName: site-manager-tls
+
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  subject:
+    organizations:
+      - Nvidia
+  commonName: carbide-rest-site-manager
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - carbide-rest-site-manager
+    - carbide-rest-site-manager.carbide-rest
+    - carbide-rest-site-manager.carbide-rest.svc.cluster.local
+    - localhost
+  issuerRef:
+    name: carbide-rest-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

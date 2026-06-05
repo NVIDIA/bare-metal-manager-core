@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# PostgreSQL initialization scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  labels:
+    app: postgres
+data:
+  01-init-databases.sql: |
+    -- Enable pg_trgm extension (required for text search)
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    -- Create nico database and user (used by API, Workflow)
+    CREATE DATABASE nico WITH ENCODING 'UTF8';
+    CREATE USER nico WITH PASSWORD 'nico';
+    GRANT ALL PRIVILEGES ON DATABASE nico TO nico;
+
+    -- Connect to nico database to set up permissions
+    \c nico
+    GRANT ALL ON SCHEMA public TO nico;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    -- Create keycloak database
+    \c postgres
+    CREATE DATABASE keycloak WITH ENCODING 'UTF8';
+    CREATE USER keycloak WITH PASSWORD 'keycloak';
+    GRANT ALL PRIVILEGES ON DATABASE keycloak TO keycloak;
+
+    \c keycloak
+    GRANT ALL ON SCHEMA public TO keycloak;
+
+    -- Create temporal databases (for Temporal workflow engine)
+    \c postgres
+    CREATE DATABASE temporal WITH ENCODING 'UTF8';
+    CREATE USER temporal WITH PASSWORD 'temporal' CREATEDB;
+    GRANT ALL PRIVILEGES ON DATABASE temporal TO temporal;
+    ALTER DATABASE temporal OWNER TO temporal;
+
+    \c temporal
+    GRANT ALL ON SCHEMA public TO temporal;
+    ALTER SCHEMA public OWNER TO temporal;
+
+    \c postgres
+    CREATE DATABASE temporal_visibility WITH ENCODING 'UTF8';
+    GRANT ALL PRIVILEGES ON DATABASE temporal_visibility TO temporal;
+    ALTER DATABASE temporal_visibility OWNER TO temporal;
+
+    \c temporal_visibility
+    GRANT ALL ON SCHEMA public TO temporal;
+    ALTER SCHEMA public OWNER TO temporal;

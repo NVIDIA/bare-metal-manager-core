@@ -84,6 +84,13 @@ pub struct Args {
     pub bmc_ip_address: Option<IpAddr>,
 
     #[clap(
+        long = "nvos-ip-address",
+        value_name = "NVOS_IP_ADDRESS",
+        help = "Static IP for the single wired NVOS port. Requires exactly one --nvos-mac-address"
+    )]
+    pub nvos_ip_address: Option<IpAddr>,
+
+    #[clap(
         long = "bmc-retain-credentials",
         value_name = "BMC_RETAIN_CREDENTIALS",
         help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
@@ -118,6 +125,7 @@ impl From<Args> for rpc::forge::ExpectedSwitch {
                 .bmc_ip_address
                 .map(|ip| ip.to_string())
                 .unwrap_or_default(),
+            nvos_ip_address: value.nvos_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: value.bmc_retain_credentials,
         }
     }

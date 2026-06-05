@@ -30,5 +30,3 @@ pub const LOCKING: Duration = Duration::from_secs(15 * 60);
 pub const APPLY_FIRMWARE: Duration = Duration::from_secs(30 * 60);
 pub const APPLY_PROFILE: Duration = Duration::from_secs(15 * 60);
 pub const UNLOCKING: Duration = Duration::from_secs(15 * 60);
-pub const WAITINGFORSETVNI: Duration = Duration::from_secs(15 * 60);
-pub const WAITINGFORRESETVNI: Duration = Duration::from_secs(15 * 60);

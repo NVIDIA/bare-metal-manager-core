@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_tls::client_config::get_forge_root_ca_path;
+use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
     BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
@@ -42,7 +42,7 @@ pub async fn run_local(
     repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
-    let forge_root_ca_path = get_forge_root_ca_path(None, None); // Will get it from the local repo
+    let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
 
     let api_config = ApiConfig::new_with_multiple_urls(

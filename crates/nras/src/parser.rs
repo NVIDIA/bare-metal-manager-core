@@ -17,7 +17,8 @@
 
 use std::collections as stdcol;
 
-use {jsonwebtoken as jst, serde_json as sj};
+use jsonwebtoken as jst;
+use serde_json as sj;
 
 use crate::{NrasError, ProcessedAttestationOutcome, RawAttestationOutcome};
 

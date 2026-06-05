@@ -15,22 +15,15 @@
  * limitations under the License.
  */
 use std::net::IpAddr;
-use std::time::SystemTime;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
 use health_report::HealthReport;
 use serde::{Deserialize, Serialize};
 
-use crate::instance::status::extension_service::{
-    ExtensionServiceStatusObservation, InstanceExtensionServiceStatusObservation,
-};
-use crate::instance::status::network::{
-    InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
-};
+use crate::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
+use crate::instance::status::network::InstanceNetworkStatusObservation;
 
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
@@ -127,122 +120,6 @@ impl MachineNetworkStatusObservation {
     }
 }
 
-impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(obs: rpc::DpuNetworkStatus) -> Result<Self, Self::Error> {
-        let observed_at = match obs.observed_at {
-            Some(timestamp) => {
-                let system_time = SystemTime::try_from(timestamp)
-                    .map_err(|_| Self::Error::InvalidTimestamp(timestamp.to_string()))?;
-                DateTime::from(system_time)
-            }
-            None => Utc::now(),
-        };
-
-        // We're going to piggy-back on InstanceNetworkStatusObservation
-        // to get the instance_config_version for now.
-        let instance_config_version = match obs.instance_config_version {
-            Some(version_string) => match version_string.as_str().parse() {
-                Ok(version) => Some(version),
-                _ => {
-                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
-                        "applied_config.instance_config_version: {version_string}"
-                    )));
-                }
-            },
-            _ => None,
-        };
-
-        let instance_network_observation =
-            if let Some(version_string) = obs.instance_network_config_version {
-                let Ok(version) = version_string.as_str().parse() else {
-                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
-                        "applied_config.instance_network_config_version: {version_string}"
-                    )));
-                };
-                let mut interfaces: Vec<InstanceInterfaceStatusObservation> = vec![];
-                for iface in obs.interfaces {
-                    let v = iface.try_into()?;
-                    interfaces.push(v);
-                }
-
-                Some(InstanceNetworkStatusObservation {
-                    config_version: version,
-                    instance_config_version,
-                    observed_at,
-                    interfaces,
-                })
-            } else {
-                None
-            };
-
-        let extension_service_observation =
-            if let Some(version_string) = obs.dpu_extension_service_version {
-                let Ok(version) = version_string.as_str().parse() else {
-                    return Err(RpcDataConversionError::InvalidConfigVersion(format!(
-                        "applied_config.extension_service_version: {version_string}"
-                    )));
-                };
-
-                let mut extension_service_statuses: Vec<ExtensionServiceStatusObservation> = vec![];
-                for service in obs.dpu_extension_services {
-                    let v = service.try_into()?;
-                    extension_service_statuses.push(v);
-                }
-
-                Some(InstanceExtensionServiceStatusObservation {
-                    config_version: version,
-                    instance_config_version,
-                    extension_service_statuses,
-                    observed_at,
-                })
-            } else {
-                None
-            };
-
-        Ok(MachineNetworkStatusObservation {
-            observed_at,
-            machine_id: obs
-                .dpu_machine_id
-                .ok_or(Self::Error::MissingArgument("dpu_machine_id"))?,
-            agent_version: obs.dpu_agent_version.clone(),
-            network_config_version: obs.network_config_version.and_then(|n| n.parse().ok()),
-            client_certificate_expiry: obs.client_certificate_expiry_unix_epoch_secs,
-            agent_version_superseded_at: None,
-            instance_network_observation,
-            extension_service_observation,
-        })
-    }
-}
-
-// TODO: This API is only used by the carbide-web generating the Network Status page
-// It improperly returns the values of a lot of things - since those are not actually
-// persisted.
-// It would be preferable to migrate carbide-web from reading the status to using
-// a better supported API. E.g. the FindMachinesByIds one.
-impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
-    fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
-        rpc::DpuNetworkStatus {
-            dpu_machine_id: Some(m.machine_id),
-            dpu_agent_version: m.agent_version.clone(),
-            observed_at: Some(m.observed_at.into()),
-            network_config_version: m.network_config_version.map(|v| v.version_string()),
-            instance_id: None,
-            instance_config_version: None,
-            instance_network_config_version: None,
-            interfaces: vec![],
-            network_config_error: None,
-            client_certificate_expiry_unix_epoch_secs: None,
-            dpu_health: None,
-            fabric_interfaces: vec![],
-            last_dhcp_requests: vec![],
-            dpu_extension_service_version: None,
-            dpu_extension_services: vec![],
-        }
-    }
-}
-
 /// Desired network configuration for an instance.
 /// This is persisted to a Postgres JSON column, so only use Option
 /// fields for easier migrations.
@@ -272,47 +149,6 @@ impl ManagedHostQuarantineState {
 
     pub fn mode_str(&self) -> &str {
         self.mode.as_str()
-    }
-}
-
-impl From<ManagedHostQuarantineState> for rpc::ManagedHostQuarantineState {
-    fn from(m: ManagedHostQuarantineState) -> Self {
-        Self {
-            mode: rpc::ManagedHostQuarantineMode::from(m.mode) as i32,
-            reason: m.reason,
-        }
-    }
-}
-
-impl From<ManagedHostQuarantineMode> for rpc::ManagedHostQuarantineMode {
-    fn from(m: ManagedHostQuarantineMode) -> Self {
-        match m {
-            ManagedHostQuarantineMode::BlockAllTraffic => {
-                rpc::ManagedHostQuarantineMode::BlockAllTraffic
-            }
-        }
-    }
-}
-
-impl TryFrom<rpc::ManagedHostQuarantineState> for ManagedHostQuarantineState {
-    type Error = RpcDataConversionError;
-    fn try_from(value: rpc::ManagedHostQuarantineState) -> Result<Self, Self::Error> {
-        Ok(Self {
-            reason: value.reason,
-            mode: rpc::ManagedHostQuarantineMode::try_from(value.mode)
-                .map_err(|_| {
-                    RpcDataConversionError::InvalidValue(value.mode.to_string(), "mode".to_string())
-                })?
-                .into(),
-        })
-    }
-}
-
-impl From<rpc::ManagedHostQuarantineMode> for ManagedHostQuarantineMode {
-    fn from(m: rpc::ManagedHostQuarantineMode) -> Self {
-        match m {
-            rpc::ManagedHostQuarantineMode::BlockAllTraffic => Self::BlockAllTraffic,
-        }
     }
 }
 

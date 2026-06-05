@@ -41,6 +41,7 @@ pub async fn start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
         tokio::process::Command::new(bins.get("vault").expect("vault command not found in PATH"))
             .arg("server")
             .arg("-dev-tls")
+            .arg("-dev-no-store-token")
             .arg(format!("-dev-listen-address={addr}"))
             .env_remove("VAULT_ADDR")
             .env_remove("VAULT_CLIENT_KEY")

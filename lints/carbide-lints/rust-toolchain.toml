@@ -15,4 +15,4 @@
 # limitations under the License.
 #
 [toolchain]
-channel = "nightly-2025-11-14"
+channel = "nightly-2026-05-27"

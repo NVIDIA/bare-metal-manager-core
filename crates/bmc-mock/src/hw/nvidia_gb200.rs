@@ -57,7 +57,7 @@ impl BiancaBoard<'_> {
             redfish::sensor::Layout {
                 temperature: 2,
                 power: 3,
-                leak: 2, // Voltage
+                voltage: 2,
                 fan: 0,
                 current: 0,
                 // + 1 Energy
@@ -87,7 +87,7 @@ impl BiancaBoard<'_> {
                 redfish::sensor::Layout {
                     temperature: 3,
                     power: 2,
-                    leak: 1, // Voltage
+                    voltage: 1,
                     fan: 0,
                     current: 0,
                     // + 1 Energy

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::{self as forgerpc, InstancePowerRequest};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {

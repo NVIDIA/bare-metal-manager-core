@@ -20,11 +20,12 @@ use std::str::FromStr;
 use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 use rpc::forge::PowerShelf;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub fn show_power_shelves(

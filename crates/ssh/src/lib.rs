@@ -16,3 +16,22 @@
  */
 
 pub mod ssh;
+pub mod ssh_client;
+
+#[derive(thiserror::Error, Debug)]
+pub enum SshError {
+    #[error("SSH error: {0}")]
+    Russh(#[from] russh::Error),
+    #[error("Error reading SSH keys: {0}")]
+    SshKey(String),
+    #[error("SSH authentication failed: {0}")]
+    AuthenticationFailed(String),
+    #[error("the executed command did not send an exit status")]
+    CommandDidNotExit,
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Error running SSH command: {0}")]
+    Command(String),
+}
+
+pub type SshResult<T> = Result<T, SshError>;

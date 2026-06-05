@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NS="${KEYCLOAK_NS:-carbide-rest}"
+NS="${KEYCLOAK_NS:-nico-rest}"
 
 kubectl create namespace "${NS}" 2>/dev/null || true
 
@@ -49,4 +49,4 @@ kubectl apply -n "${NS}" \
 echo "  Waiting for Keycloak to be ready..."
 kubectl rollout status deployment/keycloak -n "${NS}" --timeout=180s
 
-echo "  Keycloak ready (realm: carbide, client: carbide-rest)"
+echo "  Keycloak ready (realm: nico, client: nico-rest)"

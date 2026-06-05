@@ -16,9 +16,9 @@
  */
 
 use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::vpc_peering::convert_vpc_peerings_to_table;
 

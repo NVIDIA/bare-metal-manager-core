@@ -237,7 +237,7 @@ fn verify_checksum(filename: &String, checksum: &String) -> Result<(), Report> {
     let mut context = md5::Context::new();
     std::io::copy(&mut file, &mut context)?;
 
-    let checksum_actual = format!("{:x}", context.compute());
+    let checksum_actual = hex::encode(*context.finalize());
 
     if &checksum_actual != checksum {
         return Err(eyre!(

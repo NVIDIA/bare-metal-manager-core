@@ -83,4 +83,3 @@ create_machines = false
 allow_changing_bmc_proxy = false
 bmc_proxy = ":2000"
 run_interval = "600s"
-allow_zero_dpu_hosts = true

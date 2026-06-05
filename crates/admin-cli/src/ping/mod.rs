@@ -25,11 +25,11 @@ mod tests;
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any
 // subcommands.
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Opts;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
 impl Dispatch for Opts {
     async fn dispatch(self, ctx: RuntimeContext) -> CarbideCliResult<()> {

@@ -19,3 +19,5 @@ mod kea;
 
 pub use dhcp_factory::{DHCPFactory, RELAY_IP};
 pub use kea::Kea;
+#[allow(unused_imports)] // not every test binary inspects lease entries
+pub use kea::LeaseEntry;

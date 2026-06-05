@@ -17,25 +17,16 @@
 
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::{DateTime, Utc};
-use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
+
+use crate::errors::ModelError;
 
 #[derive(Clone, Debug, Default)]
 pub struct NvLinkPartitionSearchFilter {
     pub tenant_organization_id: Option<String>,
     pub name: Option<String>,
-}
-
-impl From<rpc_forge::NvLinkPartitionSearchFilter> for NvLinkPartitionSearchFilter {
-    fn from(filter: rpc_forge::NvLinkPartitionSearchFilter) -> Self {
-        NvLinkPartitionSearchFilter {
-            tenant_organization_id: filter.tenant_organization_id,
-            name: filter.name,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +35,7 @@ pub struct NewNvlPartition {
     pub name: NvlPartitionName,
     pub logical_partition_id: NvLinkLogicalPartitionId,
     pub domain_uuid: NvLinkDomainId,
-    pub nmx_m_id: String,
+    pub nmx_c_partition_id: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,7 +53,7 @@ impl NvlPartitionName {
 }
 
 impl TryFrom<String> for NvlPartitionName {
-    type Error = RpcDataConversionError;
+    type Error = ModelError;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         Ok(NvlPartitionName(value))
     }
@@ -77,7 +68,7 @@ impl From<NvlPartitionName> for String {
 #[derive(Debug, Clone)]
 pub struct NvlPartition {
     pub id: NvLinkPartitionId,
-    pub nmx_m_id: String,
+    pub nmx_c_partition_id: i32,
     pub domain_uuid: NvLinkDomainId,
     pub name: NvlPartitionName,
     pub created: DateTime<Utc>,
@@ -91,23 +82,10 @@ pub fn is_marked_as_deleted(partition: &NvlPartition) -> bool {
     partition.deleted.is_some()
 }
 
-impl TryFrom<NvlPartition> for rpc_forge::NvLinkPartition {
-    type Error = RpcDataConversionError;
-    fn try_from(src: NvlPartition) -> Result<Self, Self::Error> {
-        Ok(rpc_forge::NvLinkPartition {
-            id: Some(src.id),
-            name: src.name.clone().into(),
-            nmx_m_id: src.nmx_m_id,
-            domain_uuid: Some(src.domain_uuid),
-            logical_partition_id: src.logical_partition_id,
-        })
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NvlPartitionSnapshotPgJson {
     pub id: NvLinkPartitionId,
-    pub nmx_m_id: String,
+    pub nmx_c_partition_id: i32,
     pub name: NvlPartitionName,
     pub domain_uuid: NvLinkDomainId,
     pub created: DateTime<Utc>,
@@ -121,7 +99,7 @@ impl TryFrom<NvlPartitionSnapshotPgJson> for NvlPartition {
     fn try_from(value: NvlPartitionSnapshotPgJson) -> sqlx::Result<Self> {
         Ok(Self {
             id: value.id,
-            nmx_m_id: value.nmx_m_id,
+            nmx_c_partition_id: value.nmx_c_partition_id,
             domain_uuid: value.domain_uuid,
             name: value.name,
             created: value.created,

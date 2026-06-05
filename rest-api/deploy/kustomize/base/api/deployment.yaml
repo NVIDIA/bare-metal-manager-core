@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# nico-rest-api Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nico-rest-api
+  labels:
+    app: nico-rest-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nico-rest-api
+  template:
+    metadata:
+      labels:
+        app: nico-rest-api
+    spec:
+      imagePullSecrets:
+        - name: image-pull-secret
+      containers:
+        - name: api
+          image: nico-rest-api
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8388
+              name: http
+            - containerPort: 9360
+              name: metrics
+          env:
+            - name: CONFIG_FILE_PATH
+              value: /app/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            - name: keycloak-secret
+              mountPath: /var/secrets/keycloak
+              readOnly: true
+            - name: temporal-encryption-key
+              mountPath: /var/secrets/temporal
+              readOnly: true
+            - name: temporal-tls-certs
+              mountPath: /var/secrets/temporal/certs
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8388
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8388
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: nico-rest-api-config
+        - name: keycloak-secret
+          secret:
+            secretName: keycloak-client-secret
+            items:
+              - key: keycloak-client-secret
+                path: client-secret
+        - name: temporal-encryption-key
+          secret:
+            secretName: temporal-encryption-key
+            items:
+              - key: temporal-encryption-key
+                path: encryption-key
+        - name: temporal-tls-certs
+          secret:
+            secretName: temporal-client-cloud-certs

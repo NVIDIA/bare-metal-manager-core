@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-
 use super::args::Args;
+use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
 pub async fn approve_dpu_remediation(

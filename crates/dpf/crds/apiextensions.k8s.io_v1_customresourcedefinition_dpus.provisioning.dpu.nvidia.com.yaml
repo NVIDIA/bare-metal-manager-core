@@ -31,7 +31,10 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - description: phase of the cluster
+    - jsonPath: .status.operationalConditions[?(@.type=='OperationalReady')].status
+      name: Operational
+      type: string
+    - description: phase of the dpu
       jsonPath: .status.phase
       name: Phase
       type: string
@@ -66,6 +69,10 @@ spec:
               bfb:
                 description: Specifies name of the bfb CR to use for this DPU
                 type: string
+              blueFieldSoftware:
+                description: Specifies the name of the BlueFieldSoftware CR to use
+                  for this DPU
+                type: string
               bmcIP:
                 description: |-
                   BMCIP is the ip address of the DPU BMC
@@ -91,9 +98,56 @@ spec:
                   nodeLabels:
                     additionalProperties:
                       type: string
-                    description: NodeLabels define the labels that will be added to
-                      the nodes.
+                    description: NodeLabels specifies the labels to be added to the
+                      node.
                     type: object
+                  selector:
+                    description: Selector defines the selector of the DPUClusters
+                      the produced DPUs should join
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
                 type: object
               dpuDeviceName:
                 description: Specifies the name of the DPUDevice this DPU is associated
@@ -118,8 +172,6 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               nodeEffect:
-                default:
-                  drain: true
                 description: Specifies how changes to the DPU should affect the Node
                 properties:
                   applyOnLabelChange:
@@ -202,6 +254,13 @@ spec:
                   Example: "0000-03-00", "03-00"
                 pattern: ^([0-9a-fA-F]{4}[-])?[0-9a-fA-F]{2}[-][0-9a-fA-F]{2}$
                 type: string
+              secureBoot:
+                description: SecureBoot specifies whether UEFI Secure Boot should
+                  be enabled.
+                type: boolean
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               serialNumber:
                 description: The serial number of the DPU
                 minLength: 1
@@ -212,7 +271,9 @@ spec:
             required:
             - bfb
             - dpuDeviceName
+            - dpuFlavor
             - dpuNodeName
+            - nodeEffect
             - serialNumber
             type: object
           status:
@@ -237,6 +298,146 @@ spec:
                   - type
                   type: object
                 type: array
+              agentLastStartupTime:
+                description: AgentLastStartupTime is the time when the DPU agent was
+                  last started. This is copied from agentStatus.lastStartupTime.
+                format: date-time
+                type: string
+              agentStatus:
+                description: AgentStatus contains the information reported from inside
+                  the DPU
+                properties:
+                  conditions:
+                    description: Conditions contains the conditions reported from
+                      inside the DPU
+                    items:
+                      description: Condition contains details for one aspect of the
+                        current state of this API Resource.
+                      properties:
+                        lastTransitionTime:
+                          description: |-
+                            lastTransitionTime is the last time the condition transitioned from one status to another.
+                            This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                          format: date-time
+                          type: string
+                        message:
+                          description: |-
+                            message is a human readable message indicating details about the transition.
+                            This may be an empty string.
+                          maxLength: 32768
+                          type: string
+                        observedGeneration:
+                          description: |-
+                            observedGeneration represents the .metadata.generation that the condition was set based upon.
+                            For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                            with respect to the current state of the instance.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        reason:
+                          description: |-
+                            reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                            Producers of specific condition types may define expected values and meanings for this field,
+                            and whether the values are considered a guaranteed API.
+                            The value should be a CamelCase string.
+                            This field may not be empty.
+                          maxLength: 1024
+                          minLength: 1
+                          pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                          type: string
+                        status:
+                          description: status of the condition, one of True, False,
+                            Unknown.
+                          enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                          type: string
+                        type:
+                          description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                          maxLength: 316
+                          pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                          type: string
+                      required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                      type: object
+                    type: array
+                  initialBootID:
+                    description: InitialBootID is the boot ID of the DPU OS during
+                      the first boot
+                    type: string
+                  kubeletVersion:
+                    description: KubeletVersion represents the kubelet version running
+                      on the DPU.
+                    type: string
+                  lastObservedPendingNvconfig:
+                    description: |-
+                      LastObservedPendingNVConfig stores the last pending NVConfig parameters seen
+                      during reboot-method discovery on this boot. It is used on the next boot to
+                      ignore repeated parameters that remained unchanged across boots.
+                    properties:
+                      bootID:
+                        type: string
+                      devices:
+                        items:
+                          properties:
+                            device:
+                              type: string
+                            entries:
+                              items:
+                                properties:
+                                  current:
+                                    type: string
+                                  default:
+                                    type: string
+                                  name:
+                                    type: string
+                                  next_boot:
+                                    description: NextBoot uses the "next_boot" so
+                                      this type can be reused for parsing mlxfwrest
+                                      output
+                                    type: string
+                                type: object
+                              type: array
+                          required:
+                          - entries
+                          type: object
+                        type: array
+                    type: object
+                  lastStartupTime:
+                    description: LastStartupTime is the time when the DPU was last
+                      started
+                    format: date-time
+                    type: string
+                  rebootMethod:
+                    description: |-
+                      RebootMethod is the type of reset/reboot set by the DPU agent
+                      See enum values in RebootMethodType.
+                      No default is set intentionally: nil means "check not run or not applicable"
+                      (e.g. legacy flow, or agent has not run the check yet);
+                      a non-nil value means the check ran and this is the result.
+                    enum:
+                    - Unknown
+                    - NoAction
+                    - PowerCycle
+                    - SystemReboot
+                    - SystemLevelReset
+                    - FirmwareReset
+                    - DPUWarmReboot
+                    type: string
+                  rebootSequenceCount:
+                    description: |-
+                      RebootSequenceCount is the length of the current non-NoAction RebootMethod sequence:
+                      it increments on each agent run that reports a RebootMethod other than NoAction and
+                      resets to 0 when the agent reports NoAction. Used with RebootMethod to bound host reboot loops.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
               bfCFGFile:
                 description: BFCFGFile is the path to the bf.cfg
                 type: string
@@ -247,6 +448,7 @@ spec:
                 description: bfb version of this DPU
                 type: string
               conditions:
+                description: Conditions represents the provisioning lifecycle conditions.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -329,6 +531,15 @@ spec:
                 default: dpu
                 description: The mode of the DPU
                 type: string
+              dpuType:
+                default: Unknown
+                description: The type of the DPU
+                enum:
+                - Unknown
+                - BlueField2
+                - BlueField3
+                - BlueField4
+                type: string
               firmware:
                 description: the firmware information of DPU
                 properties:
@@ -347,6 +558,69 @@ spec:
                   the object the last time it was patched.
                 format: int64
                 type: integer
+              operationalConditions:
+                description: |-
+                  OperationalConditions represents aggregated operational readiness conditions.
+                  These conditions reflect the runtime health and readiness of DPU services and node health,
+                  separate from the provisioning lifecycle represented by Conditions.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               pciDevice:
                 description: pci device information of this DPU
                 type: string
@@ -360,23 +634,60 @@ spec:
                 - Config FW Parameters
                 - Prepare BFB
                 - OS Installing
+                - DPU Config
                 - DPU Cluster Config
                 - Host Network Configuration
                 - Ready
                 - Error
                 - Deleting
                 - Rebooting
+                - Perform ARM Force Restart
                 - Initialize Interface
-                - Checking Host Reboot Required
                 - Node Effect Removal
+                - Checking Host Reboot Required
                 type: string
               postProvisioningNodeEffect:
                 description: Indicates that node effect was triggered by post-provisioning
                   label changes
                 type: boolean
+              previousPhase:
+                description: |-
+                  PreviousPhase is the last non-empty Phase before the current Phase, set by the controller
+                  when Phase transitions. It may be unset during early initialization (empty Phase) or until
+                  the first transition from a non-empty Phase. Internal controller tracking only.
+                enum:
+                - Initializing
+                - Node Effect
+                - Pending
+                - Config FW Parameters
+                - Prepare BFB
+                - OS Installing
+                - DPU Config
+                - DPU Cluster Config
+                - Host Network Configuration
+                - Ready
+                - Error
+                - Deleting
+                - Rebooting
+                - Perform ARM Force Restart
+                - Initialize Interface
+                - Node Effect Removal
+                - Checking Host Reboot Required
+                type: string
+              redfishTaskId:
+                description: The task ID of the last task performed on the DPU BMC
+                type: string
               requiredReset:
                 description: whether require reset of DPU
                 type: boolean
+              secureBoot:
+                description: SecureBoot indicates the current UEFI Secure Boot state.
+                properties:
+                  enabled:
+                    description: Enabled indicates whether UEFI Secure Boot is currently
+                      enabled on the DPU.
+                    type: boolean
+                type: object
             required:
             - phase
             type: object

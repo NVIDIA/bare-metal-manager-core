@@ -18,6 +18,5 @@
 pub mod cmd;
 pub mod discovery;
 pub mod filters;
-pub mod info;
 pub mod proto;
 pub mod report;

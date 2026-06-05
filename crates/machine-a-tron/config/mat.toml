@@ -58,6 +58,12 @@ pxe_server_port = "8080"
 #
 bmc_mock_port = 2000
 
+# If set, host/DPU BMC mocks start with the factory default password rotated
+# to this value. Leave unset to keep the factory default.
+#
+# host_bmc_password = "vault-password"
+# dpu_bmc_password = "vault-password"
+
 [machines.config]
 host_count = 3
 vpc_count = 10

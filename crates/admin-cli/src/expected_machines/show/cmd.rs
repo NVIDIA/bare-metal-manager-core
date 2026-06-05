@@ -16,13 +16,15 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
+use clap::ValueEnum;
 use mac_address::MacAddress;
 use prettytable::{Table, row};
 use rpc::forge::ExpectedMachineRequest;
 
 use super::args::Args;
 use crate::async_write;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn show_expected_machines(
@@ -77,8 +79,8 @@ pub async fn show_expected_machines(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_mac, interface)| {
+        .values()
+        .filter_map(|interface| {
             let ip = interface.address.first()?;
             Some(ip.clone())
         })
@@ -133,6 +135,7 @@ async fn convert_and_print_into_nice_table(
         "Pause On Ingestion",
         "DPF Enabled",
         "Disable Lockdown",
+        "DPU Mode",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -153,6 +156,17 @@ async fn convert_and_print_into_nice_table(
             .map(String::as_str);
 
         let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_machine.metadata.as_ref());
+
+        // None on the wire == the DB default (`DpuMode`); fall back to that
+        // rather than `Unspecified` so `to_possible_value()` produces the
+        // same kebab-case string the `--dpu-mode` CLI flag accepts.
+        let dpu_mode_display = expected_machine
+            .dpu_mode
+            .and_then(|i| ::rpc::forge::DpuMode::try_from(i).ok())
+            .unwrap_or(::rpc::forge::DpuMode::DpuMode)
+            .to_possible_value()
+            .map(|pv| pv.get_name().to_owned())
+            .unwrap_or_default();
 
         table.add_row(row![
             expected_machine.chassis_serial_number,
@@ -186,6 +200,7 @@ async fn convert_and_print_into_nice_table(
                 .and_then(|hlp| hlp.disable_lockdown)
                 .unwrap_or_default()
                 .to_string(),
+            dpu_mode_display,
         ]);
     }
 

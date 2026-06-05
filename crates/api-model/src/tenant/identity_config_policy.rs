@@ -218,7 +218,7 @@ fn hostname_matches_allowlist(
 
 /// Returns `Ok` if issuer trust domain (normalized host) is allowed by at least one pattern.
 /// Empty `allowlist` → always `Ok`.
-pub(super) fn trust_domain_matches_allowlist(
+pub fn trust_domain_matches_allowlist(
     trust_domain: &str,
     allowlist: &[String],
 ) -> Result<(), String> {
@@ -231,7 +231,7 @@ pub(super) fn trust_domain_matches_allowlist(
 }
 
 /// Same pattern language as trust-domain allowlist; `hostname` is the registered host from `token_endpoint`.
-pub(super) fn token_endpoint_domain_matches_allowlist(
+pub fn token_endpoint_domain_matches_allowlist(
     host: &str,
     allowlist: &[String],
 ) -> Result<(), String> {
@@ -329,7 +329,7 @@ fn parse_token_endpoint_url(raw: &str) -> Result<Url, String> {
 
 /// Parses `token_endpoint` when an allowlist is configured: registered DNS host, lowercase (rejects IP literals).
 /// URL must use **`http` or `https`** scheme only.
-pub(super) fn registered_host_for_token_endpoint(token_endpoint: &str) -> Result<String, String> {
+pub fn registered_host_for_token_endpoint(token_endpoint: &str) -> Result<String, String> {
     let u = parse_token_endpoint_url(token_endpoint)?;
     validated_trust_domain_token(&u, "token_endpoint", "token_endpoint: URL must have a host")
 }
@@ -426,7 +426,7 @@ fn validate_and_canonicalize_subject_prefix(
 }
 
 /// Resolves optional proto `subject_prefix`: default `spiffe://<expected_td>` or validated user value.
-pub(super) fn resolve_subject_prefix(
+pub fn resolve_subject_prefix(
     expected_td: &str,
     proto_subject_prefix: Option<&str>,
 ) -> Result<String, String> {

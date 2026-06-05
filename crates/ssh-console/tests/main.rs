@@ -23,6 +23,7 @@ use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use russh::ChannelMsg;
 use russh::keys::PrivateKeyWithHashAlg;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -168,14 +169,16 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
     let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ssh]).await? else {
         return Ok(());
     };
+    let reconnect_interval_max = Duration::from_secs(5);
 
     // Run new ssh-console
     let handle = ssh_console_test_helper::spawn(
         env.mock_api_server.addr.port(),
-        // Try to max out the reconnect interval without having to wait too long
+        // Exercise reconnect backoff without letting randomized exponential delays exceed the
+        // prompt wait below.
         Some(ssh_console_test_helper::ConfigOverrides {
             reconnect_interval_base: Some(Duration::from_secs(3)),
-            reconnect_interval_max: None,
+            reconnect_interval_max: Some(reconnect_interval_max),
             successful_connection_minimum_duration: Some(Duration::from_secs(60)),
         }),
     )
@@ -228,28 +231,27 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
 
     // Read from the BMC output in the background, sending a message to prompt_seen_tx every time we
     // see a prompt, until we're done.
-    let timeout = Instant::now() + Duration::from_secs(30);
+    let prompt = format!("root@{} # ", env.mock_hosts[0].machine_id).into_bytes();
     let (prompt_seen_tx, mut prompt_seen_rx) = mpsc::channel(1);
     let (done_tx, mut done_rx) = oneshot::channel::<()>();
-    tokio::spawn(async move {
+    let prompt_reader_handle = tokio::spawn(async move {
         let mut buf = Vec::new();
         loop {
             tokio::select! {
                 _ = &mut done_rx => {
                     break;
                 }
-                _ = tokio::time::sleep_until(timeout) => {
-                    eprintln!("Timed out without seeing expected prompt");
-                    break; // prompt_seen_tx will drop, failing the test.
-                }
                 res = channel_rx.wait() => match res {
                     Some(ChannelMsg::Data { data }) => {
                         buf.extend_from_slice(&data);
-                        let prompt = format!("root@{} # ", env.mock_hosts[0].machine_id).into_bytes();
                         if buf.windows(prompt.len()).any(|w| w == prompt) {
                             buf.clear();
-                            // Use try_send to avoid blocking this reader task
-                            prompt_seen_tx.try_send(())?;
+                            // Coalesce prompt notifications so repeated newlines cannot make the
+                            // reader task block or exit before the test consumes the current prompt.
+                            match prompt_seen_tx.try_send(()) {
+                                Ok(()) | Err(TrySendError::Full(())) => {}
+                                Err(TrySendError::Closed(())) => break,
+                            }
                         }
                     }
                     Some(_) => {},
@@ -264,8 +266,11 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
 
     // Send ctrl+c (break) multiple times, waiting for reconnection after each time
     for _ in 0..5 {
+        while prompt_seen_rx.try_recv().is_ok() {}
+
         let mut newline_interval = tokio::time::interval(Duration::from_secs(1));
-        let wait_for_prompt_timeout = Instant::now() + Duration::from_secs(10);
+        let wait_for_prompt_timeout =
+            Instant::now() + reconnect_interval_max + Duration::from_secs(5);
         // Send newlines to wait for prompt to appear
         'wait_for_prompt: loop {
             tokio::select! {
@@ -291,6 +296,9 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
     }
 
     done_tx.send(()).ok();
+    prompt_reader_handle
+        .await
+        .expect("prompt reader task panicked")?;
 
     Ok(())
 }
@@ -382,7 +390,7 @@ async fn test_ssh_console_log_rotation() -> eyre::Result<()> {
     Ok(())
 }
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup_test_logging() {
     api_test_helper::setup_logging()
 }

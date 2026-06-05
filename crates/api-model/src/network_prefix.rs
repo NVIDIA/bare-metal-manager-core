@@ -19,7 +19,6 @@ use std::net::IpAddr;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -58,43 +57,6 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             svi_ip: row.try_get("svi_ip")?,
             num_free_ips: 0,
         })
-    }
-}
-
-impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::NetworkPrefix) -> Result<Self, Self::Error> {
-        if let Some(_id) = value.id {
-            return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
-                String::from("Network Prefix"),
-            ));
-        }
-
-        Ok(NewNetworkPrefix {
-            prefix: value.prefix.parse()?,
-            gateway: match value.gateway {
-                Some(g) => Some(
-                    g.parse()
-                        .map_err(|_| RpcDataConversionError::InvalidIpAddress(g))?,
-                ),
-                None => None,
-            },
-            num_reserved: value.reserve_first,
-        })
-    }
-}
-
-impl From<NetworkPrefix> for rpc::forge::NetworkPrefix {
-    fn from(src: NetworkPrefix) -> Self {
-        rpc::forge::NetworkPrefix {
-            id: Some(src.id),
-            prefix: src.prefix.to_string(),
-            gateway: src.gateway.map(|v| v.to_string()),
-            reserve_first: src.num_reserved,
-            free_ip_count: src.num_free_ips,
-            svi_ip: src.svi_ip.map(|x| x.to_string()),
-        }
     }
 }
 

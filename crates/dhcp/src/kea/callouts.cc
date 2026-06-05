@@ -320,7 +320,7 @@ void set_options(CalloutHandle &handle, Pkt4Ptr response4_ptr,
   machine_free_client_type(machine_client_type);
 }
 
-void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
+void set_vendor_options(Pkt4Ptr response4_ptr) {
   OptionPtr option_vendor(
       new Option(Option::V4, DHO_VENDOR_ENCAPSULATED_OPTIONS));
   LOG_INFO(logger, isc::log::LOG_CARBIDE_GENERIC).arg(option_vendor->toText());
@@ -334,19 +334,7 @@ void set_vendor_options(Pkt4Ptr response4_ptr, Machine *machine) {
   vendor_option_6.reset(new OptionInt<uint32_t>(Option::V4, 6, 0x8));
   option_vendor->addOption(vendor_option_6);
 
-  // Option 70 we're using to set the UUID of the machine
-  OptionPtr vendor_option_70 = option_vendor->getOption(70);
-  if (vendor_option_70) {
-    option_vendor->delOption(70);
-  }
-  char *machine_uuid = machine_get_uuid(machine);
-  if (strlen(machine_uuid) > 0) {
-    vendor_option_70.reset(new OptionString(Option::V4, 70, machine_uuid));
-    option_vendor->addOption(vendor_option_70);
-  }
-
   response4_ptr->addOption(option_vendor);
-  machine_free_uuid(machine_uuid);
 }
 
 extern "C" {
@@ -483,6 +471,22 @@ int pkt4_receive(CalloutHandle &handle) {
     return 1;
   }
 
+  /*
+   * machine_get_interface_address returns the IPv4 address as a u32 in
+   * network byte order, or 0 if Carbide didn't return a parseable IPv4
+   * address. 0.0.0.0 is not a valid allocation, and pkt4_receive is the
+   * packet-level hook where NEXT_STEP_DROP reliably stops processing before
+   * Kea can select, renew, or persist a lease.
+   */
+  if (machine_get_interface_address(machine) == 0) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_RECEIVE)
+        .arg("Carbide returned no usable IPv4 address; dropping packet");
+    machine_free(machine);
+    handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+    carbide_increment_dropped_requests("NoUsableIPv4Address");
+    return 1;
+  }
+
   // On success, we set the pointer to the machine in the request context to
   // be retrieved later
   boost::shared_ptr<Machine> machinePtr(machine, [](Machine *ptr) {
@@ -531,7 +535,7 @@ int pkt4_send(CalloutHandle &handle) {
   /*
    * Encapsulate some PXE options in the vendor encapsulated
    */
-  set_vendor_options(response4_ptr, machine.get());
+  set_vendor_options(response4_ptr);
 
   LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
       .arg(response4_ptr->toText());
@@ -550,11 +554,164 @@ int lease4_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease4->addr_.toText();
+  // Pass the MAC alongside the IP so NICo can scope the delete to
+  // exactly this (ip, mac) lease.
+  std::string mac_str;
+  if (lease4->hwaddr_ && !lease4->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease4->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
+  }
+
+  return 0;
+}
+
+int lease4_select(CalloutHandle &handle) {
+  /*
+   * lease4_select fires for both DHCPDISCOVER (fake_allocation=true) and
+   * DHCPREQUEST (fake_allocation=false). For DISCOVER the lease is built
+   * for the OFFER response but is not persisted to memfile. For REQUEST it
+   * is persisted.
+   *
+   * Either way, we want to take Kea's proposed lease and replace its address
+   * with the one Carbide allocated. The Machine was stashed on the callout
+   * handle context in pkt4_receive, so it's already cached.
+   */
+  Lease4Ptr lease4;
+  handle.getArgument("lease4", lease4);
+
+  // Get the rest of the hook arguments for context. We only really need
+  // them for logging here, but `fake_allocation` is also relevant if we
+  // ever want different behavior between DISCOVER and REQUEST.
+  bool fake_allocation = false;
+  try {
+    handle.getArgument("fake_allocation", fake_allocation);
+  } catch (...) {
+    // Some Kea versions may not always pass this, that's fine.
+  }
+
+  if (!lease4) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
+        .arg("Missing lease4 argument");
+    // At lease4_select, SKIP means Kea will not assign its selected lease.
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  // Load the Machine cached in pkt4_receive. If it's missing, pkt4_receive
+  // either failed or wasn't called for this exchange; in either case we
+  // can't authoritatively assign an address, so fail closed.
+  //
+  // (pkt4_receive would normally have already set NEXT_STEP_DROP in this
+  // failure path, so the fact that we got here at all suggests something
+  // unusual; we still want to defend Kea's memfile against accepting an
+  // un-authorized allocation.)
+  boost::shared_ptr<Machine> machine;
+  handle.getContext("machine", machine);
+  if (!machine) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
+        .arg("Missing machine object from handle context");
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  // machine_get_interface_address returns the IPv4 address as a u32 in
+  // network byte order, or 0 if Carbide didn't return a parseable IPv4
+  // address. 0.0.0.0 is not a valid allocation, so treat it as a failure.
+  uint32_t carbide_u32 = machine_get_interface_address(machine.get());
+  if (carbide_u32 == 0) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
+        .arg("Carbide returned no usable IPv4 address; refusing to allocate");
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  isc::asiolink::IOAddress carbide_addr(carbide_u32);
+
+  // If Kea's allocator already picked the same address Carbide returned,
+  // no override needed -- but the common case is that they differ (Kea's
+  // allocator is bidding from the 0.0.0.0/0 pool independently of what
+  // Carbide chose).
+  if (lease4->addr_ != carbide_addr) {
+    LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
+        .arg(std::string("overriding ") + lease4->addr_.toText() + " -> " +
+             carbide_addr.toText() +
+             (fake_allocation ? " (DISCOVER, not persisted)"
+                              : " (REQUEST, will persist)"));
+    lease4->addr_ = carbide_addr;
+    // Push the modified lease back. Lease4Ptr is a shared_ptr so mutating
+    // through it already affects Kea's copy, but calling setArgument is
+    // explicit about our intent and survives any future Kea changes to
+    // how it tracks lease-object mutation.
+    handle.setArgument("lease4", lease4);
+  } else {
+    LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
+        .arg(std::string("lease addr already matches Carbide (") +
+             carbide_addr.toText() + ")");
+  }
+
+  return 0;
+}
+
+int lease4_renew(CalloutHandle &handle) {
+  /*
+   * lease4_renew fires when Kea is extending an existing lease, i.e. a
+   * DHCPREQUEST in RENEWING (T1 expired, unicast) or REBINDING (T2
+   * expired, broadcast) state. Unlike lease4_select there's no
+   * `fake_allocation` distinction -- renewals are always persisted.
+   *
+   * Our goal here is the same as lease4_select: keep Kea's memfile lease
+   * address aligned with whatever Carbide currently considers the
+   * binding for this MAC. In the common case (Carbide's allocation is
+   * stable) this is a no-op; the interesting case is when an operator
+   * has changed `machine_interfaces.address` while a lease is live, and
+   * we want the memfile to track the change rather than drift.
+   */
+  Lease4Ptr lease4;
+  handle.getArgument("lease4", lease4);
+
+  if (!lease4) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
+        .arg("Missing lease4 argument");
+    // At lease4_renew, SKIP means Kea will not update the lease database.
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  boost::shared_ptr<Machine> machine;
+  handle.getContext("machine", machine);
+  if (!machine) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
+        .arg("Missing machine object from handle context");
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  uint32_t carbide_u32 = machine_get_interface_address(machine.get());
+  if (carbide_u32 == 0) {
+    LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
+        .arg("Carbide returned no usable IPv4 address; refusing to renew");
+    handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    return 1;
+  }
+
+  isc::asiolink::IOAddress carbide_addr(carbide_u32);
+
+  if (lease4->addr_ != carbide_addr) {
+    LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
+        .arg(std::string("overriding ") + lease4->addr_.toText() + " -> " +
+             carbide_addr.toText() + " on renewal");
+    lease4->addr_ = carbide_addr;
+    handle.setArgument("lease4", lease4);
+  } else {
+    LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
+        .arg(std::string("renewing, lease addr already matches Carbide (") +
+             carbide_addr.toText() + ")");
   }
 
   return 0;
@@ -571,9 +728,16 @@ int lease6_expire(CalloutHandle &handle) {
   }
 
   std::string ip_str = lease6->addr_.toText();
+  // DHCPv6 identifies clients by DUID, but Kea still records the
+  // client's hardware address on the lease when available.
+  std::string mac_str;
+  if (lease6->hwaddr_ && !lease6->hwaddr_->hwaddr_.empty()) {
+    mac_str = lease6->hwaddr_->toText(false);
+  }
   LOG_INFO(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE).arg(ip_str);
 
-  auto result = carbide_expire_lease(ip_str.c_str());
+  auto result = carbide_expire_lease(
+      ip_str.c_str(), mac_str.empty() ? nullptr : mac_str.c_str());
   if (result != LeaseExpirationResult::Success) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE_EXPIRE_ERROR).arg(ip_str);
   }

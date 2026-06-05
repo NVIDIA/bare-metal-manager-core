@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
 use crate::component_manager::common;
+use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
 pub async fn update_firmware(
@@ -27,9 +28,10 @@ pub async fn update_firmware(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
+    let request: rpc::forge::UpdateComponentFirmwareRequest = opts.try_into()?;
     let response = api_client
         .0
-        .update_component_firmware(opts)
+        .update_component_firmware(request)
         .await
         .map_err(CarbideCliError::from)?;
 

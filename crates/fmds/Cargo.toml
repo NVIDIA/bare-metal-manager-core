@@ -32,6 +32,7 @@ path = "src/main.rs"
 
 # [local-dependencies]
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
+carbide-dpu-fmds-shared = { path = "../dpu-fmds-shared" }
 carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid" }
@@ -46,13 +47,26 @@ clap = { workspace = true }
 eyre = { workspace = true }
 futures-util = { workspace = true }
 governor = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
 ipnetwork = { workspace = true }
 netlink-packet-route = { workspace = true }
 nonzero_ext = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-prometheus = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = [
+  "spec_unstable_metrics_views",
+] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+  "semconv_experimental",
+] }
+prometheus = { workspace = true }
+reqwest = { default-features = false, features = ["rustls"], workspace = true }
 rtnetlink = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+tower = { workspace = true }
 tower-http = { features = ["trace"], workspace = true }
 prost = { workspace = true }
 tracing = { workspace = true }

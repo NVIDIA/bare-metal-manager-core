@@ -18,7 +18,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_utils::models::dhcp::{HostConfig, InterfaceInfo};
+use carbide_rpc_utils::dhcp::{HostConfig, InterfaceInfo};
 use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
 use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode};
 use dhcproto::{Encodable, Encoder};
@@ -574,8 +574,8 @@ mod test {
         tree.insert("interface_mtu_12000".to_string(), interface_mtu_12000);
         expected.insert("interface_mtu_12000".to_string(), 12000);
 
-        let host_config: carbide_utils::models::dhcp::HostConfig =
-            carbide_utils::models::dhcp::HostConfig {
+        let host_config: carbide_rpc_utils::dhcp::HostConfig =
+            carbide_rpc_utils::dhcp::HostConfig {
                 host_interface_id:
                     <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
                         "959888da-cdc8-4079-8d23-8a09832447ce",

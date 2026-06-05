@@ -317,6 +317,7 @@ pub struct RunOptions {
     )]
     pub fmds_grpc_server: Option<String>,
     #[clap(
+        long,
         default_value = "container-exec",
         help = "Set the configuration mode for HBN. Specify \"container-exec\" or \"nvue-rest\".",
         env = "HBN_CONFIG_MODE"

@@ -17,7 +17,6 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -39,41 +38,6 @@ pub struct TenantConfig {
 
 pub static HOSTNAME_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$").unwrap());
-
-impl TryFrom<rpc::forge::TenantConfig> for TenantConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: rpc::forge::TenantConfig) -> Result<Self, Self::Error> {
-        let truncated_hostname = config.hostname.map(|mut name| {
-            if name.len() > 63 {
-                name.truncate(63);
-                tracing::warn!("Hostname has been truncated to 63 characters.")
-            }
-            name
-        });
-
-        Ok(Self {
-            tenant_organization_id: TenantOrganizationId::try_from(
-                config.tenant_organization_id.clone(),
-            )
-            .map_err(|_| RpcDataConversionError::InvalidTenantOrg(config.tenant_organization_id))?,
-            tenant_keyset_ids: config.tenant_keyset_ids,
-            hostname: truncated_hostname,
-        })
-    }
-}
-
-impl TryFrom<TenantConfig> for rpc::forge::TenantConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: TenantConfig) -> Result<rpc::forge::TenantConfig, Self::Error> {
-        Ok(Self {
-            tenant_organization_id: config.tenant_organization_id.to_string(),
-            tenant_keyset_ids: config.tenant_keyset_ids,
-            hostname: config.hostname,
-        })
-    }
-}
 
 impl TenantConfig {
     /// Validates the tenant configuration

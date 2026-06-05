@@ -1,0 +1,178 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: NICo REST CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - release/*
+      - 'pull-request/[0-9]+'
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]*"
+      - "v[0-9].[0-9].[0-9]-rc[0-9]*"
+
+jobs:
+  changes:
+    name: Detect REST CI Gate
+    runs-on: ubuntu-latest
+    outputs:
+      run_rest_ci: ${{ steps.gate.outputs.run_rest_ci }}
+      rest_api_changed: ${{ steps.filter.outputs.rest_api }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect rest-api changes
+        id: filter
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: dorny/paths-filter@v3
+        with:
+          base: main
+          filters: |
+            rest_api:
+              - 'rest-api/**'
+              - '.github/workflows/rest-*.yml'
+
+      - name: Decide whether REST CI should run
+        id: gate
+        env:
+          REF: ${{ github.ref }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          REST_API_CHANGED: ${{ steps.filter.outputs.rest_api }}
+        run: |
+          run_rest_ci=true
+
+          if [[ "${REF}" =~ ^refs/heads/pull-request/[0-9]+$ ]]; then
+            run_rest_ci="${REST_API_CHANGED:-false}"
+          fi
+
+          if [[ "${COMMIT_MESSAGE}" =~ ci-run-complete-pipeline ]]; then
+            run_rest_ci=true
+          fi
+
+          echo "run_rest_ci=${run_rest_ci}" >> "$GITHUB_OUTPUT"
+          echo "REST CI gate: ${run_rest_ci}"
+
+  prepare:
+    name: Prepare Build Info
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.run_rest_ci == 'true' }}
+    uses: ./.github/workflows/rest-prepare-build-info.yml
+    with:
+      runner: linux-amd64-cpu4
+
+  lint-and-test:
+    name: Lint and Test
+    needs: prepare
+    uses: ./.github/workflows/rest-lint-and-test.yml
+
+  build-binaries:
+    name: Build Go Binaries
+    needs:
+      - prepare
+      - lint-and-test
+    with:
+      upload_artifact: true
+    uses: ./.github/workflows/rest-build-binaries.yml
+
+  security-secret-scan:
+    name: REST Secret Scan with TruffleHog
+    needs: prepare
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run TruffleHog Scan
+        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@f435aa6bf125fe6f9e5ac438f8cef75f90e29a2b
+        with:
+          extra-args: '--results=verified,unknown --only-verified'
+          post-pr-comment: 'true'
+          fail-on-findings: 'true'
+
+  build-and-push:
+    name: Build and Push Docker Images
+    needs:
+      - prepare
+      - lint-and-test
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      security-events: write
+    uses: ./.github/workflows/rest-build-push-docker.yml
+    with:
+      runner: linux-amd64-cpu4
+      semantic_version: ${{ needs.prepare.outputs.semantic_version }}
+      short_sha: ${{ needs.prepare.outputs.short_sha }}
+      branch_sha_tag: ${{ needs.prepare.outputs.branch_sha_tag }}
+      target_registry: ${{ needs.prepare.outputs.target_registry }}
+      branch_name: ${{ needs.prepare.outputs.branch_name }}
+      is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
+      push_enabled: ${{ github.event_name != 'workflow_dispatch' && !contains(github.ref, 'pull-request/') }}
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+
+  helm:
+    name: Helm Charts
+    needs:
+      - prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/rest-helm-workflows.yml
+    with:
+      app_version: ${{ needs.prepare.outputs.semantic_version }}
+      chart_version: ${{ needs.prepare.outputs.helm_version }}
+    secrets:
+      NVCR_STG_TOKEN: ${{ secrets.NVCR_TOKEN }}
+
+  # ============================================================================
+  # AGGREGATOR — single required check for branch protection
+  # ============================================================================
+  # Fails iff any leaf job's result is `failure` or `cancelled`.
+  # `skipped` counts as pass — that's how core-only PRs unblock when the
+  # `changes` gate intentionally skips the REST pipeline.
+  # `changes` + `prepare` are in needs so a gate or prepare failure doesn't
+  # silently pass (downstream leaves become SKIPPED in those cases).
+  rest-ci-pass:
+    name: rest-ci-pass
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - prepare
+      - lint-and-test
+      - build-binaries
+      - security-secret-scan
+      - build-and-push
+      - helm
+    steps:
+      - name: Decide pass/fail
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS_JSON" | jq -e '
+            to_entries
+            | map(select(.value.result == "failure" or .value.result == "cancelled"))
+            | length > 0
+          ' >/dev/null; then
+            echo "::error::One or more required jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "All required jobs OK (success or skipped)"

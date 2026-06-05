@@ -16,10 +16,11 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::forge::{
     self as forgerpc, CreateNetworkSecurityGroupRequest, NetworkSecurityGroupAttributes,
 };
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

@@ -1,0 +1,140 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::borrow::Cow;
+
+use serde_json::json;
+
+use crate::json::{JsonExt, JsonPatch};
+use crate::redfish;
+use crate::redfish::Builder;
+
+pub fn collection(chassis_id: &str) -> redfish::Collection<'static> {
+    let odata_id = format!(
+        "{}/LeakDetectors",
+        redfish::thermal_subsystem::leak_detection_resource(chassis_id).odata_id
+    );
+    redfish::Collection {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#LeakDetectorCollection.LeakDetectorCollection"),
+        name: Cow::Borrowed("Leak Detector Collection"),
+    }
+}
+
+pub fn resource<'a>(chassis_id: &str, leak_detector_id: &'a str) -> redfish::Resource<'a> {
+    let odata_id = format!("{}/{leak_detector_id}", collection(chassis_id).odata_id);
+    redfish::Resource {
+        odata_id: Cow::Owned(odata_id),
+        odata_type: Cow::Borrowed("#LeakDetector.v1_0_0.LeakDetector"),
+        id: Cow::Borrowed(leak_detector_id),
+        name: Cow::Borrowed("Leak Detector"),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LeakDetector {
+    pub id: Cow<'static, str>,
+    pub user_label: Option<Cow<'static, str>>,
+    pub detector_state: DetectorState,
+}
+
+impl LeakDetector {
+    pub fn to_json(&self, chassis_id: &str) -> serde_json::Value {
+        let mut builder = builder(&resource(chassis_id, &self.id))
+            .detector_state(self.detector_state)
+            .leak_detector_type("Moisture");
+        if let Some(user_label) = &self.user_label {
+            builder = builder.user_label(user_label);
+        }
+        builder.build()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DetectorState {
+    Ok,
+    Warning,
+    Critical,
+}
+
+impl DetectorState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::Warning => "Warning",
+            Self::Critical => "Critical",
+        }
+    }
+}
+
+pub fn builder(resource: &redfish::Resource) -> LeakDetectorBuilder {
+    LeakDetectorBuilder {
+        value: resource.json_patch().patch(json!({
+            "Status": redfish::resource::Status::Ok.into_json(),
+            "DetectorState": DetectorState::Ok.as_str(),
+            "LeakDetectorType": "Moisture",
+        })),
+    }
+}
+
+pub struct LeakDetectorBuilder {
+    value: serde_json::Value,
+}
+
+impl Builder for LeakDetectorBuilder {
+    fn apply_patch(self, patch: serde_json::Value) -> Self {
+        Self {
+            value: self.value.patch(patch),
+        }
+    }
+}
+
+impl LeakDetectorBuilder {
+    pub fn detector_state(self, detector_state: DetectorState) -> Self {
+        let status = match detector_state {
+            DetectorState::Ok => redfish::resource::Status::Ok,
+            DetectorState::Warning => redfish::resource::Status::Warning,
+            DetectorState::Critical => redfish::resource::Status::Critical,
+        };
+        self.apply_patch(json!({
+            "DetectorState": detector_state.as_str(),
+            "Status": status.into_json(),
+        }))
+    }
+
+    pub fn leak_detector_type(self, value: &str) -> Self {
+        self.add_str_field("LeakDetectorType", value)
+    }
+
+    pub fn user_label(self, value: &str) -> Self {
+        self.add_str_field("UserLabel", value)
+    }
+
+    pub fn build(self) -> serde_json::Value {
+        self.value
+    }
+}
+
+pub fn generate_chassis_leak_detectors(count: usize) -> Vec<LeakDetector> {
+    (1..=count)
+        .map(|index| LeakDetector {
+            id: Cow::Owned(format!("LeakDetector_{index}")),
+            user_label: Some(Cow::Owned(format!("Leak Detector {index}"))),
+            detector_state: DetectorState::Ok,
+        })
+        .collect()
+}

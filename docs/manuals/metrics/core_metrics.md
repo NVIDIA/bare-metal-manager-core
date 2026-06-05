@@ -11,7 +11,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_api_ready</td><td>gauge</td><td>Whether the NICo API is running</td></tr>
 <tr><td>carbide_api_tls_connection_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>
 <tr><td>carbide_api_tls_connection_success_total</td><td>counter</td><td>The amount of tls connections that were successful</td></tr>
-<tr><td>carbide_api_tracing_spans_open</td><td>gauge</td><td>Whether the NICo API is running</td></tr>
+<tr><td>carbide_api_tracing_spans_open</td><td>gauge</td><td>Number of open logging/tracing spans</td></tr>
 <tr><td>carbide_api_vault_request_duration_milliseconds</td><td>histogram</td><td>the duration of outbound vault requests, in milliseconds</td></tr>
 <tr><td>carbide_api_vault_requests_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>
 <tr><td>carbide_api_vault_requests_failed_total</td><td>counter</td><td>The amount of tcp connections that were failures</td></tr>
@@ -36,7 +36,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the NICo deployment which are available for immediate instance creation</td></tr>
-<tr><td>carbide_hosts_by_sku_count</td><td>gauge</td><td>The amount of hosts by SKU and device type (&#x27;unknown&#x27; for hosts without SKU)</td></tr>
+<tr><td>carbide_hosts_by_sku_count</td><td>gauge</td><td>The amount of hosts by SKU and device type (&#39;unknown&#39; for hosts without SKU)</td></tr>
 <tr><td>carbide_hosts_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
 <tr><td>carbide_hosts_health_status_count</td><td>gauge</td><td>The total number of Managed Hosts in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the NICo deployment</td></tr>
@@ -86,10 +86,12 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_network_segments_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_network_segments have spent in a certain state</td></tr>
 <tr><td>carbide_network_segments_total</td><td>gauge</td><td>The total number of carbide_network_segments in the system</td></tr>
 <tr><td>carbide_network_segments_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_network_segments in the system with a given state that failed state handling</td></tr>
-<tr><td>carbide_nvlink_partition_monitor_nmxm_changes_applied_total</td><td>counter</td><td>Number of changes requested to Nmx-M</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_nmxc_changes_applied_total</td><td>counter</td><td>Number of changes requested to NMX-C</td></tr>
 <tr><td>carbide_pending_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_pending_host_firmware_update_count</td><td>gauge</td><td>The number of host machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_power_shelves_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_power_shelves in the system</td></tr>
+<tr><td>carbide_power_shelves_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
+<tr><td>carbide_power_shelves_health_status_count</td><td>gauge</td><td>The total number of Power Shelves in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_power_shelves_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_power_shelves</td></tr>
 <tr><td>carbide_power_shelves_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_power_shelves</td></tr>
 <tr><td>carbide_power_shelves_total</td><td>gauge</td><td>The total number of carbide_power_shelves in the system</td></tr>
@@ -97,6 +99,8 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>The amount of machines that are waiting for firmware downloads on other machines to complete before doing their own</td></tr>
 <tr><td>carbide_preingestion_waiting_installation</td><td>gauge</td><td>The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware</td></tr>
 <tr><td>carbide_racks_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_racks in the system</td></tr>
+<tr><td>carbide_racks_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
+<tr><td>carbide_racks_health_status_count</td><td>gauge</td><td>The total number of Racks in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_racks_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_racks</td></tr>
 <tr><td>carbide_racks_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_racks</td></tr>
 <tr><td>carbide_racks_total</td><td>gauge</td><td>The total number of carbide_racks in the system</td></tr>
@@ -115,6 +119,8 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
 <tr><td>carbide_site_explorer_iteration_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one site explorer iteration</td></tr>
 <tr><td>carbide_switches_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_switches in the system</td></tr>
+<tr><td>carbide_switches_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
+<tr><td>carbide_switches_health_status_count</td><td>gauge</td><td>The total number of Switches in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_switches_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_switches</td></tr>
 <tr><td>carbide_switches_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_switches</td></tr>
 <tr><td>carbide_switches_total</td><td>gauge</td><td>The total number of carbide_switches in the system</td></tr>

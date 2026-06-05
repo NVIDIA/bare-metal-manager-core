@@ -212,6 +212,20 @@ impl TryFrom<FirmwareCredentialsPb> for Credentials {
     }
 }
 
+impl TryFrom<Credentials> for forge_ssh::ssh_client::AuthConfig {
+    type Error = FirmwareError;
+    fn try_from(value: Credentials) -> Result<Self, Self::Error> {
+        use forge_ssh::ssh_client::AuthConfig;
+        match value {
+            Credentials::SshKey { path, passphrase } => Ok(AuthConfig::SshKey { path, passphrase }),
+            Credentials::SshAgent => Ok(AuthConfig::SshAgent),
+            _ => Err(FirmwareError::ConfigError(
+                "HTTP credentials cannot be used with SSH sources".to_string(),
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

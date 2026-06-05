@@ -77,13 +77,13 @@ impl Callbacks for CarbideLints {
         // Override the `mir_borrowck` query from rustc. This query has the right information
         // available, namely both type-checker results and borrow-checker results.
         config.override_queries = Some(|_session, queries| {
-            let orig_borrowck_query = Box::new(queries.mir_borrowck);
+            let orig_borrowck_query = Box::new(queries.queries.mir_borrowck);
             // Keep the original query in a global so we can call it.
             borrowck_shim::ORIG_BORROWCK_QUERY
                 .write()
                 .unwrap()
                 .replace(orig_borrowck_query);
-            queries.mir_borrowck = |tcx, def_id| {
+            queries.queries.mir_borrowck = |tcx, def_id| {
                 let mut shim = BorrowckShim::new();
                 let result = shim.mir_borrowck(tcx, def_id);
                 result
@@ -92,15 +92,18 @@ impl Callbacks for CarbideLints {
     }
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
     rustc_driver::install_ice_hook("https://github.com/NVIDIA/carbide/issues/new", |_| ());
     let handler = EarlyDiagCtxt::new(ErrorOutputType::HumanReadable {
-        kind: HumanReadableErrorType::Default { short: false },
+        kind: HumanReadableErrorType {
+            short: false,
+            unicode: false,
+        },
         color_config: ColorConfig::Auto,
     });
     rustc_driver::init_rustc_env_logger(&handler);
-    std::process::exit(rustc_driver::catch_with_exit_code(move || {
+    rustc_driver::catch_with_exit_code(move || {
         let mut orig_args = rustc_driver::args::raw_args(&early_dcx);
 
         // Taken from clippy's driver: Support the `--sysroot` rustc arg.
@@ -156,7 +159,7 @@ fn main() {
             let mut driver = DefaultCallbacks;
             rustc_driver::run_compiler(&args, &mut driver);
         }
-    }))
+    })
 }
 
 fn has_arg(args: &[String], find_arg: &str) -> bool {

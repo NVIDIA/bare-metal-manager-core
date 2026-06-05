@@ -185,6 +185,21 @@ pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, D
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Updates both persisted VNI locations for a VPC.
+pub async fn set_vni(value: &Vpc, txn: &mut PgConnection, vni: i32) -> DatabaseResult<Vpc> {
+    // Keep the requested VNI column and the actual status VNI in sync.
+    let query = "UPDATE vpcs
+            SET vni=$1, status=jsonb_set(status, '{vni}', to_jsonb($1::integer), true), updated=NOW()
+            WHERE id=$2 AND deleted is null
+            RETURNING *";
+    sqlx::query_as(query)
+        .bind(vni)
+        .bind(value.id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
 }
@@ -332,7 +347,7 @@ pub async fn update_virtualization(
     .await?;
 
     for network_segment in network_segments {
-        if !network_segment.can_stretch.unwrap_or_default() {
+        if !network_segment.status.can_stretch.unwrap_or_default() {
             continue;
         }
 
@@ -358,30 +373,25 @@ pub async fn update_virtualization(
 pub async fn increment_vpc_version(
     txn: &mut PgConnection,
     id: VpcId,
+    expected_version: ConfigVersion,
 ) -> Result<ConfigVersion, DatabaseError> {
-    let read_query = "SELECT version FROM vpcs WHERE id=$1";
-    let current_version: ConfigVersion = sqlx::query_as(read_query)
-        .bind(id)
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(read_query, e))?;
-
-    let new_version = current_version.increment();
+    let next_version = expected_version.increment();
 
     let update_query =
         "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 RETURNING version";
-    let updated: Option<(ConfigVersion,)> = sqlx::query_as(update_query)
-        .bind(new_version)
+    let updated: Result<(ConfigVersion,), _> = sqlx::query_as(update_query)
+        .bind(next_version)
         .bind(id)
-        .bind(current_version)
-        .fetch_optional(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(update_query, e))?;
+        .bind(expected_version)
+        .fetch_one(&mut *txn)
+        .await;
 
-    updated
-        .map(|(v,)| v)
-        .ok_or(DatabaseError::ConcurrentModificationError(
+    match updated {
+        Ok((version,)) => Ok(version),
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::ConcurrentModificationError(
             "vpc",
-            current_version.to_string(),
-        ))
+            expected_version.to_string(),
+        )),
+        Err(e) => Err(DatabaseError::query(update_query, e)),
+    }
 }

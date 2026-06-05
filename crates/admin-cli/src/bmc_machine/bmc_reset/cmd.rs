@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn bmc_reset(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    if args.use_ipmitool {
+        eprintln!(
+            "Warning: ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode."
+        );
+    }
     api_client.0.admin_bmc_reset(args).await?;
     Ok(())
 }

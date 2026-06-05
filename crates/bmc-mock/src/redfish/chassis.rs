@@ -19,7 +19,6 @@ use std::borrow::Cow;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::get;
 use serde_json::json;
@@ -60,6 +59,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const PCIE_DEVICE_ID: &str = "{pcie_device_id}";
     const SENSOR_ID: &str = "{sensor_id}";
     const POWER_SUPPLY_ID: &str = "{power_supply_id}";
+    const LEAK_DETECTOR_ID: &str = "{leak_detector_id}";
     r.route(&collection().odata_id, get(get_chassis_collection))
         .route(&resource(CHASSIS_ID).odata_id, get(get_chassis))
         .route(
@@ -116,6 +116,22 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
             &redfish::power_supply::resource(CHASSIS_ID, POWER_SUPPLY_ID).odata_id,
             get(get_chassis_power_supply),
         )
+        .route(
+            &redfish::thermal_subsystem::resource(CHASSIS_ID).odata_id,
+            get(get_chassis_thermal_subsystem),
+        )
+        .route(
+            &redfish::thermal_subsystem::leak_detection_resource(CHASSIS_ID).odata_id,
+            get(get_chassis_leak_detection),
+        )
+        .route(
+            &redfish::leak_detector::collection(CHASSIS_ID).odata_id,
+            get(get_chassis_leak_detector_collection),
+        )
+        .route(
+            &redfish::leak_detector::resource(CHASSIS_ID, LEAK_DETECTOR_ID).odata_id,
+            get(get_chassis_leak_detector),
+        )
 }
 
 pub struct SingleChassisConfig {
@@ -127,6 +143,7 @@ pub struct SingleChassisConfig {
     pub network_adapters: Option<Vec<redfish::network_adapter::NetworkAdapter>>,
     pub pcie_devices: Option<Vec<redfish::pcie_device::PCIeDevice>>,
     pub sensors: Option<Vec<redfish::sensor::Sensor>>,
+    pub leak_detectors: Option<Vec<redfish::leak_detector::LeakDetector>>,
     pub chassis_type: Cow<'static, str>,
     pub assembly: Option<serde_json::Value>,
     pub power_supplies: Option<Vec<redfish::power_supply::PowerSupply>>,
@@ -147,6 +164,7 @@ impl SingleChassisConfig {
             network_adapters: None,
             pcie_devices: None,
             sensors: None,
+            leak_detectors: None,
             assembly: None,
             power_supplies: None,
             oem: None,
@@ -224,6 +242,21 @@ impl SingleChassisState {
             .as_ref()
             .and_then(|v| v.iter().find(|v| v.id == id))
     }
+
+    fn leak_detectors(&self) -> Vec<redfish::leak_detector::LeakDetector> {
+        self.config.leak_detectors.clone().unwrap_or_default()
+    }
+
+    fn find_leak_detector(&self, id: &str) -> Option<&redfish::leak_detector::LeakDetector> {
+        self.config
+            .leak_detectors
+            .as_ref()
+            .and_then(|leak_detectors| {
+                leak_detectors
+                    .iter()
+                    .find(|detector| detector.id.as_ref() == id)
+            })
+    }
 }
 
 async fn get_chassis_collection(State(state): State<BmcState>) -> Response {
@@ -266,6 +299,11 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         .is_some()
         .then_some(redfish::power_subsystem::resource(&chassis_id));
 
+    let thermal_subsystem = config
+        .leak_detectors
+        .is_some()
+        .then_some(redfish::thermal_subsystem::resource(&chassis_id));
+
     let mut b = builder(&resource(&chassis_id))
         .chassis_type(&config.chassis_type)
         .maybe_with(ChassisBuilder::assembly, &assembly)
@@ -276,6 +314,7 @@ async fn get_chassis(State(state): State<BmcState>, Path(chassis_id): Path<Strin
         .maybe_with(ChassisBuilder::manufacturer, &config.manufacturer)
         .maybe_with(ChassisBuilder::part_number, &config.part_number)
         .maybe_with(ChassisBuilder::power_subsystem, &power_subsystem)
+        .maybe_with(ChassisBuilder::thermal_subsystem, &thermal_subsystem)
         .maybe_with(ChassisBuilder::model, &config.model);
 
     if let Some(oem) = &config.oem {
@@ -316,11 +355,6 @@ async fn get_chassis_network_adapter(
     let Some(chassis_state) = state.chassis_state.find(&chassis_id) else {
         return http::not_found();
     };
-    if let Some(helper) = state.injected_bugs.all_dpu_lost_on_host() {
-        return helper
-            .network_adapter(&chassis_id, &network_adapter_id)
-            .into_ok_response();
-    }
     chassis_state
         .find_network_adapter(&network_adapter_id)
         .map(|eth| eth.to_json().into_ok_response())
@@ -376,13 +410,7 @@ async fn get_pcie_device(
         .chassis_state
         .find(&chassis_id)
         .and_then(|chassis_state| chassis_state.find_pcie_device(&pcie_device_id))
-        .map(|pcie_device| {
-            if pcie_device.is_mat_dpu && state.injected_bugs.all_dpu_lost_on_host().is_some() {
-                json!("All DPU lost bug injected").into_response(StatusCode::NOT_FOUND)
-            } else {
-                pcie_device.to_json().into_ok_response()
-            }
-        })
+        .map(|pcie_device| pcie_device.to_json().into_ok_response())
         .unwrap_or_else(http::not_found)
 }
 
@@ -509,6 +537,78 @@ async fn get_chassis_power_supply(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_chassis_thermal_subsystem(
+    State(state): State<BmcState>,
+    Path(chassis_id): Path<String>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .map(|_| {
+            redfish::thermal_subsystem::builder(&redfish::thermal_subsystem::resource(&chassis_id))
+                .leak_detection(&redfish::thermal_subsystem::leak_detection_resource(
+                    &chassis_id,
+                ))
+                .build()
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_leak_detection(
+    State(state): State<BmcState>,
+    Path(chassis_id): Path<String>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .map(|_| {
+            redfish::thermal_subsystem::leak_detection_builder(
+                &redfish::thermal_subsystem::leak_detection_resource(&chassis_id),
+            )
+            .leak_detectors(&redfish::leak_detector::collection(&chassis_id))
+            .build()
+            .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_leak_detector_collection(
+    State(state): State<BmcState>,
+    Path(chassis_id): Path<String>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .map(SingleChassisState::leak_detectors)
+        .map(|leak_detectors| {
+            leak_detectors
+                .iter()
+                .map(|detector| {
+                    redfish::leak_detector::resource(&chassis_id, &detector.id).entity_ref()
+                })
+                .collect::<Vec<_>>()
+        })
+        .map(|members| {
+            redfish::leak_detector::collection(&chassis_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_chassis_leak_detector(
+    State(state): State<BmcState>,
+    Path((chassis_id, leak_detector_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .chassis_state
+        .find(&chassis_id)
+        .and_then(|chassis_state| chassis_state.find_leak_detector(&leak_detector_id))
+        .map(|detector| detector.to_json(&chassis_id).into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
 pub struct ChassisBuilder {
     value: serde_json::Value,
 }
@@ -560,6 +660,10 @@ impl ChassisBuilder {
 
     pub fn power_subsystem(self, v: &redfish::Resource<'_>) -> Self {
         self.apply_patch(v.nav_property("PowerSubsystem"))
+    }
+
+    pub fn thermal_subsystem(self, v: &redfish::Resource<'_>) -> Self {
+        self.apply_patch(v.nav_property("ThermalSubsystem"))
     }
 
     pub fn oem(self, v: &serde_json::Value) -> Self {

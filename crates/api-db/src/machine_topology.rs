@@ -16,7 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use chrono::{TimeDelta, Utc};
@@ -74,6 +73,7 @@ pub async fn create_or_update(
             info: hardware_info.clone(),
         },
         bmc_info: BmcInfo {
+            machine_interface_id: None,
             ip: None,
             port: None,
             mac: None,
@@ -138,26 +138,27 @@ pub async fn create_or_update_with_bom_validation(
     create_or_update(txn, machine_id, hardware_info).await
 }
 
-// update_firmware_version_by_bmc_address updates the stored firmware version info, using the BMC IP under the assumption that this came from site explorer reading from that address.
-pub async fn update_firmware_version_by_bmc_address(
+// update_firmware_version_by_machine_id updates the stored firmware version info for a machine.
+pub async fn update_firmware_version_by_machine_id(
     txn: &mut PgConnection,
-    bmc_address: &IpAddr,
+    machine_id: &MachineId,
     bmc_version: &str,
     bios_version: &str,
 ) -> DatabaseResult<()> {
-    // The IS NOT NULL checks that we're not partially creating stuff under an Option when adding a bios_version.  The firmware_version for the BMC gets implicitly checked when checking for the BMC IP.
-    let query = r#"UPDATE machine_topologies SET topology =
+    // The IS NOT NULL checks that we're not partially creating stuff under an Option when adding a bios_version.
+    let query = r#"UPDATE machine_topologies mt SET topology =
                         jsonb_set(jsonb_set(topology, '{bmc_info}',
                             jsonb_set(topology->'bmc_info', '{firmware_version}', $2)),
                             '{discovery_data}',
                                  jsonb_set(topology->'discovery_data', '{Info}',
                                             jsonb_set(topology->'discovery_data'->'Info', '{dmi_data}',
-                                                        jsonb_set(topology->'discovery_data'->'Info'->'dmi_data', '{bios_version}', $3))
-                        )) WHERE topology->'bmc_info'->>'ip' = $1
-                                            AND topology->'discovery_data'->'Info'->'dmi_data'->'bios_version' IS NOT NULL;"#;
+                                                         jsonb_set(topology->'discovery_data'->'Info'->'dmi_data', '{bios_version}', $3))
+                        ))
+                    WHERE mt.machine_id = $1
+                        AND topology->'discovery_data'->'Info'->'dmi_data'->'bios_version' IS NOT NULL;"#;
 
     sqlx::query(query)
-        .bind(bmc_address.to_string())
+        .bind(machine_id)
         .bind(sqlx::types::Json(bmc_version))
         .bind(sqlx::types::Json(bios_version))
         .execute(txn)
@@ -214,7 +215,14 @@ pub async fn find_machine_id_by_bmc_ip(
     txn: impl DbReader<'_>,
     address: &str,
 ) -> Result<Option<MachineId>, DatabaseError> {
-    let query = "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'ip' = $1";
+    let query = r#"
+        SELECT mi.machine_id
+        FROM machine_interfaces mi
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        WHERE mi.interface_type = 'Bmc'
+            AND mi.machine_id IS NOT NULL
+            AND mia.address = $1::inet
+    "#;
     sqlx::query_as(query)
         .bind(address)
         .fetch_optional(txn)
@@ -226,9 +234,15 @@ pub async fn find_machine_id_by_bmc_mac(
     txn: &mut PgConnection,
     mac_address: mac_address::MacAddress,
 ) -> Result<Option<MachineId>, DatabaseError> {
-    let query = "SELECT machine_id FROM machine_topologies WHERE topology->'bmc_info'->>'mac' = $1";
+    let query = r#"
+        SELECT machine_id
+        FROM machine_interfaces
+        WHERE interface_type = 'Bmc'
+            AND machine_id IS NOT NULL
+            AND mac_address = $1::macaddr
+    "#;
     sqlx::query_as(query)
-        .bind(mac_address.to_string())
+        .bind(mac_address)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -238,9 +252,14 @@ pub async fn find_machine_bmc_pairs(
     txn: impl DbReader<'_>,
     bmc_ips: Vec<String>,
 ) -> Result<Vec<(MachineId, String)>, DatabaseError> {
-    let query = r#"SELECT machine_id, topology->'bmc_info'->>'ip'
-            FROM machine_topologies
-            WHERE topology->'bmc_info'->>'ip' = ANY($1)"#;
+    let query = r#"
+        SELECT mi.machine_id, host(mia.address)
+        FROM machine_interfaces mi
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        WHERE mi.interface_type = 'Bmc'
+            AND mi.machine_id IS NOT NULL
+            AND host(mia.address) = ANY($1)
+    "#;
     sqlx::query_as(query)
         .bind(bmc_ips)
         .fetch_all(txn)
@@ -250,27 +269,22 @@ pub async fn find_machine_bmc_pairs(
 
 /// Find the BMC IP address for each of the given machine IDs.
 ///
-/// Returns a list of (machine_id, bmc_ip) pairs. If a machine has multiple topology
-/// records, only the most recent one (by `created` timestamp) is returned.
+/// Returns a list of (machine_id, bmc_ip) pairs from BMC interface links.
 ///
 /// The BMC IP is returned as `Option<String>`:
 /// - `Some(ip)` if the topology has a valid BMC IP
-/// - `None` if the topology exists but has no BMC IP (caller can log/handle this case)
-///
-/// Note: Machines without topology records will be silently omitted from the result.
-///
-/// This query uses `DISTINCT ON` with `ORDER BY machine_id, created DESC` to efficiently
-/// select the latest topology per machine. This is optimized by the composite index
-/// `machine_topologies_machine_id_created_idx`.
+/// - `None` if the linked interface exists but has no BMC IP (caller can log/handle this case)
 pub async fn find_machine_bmc_pairs_by_machine_id(
     txn: &mut PgConnection,
     machine_ids: Vec<MachineId>,
 ) -> Result<Vec<(MachineId, Option<String>)>, DatabaseError> {
     let query = r#"
-        SELECT DISTINCT ON (machine_id) machine_id, topology->'bmc_info'->>'ip'
-        FROM machine_topologies
-        WHERE machine_id = ANY($1)
-        ORDER BY machine_id, created DESC
+        SELECT DISTINCT ON (mi.machine_id) mi.machine_id, host(mia.address)
+        FROM machine_interfaces mi
+        LEFT JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+        WHERE mi.interface_type = 'Bmc'
+            AND mi.machine_id = ANY($1)
+        ORDER BY mi.machine_id, family(mia.address), mia.address
     "#;
     sqlx::query_as(query)
         .bind(machine_ids)
@@ -341,134 +355,4 @@ pub async fn set_topology_update_needed(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
-}
-
-// TODO: Remove when there's no longer a need to handle the old topology format
-pub mod test_helpers {
-    use carbide_utils::models::arch::CpuArchitecture;
-    use model::hardware_info::{
-        BlockDevice, Cpu, DmiData, DpuData, Gpu, InfinibandInterface, MemoryDevice,
-        NetworkInterface, NvmeDevice, TpmEkCertificate,
-    };
-    use serde::{Deserialize, Serialize};
-
-    use super::*;
-
-    // TODO: Remove when there's no longer a need to handle the old topology format
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct HardwareInfoV1 {
-        #[serde(default)]
-        pub network_interfaces: Vec<NetworkInterface>,
-        #[serde(default)]
-        pub infiniband_interfaces: Vec<InfinibandInterface>,
-        #[serde(default)]
-        pub cpus: Vec<Cpu>,
-        #[serde(default)]
-        pub block_devices: Vec<BlockDevice>,
-        // This should be called machine_arch, but it's serialized directly in/out of a JSONB field in
-        // the DB, so renaming it requires a migration or custom Serialize impl.
-        pub machine_type: CpuArchitecture,
-        #[serde(default)]
-        pub nvme_devices: Vec<NvmeDevice>,
-        #[serde(default)]
-        pub dmi_data: Option<DmiData>,
-        pub tpm_ek_certificate: Option<TpmEkCertificate>,
-        #[serde(default)]
-        pub dpu_info: Option<DpuData>,
-        #[serde(default)]
-        pub gpus: Vec<Gpu>,
-        #[serde(default)]
-        pub memory_devices: Vec<MemoryDevice>,
-    }
-
-    // TODO: Remove when there's no longer a need to handle the old topology format
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct DiscoveryDataV1 {
-        /// Stores the hardware information that was fetched during discovery
-        /// **Note that this field is renamed to uppercase because
-        /// that is how the originally utilized protobuf message looked in serialized
-        /// format**
-        #[serde(rename = "Info")]
-        pub info: HardwareInfoV1,
-    }
-
-    // TODO: Remove when there's no longer a need to handle the old topology format
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct TopologyDataV1 {
-        /// Stores the hardware information that was fetched during discovery
-        pub discovery_data: DiscoveryDataV1,
-        /// The BMC information of the machine
-        /// Note that this field is currently side-injected via the
-        /// `crate::crate::ipmi::BmcMetaDataUpdateRequest::update_bmc_meta_data`
-        /// Therefore no `write` function can be found here.
-        pub bmc_info: BmcInfo,
-    }
-
-    pub async fn update_v1(
-        txn: &mut PgConnection,
-        machine_id: &MachineId,
-        hardware_info: &HardwareInfoV1,
-    ) -> DatabaseResult<MachineTopology> {
-        let discovery_data = DiscoveryDataV1 {
-            info: hardware_info.clone(),
-        };
-
-        tracing::info!(
-            %machine_id,
-            "Discovery data for machine already exists. Updating now.",
-        );
-        let query = "UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data}', $2::jsonb), topology_update_needed=false, updated=NOW() WHERE machine_id=$1 RETURNING *";
-        let res = sqlx::query_as(query)
-            .bind(machine_id)
-            .bind(sqlx::types::Json(&discovery_data))
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-
-        Ok(res)
-    }
-
-    pub async fn create_or_update_v1(
-        txn: &mut PgConnection,
-        machine_id: &MachineId,
-        hardware_info: &HardwareInfoV1,
-    ) -> DatabaseResult<MachineTopology> {
-        let topology_data = find_latest_by_machine_ids(txn, &[*machine_id]).await?;
-        let topology_data = topology_data.get(machine_id);
-
-        if let Some(topology) = topology_data {
-            if topology.topology_update_needed {
-                return update_v1(txn, machine_id, hardware_info).await;
-            }
-            return Ok(topology.clone());
-        }
-
-        let topology_data = TopologyDataV1 {
-            discovery_data: DiscoveryDataV1 {
-                info: hardware_info.clone(),
-            },
-            bmc_info: BmcInfo {
-                ip: None,
-                port: None,
-                mac: None,
-                version: None,
-                firmware_version: None,
-            },
-        };
-
-        tracing::info!(
-            %machine_id,
-            "Discovery data for machine did not exist. Creating now.",
-        );
-
-        let query = "INSERT INTO machine_topologies VALUES ($1, $2::json) RETURNING *";
-        let res = sqlx::query_as(query)
-            .bind(machine_id)
-            .bind(sqlx::types::Json(&topology_data))
-            .fetch_one(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
-
-        Ok(res)
-    }
 }

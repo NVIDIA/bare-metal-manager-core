@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::BmcEndpointRequest;
 use mac_address::MacAddress;
 
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn is_bmc_in_managed_host(

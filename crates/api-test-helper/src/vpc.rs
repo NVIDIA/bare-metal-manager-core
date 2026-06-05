@@ -22,10 +22,13 @@ use super::grpcurl::grpcurl_id;
 pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> eyre::Result<String> {
     tracing::info!("Creating VPC");
 
+    // Default VPC type is ETV. ETV rejects `routing_profile_type` at the
+    // API gate (it's FNN-only -- see `model::vpc::capability`), so this
+    // fixture intentionally omits the field. The FNN-specific fixture
+    // (`create_fnn`) sets it.
     let data = serde_json::json!({
-        "name": "tenant_vpc",
+        "metadata": { "name": "tenant_vpc" },
         "tenantOrganizationId": tenant_org_id,
-        "routing_profile_type": "EXTERNAL".to_string(),
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("VPC created with ID {vpc_id}");
@@ -39,12 +42,30 @@ pub async fn create_fnn(
     tracing::info!("Creating FNN VPC");
 
     let data = serde_json::json!({
-        "name": "tenant_vpc_fnn",
+        "metadata": { "name": "tenant_vpc_fnn" },
         "tenantOrganizationId": tenant_org_id,
         "routing_profile_type": "EXTERNAL".to_string(),
         "network_virtualization_type": 5, // FNN
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
     tracing::info!("FNN VPC created with ID {vpc_id}");
+    Ok(vpc_id)
+}
+
+pub async fn create_flat(
+    carbide_api_addrs: &[SocketAddr],
+    tenant_org_id: &str,
+) -> eyre::Result<String> {
+    tracing::info!("Creating Flat VPC");
+
+    // Flat VPCs reject `routing_profile_type` -- there's no NICo-managed
+    // data plane to apply a routing profile to.
+    let data = serde_json::json!({
+        "metadata": { "name": "tenant_vpc_flat" },
+        "tenantOrganizationId": tenant_org_id,
+        "network_virtualization_type": 6, // FLAT
+    });
+    let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
+    tracing::info!("Flat VPC created with ID {vpc_id}");
     Ok(vpc_id)
 }

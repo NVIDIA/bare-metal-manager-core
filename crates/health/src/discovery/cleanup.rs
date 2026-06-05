@@ -56,6 +56,7 @@ pub(super) fn stop_removed_bmc_collectors(
             remaining_sensors = ctx.collectors.len(CollectorKind::Sensor),
             remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
+            remaining_leak_detector_collectors = ctx.collectors.len(CollectorKind::LeakDetector),
             remaining_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
             remaining_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
             "Cleaned up removed endpoints"
@@ -81,6 +82,7 @@ mod tests {
             HashMap::from([("b".to_string(), 3), ("c".to_string(), 4)]),
         );
         maps.insert(CollectorKind::Firmware, HashMap::new());
+        maps.insert(CollectorKind::LeakDetector, HashMap::new());
         maps.insert(CollectorKind::Nmxt, HashMap::new());
         maps.insert(CollectorKind::NvueRest, HashMap::new());
 

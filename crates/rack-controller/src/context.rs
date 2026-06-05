@@ -1,0 +1,49 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::sync::Arc;
+
+use carbide_rack::rms_client::SwitchSystemImageRmsClient;
+use carbide_rack_controller::config::RackConfig;
+use carbide_rack_controller::metrics::RackMetrics;
+use forge_secrets::credentials::CredentialManager;
+use librms::RmsApi;
+use sqlx::PgPool;
+use state_controller::state_handler::StateHandlerContextObjects;
+
+use crate as carbide_rack_controller;
+
+pub struct RackStateHandlerContextObjects {}
+#[derive(Clone)]
+pub struct RackStateHandlerServices {
+    pub db_pool: PgPool,
+    /// Rack Manager Service client
+    pub rms_client: Option<Arc<dyn RmsApi>>,
+    // TODO: probably this is not the best place for config. But this
+    // field is introduced during refactoring. In original code it was
+    // full CarbideConfig.
+    pub site_config: Arc<RackConfig>,
+    /// Shared client for switch system image RPCs that are not yet exposed through
+    /// librms::RmsApi.
+    pub switch_system_image_rms_client: Option<Arc<dyn SwitchSystemImageRmsClient>>,
+    pub credential_manager: Arc<dyn CredentialManager>,
+}
+
+impl StateHandlerContextObjects for RackStateHandlerContextObjects {
+    type ObjectMetrics = RackMetrics;
+    type Services = RackStateHandlerServices;
+}

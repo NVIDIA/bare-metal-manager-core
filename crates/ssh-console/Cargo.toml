@@ -37,13 +37,14 @@ carbide-uuid = { path = "../uuid" }
 carbide-tls = { path = "../tls" }
 bmc-vendor = { path = "../bmc-vendor" }
 
+bytes = { workspace = true }
 ctor = { workspace = true }
 lazy_static = { workspace = true }
 tokio = { workspace = true, features = [
-    "tokio-macros",
-    "rt-multi-thread",
-    "sync",
-    "macros",
+  "tokio-macros",
+  "rt-multi-thread",
+  "sync",
+  "macros",
 ] }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter"], workspace = true }

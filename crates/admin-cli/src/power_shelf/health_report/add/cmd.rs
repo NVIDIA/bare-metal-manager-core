@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::{self as rpc, InsertPowerShelfHealthReportRequest};
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 

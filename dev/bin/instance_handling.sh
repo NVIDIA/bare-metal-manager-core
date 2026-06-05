@@ -55,13 +55,17 @@ fi
 
 # Create Tenant network segment.
 grpcurl -d "{\"vpc_id\": {\"value\": \"${VPC_ID}\"}, \"name\": \"tenant1\", \"segment_type\": 0, \"prefixes\": [{\"prefix\":\"10.10.10.0/24\", \"gateway\": \"10.10.10.1\", \"reserve_first\": 10}]}" -insecure "${API_SERVER}" forge.Forge/CreateNetworkSegment || true
-SEGMENT_ID=$(grpcurl -d '' -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq -c '.networkSegments | map(select(.name=="tenant1")) | .[0].id.value' | tr -d '"')
+SEGMENT_ID=$(grpcurl -d '' -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq -c '.networkSegments | map(select((.metadata.name // .name)=="tenant1")) | .[0].id.value' | tr -d '"')
+if [[ -z "$SEGMENT_ID" || "$SEGMENT_ID" == "null" ]]; then
+  echo "ERROR: could not determine SEGMENT_ID for segment 'tenant1'" >&2
+  exit 1
+fi
 
 SEGMENT_STATE=""
 i=0
-while [[ $SEGMENT_STATE != "READY" && $i -lt $MAX_RETRY ]]; do
-	echo "Checking network state. Waiting for it to be in READY state. Current: $SEGMENT_STATE"
-	SEGMENT_STATE=$(grpcurl -d "{\"id\": {\"value\": \"${SEGMENT_ID}\"}}" -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq '.networkSegments[0].state' | tr -d '"')
+while [[ $SEGMENT_STATE != "ready" && $i -lt $MAX_RETRY ]]; do
+	echo "Checking network state. Waiting for it to be in ready state. Current: $SEGMENT_STATE"
+	SEGMENT_STATE=$(grpcurl -d "{\"id\": {\"value\": \"${SEGMENT_ID}\"}}" -insecure "${API_SERVER}" forge.Forge/FindNetworkSegments | jq '.networkSegments[0].status.lifecycle.state | fromjson | .state' | tr -d '"')
 	i=$((i + 1))
 	sleep 10
 done

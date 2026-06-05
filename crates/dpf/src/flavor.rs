@@ -21,7 +21,7 @@ use kube::core::ObjectMeta;
 
 use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode,
-    DpuFlavorNvconfig, DpuFlavorSpec,
+    DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
 };
 
 pub const DEFAULT_FLAVOR_NAME: &str = "dpu-flavor";
@@ -154,8 +154,7 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
 
     DpuFlavorNvconfig {
         // DPF does not allow anyother wild card. It takes only '*'
-        device: Some("*".to_string()),
-        host_power_cycle_required: None,
+        device: Some(DpuFlavorNvconfigDevice::KopiumVariant0), //"*"
         parameters: Some(parameters),
     }
 }

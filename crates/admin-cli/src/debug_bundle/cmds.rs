@@ -27,16 +27,16 @@ use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::BmcEndpointRequest;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, Utc};
-use rpc::admin_cli::CarbideCliError::InvalidDateTimeFromUserInput;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zip::CompressionMethod;
 use zip::write::{FileOptions, ZipWriter};
 
+use crate::errors::CarbideCliError::InvalidDateTimeFromUserInput;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::managed_host::DebugBundle;
 use crate::rpc::ApiClient;
 
@@ -1432,7 +1432,7 @@ impl<'a> ZipBundleCreator<'a> {
         zip: &mut ZipWriter<File>,
         filename: &str,
         logs: &[LogEntry],
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file(filename, options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create file {filename}: {e}"))
@@ -1447,7 +1447,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         health_alerts: &::rpc::forge::HealthHistories,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create health_alerts.json: {e}"))
@@ -1517,7 +1517,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         alert_entries: &::rpc::forge::ListHealthReportResponse,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alert_overrides.json", options)
             .map_err(|e| {
@@ -1576,7 +1576,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         analysis: &SiteControllerAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("site_controller_details.json", options)
             .map_err(|e| {
@@ -1702,7 +1702,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         analysis: &MachineAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("machine_info.json", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create machine_info.json: {e}"))
@@ -1815,7 +1815,7 @@ impl<'a> ZipBundleCreator<'a> {
         alert_entries: &::rpc::forge::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("metadata.txt", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create metadata file: {e}"))

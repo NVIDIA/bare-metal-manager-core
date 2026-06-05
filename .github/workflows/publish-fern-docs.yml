@@ -13,10 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes the Fern documentation site when a docs tag is pushed or manually triggered.
-#
-# To publish:  git tag docs/v1.2.0 && git push origin docs/v1.2.0
-# Or use the "Run workflow" button in the Actions tab.
+# Publishes the Fern documentation site on push to main when fern/, docs/, or this
+# workflow file changes, or when manually triggered from the Actions tab.
 #
 # Required configuration:
 # - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
@@ -29,6 +27,7 @@ on:
       - main
     paths:
       - 'fern/**'
+      - 'docs/**'
       - '.github/workflows/publish-fern-docs.yml'
   workflow_dispatch: {}
 

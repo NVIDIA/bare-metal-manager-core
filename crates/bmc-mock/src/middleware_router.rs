@@ -20,18 +20,18 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::any;
 use tracing::instrument;
 
 use crate::Callbacks;
-use crate::bug::InjectedBugs;
 use crate::http::call_router_with_new_request;
+use crate::injection::InjectionStore;
 
 pub fn append(
     mat_host_id: String,
     router: Router,
-    injected_bugs: Arc<InjectedBugs>,
+    injection: Arc<InjectionStore>,
     callbacks: Arc<dyn Callbacks>,
 ) -> Router {
     Router::new()
@@ -39,7 +39,7 @@ pub fn append(
         .with_state(Middleware {
             mat_host_id,
             inner: router,
-            injected_bugs,
+            injection,
             callbacks,
         })
 }
@@ -47,23 +47,18 @@ pub fn append(
 #[instrument(skip_all, fields(mat_host_id = %state.mat_host_id))]
 async fn process(State(mut state): State<Middleware>, request: Request<Body>) -> Response {
     let is_safe = request.method().is_safe();
-    let method = request.method().to_string();
+    let method = request.method().clone();
     let path = request.uri().path().to_string();
-    if let Some(delay) = state.injected_bugs.long_response(&path) {
-        tracing::warn!(
-            method,
-            path,
-            "Error is injected waiting for {delay:?} for request",
-        );
-        tokio::time::sleep(delay).await;
+
+    if let Some(short) = state.injection.pre_handle(&method, &path).await {
+        return short;
     }
-    if let Some(status) = state.injected_bugs.http_error(&method, &path) {
-        tracing::warn!(method, path, %status, "Injected HTTP error for request",);
-        return status.into_response();
-    }
+
     let response = state.call_inner_router(request).await;
+    let response = state.injection.post_handle(&path, response).await;
+
     if !response.status().is_success() {
-        tracing::warn!(method, path, status = response.status().to_string());
+        tracing::warn!(method = %method, path, status = %response.status());
     }
     if !is_safe && response.status().is_success() {
         state.callbacks.state_refresh_indication();
@@ -75,7 +70,7 @@ async fn process(State(mut state): State<Middleware>, request: Request<Body>) ->
 struct Middleware {
     mat_host_id: String,
     inner: Router,
-    injected_bugs: Arc<InjectedBugs>,
+    injection: Arc<InjectionStore>,
     callbacks: Arc<dyn Callbacks>,
 }
 

@@ -30,10 +30,12 @@ name = "carbide_host_support"
 [dependencies]
 
 # [local-dependencies]
+carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
 carbide-tls = { path = "../tls" }
 carbide-libmlx = { path = "../libmlx" }
 logfmt = { path = "../logfmt" }
 carbide-rpc = { path = "../rpc" }
+carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 
@@ -44,6 +46,7 @@ ipnetwork = { workspace = true }
 libudev = { optional = true, workspace = true }
 procfs = { optional = true, workspace = true }
 regex = { workspace = true }
+rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 smbios-lib = { workspace = true }
@@ -58,10 +61,13 @@ tracing-subscriber = { features = [
 ], workspace = true }
 tryhard = { workspace = true }
 uname = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }
+x509-parser = { workspace = true }
 serde_with = { workspace = true }
 
 [dev-dependencies]
+rcgen = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

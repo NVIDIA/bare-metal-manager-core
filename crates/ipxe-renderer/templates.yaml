@@ -346,12 +346,16 @@ templates:
       
       :whoami
       ifconf -c dhcp
-      isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami?uuid=${43.70}
+      # carbide-pxe identifies the booting machine by its client IP (read from
+      # X-Forwarded-For when proxied, TCP socket peer otherwise) and resolves
+      # to a machine_interface_id via find_by_ip. iPXE doesn't need to encode
+      # anything identity-related in the URL -- the network layer carries it.
+      time chain --autofree http://${next-server}:8080/api/v0/pxe/whoami
       goto carbide_menu
-      
+
       :carbide
       ifconf -c dhcp
-      isset ${43.70} && time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?uuid=${43.70}&buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
+      time chain --autofree http://${next-server}:8080/api/v0/pxe/boot?buildarch=${buildarch}&platform=${platform}&manufacturer=${manufacturer}&product=${product}&serial=${serial} && exit 1 || goto error_handler
       
       :carbide_menu
       menu Carbide - ${hostname}

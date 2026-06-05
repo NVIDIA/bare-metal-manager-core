@@ -22,7 +22,11 @@ use rpc::forge as forgerpc;
 pub struct Args {
     #[clap(long, help = "ID of the machine to reboot")]
     pub machine: String,
-    #[clap(short, long, help = "Use ipmitool")]
+    #[clap(
+        short,
+        long,
+        help = "Use ipmitool instead of Redfish to reset the BMC. ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode."
+    )]
     pub use_ipmitool: bool,
 }
 

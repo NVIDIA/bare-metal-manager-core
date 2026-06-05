@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::CreateComputeAllocationRequest;
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 /// Create a compute allocation.

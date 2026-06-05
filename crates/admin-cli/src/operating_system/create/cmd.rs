@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::CreateOperatingSystemRequest;
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::operating_system::common::{str_to_ipxe_template_id, str_to_os_id};
 use crate::rpc::ApiClient;
 

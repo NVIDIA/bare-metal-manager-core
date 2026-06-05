@@ -17,12 +17,13 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn handle_show(

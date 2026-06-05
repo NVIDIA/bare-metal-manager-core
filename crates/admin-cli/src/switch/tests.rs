@@ -23,6 +23,7 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_uuid::switch::SwitchId;
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -52,7 +53,7 @@ fn parse_show_no_args() {
 
     match cmd {
         Cmd::Show(args) => {
-            assert!(args.identifier.is_none());
+            assert!(args.switch_id.is_none());
         }
         _ => panic!("expected Show variant"),
     }
@@ -61,12 +62,15 @@ fn parse_show_no_args() {
 // parse_show_with_identifier ensures show parses with identifier.
 #[test]
 fn parse_show_with_identifier() {
-    let cmd = Cmd::try_parse_from(["switch", "show", "switch-123"])
+    use std::str::FromStr;
+    let switch_id = "sw100nsmnq69j4ntqlj162fnnbvg747gfqbicaa6tqgq6spocirfle7rom0";
+    let cmd = Cmd::try_parse_from(["switch", "show", switch_id])
         .expect("should parse show with identifier");
 
     match cmd {
         Cmd::Show(args) => {
-            assert_eq!(args.identifier, Some("switch-123".to_string()));
+            assert!(args.switch_id.is_some());
+            assert_eq!(args.switch_id, Some(SwitchId::from_str(switch_id).unwrap()));
         }
         _ => panic!("expected Show variant"),
     }

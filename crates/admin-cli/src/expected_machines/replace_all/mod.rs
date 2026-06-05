@@ -22,12 +22,12 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 use crate::expected_machines::common::ExpectedMachineJson;
 
 /// `expected-machine replace-all`: reads a JSON list and calls `replace_all_expected_machines`.

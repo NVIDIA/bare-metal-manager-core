@@ -63,5 +63,6 @@ pub enum HealthReportTemplates {
     MarkHealthy,
     StopRebootForAutomaticRecoveryFromStateMachine,
     TenantReportedIssue,
+    RequestOnlineRepair,
     RequestRepair,
 }

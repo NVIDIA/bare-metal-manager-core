@@ -5,6 +5,24 @@ use mac_address::MacAddress;
 
 use crate::error::ComponentManagerError;
 
+#[derive(Clone, Default)]
+pub struct FirmwareUpdateOptions {
+    pub access_token: Option<String>,
+    pub force_update: bool,
+}
+
+impl std::fmt::Debug for FirmwareUpdateOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FirmwareUpdateOptions")
+            .field(
+                "access_token",
+                &self.access_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("force_update", &self.force_update)
+            .finish()
+    }
+}
+
 pub fn parse_mac(s: &str) -> Result<MacAddress, ComponentManagerError> {
     s.parse::<MacAddress>()
         .map_err(|e| ComponentManagerError::Internal(format!("invalid MAC from backend: {e}")))
@@ -14,6 +32,21 @@ pub fn parse_mac(s: &str) -> Result<MacAddress, ComponentManagerError> {
 mod tests {
     use super::*;
     use crate::power_shelf_manager::PowerShelfVendor;
+
+    #[test]
+    fn firmware_update_options_debug_redacts_access_token() {
+        let debug = format!(
+            "{:?}",
+            FirmwareUpdateOptions {
+                access_token: Some("secret-token".to_string()),
+                force_update: true,
+            }
+        );
+
+        assert!(debug.contains("<redacted>"));
+        assert!(debug.contains("force_update: true"));
+        assert!(!debug.contains("secret-token"));
+    }
 
     #[test]
     fn parse_mac_valid_colon_separated() {

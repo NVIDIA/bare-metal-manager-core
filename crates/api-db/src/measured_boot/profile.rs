@@ -242,7 +242,7 @@ where
     // in the bundle, and return the most specific bundle
     // match (as in, the most unique values, if there is
     // one). If there's a conflict, then return an error.
-    matching.sort_by(|a, b| b.attrs.len().cmp(&a.attrs.len()));
+    matching.sort_by_key(|b| std::cmp::Reverse(b.attrs.len()));
     if matching[0].attrs.len() == matching[1].attrs.len() {
         return Err(DatabaseError::internal(String::from(
             "cannot determine most specific profile match",

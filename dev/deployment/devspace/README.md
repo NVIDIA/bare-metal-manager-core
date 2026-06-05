@@ -1,6 +1,6 @@
 # Local Development with DevSpace
 
-You can use [DevSpace](https://www.devspace.sh) to deploy ncx-infrastructure-core locally using mock hosts.
+You can use [DevSpace](https://www.devspace.sh) to deploy infra-controller core locally using mock hosts.
 
 The process is broken into two steps:
 
@@ -44,8 +44,8 @@ Examples:
 LOCAL_DEV_INSTALL_POSTGRES=0 \
 LOCAL_DEV_POSTGRES_HOST=my-postgres.postgres.svc.cluster.local \
 LOCAL_DEV_POSTGRES_PORT=5432 \
-LOCAL_DEV_POSTGRES_DB=carbide \
-LOCAL_DEV_POSTGRES_USER=carbide \
+LOCAL_DEV_POSTGRES_DB=nico \
+LOCAL_DEV_POSTGRES_USER=nico \
 LOCAL_DEV_POSTGRES_PASSWORD=secret \
 dev/deployment/devspace/bootstrap-prereqs.sh
 ```
@@ -85,52 +85,53 @@ devspace deploy
 
 DevSpace will:
 
-- build the local runtime images from [`Dockerfile.api`](Dockerfile.api) and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron)
+- build the local runtime images from [`Dockerfile.api`](Dockerfile.api), [`Dockerfile.bmc-proxy`](Dockerfile.bmc-proxy), and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron)
 - deploy the Helm chart in [`helm/`](../../../helm)
 - apply the local-only `machine-a-tron` Kubernetes objects from [`machine-a-tron.yaml`](machine-a-tron.yaml) with `kubectl`
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 
-The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). Both Dockerfiles are multi-stage builds: the builder stage compiles the Rust binary inside Docker from the local `build-container-localdev` image, and the runtime stage copies only the finished binary and required runtime assets. DevSpace first checks whether `build-container-localdev` already exists locally and reuses it if present; otherwise it builds it from [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64). BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
+The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). The Dockerfiles are multi-stage builds: the builder stage compiles the Rust binary inside Docker from the local `build-container-localdev` image, and the runtime stage copies only the finished binary and required runtime assets. DevSpace first checks whether `build-container-localdev` already exists locally and reuses it if present; otherwise it builds it from [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64). BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
 
-The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore) and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore). This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds, while still giving the local DevSpace builds a small Docker context.
+The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore). This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds, while still giving the local DevSpace builds a small Docker context.
 
-DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfile to decide when the image needs rebuilding.
+DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when images need rebuilding.
 
-The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API site config in [`values.base.yaml`](values.base.yaml) points BMC traffic at `machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266`.
+The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API and BMC proxy configs in [`values.base.yaml`](values.base.yaml) point BMC traffic at `machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266`.
 
 Common usage:
 
 ```bash
 devspace deploy
-devspace deploy -n forge-system
+devspace deploy -n nico-system
 devspace deploy --force-build
 ```
 
 ## Manual Equivalent
 
-If you want to understand what DevSpace is doing for the app image, the configured build is effectively:
+If you want to understand what DevSpace is doing for the runtime images, the configured build is effectively:
 
 ```bash
 docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
-docker build -t "carbide-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
+docker build -t "nico-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
+docker build -t "nico-bmc-proxy:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.bmc-proxy .
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
 ```
 
-DevSpace then deploys the Helm chart with the built `carbide-api` image wired into `global.image.repository` and `global.image.tag`, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
+DevSpace then deploys the Helm chart with the built `nico-api` image wired into `global.image.repository` and `global.image.tag`, the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
 
-## Re-initializing  ncx-infra-controller-core to a clean slate
+## Re-initializing ncx-infra-controller-core to a clean slate
 
-Once deployed, the `carbide-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
+Once deployed, the `nico-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
 
 You can start over again (purging the resources from k8s) by running:
 
 ```bash
-devspace purge -n forge-system
+devspace purge -n nico-system
 ```
 
-and it will delete the carbide-api and machine-a-tron deployments.
+and it will delete the NICo Helm release and machine-a-tron deployments.
 
-To clear out the carbide database to start from scratch again, run the nuke-postgres.sh helper script:
+To clear out the nico database to start from scratch again, run the nuke-postgres.sh helper script:
 
 ```bash
 dev/deployment/devspace/nuke-postgres.sh
@@ -139,7 +140,7 @@ dev/deployment/devspace/nuke-postgres.sh
 and the postgres database will be reset to an empty state, allowing you to deploy again:
 
 ```bash
-devspace deploy -n forge-system
+devspace deploy -n nico-system
 ```
 
 ## Files

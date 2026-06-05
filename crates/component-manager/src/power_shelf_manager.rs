@@ -4,10 +4,12 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
+use forge_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 
 use crate::error::ComponentManagerError;
+use crate::types::FirmwareUpdateOptions;
 
 /// Physical network identifiers for a power shelf, used to register with and
 /// operate against the backend service (PSM).
@@ -16,6 +18,7 @@ pub struct PowerShelfEndpoint {
     pub pmc_ip: IpAddr,
     pub pmc_mac: MacAddress,
     pub pmc_vendor: PowerShelfVendor,
+    pub pmc_credentials: Credentials,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +62,10 @@ pub struct PowerShelfFirmwareVersions {
 pub trait PowerShelfManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
+    fn supports_firmware_object_json(&self) -> bool {
+        false
+    }
+
     async fn power_control(
         &self,
         endpoints: &[PowerShelfEndpoint],
@@ -70,6 +77,7 @@ pub trait PowerShelfManager: Send + Sync + Debug + 'static {
         endpoints: &[PowerShelfEndpoint],
         target_version: &str,
         components: &[PowerShelfComponent],
+        options: &FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(

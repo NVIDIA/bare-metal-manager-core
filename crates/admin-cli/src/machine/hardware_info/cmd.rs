@@ -17,11 +17,12 @@
 
 use std::fs;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineId;
 
 use super::args::MachineHardwareInfoGpus;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub async fn handle_update_machine_hardware_info_gpus(

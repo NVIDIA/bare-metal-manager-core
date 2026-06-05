@@ -17,8 +17,8 @@ The punt stats receiver generates metrics like the following:
 ### Punt Stats
 
 ```
-punt_stats_bytes_total{component="punt_stats",dropped="false",host_name="10-217-170-242.local.forge",protocol="dhcp"} 862206
-punt_stats_bytes_total{component="punt_stats",dropped="true",host_name="10-217-170-242.local.forge",protocol="dhcp"} 0
-punt_stats_packets_total{component="punt_stats",dropped="false",host_name="10-217-170-242.local.forge",protocol="dhcp"} 2686
-punt_stats_packets_total{component="punt_stats",dropped="true",host_name="10-217-170-242.local.forge",protocol="dhcp"} 0
+punt_stats_bytes_total{component="punt_stats",dropped="false",host_name="10-217-170-242.local.nico",protocol="dhcp"} 862206
+punt_stats_bytes_total{component="punt_stats",dropped="true",host_name="10-217-170-242.local.nico",protocol="dhcp"} 0
+punt_stats_packets_total{component="punt_stats",dropped="false",host_name="10-217-170-242.local.nico",protocol="dhcp"} 2686
+punt_stats_packets_total{component="punt_stats",dropped="true",host_name="10-217-170-242.local.nico",protocol="dhcp"} 0
 ```

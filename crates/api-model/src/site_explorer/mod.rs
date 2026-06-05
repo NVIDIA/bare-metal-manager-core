@@ -21,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_network::BaseMac;
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -46,20 +46,8 @@ use crate::switch::switch_id;
 #[derive(Clone, Debug, Default)]
 pub struct ExploredEndpointSearchFilter {}
 
-impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
-    fn from(_filter: rpc::site_explorer::ExploredEndpointSearchFilter) -> Self {
-        ExploredEndpointSearchFilter {}
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct ExploredManagedHostSearchFilter {}
-
-impl From<rpc::site_explorer::ExploredManagedHostSearchFilter> for ExploredManagedHostSearchFilter {
-    fn from(_filter: rpc::site_explorer::ExploredManagedHostSearchFilter) -> Self {
-        ExploredManagedHostSearchFilter {}
-    }
-}
 
 /// Data that we gathered about a particular endpoint during site exploration
 /// This data is stored as JSON in the Database. Therefore the format can
@@ -132,14 +120,6 @@ pub struct EndpointExplorationReport {
 }
 
 impl EndpointExplorationReport {
-    pub fn cannot_login(&self) -> bool {
-        if let Some(ref e) = self.last_exploration_error {
-            return e.is_unauthorized();
-        }
-
-        false
-    }
-
     /// model does a best effort to find a model name within the report
     pub fn model(&self) -> Option<String> {
         // Prefer Systems, not Chassis; at least for Lenovo, Chassis has what is more of a SKU instead of the actual model name.
@@ -171,30 +151,6 @@ impl EndpointExplorationReport {
             .filter_map(|e| e.mac_address)
             .dedup()
             .collect()
-    }
-}
-
-impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
-    fn from(report: EndpointExplorationReport) -> Self {
-        rpc::site_explorer::EndpointExplorationReport {
-            endpoint_type: format!("{:?}", report.endpoint_type),
-            last_exploration_error: report.last_exploration_error.map(|error| {
-                serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
-            }),
-            last_exploration_latency: report.last_exploration_latency.map(Into::into),
-            machine_id: report.machine_id.map(|id| id.to_string()),
-            vendor: report.vendor.map(|v| v.to_string()),
-            managers: report.managers.into_iter().map(Into::into).collect(),
-            systems: report.systems.into_iter().map(Into::into).collect(),
-            chassis: report.chassis.into_iter().map(Into::into).collect(),
-            service: report.service.into_iter().map(Into::into).collect(),
-            machine_setup_status: report.machine_setup_status.map(Into::into),
-            secure_boot_status: report.secure_boot_status.map(Into::into),
-            lockdown_status: report.lockdown_status.map(Into::into),
-            firmware_versions: serde_json::to_value(&report.versions)
-                .and_then(serde_json::from_value)
-                .unwrap_or_default(),
-        }
     }
 }
 
@@ -495,61 +451,6 @@ pub struct SystemStatus {
     pub state: String,
 }
 
-impl From<SystemStatus> for rpc::site_explorer::SystemStatus {
-    fn from(status: SystemStatus) -> Self {
-        rpc::site_explorer::SystemStatus {
-            health: status.health,
-            health_rollup: status.health_rollup,
-            state: status.state,
-        }
-    }
-}
-
-impl From<PCIeDevice> for rpc::site_explorer::PcIeDevice {
-    fn from(device: PCIeDevice) -> Self {
-        rpc::site_explorer::PcIeDevice {
-            description: device.description,
-            firmware_version: device.firmware_version,
-            gpu_vendor: device.gpu_vendor,
-            id: device.id,
-            manufacturer: device.manufacturer,
-            name: device.name,
-            part_number: device.part_number,
-            serial_number: device.serial_number,
-            status: device.status.map(Into::into),
-        }
-    }
-}
-
-impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
-    fn from(endpoint: ExploredEndpoint) -> Self {
-        rpc::site_explorer::ExploredEndpoint {
-            address: endpoint.address.to_string(),
-            report: Some(endpoint.report.into()),
-            report_version: endpoint.report_version.to_string(),
-            exploration_requested: endpoint.exploration_requested,
-            preingestion_state: format!("{:?}", endpoint.preingestion_state),
-            last_redfish_bmc_reset: endpoint
-                .last_redfish_bmc_reset
-                .map(|time| time.to_string())
-                .unwrap_or_else(|| "no timestamp available".to_string()),
-            last_ipmitool_bmc_reset: endpoint
-                .last_ipmitool_bmc_reset
-                .map(|time| time.to_string())
-                .unwrap_or_else(|| "no timestamp available".to_string()),
-            last_redfish_reboot: endpoint
-                .last_redfish_reboot
-                .map(|time| time.to_string())
-                .unwrap_or_else(|| "no timestamp available".to_string()),
-            last_redfish_powercycle: endpoint
-                .last_redfish_powercycle
-                .map(|time| time.to_string())
-                .unwrap_or_else(|| "no timestamp available".to_string()),
-            pause_remediation: endpoint.pause_remediation,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ExploredDpu {
@@ -561,15 +462,6 @@ pub struct ExploredDpu {
 
     #[serde(skip)]
     pub report: Arc<EndpointExplorationReport>,
-}
-
-impl From<&ExploredDpu> for rpc::site_explorer::ExploredDpu {
-    fn from(dpu: &ExploredDpu) -> Self {
-        rpc::site_explorer::ExploredDpu {
-            bmc_ip: dpu.bmc_ip.to_string(),
-            host_pf_mac_address: dpu.host_pf_mac_address.map(|m| m.to_string()),
-        }
-    }
 }
 
 impl ExploredDpu {
@@ -744,27 +636,6 @@ mod serialize_option_display {
         match value {
             None => Ok(None),
             Some(value) => Ok(Some(T::from_str(&value).map_err(de::Error::custom)?)),
-        }
-    }
-}
-
-impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
-    fn from(host: ExploredManagedHost) -> Self {
-        rpc::site_explorer::ExploredManagedHost {
-            host_bmc_ip: host.host_bmc_ip.to_string(),
-            dpus: host
-                .dpus
-                .iter()
-                .map(rpc::site_explorer::ExploredDpu::from)
-                .collect(),
-            dpu_bmc_ip: host
-                .dpus
-                .first()
-                .map_or("".to_string(), |d| d.bmc_ip.to_string()),
-            host_pf_mac_address: host
-                .dpus
-                .first()
-                .and_then(|d| d.host_pf_mac_address.map(|m| m.to_string())),
         }
     }
 }
@@ -1087,15 +958,6 @@ impl EndpointExplorationReport {
     }
 }
 
-impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
-    fn from(report: SiteExplorationReport) -> Self {
-        rpc::site_explorer::SiteExplorationReport {
-            endpoints: report.endpoints.into_iter().map(Into::into).collect(),
-            managed_hosts: report.managed_hosts.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
 /// Describes errors that might have been encountered during exploring an endpoint
 #[derive(thiserror::Error, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "Type", rename_all = "PascalCase")]
@@ -1268,17 +1130,6 @@ pub struct ComputerSystemAttributes {
     pub is_infinite_boot_enabled: Option<bool>,
 }
 
-impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
-    fn from(attributes: ComputerSystemAttributes) -> Self {
-        rpc::site_explorer::ComputerSystemAttributes {
-            nic_mode: attributes.nic_mode.map(|a| match a {
-                NicMode::Nic => rpc::site_explorer::NicMode::Nic.into(),
-                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu.into(),
-            }),
-        }
-    }
-}
-
 /// `ComputerSystem` definition. Matches redfish definition
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -1326,41 +1177,6 @@ impl ComputerSystem {
     }
 }
 
-impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
-    fn from(system: ComputerSystem) -> Self {
-        rpc::site_explorer::ComputerSystem {
-            id: system.id,
-            manufacturer: system.manufacturer,
-            model: system.model,
-            serial_number: system.serial_number,
-            ethernet_interfaces: system
-                .ethernet_interfaces
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            attributes: Some(rpc::site_explorer::ComputerSystemAttributes::from(
-                system.attributes,
-            )),
-            pcie_devices: system.pcie_devices.into_iter().map(Into::into).collect(),
-            power_state: rpc::site_explorer::PowerState::from(system.power_state) as _,
-            boot_order: system.boot_order.map(|order| order.into()),
-        }
-    }
-}
-
-impl From<PowerState> for rpc::site_explorer::PowerState {
-    fn from(state: PowerState) -> Self {
-        match state {
-            PowerState::Off => rpc::site_explorer::PowerState::Off,
-            PowerState::On => rpc::site_explorer::PowerState::On,
-            PowerState::PoweringOff => rpc::site_explorer::PowerState::PoweringOff,
-            PowerState::PoweringOn => rpc::site_explorer::PowerState::PoweringOn,
-            PowerState::Paused => rpc::site_explorer::PowerState::Paused,
-            PowerState::Unknown => rpc::site_explorer::PowerState::Unknown,
-        }
-    }
-}
-
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum PowerState {
     Off,
@@ -1379,19 +1195,6 @@ pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ethernet_interfaces: Vec<EthernetInterface>,
     pub id: String,
-}
-
-impl From<Manager> for rpc::site_explorer::Manager {
-    fn from(manager: Manager) -> Self {
-        rpc::site_explorer::Manager {
-            id: manager.id,
-            ethernet_interfaces: manager
-                .ethernet_interfaces
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
-    }
 }
 
 /// `EthernetInterface` definition. Matches redfish definition
@@ -1423,58 +1226,52 @@ pub struct EthernetInterface {
 pub struct UefiDevicePath(String);
 
 lazy_static! {
-    static ref UEFI_DEVICE_PATH_REGEX: Regex =
-        Regex::new(r"PciRoot\((.*?)\)\/Pci\((.*?)\)\/Pci\((.*?)\)").expect("must always compile");
+    static ref PCI_ROOT_REGEX: Regex =
+        Regex::new(r"^PciRoot\(([^)]*)\)").expect("must always compile");
+    static ref PCI_NODE_REGEX: Regex = Regex::new(r"/Pci\(([^)]*)\)").expect("must always compile");
 }
 
 impl FromStr for UefiDevicePath {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Uefi string is received as PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0)/MAC(A088C208545C,0x1)
-        // Need to convert it as 8.2.10.0.0
-        // Some output does not contain MAC part. Also it is useless for us.
+        // UEFI 2.10 §10.3.4: PciRoot followed by one or more Pci nodes,
+        // e.g. PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0) (NIC behind a bridge) or
+        //      PciRoot(0x7)/Pci(0x0,0x0)            (NIC on a root port).
+        // Trailing /MAC(...) is optional and discarded.
 
         let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
 
-        let captures = UEFI_DEVICE_PATH_REGEX
-            .captures(st)
-            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
-
         let mut pci = vec![];
-
-        for (i, capture) in captures.iter().enumerate() {
-            if i == 0 {
-                continue;
+        let mut push_group = |group: &str| -> Result<(), String> {
+            for hex in group.split(',') {
+                let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
+                    .map_err(|e| {
+                        format!("Can't convert pci address to int {hex}, error: {e} for pci: {s}")
+                    })?;
+                pci.push(hex_int.to_string());
             }
+            Ok(())
+        };
 
-            if let Some(capture) = capture {
-                for hex in capture.as_str().split(',') {
-                    let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
-                        .map_err(|e| {
-                            format!(
-                                "Can't convert pci address to int {hex}, error: {e} for pci: {s}"
-                            )
-                        })?;
-                    pci.push(hex_int.to_string());
-                }
+        let root = PCI_ROOT_REGEX
+            .captures(st)
+            .and_then(|c| c.get(1))
+            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
+        push_group(root.as_str())?;
+
+        let mut had_pci = false;
+        for cap in PCI_NODE_REGEX.captures_iter(st) {
+            if let Some(g) = cap.get(1) {
+                had_pci = true;
+                push_group(g.as_str())?;
             }
-            // Should we return error if capture is not proper??
+        }
+        if !had_pci {
+            return Err(format!("Could not match regex in PCI Device Path {s}."));
         }
 
         Ok(UefiDevicePath(pci.join(".")))
-    }
-}
-
-impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
-    fn from(interface: EthernetInterface) -> Self {
-        rpc::site_explorer::EthernetInterface {
-            id: interface.id,
-            description: interface.description,
-            interface_enabled: interface.interface_enabled,
-            mac_address: interface.mac_address.map(|mac| mac.to_string()),
-            link_status: interface.link_status,
-        }
     }
 }
 
@@ -1499,23 +1296,6 @@ pub struct Chassis {
     pub revision_id: Option<i32>,
 }
 
-impl From<Chassis> for rpc::site_explorer::Chassis {
-    fn from(chassis: Chassis) -> Self {
-        rpc::site_explorer::Chassis {
-            id: chassis.id,
-            manufacturer: chassis.manufacturer,
-            model: chassis.model,
-            part_number: chassis.part_number,
-            serial_number: chassis.serial_number,
-            network_adapters: chassis
-                .network_adapters
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
-    }
-}
-
 /// `NetworkAdapter` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -1529,31 +1309,11 @@ pub struct NetworkAdapter {
     pub serial_number: Option<String>,
 }
 
-impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
-    fn from(adapter: NetworkAdapter) -> Self {
-        rpc::site_explorer::NetworkAdapter {
-            id: adapter.id,
-            manufacturer: adapter.manufacturer,
-            model: adapter.model,
-            part_number: adapter.part_number,
-            serial_number: adapter.serial_number,
-        }
-    }
-}
-
 /// `SecureBootStatus` definition.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct SecureBootStatus {
     pub is_enabled: bool,
-}
-
-impl From<SecureBootStatus> for rpc::site_explorer::SecureBootStatus {
-    fn from(secure_boot_status: SecureBootStatus) -> Self {
-        rpc::site_explorer::SecureBootStatus {
-            is_enabled: secure_boot_status.is_enabled,
-        }
-    }
 }
 
 /// `LockdownStatus` definition. Matches redfish definition
@@ -1564,33 +1324,12 @@ pub struct LockdownStatus {
     pub message: String,
 }
 
-impl From<LockdownStatus> for rpc::site_explorer::LockdownStatus {
-    fn from(lockdown_status: LockdownStatus) -> Self {
-        rpc::site_explorer::LockdownStatus {
-            status: rpc::site_explorer::InternalLockdownStatus::from(lockdown_status.status) as _,
-            message: lockdown_status.message,
-        }
-    }
-}
-
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum InternalLockdownStatus {
     Enabled,
     Partial,
     #[default]
     Disabled,
-}
-
-impl From<InternalLockdownStatus> for rpc::site_explorer::InternalLockdownStatus {
-    fn from(state: InternalLockdownStatus) -> Self {
-        match state {
-            InternalLockdownStatus::Enabled => rpc::site_explorer::InternalLockdownStatus::Enabled,
-            InternalLockdownStatus::Partial => rpc::site_explorer::InternalLockdownStatus::Partial,
-            InternalLockdownStatus::Disabled => {
-                rpc::site_explorer::InternalLockdownStatus::Disabled
-            }
-        }
-    }
 }
 
 /// `Service` definition. Matches redfish definition
@@ -1600,15 +1339,6 @@ pub struct Service {
     pub id: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inventories: Vec<Inventory>,
-}
-
-impl From<Service> for rpc::site_explorer::Service {
-    fn from(service: Service) -> Self {
-        rpc::site_explorer::Service {
-            id: service.id,
-            inventories: service.inventories.into_iter().map(Into::into).collect(),
-        }
-    }
 }
 
 /// `Inventory` definition. Matches redfish definition
@@ -1621,17 +1351,6 @@ pub struct Inventory {
     pub release_date: Option<String>,
 }
 
-impl From<Inventory> for rpc::site_explorer::Inventory {
-    fn from(inventory: Inventory) -> Self {
-        rpc::site_explorer::Inventory {
-            id: inventory.id,
-            description: inventory.description,
-            version: inventory.version,
-            release_date: inventory.release_date,
-        }
-    }
-}
-
 /// `MachineSetupStatus` definition. Matches redfish definition
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -1640,32 +1359,11 @@ pub struct MachineSetupStatus {
     pub diffs: Vec<MachineSetupDiff>,
 }
 
-impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
-    fn from(machine_setup_status: MachineSetupStatus) -> Self {
-        rpc::site_explorer::MachineSetupStatus {
-            is_done: machine_setup_status.is_done,
-            diffs: machine_setup_status
-                .diffs
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
-    }
-}
-
 /// `BootOrder` definition.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct BootOrder {
     pub boot_order: Vec<BootOption>,
-}
-
-impl From<BootOrder> for rpc::site_explorer::BootOrder {
-    fn from(order: BootOrder) -> Self {
-        rpc::site_explorer::BootOrder {
-            boot_order: order.boot_order.into_iter().map(Into::into).collect(),
-        }
-    }
 }
 
 /// `MachineSetupDiff` definition. Matches redfish definition
@@ -1677,16 +1375,6 @@ pub struct MachineSetupDiff {
     pub actual: String,
 }
 
-impl From<MachineSetupDiff> for rpc::site_explorer::MachineSetupDiff {
-    fn from(machine_setup_diff: MachineSetupDiff) -> Self {
-        rpc::site_explorer::MachineSetupDiff {
-            key: machine_setup_diff.key,
-            expected: machine_setup_diff.expected,
-            actual: machine_setup_diff.actual,
-        }
-    }
-}
-
 /// `BootOption` definition.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -1695,17 +1383,6 @@ pub struct BootOption {
     pub id: String,
     pub boot_option_enabled: Option<bool>,
     pub uefi_device_path: Option<String>,
-}
-
-impl From<BootOption> for rpc::site_explorer::BootOption {
-    fn from(boot_option: BootOption) -> Self {
-        rpc::site_explorer::BootOption {
-            display_name: boot_option.display_name,
-            id: boot_option.id,
-            boot_option_enabled: boot_option.boot_option_enabled,
-            uefi_device_path: boot_option.uefi_device_path,
-        }
-    }
 }
 
 /// Whether a found/explored machine is in the set of expected machines,
@@ -2221,6 +1898,19 @@ mod tests {
         let path = "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)";
         let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
         assert_eq!(converted.0, "17.1.0.0.10");
+
+        // NIC attached directly to a root port (no PCI-PCI bridge upstream).
+        let path = "PciRoot(0x7)/Pci(0x0,0x0)/MAC(525400A8282F,0x1)";
+        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
+        assert_eq!(converted.0, "7.0.0");
+
+        // Three Pci nodes (NIC behind two upstream bridges/switches).
+        let path = "PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)";
+        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
+        assert_eq!(converted.0, "0.1.0.0.0.0.0");
+
+        // PciRoot without any Pci node should fail.
+        assert!(UefiDevicePath::from_str("PciRoot(0x7)/MAC(525400A8282F,0x1)").is_err());
     }
 
     #[test]

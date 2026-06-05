@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use super::args::{AgentUpgradePolicyChoice, Args};
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn agent_upgrade_policy(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {

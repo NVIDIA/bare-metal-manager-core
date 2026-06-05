@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge::{self as forgerpc, CreateComputeAllocationRequest};
 use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

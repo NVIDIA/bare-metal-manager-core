@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use carbide_utils::models::dhcp::{
+use carbide_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath,
     HostConfig as ModelHostConfig, InterfaceInfo as ModelInterfaceInfo,
 };

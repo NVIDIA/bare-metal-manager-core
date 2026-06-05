@@ -16,11 +16,8 @@
  */
 use std::panic::Location;
 
-use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
-use libredfish::RedfishError;
-use librms::RackManagerError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
 use model::resource_pool::ResourcePoolError;
@@ -71,6 +68,86 @@ pub trait StateHandler: std::fmt::Debug + Send + Sync + 'static {
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<Self::ControllerState>, StateHandlerError>;
+}
+
+#[derive(Debug)]
+pub struct ExternalServiceError {
+    service: &'static str,
+    operation: &'static str,
+    details: String,
+    metric_label: &'static str,
+    source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl ExternalServiceError {
+    pub fn new(
+        service: &'static str,
+        operation: &'static str,
+        details: impl Into<String>,
+        metric_label: &'static str,
+    ) -> Self {
+        Self {
+            service,
+            operation,
+            details: details.into(),
+            metric_label,
+            source: None,
+        }
+    }
+
+    pub fn with_source(
+        service: &'static str,
+        operation: &'static str,
+        details: impl Into<String>,
+        metric_label: &'static str,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            service,
+            operation,
+            details: details.into(),
+            metric_label,
+            source: Some(Box::new(source)),
+        }
+    }
+
+    pub fn service(&self) -> &'static str {
+        self.service
+    }
+
+    pub fn operation(&self) -> &'static str {
+        self.operation
+    }
+
+    pub fn metric_label(&self) -> &'static str {
+        self.metric_label
+    }
+}
+
+impl std::fmt::Display for ExternalServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.operation.is_empty() {
+            write!(
+                f,
+                "Failed {} operation. Details: {}.",
+                self.service, self.details
+            )
+        } else {
+            write!(
+                f,
+                "Failed {} operation: {}. Details: {}.",
+                self.service, self.operation, self.details
+            )
+        }
+    }
+}
+
+impl std::error::Error for ExternalServiceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_ref()
+            .map(|source| source.as_ref() as &(dyn std::error::Error + 'static))
+    }
 }
 
 pub enum StateHandlerOutcome<S> {
@@ -249,23 +326,11 @@ pub enum StateHandlerError {
     #[error("Invalid host state {1} for DPU {0}.")]
     InvalidHostState(MachineId, Box<ManagedHostState>),
 
-    #[error("Failed to execute \"{operation}\" on IB fabric manager: {error}")]
-    IBFabricError {
-        operation: String,
-        error: eyre::Report,
-    },
-
-    #[error("Failed to create redfish client: {0}")]
-    RedfishClientCreationError(#[source] Box<RedfishClientCreationError>),
+    #[error(transparent)]
+    ExternalServiceError(#[from] ExternalServiceError),
 
     #[error("The state handler for object {object_id} in state \"{state}\" timed out")]
     Timeout { object_id: String, state: String },
-
-    #[error("Failed redfish operation: {operation}. Details: {error}")]
-    RedfishError {
-        operation: &'static str,
-        error: RedfishError,
-    },
 
     #[error("Failed to update firmware: {0}")]
     FirmwareUpdateError(eyre::Report),
@@ -292,12 +357,6 @@ pub enum StateHandlerError {
 
     #[error("Spdm error: {0}")]
     SpdmError(#[source] Box<model::attestation::spdm::SpdmHandlerError>),
-
-    #[error("Rack Manager error: {0}")]
-    RackManagerError(#[source] Box<RackManagerError>),
-
-    #[error("DPF error: {0}")]
-    DpfError(#[source] Box<carbide_dpf::DpfError>),
 }
 
 impl StateHandlerError {
@@ -315,14 +374,8 @@ impl StateHandlerError {
             StateHandlerError::Timeout { .. } => "timeout",
             StateHandlerError::PoolReleaseError(_) => "pool_release_error",
             StateHandlerError::InvalidHostState(_, _) => "invalid_host_state",
-            StateHandlerError::IBFabricError { .. } => "ib_fabric_error",
             StateHandlerError::InvalidState(_) => "invalid_state",
-            StateHandlerError::RedfishClientCreationError(_) => "redfish_client_creation_error",
-            StateHandlerError::RedfishError { operation, .. } => match *operation {
-                "restart" => "redfish_restart_error",
-                "lockdown" => "redfish_lockdown_error",
-                _ => "redfish_other_error",
-            },
+            StateHandlerError::ExternalServiceError(error) => error.metric_label(),
             StateHandlerError::ManualInterventionRequired(_) => "manual_intervention_required",
             StateHandlerError::HealthProbeAlert => "health_probe_alert",
             StateHandlerError::TimeInStateAboveSla { .. } => "time_in_state_above_sla",
@@ -332,8 +385,6 @@ impl StateHandlerError {
                 _ => "resource_cleanup_failed",
             },
             StateHandlerError::SpdmError(_) => "spdm_attestation_error",
-            StateHandlerError::RackManagerError(_) => "rack_manager_error",
-            StateHandlerError::DpfError(_) => "dpf_error",
         }
     }
 }
@@ -356,27 +407,9 @@ impl From<ResourcePoolError> for StateHandlerError {
     }
 }
 
-impl From<RedfishClientCreationError> for StateHandlerError {
-    fn from(error: RedfishClientCreationError) -> Self {
-        Self::RedfishClientCreationError(Box::new(error))
-    }
-}
-
 impl From<model::attestation::spdm::SpdmHandlerError> for StateHandlerError {
     fn from(error: model::attestation::spdm::SpdmHandlerError) -> Self {
         Self::SpdmError(Box::new(error))
-    }
-}
-
-impl From<RackManagerError> for StateHandlerError {
-    fn from(error: RackManagerError) -> Self {
-        Self::RackManagerError(Box::new(error))
-    }
-}
-
-impl From<carbide_dpf::DpfError> for StateHandlerError {
-    fn from(error: carbide_dpf::DpfError) -> Self {
-        Self::DpfError(Box::new(error))
     }
 }
 

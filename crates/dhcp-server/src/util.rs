@@ -34,7 +34,7 @@ macro_rules! socket_opr {
 
 pub fn u8_to_mac(data: &[u8]) -> String {
     data.iter()
-        .map(|x| format!("{x:x}"))
+        .map(|x| format!("{x:02x}"))
         .collect::<Vec<String>>()
         .join(":")
 }
@@ -120,4 +120,17 @@ pub async fn get_socket(listen_address: core::net::SocketAddr, interface: String
         return UdpSocket::from_std(socket.into()).unwrap();
     }
     panic!("Could not create socket successfully.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::u8_to_mac;
+
+    #[test]
+    fn u8_to_mac_zero_pads_octets() {
+        assert_eq!(
+            u8_to_mac(&[0x00, 0x00, 0x5e, 0x00, 0x53, 0x01]),
+            "00:00:5e:00:53:01"
+        );
+    }
 }

@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::convert::Into;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -50,9 +49,16 @@ use crate::network_security_group::NetworkSecurityGroupStatusObservation;
 pub struct InstanceNetworkStatus {
     /// Status for each configured interface
     ///
-    /// Each entry in this status array maps to its corresponding entry in the
-    /// Config section. E.g. `instance.status.network.interface_status[1]`
-    /// would map to `instance.config.network.interface_configs[1]`.
+    /// For non-auto configs: each entry in this status array maps to its
+    /// corresponding entry in the Config section. E.g.
+    /// `instance.status.network.interfaces[1]` maps to
+    /// `instance.config.network.interfaces[1]`.
+    ///
+    /// For auto configs (`InstanceNetworkConfig.auto = true`): on the wire
+    /// the config-side `interfaces` is always empty (the request is
+    /// preserved verbatim), so this array stands alone and describes the
+    /// interfaces Carbide resolved from the host's HostInband segments.
+    /// There is no positional relationship to consult on the config side.
     pub interfaces: Vec<InstanceInterfaceStatus>,
 
     /// Whether all desired network changes that the user has applied have taken effect
@@ -72,21 +78,6 @@ pub struct InstanceNetworkStatus {
     /// for the Forge operating team to debug settings that to do do not go in-sync
     /// without having to attach to the database.
     pub configs_synced: SyncState,
-}
-
-impl TryFrom<InstanceNetworkStatus> for rpc::InstanceNetworkStatus {
-    type Error = RpcDataConversionError;
-
-    fn try_from(status: InstanceNetworkStatus) -> Result<Self, Self::Error> {
-        let mut interfaces = Vec::with_capacity(status.interfaces.len());
-        for iface in status.interfaces {
-            interfaces.push(rpc::InstanceInterfaceStatus::try_from(iface)?);
-        }
-        Ok(rpc::InstanceNetworkStatus {
-            interfaces,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
-        })
-    }
 }
 
 impl InstanceNetworkStatus {
@@ -423,37 +414,6 @@ impl InstanceInterfaceStatus {
     }
 }
 
-impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
-    type Error = RpcDataConversionError;
-
-    fn try_from(status: InstanceInterfaceStatus) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceInterfaceStatus {
-            virtual_function_id: match status.function_id {
-                InterfaceFunctionId::Physical {} => None,
-                InterfaceFunctionId::Virtual { id } => Some(id as u32),
-            },
-            mac_address: status.mac_address.map(|mac| mac.to_string()),
-            addresses: status
-                .addresses
-                .into_iter()
-                .map(|ip| ip.to_string())
-                .collect(),
-            prefixes: status
-                .prefixes
-                .into_iter()
-                .map(|ip_network| ip_network.to_string())
-                .collect(),
-            gateways: status
-                .gateways
-                .into_iter()
-                .map(|ip| ip.to_string())
-                .collect(),
-            device: status.device,
-            device_instance: status.device_instance as u32,
-        })
-    }
-}
-
 /// The network status that was last reported by the networking subsystem
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceNetworkStatusObservation {
@@ -549,75 +509,6 @@ pub struct InstanceInterfaceStatusObservation {
     pub internal_uuid: Option<uuid::Uuid>,
 }
 
-impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(observation: rpc::InstanceInterfaceStatusObservation) -> Result<Self, Self::Error> {
-        let function_id = match observation.function_type() {
-            rpc::forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
-            rpc::forge::InterfaceFunctionType::Virtual => {
-                InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as u8)
-                    .map_err(|_| {
-                        RpcDataConversionError::InvalidVirtualFunctionId(
-                            observation.virtual_function_id() as usize,
-                        )
-                    })?
-            }
-        };
-
-        let addresses = observation
-            .addresses
-            .iter()
-            .map(|addr| {
-                addr.parse::<IpAddr>()
-                    .map_err(|_| RpcDataConversionError::InvalidIpAddress(addr.clone()))
-            })
-            .try_collect()?;
-
-        let internal_uuid = if let Some(internal_uuid) = &observation.internal_uuid {
-            Some(internal_uuid.try_into().map_err(|_| {
-                RpcDataConversionError::InvalidUuid("internal_uuid", internal_uuid.to_string())
-            })?)
-        } else {
-            None
-        };
-
-        Ok(Self {
-            function_id,
-            addresses,
-            prefixes: observation
-                .prefixes
-                .iter()
-                .map(|ip_network| {
-                    IpNetwork::try_from(ip_network.as_str())
-                        .map_err(|_| Self::Error::InvalidCidr(ip_network.to_string()))
-                })
-                .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
-            gateways: observation
-                .gateways
-                .iter()
-                .map(|gw| {
-                    IpNetwork::try_from(gw.as_str())
-                        .map_err(|_| Self::Error::InvalidCidr(gw.to_string()))
-                })
-                .collect::<Result<Vec<IpNetwork>, Self::Error>>()?,
-            mac_address: observation
-                .mac_address
-                .map(|addr| {
-                    addr.parse::<MacAddress>()
-                        .map_err(|_| RpcDataConversionError::InvalidMacAddress(addr))
-                })
-                .transpose()?
-                .map(Into::into),
-            network_security_group: observation
-                .network_security_group
-                .map(|nsgo| nsgo.try_into())
-                .transpose()?,
-            internal_uuid,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -628,6 +519,7 @@ mod tests {
 
     use super::*;
     use crate::instance::config::network::InstanceInterfaceConfig;
+    use crate::network_security_group::NetworkSecurityGroupSource;
 
     #[test]
     fn deserialize_old_network_status_observation() {
@@ -703,9 +595,7 @@ mod tests {
                 gateways: vec!["127.1.2.1".parse().unwrap()],
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
-                        .try_into()
-                        .unwrap(),
+                    source: NetworkSecurityGroupSource::Instance,
                     version: "V1-T1".parse().unwrap(),
                 }),
                 internal_uuid: None,
@@ -748,6 +638,7 @@ mod tests {
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.0.1".parse().unwrap())]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
                         "127.0.0.1/32".parse().unwrap(),
@@ -770,6 +661,7 @@ mod tests {
                     )]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(1),
                         "127.0.0.2/32".parse().unwrap(),
@@ -792,6 +684,7 @@ mod tests {
                     )]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(2),
                         "127.0.0.3/32".parse().unwrap(),
@@ -806,6 +699,7 @@ mod tests {
                     internal_uuid: uuid::Uuid::new_v4(),
                 },
             ],
+            auto: false,
         }
     }
 
@@ -826,6 +720,7 @@ mod tests {
                     ip_addrs: HashMap::from([(prefix_uuid, "127.0.1.2".parse().unwrap())]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid,
                         "127.0.1.0/24".parse().unwrap(),
@@ -848,6 +743,7 @@ mod tests {
                     )]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(1),
                         "127.0.2.0/24".parse().unwrap(),
@@ -870,6 +766,7 @@ mod tests {
                     )]),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::from([(
                         prefix_uuid.offset(2),
                         "127.0.3.0/24".parse().unwrap(),
@@ -884,6 +781,7 @@ mod tests {
                     internal_uuid: internal_uuid3,
                 },
             ],
+            auto: false,
         }
     }
 
@@ -917,9 +815,7 @@ mod tests {
                 gateways,
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
-                        .try_into()
-                        .unwrap(),
+                    source: NetworkSecurityGroupSource::Instance,
                     version: "V1-T1".parse().unwrap(),
                 }),
                 internal_uuid: Some(iface.internal_uuid),

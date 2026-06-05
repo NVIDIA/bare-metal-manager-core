@@ -65,7 +65,7 @@ pub struct Args {
 
     #[clap(
         default_value(None),
-        help = "The machine to query, leave empty for all (default)"
+        help = "The machine ID to query. Omit to show all machines."
     )]
     pub machine: Option<MachineId>,
 

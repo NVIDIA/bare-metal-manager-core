@@ -19,10 +19,11 @@ use std::collections::HashMap;
 
 use mac_address::MacAddress;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 use rpc::forge::ExpectedSwitchRequest;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn show(
@@ -61,8 +62,8 @@ pub async fn show(
         }));
 
     let bmc_ips = expected_mi
-        .iter()
-        .filter_map(|(_mac, interface)| {
+        .values()
+        .filter_map(|interface| {
             let ip = interface.address.first()?;
             Some(ip.clone())
         })

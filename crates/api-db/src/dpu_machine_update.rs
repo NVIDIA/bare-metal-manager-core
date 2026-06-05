@@ -89,6 +89,7 @@ pub async fn get_reprovisioning_machines(
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             WHERE m.reprovisioning_requested->>'initiator' like $1
+            AND mi.interface_type != 'Bmc'
             AND mi.attached_dpu_machine_id != mi.machine_id;"#;
 
     let result: Vec<DpuMachineUpdate> = sqlx::query_as(query)

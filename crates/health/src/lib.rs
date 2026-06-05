@@ -18,10 +18,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nv_redfish::bmc_http::reqwest::BmcError;
+use nv_redfish::bmc_http::reqwest::{
+    BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
+};
 use prometheus::{Gauge, GaugeVec, Opts};
 
 pub mod api_client;
+pub mod bmc;
 pub mod collectors;
 pub mod config;
 pub mod discovery;
@@ -36,7 +39,7 @@ pub mod sink;
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
-use crate::api_client::ApiClientWrapper;
+use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
 use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
@@ -48,8 +51,9 @@ use crate::processor::{
 use crate::sharding::ShardManager;
 use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
 use crate::sink::{
-    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, OtlpSink, PrometheusSink,
-    RackHealthReportSink, TracingSink,
+    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, OtlpSink,
+    PowerShelfHealthReportSink, PrometheusSink, RackHealthReportSink, SwitchHealthReportSink,
+    TracingSink,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -108,11 +112,16 @@ struct EndpointWiring {
 }
 
 fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
+    let reqwest = ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
+        .map_err(BmcError::ReqwestError)?;
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
 
     if !config.endpoint_sources.static_bmc_endpoints.is_empty() {
         let static_source = StaticEndpointSource::from_config(
             config.endpoint_sources.static_bmc_endpoints.as_slice(),
+            &reqwest,
+            config.bmc_proxy_url.as_ref(),
+            config.cache_size,
         );
         sources.push(Arc::new(static_source));
     }
@@ -124,7 +133,13 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             source_cfg.client_key.clone(),
             &source_cfg.api_url,
         ));
-        sources.push(api_client as Arc<dyn EndpointSource>);
+        let endpoint_source = Arc::new(ApiEndpointSource::new(
+            api_client,
+            reqwest,
+            config.bmc_proxy_url.clone(),
+            config.cache_size,
+        ));
+        sources.push(endpoint_source as Arc<dyn EndpointSource>);
     }
 
     let composite_source = CompositeEndpointSource::new(sources);
@@ -160,6 +175,8 @@ fn build_data_sink(
 
     if config.sinks.tracing.is_enabled()
         || config.sinks.health_report.is_enabled()
+        || config.sinks.power_shelf_health_report.is_enabled()
+        || config.sinks.switch_health_report.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
         processors.push(Arc::new(HealthReportProcessor::new()));
@@ -189,6 +206,14 @@ fn build_data_sink(
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_report {
         sinks.push(Arc::new(RackHealthReportSink::new(sink_cfg)?));
+    }
+
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.switch_health_report {
+        sinks.push(Arc::new(SwitchHealthReportSink::new(sink_cfg)?));
+    }
+
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.power_shelf_health_report {
+        sinks.push(Arc::new(PowerShelfHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {

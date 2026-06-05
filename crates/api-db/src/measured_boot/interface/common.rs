@@ -113,13 +113,14 @@ where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    let query = format!(
-        "select * from {} where {} = $1",
-        R::db_table_name(),
-        col_name,
-    );
-    let result = sqlx::query_as::<_, R>(&query)
-        .bind(value)
+    let mut query = sqlx::QueryBuilder::new("select * from ");
+    query.push(R::db_table_name());
+    query.push(" where ");
+    query.push(col_name);
+    query.push(" = ");
+    query.push_bind(value);
+    let result = query
+        .build_query_as::<R>()
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("get_object_for_unique_column", e))?;
@@ -141,13 +142,14 @@ where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres> + DbPrimaryUuid,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    let query = format!(
-        "select * from {} where {} = $1",
-        R::db_table_name(),
-        T::db_primary_uuid_name()
-    );
-    let result = sqlx::query_as::<_, R>(&query)
-        .bind(id)
+    let mut query = sqlx::QueryBuilder::new("select * from ");
+    query.push(R::db_table_name());
+    query.push(" where ");
+    query.push(T::db_primary_uuid_name());
+    query.push(" = ");
+    query.push_bind(id);
+    let result = query
+        .build_query_as::<R>()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("get_objects_where_id", e))?;
@@ -164,8 +166,10 @@ pub async fn get_all_objects<R>(txn: impl DbReader<'_>) -> Result<Vec<R>, Databa
 where
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    let query = format!("select * from {}", R::db_table_name());
-    let result = sqlx::query_as::<_, R>(&query)
+    let mut query = sqlx::QueryBuilder::new("select * from ");
+    query.push(R::db_table_name());
+    let result = query
+        .build_query_as::<R>()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("get_all_objects", e))?;
@@ -202,13 +206,15 @@ where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    let query = format!(
-        "delete from {} where {} = $1 returning *",
-        R::db_table_name(),
-        col_name,
-    );
-    let result = sqlx::query_as::<_, R>(&query)
-        .bind(value)
+    let mut query = sqlx::QueryBuilder::new("delete from ");
+    query.push(R::db_table_name());
+    query.push(" where ");
+    query.push(col_name);
+    query.push(" = ");
+    query.push_bind(value);
+    query.push(" returning *");
+    let result = query
+        .build_query_as::<R>()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("delete_objects_where_unique_column", e))?;
@@ -239,13 +245,15 @@ where
     T: for<'t> Encode<'t, Postgres> + Send + sqlx::Type<sqlx::Postgres>,
     R: for<'r> sqlx::FromRow<'r, PgRow> + Send + Unpin + DbTable,
 {
-    let query = format!(
-        "delete from {} where {} = $1 returning *",
-        R::db_table_name(),
-        col_name,
-    );
-    let result = sqlx::query_as::<_, R>(&query)
-        .bind(value)
+    let mut query = sqlx::QueryBuilder::new("delete from ");
+    query.push(R::db_table_name());
+    query.push(" where ");
+    query.push(col_name);
+    query.push(" = ");
+    query.push_bind(value);
+    query.push(" returning *");
+    let result = query
+        .build_query_as::<R>()
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("delete_object_where_unique_column", e))?;

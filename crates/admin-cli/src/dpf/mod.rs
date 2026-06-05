@@ -18,7 +18,9 @@
 pub mod common;
 mod disable;
 mod enable;
+mod service_version;
 mod show;
+mod snapshot;
 
 use clap::Parser;
 
@@ -32,4 +34,11 @@ pub enum Cmd {
     Disable(disable::Args),
     #[clap(about = "Check Status of DPF")]
     Show(show::Args),
+    #[clap(about = "Snapshot DPF CRs (DPUNode, DPUDevices, DPUs) for a host")]
+    Snapshot(snapshot::Args),
+    #[clap(
+        alias = "sv",
+        about = "Compare configured vs deployed DPF service versions"
+    )]
+    ServiceVersion(service_version::Args),
 }

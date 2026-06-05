@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use forge_ssh::ssh::enable_rshim;
 
 use super::super::common::SshArgs;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 pub async fn enable_rshim_cmd(args: SshArgs) -> CarbideCliResult<()> {
     enable_rshim(

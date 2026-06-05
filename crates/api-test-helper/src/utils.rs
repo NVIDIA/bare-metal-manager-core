@@ -37,7 +37,7 @@ use crate::vault::Vault;
 use crate::{api_server, vault};
 
 lazy_static::lazy_static! {
-    pub static ref REPO_ROOT: PathBuf = PathBuf::from(env::var("REPO_ROOT").or_else(|_| env::var("CONTAINER_REPO_ROOT")).expect("REPO_ROOT must be set in integration tests"));
+    pub static ref REPO_ROOT: PathBuf = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     pub static ref LOCALHOST_CERTS: CertPaths = {
         let certs = REPO_ROOT.join("dev/certs/localhost");
 
@@ -128,6 +128,7 @@ impl IntegrationTestEnvironment {
                 pki_role_name: Some("forge-cluster".to_string()),
                 token: Some(vault.token.clone()),
                 vault_cacert: Some(vault.ca_cert.clone()),
+                ..Default::default()
             },
             ..Default::default()
         };

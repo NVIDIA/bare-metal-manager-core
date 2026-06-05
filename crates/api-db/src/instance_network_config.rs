@@ -26,7 +26,7 @@ use model::machine::Machine;
 use model::network_segment::NetworkSegmentType;
 use sqlx::PgConnection;
 
-use crate::DatabaseResult;
+use crate::{DatabaseError, DatabaseResult};
 /// Allocate IP's for this network config, filling the InstanceInterfaceConfigs with the newly
 /// allocated IP's.
 pub async fn with_allocated_ips(
@@ -36,32 +36,6 @@ pub async fn with_allocated_ips(
     machine: &Machine,
 ) -> DatabaseResult<InstanceNetworkConfig> {
     crate::instance_address::allocate(txn, instance_id, value, machine).await
-}
-
-/// Find any host_inband segments on the given machine, and replicate them into this instance
-/// network config. This is because allocation requests do not need to explicitly enumerate
-/// a host's in-band (non-dpu) network segments: they cannot be configured through carbide.
-pub async fn with_inband_interfaces_from_machine(
-    value: InstanceNetworkConfig,
-    txn: &mut PgConnection,
-    machine_id: &::carbide_uuid::machine::MachineId,
-) -> DatabaseResult<InstanceNetworkConfig> {
-    let inband_segments_map = crate::network_segment::batch_find_ids_by_machine_ids(
-        txn,
-        &[*machine_id],
-        Some(NetworkSegmentType::HostInband),
-    )
-    .await?;
-
-    let host_inband_segment_ids = inband_segments_map
-        .get(machine_id)
-        .cloned()
-        .unwrap_or_default();
-
-    Ok(add_inband_interfaces_to_config(
-        value,
-        &host_inband_segment_ids,
-    ))
 }
 
 /// Batch find host_inband segments for multiple machines and return a map.
@@ -80,32 +54,48 @@ pub async fn batch_get_inband_segments_by_machine_ids(
 
 /// Add inband interfaces to a network config based on segment IDs.
 /// This is a pure function that can be used after batch querying.
+///
+/// This only injects when `auto` is true. If we get a non-auto
+/// config, just leave as-is and return it unchanged (as in, there
+/// are no inband interfaces to add).
+///
+/// Additionally, an `auto` config that arrives with non-empty
+/// `interfaces` is rejected. We have a TryFrom implementation
+/// for rpc::InstanceNetworkConfig that makes sure we're not in
+/// this state to begin with, but we still check here anyway.
 pub fn add_inband_interfaces_to_config(
-    mut value: InstanceNetworkConfig,
+    mut network_config: InstanceNetworkConfig,
     host_inband_segment_ids: &[NetworkSegmentId],
-) -> InstanceNetworkConfig {
-    for host_inband_segment_id in host_inband_segment_ids {
-        // Only add it to the instance config if there isn't already an interface in this segment
-        if !value
-            .interfaces
-            .iter()
-            .any(|i| i.network_segment_id == Some(*host_inband_segment_id))
-        {
-            value.interfaces.push(InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::Physical {},
-                network_segment_id: Some(*host_inband_segment_id),
-                network_details: None,
-                ip_addrs: Default::default(),
-                interface_prefixes: Default::default(),
-                network_segment_gateways: Default::default(),
-                host_inband_mac_address: None,
-                device_locator: None,
-                internal_uuid: uuid::Uuid::new_v4(),
-                requested_ip_addr: None,
-                ipv6_interface_config: None,
-            })
-        }
+) -> DatabaseResult<InstanceNetworkConfig> {
+    if !network_config.auto {
+        return Ok(network_config);
     }
 
-    value
+    if !network_config.interfaces.is_empty() {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "InstanceNetworkConfig.auto reached the resolver with {} \
+             pre-existing interfaces; auto requests must arrive with an \
+             empty interfaces list",
+            network_config.interfaces.len(),
+        )));
+    }
+
+    for host_inband_segment_id in host_inband_segment_ids {
+        network_config.interfaces.push(InstanceInterfaceConfig {
+            function_id: InterfaceFunctionId::Physical {},
+            network_segment_id: Some(*host_inband_segment_id),
+            network_details: None,
+            ip_addrs: Default::default(),
+            interface_prefixes: Default::default(),
+            network_segment_gateways: Default::default(),
+            host_inband_mac_address: None,
+            device_locator: None,
+            internal_uuid: uuid::Uuid::new_v4(),
+            requested_ip_addr: None,
+            ipv6_interface_config: None,
+            routing_profile: None,
+        });
+    }
+
+    Ok(network_config)
 }

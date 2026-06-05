@@ -531,7 +531,7 @@ impl IpxeScriptRenderer for DefaultIpxeScriptRenderer {
             }
         }
 
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     fn fabricate_cached_urls(&self, ipxeos: &IpxeScript) -> IpxeScript {
@@ -557,7 +557,7 @@ impl IpxeScriptRenderer for DefaultIpxeScriptRenderer {
                 let mut hasher = Sha256::new();
                 hasher.update(artifact.name.as_bytes());
                 hasher.update(artifact.url.as_bytes());
-                format!("{:x}", hasher.finalize())
+                hex::encode(hasher.finalize())
             };
 
             artifact.cached_url = Some(format!("${{base_url}}/{}", hash));
@@ -1968,7 +1968,7 @@ mod tests {
         // Compute checksum of rendered script
         let mut hasher_rendered = Sha256::new();
         hasher_rendered.update(rendered_script.as_bytes());
-        let rendered_hash = format!("{:x}", hasher_rendered.finalize());
+        let rendered_hash = hex::encode(hasher_rendered.finalize());
 
         // Compute checksum of template text (normalized - trailing spaces removed per line)
         let normalized_template = template
@@ -1979,7 +1979,7 @@ mod tests {
             .join("\n");
         let mut hasher_template = Sha256::new();
         hasher_template.update(normalized_template.as_bytes());
-        let template_hash = format!("{:x}", hasher_template.finalize());
+        let template_hash = hex::encode(hasher_template.finalize());
 
         // Checksums should match - template rendered as-is with no alterations
         assert_eq!(

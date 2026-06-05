@@ -280,7 +280,7 @@ fn test_mlx_config_variable_debug_formatting() {
 
 #[test]
 fn test_multiple_variables_with_different_specs() {
-    let variables = vec![
+    let variables = [
         MlxConfigVariable::builder()
             .name("boolean_var")
             .description("A boolean variable")

@@ -39,6 +39,21 @@ pub async fn find_by_bmc_mac_address(
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// Find by an NVOS MAC. `nvos_mac_addresses` is a `macaddr[]` column, so we match
+/// rows where the given MAC is contained in that array. Returns at most one row
+/// because the discover hook expects a 1:1 lookup.
+pub async fn find_by_nvos_mac_address(
+    txn: &mut PgConnection,
+    nvos_mac_address: MacAddress,
+) -> Result<Option<ExpectedSwitch>, DatabaseError> {
+    let sql = "SELECT * FROM expected_switches WHERE $1::macaddr = ANY(nvos_mac_addresses)";
+    sqlx::query_as(sql)
+        .bind(nvos_mac_address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
 pub async fn find_by_serial_number(
     txn: &mut PgConnection,
     serial_number: &str,
@@ -177,9 +192,9 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedSwitch> {
     let id = switch.expected_switch_id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_switches
-             (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, bmc_ip_address, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password, nvos_mac_addresses, bmc_retain_credentials)
+             (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, bmc_ip_address, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password, nvos_mac_addresses, bmc_retain_credentials, nvos_ip_address)
              VALUES
-             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::inet, $7::varchar, $8::varchar, $9::varchar, $10::jsonb, $11::varchar, $12::varchar, $13::macaddr[], $14) RETURNING *";
+             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::inet, $7::varchar, $8::varchar, $9::varchar, $10::jsonb, $11::varchar, $12::varchar, $13::macaddr[], $14, $15::inet) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -196,6 +211,7 @@ pub async fn create(
         .bind(&switch.nvos_password)
         .bind(&switch.nvos_mac_addresses)
         .bind(switch.bmc_retain_credentials.unwrap_or(false))
+        .bind(switch.nvos_ip_address)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -304,24 +320,33 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// update updates an existing expected switch. If expected_switch_id is set,
 /// matches by ID; otherwise matches by bmc_mac_address.
 pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
-    let (where_clause, target_id) = match switch.expected_switch_id {
-        Some(id) => ("expected_switch_id=$13::uuid", id.to_string()),
+    macro_rules! update_expected_switch_query {
+        ($where_clause:literal) => {
+            concat!(
+                "UPDATE expected_switches \
+                 SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
+                     metadata_name=$5, metadata_description=$6, metadata_labels=$7, \
+                     rack_id=$8, nvos_username=$9, nvos_password=$10, nvos_mac_addresses=$11::macaddr[], \
+                     bmc_retain_credentials=COALESCE($12, bmc_retain_credentials), \
+                     nvos_ip_address=$13::inet \
+                 WHERE ",
+                $where_clause,
+            )
+        };
+    }
+
+    let (query, target_id) = match switch.expected_switch_id {
+        Some(id) => (
+            update_expected_switch_query!("expected_switch_id=$14::uuid"),
+            id.to_string(),
+        ),
         None => (
-            "bmc_mac_address=$13::macaddr",
+            update_expected_switch_query!("bmc_mac_address=$14::macaddr"),
             switch.bmc_mac_address.to_string(),
         ),
     };
 
-    let query = format!(
-        "UPDATE expected_switches \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
-             metadata_name=$5, metadata_description=$6, metadata_labels=$7, \
-             rack_id=$8, nvos_username=$9, nvos_password=$10, nvos_mac_addresses=$11::macaddr[], \
-             bmc_retain_credentials=COALESCE($12, bmc_retain_credentials) \
-         WHERE {where_clause}"
-    );
-
-    let result = sqlx::query(&query)
+    let result = sqlx::query(query)
         .bind(&switch.bmc_username)
         .bind(&switch.bmc_password)
         .bind(&switch.serial_number)
@@ -334,10 +359,11 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         .bind(&switch.nvos_password)
         .bind(&switch.nvos_mac_addresses)
         .bind(switch.bmc_retain_credentials)
+        .bind(switch.nvos_ip_address)
         .bind(&target_id)
         .execute(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::query(&query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
         return Err(DatabaseError::NotFoundError {

@@ -41,7 +41,7 @@ tonic = { workspace = true }
 chrono = { features = ["serde"], workspace = true }
 tracing = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
+  "rustls",
   "stream",
 ], workspace = true }
 futures-util = { workspace = true }

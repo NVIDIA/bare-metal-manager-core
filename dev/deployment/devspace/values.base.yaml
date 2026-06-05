@@ -1,4 +1,4 @@
-carbide-api:
+nico-api:
   resources:
     limits:
       cpu: "16"
@@ -8,14 +8,14 @@ carbide-api:
       memory: "1Gi"
   siteConfig:
     enabled: true
-    carbideApiSiteConfig: |
+    nicoApiSiteConfig: |
       bypass_rbac = true
       attestation_enabled = false
       dpu_ipmi_tool_impl = "test"
-      initial_domain_name = "local.forge"
+      initial_domain_name = "local.nico"
       initial_dpu_agent_upgrade_policy = "off"
 
-      # DB transactions in carbide should be quick, pool size should ≈ the
+      # DB transactions in nico should be quick, pool size should ≈ the
       # number of cores. Default postgres configuration is a 100 connection
       # limit, so let's stay safely below that.
       max_database_connections = 64
@@ -65,9 +65,9 @@ carbide-api:
       permissive_mode = true
 
       [auth.trust]
-      spiffe_trust_domain = "forge.local"
-      spiffe_service_base_paths = ["/forge-system/sa/", "/default/sa/"]
-      spiffe_machine_base_path = "/forge-system/machine/"
+      spiffe_trust_domain = "nico.local"
+      spiffe_service_base_paths = ["/nico-system/sa/", "/default/sa/"]
+      spiffe_machine_base_path = "/nico-system/machine/"
       additional_issuer_cns = []
 
       [host_health]
@@ -88,8 +88,7 @@ carbide-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      allow_zero_dpu_hosts = true
-      bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
+      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -101,17 +100,17 @@ carbide-api:
       run_interval = "10s"
       concurrency_limit = 100
 
-carbide-bmc-proxy:
+nico-bmc-proxy:
   enabled: true
   replicas: 1 # save on local resources
   configFiles:
     enabled: true
-    carbideBmcProxyConfig: |
+    nicoBmcProxyConfig: |
       listen = "[::]:1079"
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
+      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -120,28 +119,34 @@ carbide-bmc-proxy:
       admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
 
       [auth.trust]
-      spiffe_trust_domain = "forge.local"
+      spiffe_trust_domain = "nico.local"
       spiffe_service_base_paths = [
-        "/forge-system/sa/",
+        "/nico-system/sa/",
         "/default/sa/",
       ]
-      spiffe_machine_base_path = "/forge-system/machine/"
+      spiffe_machine_base_path = "/nico-system/machine/"
       additional_issuer_cns = []
 
       [auth.acls]
       "trusted-certificate" = ["/**"]
 
-carbide-dhcp:
+      [carbide_api]
+      api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+      client_cert = "/var/run/secrets/spiffe.io/tls.crt"
+      client_key = "/var/run/secrets/spiffe.io/tls.key"
+
+nico-dhcp:
   enabled: false
-carbide-dns:
+nico-dns:
   enabled: false
-carbide-dsx-exchange-consumer:
+nico-dsx-exchange-consumer:
   enabled: false
-carbide-hardware-health:
+nico-hardware-health:
   enabled: false
-carbide-pxe:
+nico-pxe:
   enabled: false
-carbide-ssh-console-rs:
+nico-ssh-console-rs:
   enabled: false
 unbound:
   enabled: false

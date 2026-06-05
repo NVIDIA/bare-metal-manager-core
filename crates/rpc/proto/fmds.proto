@@ -48,6 +48,21 @@ message FmdsConfigUpdate {
   string user_data = 6;
   repeated IBDevice ib_devices = 7;
   uint32 asn = 8;
+
+  // Machine-identity (`GET …/meta-data/identity`) rate limits, timeouts, and optional HTTP sign proxy.
+  // When omitted, FMDS leaves machine-identity serving unchanged (startup defaults from `FmdsState::try_new`
+  // until the first update that includes this field).
+  optional FmdsMachineIdentityConfig machine_identity = 9;
+}
+
+// Mirrors carbide-dpu-agent `[machine-identity]` for standalone FMDS.
+message FmdsMachineIdentityConfig {
+  uint32 requests_per_second = 1;
+  uint32 burst = 2;
+  uint32 wait_timeout_secs = 3;
+  uint32 sign_timeout_secs = 4;
+  optional string sign_proxy_url = 5;
+  optional string sign_proxy_tls_root_ca = 6;
 }
 
 message IBDevice {

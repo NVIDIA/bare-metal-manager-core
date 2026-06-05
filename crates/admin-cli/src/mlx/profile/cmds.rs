@@ -21,13 +21,14 @@
 use libmlx::profile::serialization::SerializableProfile;
 use libmlx::runner::result_types::{ComparisonResult, SyncResult};
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
     ProfileCommand, ProfileCompareCommand, ProfileListCommand, ProfileShowCommand,
     ProfileSyncCommand,
 };
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::mlx::{
     CliContext, print_comparison_result_csv, print_comparison_result_table, print_sync_result_csv,
     print_sync_result_table,

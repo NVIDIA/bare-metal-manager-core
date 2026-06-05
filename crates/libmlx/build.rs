@@ -360,7 +360,7 @@ pub fn list() -> Vec<&'static str> {
 /// get_registries_for_device returns all registries that match the given device.
 /// If a registry has no filters configured, it matches all devices.
 pub fn get_registries_for_device(
-    device_info: &crate::device::info::MlxDeviceInfo,
+    device_info: &carbide_libmlx_model::device::info::MlxDeviceInfo,
 ) -> Vec<&'static crate::variables::registry::MlxVariableRegistry> {
     REGISTRIES
         .iter()

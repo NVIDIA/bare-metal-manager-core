@@ -30,6 +30,7 @@ extern const isc::log::MessageID LOG_CARBIDE_INITIALIZATION;
 extern const isc::log::MessageID LOG_CARBIDE_INVALID_HANDLE;
 extern const isc::log::MessageID LOG_CARBIDE_INVALID_NEXTSERVER_IPV4;
 extern const isc::log::MessageID LOG_CARBIDE_LEASE4_SELECT;
+extern const isc::log::MessageID LOG_CARBIDE_LEASE4_RENEW;
 extern const isc::log::MessageID LOG_CARBIDE_LEASE_EXPIRE;
 extern const isc::log::MessageID LOG_CARBIDE_LEASE_EXPIRE_ERROR;
 extern const isc::log::MessageID LOG_CARBIDE_PKT4_RECEIVE;

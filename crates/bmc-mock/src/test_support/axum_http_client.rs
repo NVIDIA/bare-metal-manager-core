@@ -22,7 +22,8 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use nv_redfish::bmc_http::{BmcCredentials, CacheableError, HttpClient};
-use nv_redfish::core::{BoxTryStream, ModificationResponse, ODataETag};
+use nv_redfish::core::upload::{MultipartUpdateRequest, UploadReader};
+use nv_redfish::core::{BoxTryStream, ModificationResponse, ODataETag, SessionCreateResponse};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tower::ServiceExt;
@@ -200,5 +201,33 @@ impl HttpClient for AxumRouterHttpClient {
         _custom_headers: &HeaderMap,
     ) -> Result<BoxTryStream<T, Self::Error>, Self::Error> {
         Err(Error::NotSupported("SSE stream is not supported yet"))
+    }
+
+    async fn post_session<B, T>(
+        &self,
+        _: Url,
+        _: &B,
+        _: &HeaderMap,
+    ) -> Result<SessionCreateResponse<T>, Self::Error>
+    where
+        B: Serialize + Send + Sync,
+        T: DeserializeOwned + Send + Sync,
+    {
+        Err(Error::NotSupported("POST for Session is not supported yet"))
+    }
+
+    async fn post_multipart_update<U, V, T>(
+        &self,
+        _: Url,
+        _: MultipartUpdateRequest<'_, U, V>,
+        _: &BmcCredentials,
+        _: &HeaderMap,
+    ) -> Result<ModificationResponse<T>, Self::Error>
+    where
+        U: UploadReader,
+        T: DeserializeOwned + Send + Sync,
+        V: Serialize + Send + Sync,
+    {
+        Err(Error::NotSupported("Multipart update is not supported yet"))
     }
 }

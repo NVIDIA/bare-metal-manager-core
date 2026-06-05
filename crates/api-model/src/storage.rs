@@ -19,12 +19,12 @@ use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, Row};
 use uuid::Uuid;
 
+use crate::errors::ModelError;
 use crate::tenant::TenantOrganizationId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,82 +81,8 @@ pub struct OsImage {
     pub modified_at: Option<String>,
 }
 
-impl TryFrom<OsImageAttributes> for rpc::forge::OsImageAttributes {
-    type Error = RpcDataConversionError;
-    fn try_from(image_attrs: OsImageAttributes) -> Result<Self, Self::Error> {
-        let id = rpc::Uuid::from(image_attrs.id);
-        Ok(Self {
-            id: Some(id),
-            source_url: image_attrs.source_url,
-            digest: image_attrs.digest,
-            tenant_organization_id: image_attrs.tenant_organization_id.to_string(),
-            create_volume: image_attrs.create_volume,
-            name: image_attrs.name,
-            description: image_attrs.description,
-            auth_type: image_attrs.auth_type,
-            auth_token: image_attrs.auth_token,
-            rootfs_id: image_attrs.rootfs_id,
-            rootfs_label: image_attrs.rootfs_label,
-            boot_disk: image_attrs.boot_disk,
-            capacity: image_attrs.capacity,
-            bootfs_id: image_attrs.bootfs_id,
-            efifs_id: image_attrs.efifs_id,
-        })
-    }
-}
-
-impl TryFrom<rpc::forge::OsImageAttributes> for OsImageAttributes {
-    type Error = RpcDataConversionError;
-    fn try_from(image_attrs: rpc::forge::OsImageAttributes) -> Result<Self, Self::Error> {
-        if image_attrs.id.is_none() {
-            return Err(RpcDataConversionError::MissingArgument("image id"));
-        }
-        let id = Uuid::try_from(image_attrs.id.clone().unwrap()).map_err(|_e| {
-            RpcDataConversionError::InvalidUuid("os image id", image_attrs.id.unwrap().to_string())
-        })?;
-        Ok(Self {
-            id,
-            source_url: image_attrs.source_url,
-            digest: image_attrs.digest,
-            tenant_organization_id: TenantOrganizationId::try_from(
-                image_attrs.tenant_organization_id,
-            )
-            .map_err(|e| {
-                RpcDataConversionError::InvalidValue(
-                    "tenant_organization_id".to_string(),
-                    e.to_string(),
-                )
-            })?,
-            create_volume: image_attrs.create_volume,
-            name: image_attrs.name,
-            description: image_attrs.description,
-            auth_type: image_attrs.auth_type,
-            auth_token: image_attrs.auth_token,
-            rootfs_id: image_attrs.rootfs_id,
-            rootfs_label: image_attrs.rootfs_label,
-            boot_disk: image_attrs.boot_disk,
-            capacity: image_attrs.capacity,
-            bootfs_id: image_attrs.bootfs_id,
-            efifs_id: image_attrs.efifs_id,
-        })
-    }
-}
-
-impl TryFrom<OsImageStatus> for rpc::forge::OsImageStatus {
-    type Error = RpcDataConversionError;
-    fn try_from(value: OsImageStatus) -> Result<Self, Self::Error> {
-        match value {
-            OsImageStatus::Uninitialized => Ok(rpc::forge::OsImageStatus::ImageUninitialized),
-            OsImageStatus::InProgress => Ok(rpc::forge::OsImageStatus::ImageInProgress),
-            OsImageStatus::Failed => Ok(rpc::forge::OsImageStatus::ImageFailed),
-            OsImageStatus::Ready => Ok(rpc::forge::OsImageStatus::ImageReady),
-            OsImageStatus::Disabled => Ok(rpc::forge::OsImageStatus::ImageDisabled),
-        }
-    }
-}
-
 impl FromStr for OsImageStatus {
-    type Err = RpcDataConversionError;
+    type Err = ModelError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "uninitialized" => Ok(OsImageStatus::Uninitialized),
@@ -165,24 +91,10 @@ impl FromStr for OsImageStatus {
             "ready" => Ok(OsImageStatus::Ready),
             "disabled" => Ok(OsImageStatus::Disabled),
             "" => Ok(OsImageStatus::Uninitialized),
-            _ => Err(RpcDataConversionError::InvalidValue(
-                "OsImageStatus".to_string(),
-                s.to_string(),
-            )),
+            _ => Err(ModelError::InvalidArgument(format!(
+                "Invalid OsImageStatus: {s}"
+            ))),
         }
-    }
-}
-
-impl TryFrom<OsImage> for rpc::forge::OsImage {
-    type Error = RpcDataConversionError;
-    fn try_from(image: OsImage) -> Result<Self, Self::Error> {
-        Ok(Self {
-            attributes: Some(rpc::forge::OsImageAttributes::try_from(image.attributes)?),
-            status: rpc::forge::OsImageStatus::try_from(image.status)? as i32,
-            status_message: image.status_message,
-            created_at: image.created_at,
-            modified_at: image.modified_at,
-        })
     }
 }
 

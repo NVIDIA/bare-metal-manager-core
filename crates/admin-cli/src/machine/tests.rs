@@ -209,6 +209,7 @@ fn parse_force_delete() {
             assert_eq!(args.machine, TEST_MACHINE_ID);
             assert!(!args.delete_interfaces);
             assert!(!args.allow_delete_with_instance);
+            assert!(!args.allow_delete_with_orphaned_dpf_crds);
         }
         _ => panic!("expected ForceDelete variant"),
     }
@@ -321,6 +322,10 @@ fn health_override_templates_value_enum() {
     assert!(matches!(
         HealthReportTemplates::from_str("validation", false),
         Ok(HealthReportTemplates::Validation)
+    ));
+    assert!(matches!(
+        HealthReportTemplates::from_str("request-online-repair", false),
+        Ok(HealthReportTemplates::RequestOnlineRepair)
     ));
     assert!(HealthReportTemplates::from_str("invalid", false).is_err());
 }

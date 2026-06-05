@@ -43,7 +43,9 @@ pub enum PairingBlockerReason {
     HostSystemReportMissing,
     /// Host's boot MAC not found in any discovered DPU
     BootInterfaceMacMismatch,
-    /// Host BMC did not report any DPUs in its PCIE device list
+    /// Host BMC reports no Bluefield PCIe devices but the host isn't
+    /// declared as `dpu_mode = "no_dpu"`. We expect DPUs but didn't
+    /// find any -- likely a misconfiguration or DPU-discovery bug.
     NoDpuReportedByHost,
 }
 

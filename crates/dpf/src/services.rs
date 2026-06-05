@@ -57,11 +57,11 @@ pub fn dts_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
         })),
         config_ports: Some(vec![ServiceConfigPort {
             name: "httpserverport".to_string(),
-            port: 9100,
+            port: 9189,
             protocol: ServiceConfigPortProtocol::Tcp,
             node_port: None,
         }]),
-        config_ports_service_type: Some(ConfigPortsServiceType::None),
+        config_ports_service_type: Some(ConfigPortsServiceType::ClusterIp),
         ..ServiceDefinition::new("dts", &reg.doca_helm_registry, "doca-telemetry", "1.22.1")
     }
 }

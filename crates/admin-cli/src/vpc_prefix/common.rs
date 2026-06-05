@@ -17,12 +17,12 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::admin_cli::CarbideCliError::GenericError;
 use carbide_uuid::vpc::VpcPrefixId;
 use ipnet::IpNet;
 use rpc::forge::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
 
+use crate::errors::CarbideCliError;
+use crate::errors::CarbideCliError::GenericError;
 use crate::rpc::ApiClient;
 
 #[derive(Clone, Debug)]

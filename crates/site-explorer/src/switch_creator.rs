@@ -122,6 +122,28 @@ impl SwitchCreator {
                 .await?;
             }
         }
+
+        // Defense against the duplicate-switches bug: if a switch already
+        // exists in the database for this BMC MAC, don't make another one.
+        // This catches the case where the chassis serial drifts between
+        // exploration cycles (e.g. "NA" on the first read, a real value on
+        // the second) and produces a different `SwitchId` second time round.
+        if let Some(existing) =
+            db::switch::find_by_bmc_mac_address(txn, expected_switch.bmc_mac_address).await?
+        {
+            tracing::warn!(
+                bmc_mac = %expected_switch.bmc_mac_address,
+                existing_switch_id = %existing.id,
+                "Switch already exists for this BMC MAC; skipping discovery",
+            );
+            return Ok(None);
+        }
+
+        // `generate_switch_id` returns `MissingHardwareInfo::Serial` for both
+        // a missing chassis serial and the literal `"NA"` placeholder (see
+        // `switch_id::from_hardware_info_with_type`), so a junk-serial BMC
+        // read fails loudly here and is picked back up on the next
+        // exploration cycle once the real serial is reported.
         let switch_id = explored_managed_switch
             .clone()
             .report

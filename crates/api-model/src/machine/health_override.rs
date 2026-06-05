@@ -21,7 +21,7 @@ pub const HARDWARE_HEALTH_OVERRIDE_PREFIX: &str = "hardware-health.";
 
 pub struct MaintenanceOverride {
     pub maintenance_reference: String,
-    pub maintenance_start_time: Option<rpc::Timestamp>,
+    pub maintenance_start_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Machine-specific methods for HealthReportSources.
@@ -38,7 +38,7 @@ impl HealthReportSources {
             .find(|alert| alert.id == maintenance_alert_id)?;
         Some(MaintenanceOverride {
             maintenance_reference: alert.message.clone(),
-            maintenance_start_time: alert.in_alert_since.map(rpc::Timestamp::from),
+            maintenance_start_time: alert.in_alert_since,
         })
     }
 

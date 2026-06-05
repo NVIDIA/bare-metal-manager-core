@@ -20,8 +20,9 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use rpc::protos::mlx_device as mlx_device_pb;
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 // ConfigCommand are the config subcommands.
 #[derive(Parser, Debug)]

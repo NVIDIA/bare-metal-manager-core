@@ -18,7 +18,7 @@
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
-use rpc::forge::InstanceOperatingSystemConfig;
+use rpc::forge::{InstanceOperatingSystemConfig, InstanceSpxConfig};
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
@@ -58,11 +58,21 @@ pub struct Args {
     #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
     pub os: Option<InstanceOperatingSystemConfig>,
 
+    #[clap(
+        long,
+        help = "SPX configuration in JSON format",
+        value_name = "SPX_JSON"
+    )]
+    pub spxconfig: Option<InstanceSpxConfig>,
+
     #[clap(long, help = "The subnet to assign to a VF")]
     pub vf_subnet: Vec<String>,
 
     #[clap(short, long, help = "The VPC prefix to assign to a PF")]
     pub vpc_prefix_id: Vec<VpcPrefixId>,
+
+    #[clap(long, help = "Allocate a zero-dpu host")]
+    pub zero_dpu: bool,
 
     #[clap(long, help = "The VPC prefix to assign to a VF")]
     pub vf_vpc_prefix_id: Vec<VpcPrefixId>,

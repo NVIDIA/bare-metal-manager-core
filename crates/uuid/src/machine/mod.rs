@@ -117,8 +117,12 @@ impl prost::Message for MachineId {
     {
         let mut legacy_message = legacy_rpc::MachineId::from(*self);
         legacy_message.merge_field(tag, wire_type, buf, ctx)?;
-        *self = MachineId::from_str(&legacy_message.id)
-            .map_err(|_| DecodeError::new(format!("Invalid machine id: {}", legacy_message.id)))?;
+        *self = MachineId::from_str(&legacy_message.id).map_err(|_| {
+            // Deprecation: if they remove DecodeError::new, they hopefully will provide some other way
+            // to impl prost::Message.
+            #[allow(deprecated)]
+            DecodeError::new(format!("Invalid machine id: {}", legacy_message.id))
+        })?;
         Ok(())
     }
 
@@ -180,7 +184,7 @@ impl Debug for MachineId {
 impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
     fn encode_by_ref(
         &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+        buf: &mut <Postgres as Database>::ArgumentBuffer,
     ) -> Result<IsNull, BoxDynError> {
         buf.extend(self.to_string().as_bytes());
         Ok(sqlx::encode::IsNull::No)

@@ -133,7 +133,7 @@ impl Handler {
         tracing::error!(peer_addr = self.peer_addr, "Request on unknown channel");
         session.channel_failure(channel_id).ok();
         session
-            .data(channel_id, "ssh-console error: Unknown channel\n".into())
+            .data(channel_id, "ssh-console error: Unknown channel\n")
             .ok();
         session.close(channel_id).ok();
         None
@@ -449,10 +449,7 @@ impl russh::server::Handler for Handler {
             );
             session.channel_failure(channel_id).ok();
             session
-                .data(
-                    channel_id,
-                    "ssh-console error: Channel unavailable\r\n".into(),
-                )
+                .data(channel_id, "ssh-console error: Channel unavailable\r\n")
                 .ok();
             session.close(channel_id).ok();
             return Ok(());
@@ -472,7 +469,7 @@ impl russh::server::Handler for Handler {
             Kind::Ssh => BANNER_SSH_BMC.as_bytes(),
             Kind::Ipmi => BANNER_IPMI_BMC.as_bytes(),
         };
-        session.data(channel_id, banner.into()).ok();
+        session.data(channel_id, banner).ok();
 
         // Tell the backend to return any "pending line": data since the last newline
         let (mut channel_rx, channel_tx) = channel.split();
@@ -534,10 +531,7 @@ impl russh::server::Handler for Handler {
             );
             session.channel_failure(channel_id).ok();
             session
-                .data(
-                    channel_id,
-                    "ssh-console error: Channel unavailable\r\n".into(),
-                )
+                .data(channel_id, "ssh-console error: Channel unavailable\r\n")
                 .ok();
             session.close(channel_id).ok();
             return Ok(());

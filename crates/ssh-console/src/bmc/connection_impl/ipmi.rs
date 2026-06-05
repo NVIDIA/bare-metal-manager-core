@@ -375,7 +375,7 @@ impl IpmitoolMessageProxy {
                     .filter_escape_sequences(data.as_ref(), self.escape_was_pending);
                 self.escape_was_pending = escape_pending;
                 ToBmcMessage::ChannelMsg(ChannelMsg::Data {
-                    data: data.as_ref().into(),
+                    data: data.into_owned().into(),
                 })
             }
             msg => msg,

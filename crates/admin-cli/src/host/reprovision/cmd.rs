@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::HostReprovisioningRequest;
 use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use super::args::{ReprovisionClear, ReprovisionSet};
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 

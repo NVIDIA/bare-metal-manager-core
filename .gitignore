@@ -40,3 +40,6 @@ dev/mac-local-dev/carbide-api-config-*.toml
 crates/dpf/doca-platform
 
 /helm/Chart.lock
+
+# Generated plans from Cursor
+.cursor/

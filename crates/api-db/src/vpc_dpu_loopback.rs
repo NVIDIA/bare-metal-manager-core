@@ -44,33 +44,81 @@ pub async fn delete_and_deallocate(
     txn: &mut PgConnection,
     delete_admin_loopback_also: bool,
 ) -> Result<(), DatabaseError> {
-    let mut admin_vpc = None;
-    let query = if !delete_admin_loopback_also {
-        let admin_segment = crate::network_segment::admin(txn).await?;
-        admin_vpc = admin_segment.vpc_id;
-        if admin_vpc.is_some() {
-            "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 AND vpc_id != $2 RETURNING *"
+    let mut query = sqlx::QueryBuilder::new("DELETE FROM vpc_dpu_loopbacks WHERE TRUE ");
+
+    query.push(" AND dpu_id= ");
+    query.push_bind(dpu_id);
+
+    if !delete_admin_loopback_also {
+        let admin_segments = crate::network_segment::admin(txn).await?;
+        let admin_vpcs = admin_segments
+            .iter()
+            .filter_map(|s| s.config.vpc_id)
+            .collect::<Vec<VpcId>>();
+
+        if admin_vpcs.is_empty() {
+            tracing::warn!(
+                "No VPC attached to one or more admin segments: {:?}.",
+                admin_segments
+            );
         } else {
-            tracing::warn!("No VPC is attached to admin segment {}.", admin_segment.id);
-            "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *"
+            // We only allow a single admin VPC, so it seems this could easily be
+            // vpc_id != admin_vpc_id, but the ALL seems cheap enough based on that
+            // and would ensure we don't have to worry later if we introduce multiple
+            // admin VPCs.
+            query.push(" AND vpc_id != ALL( ");
+            query.push_bind(admin_vpcs);
+            query.push(" )");
         }
-    } else {
-        "DELETE FROM vpc_dpu_loopbacks WHERE dpu_id=$1 RETURNING *"
     };
 
-    let mut sqlx_query = sqlx::query_as::<_, VpcDpuLoopback>(query).bind(dpu_id);
+    query.push("  RETURNING * ");
 
-    if let Some(admin_vpc) = admin_vpc {
-        sqlx_query = sqlx_query.bind(admin_vpc);
-    }
-
-    let deleted_loopbacks = sqlx_query
+    let deleted_loopbacks: Vec<VpcDpuLoopback> = query
+        .build_query_as()
         .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query.sql(), e))?;
 
     for value in deleted_loopbacks {
         // We deleted a IP from vpc_dpu_loopback table. Deallocate this IP from common pool.
+        crate::resource_pool::release(
+            &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
+            txn,
+            value.loopback_ip,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Deletes and deallocates loopbacks for a DPU scoped to specific VPCs.
+pub async fn delete_and_deallocate_for_vpcs(
+    common_pools: &model::resource_pool::common::CommonPools,
+    dpu_id: &MachineId,
+    vpc_ids: &[VpcId],
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    if vpc_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Delete first so pool release only follows rows that existed.
+    let mut query = sqlx::QueryBuilder::new("DELETE FROM vpc_dpu_loopbacks WHERE dpu_id = ");
+    query.push_bind(dpu_id);
+    query.push(" AND vpc_id = ANY(");
+    query.push_bind(vpc_ids);
+    query.push(") RETURNING *");
+
+    let deleted_loopbacks: Vec<VpcDpuLoopback> = query
+        .build_query_as()
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query.sql(), e))?;
+
+    for value in deleted_loopbacks {
+        // Return each deleted loopback IP to the shared VPC loopback pool.
         crate::resource_pool::release(
             &common_pools.ethernet.pool_vpc_dpu_loopback_ip,
             txn,

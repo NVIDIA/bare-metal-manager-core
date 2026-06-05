@@ -22,12 +22,12 @@ mod show;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
 use prettytable::{Table, row};
 use rpc::forge::VpcPeering;
 
 use crate::cfg::dispatch::Dispatch;
+use crate::errors::CarbideCliResult;
 
 #[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {

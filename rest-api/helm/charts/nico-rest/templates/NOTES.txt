@@ -1,0 +1,40 @@
+NICo REST has been installed.
+
+Components deployed:
+{{- if index .Values "nico-rest-common" "enabled" }}
+  - nico-rest-common (common secrets + temporal-client-cloud-cert)
+{{- end }}
+{{- if index .Values "nico-rest-cert-manager" "enabled" }}
+  - nico-rest-cert-manager (credential manager / credsmgr)
+{{- end }}
+{{- if index .Values "nico-rest-api" "enabled" }}
+  - nico-rest-api (REST API server, port 8388)
+{{- end }}
+{{- if index .Values "nico-rest-workflow" "enabled" }}
+  - nico-rest-workflow (cloud-worker + site-worker)
+{{- end }}
+{{- if index .Values "nico-rest-site-manager" "enabled" }}
+  - nico-rest-site-manager (site lifecycle manager, port 8100)
+{{- end }}
+{{- if index .Values "nico-rest-db" "enabled" }}
+  - nico-rest-db (database migrations)
+{{- end }}
+
+Prerequisites (must exist before install):
+  - PostgreSQL database
+  - Temporal server with cloud and site namespaces
+{{- if index .Values "nico-rest-api" "config" "keycloak" "enabled" }}
+  - Keycloak authentication server
+{{- end }}
+  - cert-manager.io with ClusterIssuer "{{ .Values.global.certificate.issuerRef.name }}"
+{{- if index .Values "nico-rest-cert-manager" "enabled" }}
+  - Secret: ca-signing-secret (CA cert+key — provisioned by Vault or setup-local.sh)
+{{- end }}
+{{- if not (index .Values "nico-rest-common" "enabled") }}
+  - Secrets: db-creds, keycloak-client-secret, temporal-encryption-key, temporal-client-cloud-certs
+    (nico-rest-common is disabled — pre-create these secrets before install)
+{{- end }}
+
+Site Agent:
+  Site agent is deployed as a separate chart (nico-rest-site-agent).
+  See helm/charts/nico-rest-site-agent/ for details.

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::MachineBootOverride;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn set(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {

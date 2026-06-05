@@ -17,11 +17,11 @@
 # =============================================================================
 # unseal_vault.sh — initialize and unseal a 3-pod HashiCorp Vault HA cluster
 #
-# Run AFTER `helmfile sync -l name=vault` and BEFORE `helm install carbide-prereqs`.
+# Run AFTER `helmfile sync -l name=vault` and BEFORE `helm install nico-prereqs`.
 #
 # On first run: initializes Vault (5 shares, threshold 3) and stores keys/token
 #   as K8s secrets: vault-cluster-keys, vaultunsealkeys, vaultroottoken
-#   Also copies root token to forge-system/carbide-vault-token for carbide-prereqs.
+#   Also copies root token to nico-system/nico-vault-token for nico-prereqs.
 #
 # On subsequent runs: reads existing vault-cluster-keys secret and re-unseals
 #   any pods that are sealed (e.g. after a node restart).
@@ -153,26 +153,26 @@ kubectl delete secret vaultroottoken --namespace "${NAMESPACE}" --ignore-not-fou
 kubectl create secret generic vaultroottoken --namespace "${NAMESPACE}" --type=Opaque \
     --from-literal=token="${ROOT_TOKEN}"
 
-# Set up forge-system namespace with Helm ownership so carbide-prereqs can adopt it
-kubectl create namespace forge-system 2>/dev/null || true
-kubectl label namespace forge-system \
+# Set up nico-system namespace with Helm ownership so nico-prereqs can adopt it
+kubectl create namespace nico-system 2>/dev/null || true
+kubectl label namespace nico-system \
     app.kubernetes.io/managed-by=Helm --overwrite
-kubectl annotate namespace forge-system \
-    meta.helm.sh/release-name=carbide-prereqs \
-    meta.helm.sh/release-namespace=forge-system \
+kubectl annotate namespace nico-system \
+    meta.helm.sh/release-name=nico-prereqs \
+    meta.helm.sh/release-namespace=nico-system \
     --overwrite
 
-# Copy root token to forge-system so vault-pki-config Job can use it
-echo "Copying root token to forge-system/carbide-vault-token..."
-kubectl delete secret carbide-vault-token --namespace forge-system --ignore-not-found
-kubectl create secret generic carbide-vault-token --namespace forge-system --type=Opaque \
+# Copy root token to nico-system so vault-pki-config Job can use it
+echo "Copying root token to nico-system/nico-vault-token..."
+kubectl delete secret nico-vault-token --namespace nico-system --ignore-not-found
+kubectl create secret generic nico-vault-token --namespace nico-system --type=Opaque \
     --from-literal=token="${ROOT_TOKEN}"
-# Add Helm ownership so carbide-prereqs can manage the secret
-kubectl label secret carbide-vault-token -n forge-system \
+# Add Helm ownership so nico-prereqs can manage the secret
+kubectl label secret nico-vault-token -n nico-system \
     app.kubernetes.io/managed-by=Helm --overwrite
-kubectl annotate secret carbide-vault-token -n forge-system \
-    meta.helm.sh/release-name=carbide-prereqs \
-    meta.helm.sh/release-namespace=forge-system \
+kubectl annotate secret nico-vault-token -n nico-system \
+    meta.helm.sh/release-name=nico-prereqs \
+    meta.helm.sh/release-namespace=nico-system \
     --overwrite
 
 echo ""
@@ -180,4 +180,4 @@ echo "=== Vault initialized and unsealed ==="
 echo "    vault-cluster-keys  — full init JSON (5 unseal keys + root token)"
 echo "    vaultunsealkeys     — 5 individual unseal keys"
 echo "    vaultroottoken      — root token (namespace: vault)"
-echo "    carbide-vault-token — root token copy (namespace: forge-system)"
+echo "    nico-vault-token — root token copy (namespace: nico-system)"

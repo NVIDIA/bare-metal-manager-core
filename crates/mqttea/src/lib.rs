@@ -20,6 +20,7 @@
 
 pub mod auth;
 pub mod client;
+pub mod client_id;
 pub mod errors;
 pub mod message_types;
 pub mod registry;
@@ -33,6 +34,7 @@ pub use auth::{
     OAuth2TokenProvider, StaticCredentials, TokenCredentialsProvider, TokenProvider,
 };
 pub use client::{MqtteaClient, TopicPatterns};
+pub use client_id::unique_client_id;
 pub use errors::MqtteaClientError;
 pub use message_types::RawMessage;
 pub use registry::{MessageTypeInfo, MqttRegistry, SerializationFormat};

@@ -106,6 +106,17 @@ impl AccountServiceState {
         account.password = password.into();
         true
     }
+
+    /// Rotates every account on its factory default password to `new_password`
+    pub fn change_factory_default_password(&self, new_password: impl Into<String>) {
+        let new_password = new_password.into();
+        let mut accounts = self.accounts.lock().expect("mutex poisoned");
+        for account in accounts.iter_mut() {
+            if account.password == account.factory_default_password {
+                account.password = new_password.clone();
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

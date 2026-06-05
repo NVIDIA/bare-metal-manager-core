@@ -20,11 +20,11 @@ pub mod cmd;
 
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 use crate::expected_machines::common::ExpectedMachineJson;
 
 /// `expected-machine update <file>`: deserializes `ExpectedMachineJson` and calls
@@ -68,6 +68,7 @@ impl Run for Args {
                 expected_machine.dpf_enabled,
                 expected_machine.bmc_ip_address,
                 expected_machine.bmc_retain_credentials,
+                expected_machine.dpu_mode,
                 expected_machine.host_lifecycle_profile.map(|hlp| {
                     ::rpc::forge::HostLifecycleProfile {
                         disable_lockdown: hlp.disable_lockdown,

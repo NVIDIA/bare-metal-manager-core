@@ -21,17 +21,24 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::header::HeaderMap;
+use axum::http::{StatusCode, Uri};
+use axum::response::Response;
 use axum::routing::{get, post};
+use carbide_host_support::agent_config::MachineIdentityConfig;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
+use forge_dpu_fmds_shared::machine_identity::{
+    self, MetaDataIdentityOutcome, MetaDataIdentitySigner, forward_sign_proxy_if_ready,
+    sign_machine_identity_with_forge, wait_identity_rate_limit_permit,
+};
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
 use mockall::automock;
 use nonzero_ext::nonzero;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use rpc::forge::{self, ManagedHostNetworkConfigResponse};
 
 use crate::periodic_config_fetcher::InstanceMetadata;
 use crate::util::phone_home;
@@ -62,6 +69,21 @@ pub trait InstanceMetadataRouterState: Sync + Send {
         Option<Arc<ManagedHostNetworkConfigResponse>>,
     );
     async fn phone_home(&self) -> Result<(), eyre::Error>;
+
+    /// Calls Carbide `SignMachineIdentity` gRPC using the agent's DPU TLS client identity.
+    /// Carbide maps the DPU SPIFFE ID to the owning host when resolving the active instance and
+    /// tenant identity config; the issued JWT `sub` still reflects the caller's machine ID.
+    ///
+    /// **Note:** `GET …/meta-data/identity` does not use this trait method directly; it goes through
+    /// [`Self::serve_meta_data_identity`], which enforces the identity rate limit before Carbide or
+    /// before invoking this method indirectly.
+    async fn sign_machine_identity(
+        &self,
+        audiences: Vec<String>,
+    ) -> Result<forge::MachineIdentityResponse, tonic::Status>;
+
+    /// SPIFFE machine-identity over IMDS-style HTTP (`GET …/meta-data/identity`).
+    async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response;
 }
 
 pub struct InstanceMetadataRouterStateImpl {
@@ -72,6 +94,9 @@ pub struct InstanceMetadataRouterStateImpl {
     forge_client_config: Arc<ForgeClientConfig>,
     outbound_governor:
         Arc<RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>>,
+    /// Rate limits, Forge/sign-proxy timeouts, and optional HTTP sign-proxy client for
+    /// `GET …/meta-data/identity`.
+    identity_serving: Arc<machine_identity::MachineIdentityServing>,
 }
 
 #[async_trait]
@@ -109,22 +134,94 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
         Ok(())
     }
+
+    async fn sign_machine_identity(
+        &self,
+        audiences: Vec<String>,
+    ) -> Result<forge::MachineIdentityResponse, tonic::Status> {
+        sign_machine_identity_with_forge(
+            &self.forge_api,
+            &self.forge_client_config,
+            self.identity_serving.forge_call_timeout,
+            audiences,
+        )
+        .await
+    }
+
+    async fn serve_meta_data_identity(&self, uri: Uri, headers: HeaderMap) -> Response {
+        machine_identity::serve_meta_data_identity(self, uri, headers).await
+    }
+}
+
+#[async_trait]
+impl MetaDataIdentitySigner for InstanceMetadataRouterStateImpl {
+    async fn wait_identity_permit(&self) -> Result<(), tonic::Status> {
+        self.wait_identity_governor().await
+    }
+
+    async fn machine_identity_response(
+        &self,
+        uri: &Uri,
+        headers: &HeaderMap,
+        audiences: Vec<String>,
+    ) -> Result<MetaDataIdentityOutcome, tonic::Status> {
+        if let Some(resp) = forward_sign_proxy_if_ready(
+            self.identity_serving.sign_proxy_base.as_deref(),
+            self.identity_serving.sign_proxy_http_client.as_ref(),
+            uri,
+            headers,
+        )
+        .await
+        {
+            return Ok(MetaDataIdentityOutcome::HttpProxy(resp));
+        }
+
+        let resp = InstanceMetadataRouterState::sign_machine_identity(self, audiences).await?;
+        Ok(MetaDataIdentityOutcome::Forge(resp))
+    }
 }
 
 impl InstanceMetadataRouterStateImpl {
+    /// Wait for a `meta-data/identity` rate-limit permit (governor).
+    pub async fn wait_identity_governor(&self) -> Result<(), tonic::Status> {
+        wait_identity_rate_limit_permit(
+            &self.identity_serving.governor,
+            self.identity_serving.wait_timeout,
+        )
+        .await
+        .map_err(|_| {
+            tonic::Status::resource_exhausted(
+                "timed out waiting for machine-identity rate limit capacity (machine-identity.wait-timeout-secs)",
+            )
+        })
+    }
+
     pub fn new(
         machine_id: MachineId,
         forge_api: String,
         forge_client_config: Arc<ForgeClientConfig>,
-    ) -> Self {
-        Self {
+        machine_identity: MachineIdentityConfig,
+    ) -> Result<Self, String> {
+        let params = machine_identity::MachineIdentityParams::try_from_limits(
+            machine_identity.requests_per_second,
+            machine_identity.burst,
+            machine_identity.wait_timeout_secs,
+            machine_identity.sign_timeout_secs,
+            machine_identity.sign_proxy_url.as_deref(),
+            machine_identity.sign_proxy_tls_root_ca.as_deref(),
+        )?;
+        let serving = Arc::new(machine_identity::MachineIdentityServing::try_from_params(
+            params,
+        )?);
+        Ok(Self {
             latest_instance_data: ArcSwapOption::new(None),
             latest_network_config: ArcSwapOption::new(None),
             machine_id,
             forge_api,
             forge_client_config,
             outbound_governor: Arc::new(RateLimiter::direct(PHONE_HOME_RATE_LIMIT)),
-        }
+            identity_serving: serving,
+        })
     }
 
     /// Updates the instance metadata that should be served by FMDS
@@ -167,6 +264,10 @@ pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterStat
         .route(&format!("/{PHONE_HOME_CATEGORY}"), post(post_phone_home))
         .route(&format!("/{INSTANCE_ID_CATEGORY}"), get(get_instance_id))
         .route(&format!("/{MACHINE_ID_CATEGORY}"), get(get_machine_id))
+        .route(
+            &format!("/{}", machine_identity::META_DATA_IDENTITY_CATEGORY),
+            get(get_metadata_identity),
+        )
         .route("/{category}", get(get_metadata_parameter));
 
     let metadata_router = Router::new()
@@ -180,6 +281,14 @@ pub fn get_fmds_router(metadata_router_state: Arc<dyn InstanceMetadataRouterStat
         .merge(metadata_router)
         .merge(user_data_router)
         .with_state(metadata_router_state)
+}
+
+async fn get_metadata_identity(
+    State(state): State<Arc<dyn InstanceMetadataRouterState>>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    state.serve_meta_data_identity(uri, headers).await
 }
 
 async fn get_metadata_parameter(
@@ -199,8 +308,9 @@ fn extract_metadata(
     category: String,
     state: Arc<dyn InstanceMetadataRouterState>,
 ) -> (StatusCode, String) {
+    let (instance_meta, network_config) = state.read();
     if let (Some(metadata), Some(network_config)) =
-        (state.read().0.as_ref(), state.read().1.as_ref())
+        (instance_meta.as_ref(), network_config.as_ref())
     {
         match category.as_str() {
             PUBLIC_IPV4_CATEGORY => (StatusCode::OK, metadata.address.clone()),
@@ -281,6 +391,7 @@ async fn get_metadata_params(
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n"),
     )
@@ -352,7 +463,6 @@ async fn get_instance_attributes(
     State(state): State<Arc<dyn InstanceMetadataRouterState>>,
     Path((device_index, instance_index)): Path<(usize, usize)>,
 ) -> (StatusCode, String) {
-    println!("Got here!");
     let read_guard = state.read();
     let metadata = match read_guard.0.as_ref() {
         Some(metadata) => metadata,
@@ -495,7 +605,10 @@ mod tests {
         let std_listener = listener.into_std().unwrap();
 
         let server = tokio::spawn(async move {
-            axum_server::Server::from_tcp(std_listener)
+            axum_server::from_tcp(std_listener)
+                // Safety: This only fails if the socket is blocking, but it started as a tokio
+                // TcpListener which sets non-blocking by default.
+                .expect("BUG: Could not bind to listener")
                 .serve(router.into_make_service())
                 .await
                 .unwrap();
@@ -622,6 +735,7 @@ mod tests {
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
+            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n");
 

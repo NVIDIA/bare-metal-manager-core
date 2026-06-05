@@ -20,7 +20,7 @@ ARG IMG=nvcr.io/nvidia/distroless/cc
 ARG DEBUG_DISTROLESS=true
 ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox shell
 
-FROM rust:1.90.0-slim-bookworm AS builder
+FROM rust:1.95.0-slim-bookworm AS builder
 
 WORKDIR /build
 

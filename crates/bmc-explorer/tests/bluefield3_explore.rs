@@ -79,15 +79,15 @@ async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
             .await
             .unwrap();
 
-    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
-        http_error: Some(bmc_mock::bug::HttpErrorRule {
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "transient_404".into(),
+        selector: bmc_mock::injection::Selector::Path {
             method: Some("GET".into()),
-            path: "/redfish/v1/Systems/Bluefield/EthernetInterfaces".to_string(),
-            status: 404,
-            remaining: 1,
-        }),
-        ..Default::default()
-    });
+            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces".into(),
+        },
+        action: bmc_mock::injection::Action::Status(404),
+        remaining: Some(1),
+    }]);
 
     let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
@@ -102,15 +102,15 @@ async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
 async fn explore_bluefield3_permanent_404_on_system_eth_interfaces_fails_without_hanging() {
     let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
-    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
-        http_error: Some(bmc_mock::bug::HttpErrorRule {
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "permanent_404".into(),
+        selector: bmc_mock::injection::Selector::Path {
             method: Some("GET".into()),
-            path: "/redfish/v1/Systems/Bluefield/EthernetInterfaces".to_string(),
-            status: 404,
-            remaining: 10,
-        }),
-        ..Default::default()
-    });
+            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces".into(),
+        },
+        action: bmc_mock::injection::Action::Status(404),
+        remaining: Some(10),
+    }]);
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -148,13 +148,18 @@ async fn explore_bluefield3_skips_erot_chassis() {
 async fn explore_bluefield3_succeeds_when_erot_hangs() {
     let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
-    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
-        long_response: Some(bmc_mock::bug::LongResponse {
-            path: Some("/redfish/v1/Chassis/Bluefield_ERoT".to_string()),
-            timeout: Some(std::time::Duration::from_secs(30)),
-        }),
-        ..Default::default()
-    });
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "erot_hang".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: None,
+            glob: "/redfish/v1/Chassis/Bluefield_ERoT".into(),
+        },
+        action: bmc_mock::injection::Action::Latency {
+            mean: std::time::Duration::from_secs(30),
+            jitter: std::time::Duration::ZERO,
+        },
+        remaining: None,
+    }]);
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -178,15 +183,15 @@ async fn explore_bluefield3_succeeds_when_erot_hangs() {
 async fn explore_bluefield3_succeeds_when_erot_returns_error() {
     let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
-    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
-        http_error: Some(bmc_mock::bug::HttpErrorRule {
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "erot_500".into(),
+        selector: bmc_mock::injection::Selector::Path {
             method: Some("GET".into()),
-            path: "/redfish/v1/Chassis/Bluefield_ERoT".to_string(),
-            status: 500,
-            remaining: 100,
-        }),
-        ..Default::default()
-    });
+            glob: "/redfish/v1/Chassis/Bluefield_ERoT".into(),
+        },
+        action: bmc_mock::injection::Action::Status(500),
+        remaining: Some(100),
+    }]);
 
     let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
@@ -204,15 +209,15 @@ async fn explore_bluefield3_succeeds_when_erot_returns_error() {
 async fn explore_bluefield3_ignores_500_on_bios_fetch() {
     let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
-    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
-        http_error: Some(bmc_mock::bug::HttpErrorRule {
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "bios_500".into(),
+        selector: bmc_mock::injection::Selector::Path {
             method: Some("GET".into()),
-            path: "/redfish/v1/Systems/Bluefield/Bios".to_string(),
-            status: 500,
-            remaining: 100,
-        }),
-        ..Default::default()
-    });
+            glob: "/redfish/v1/Systems/Bluefield/Bios".into(),
+        },
+        action: bmc_mock::injection::Action::Status(500),
+        remaining: Some(100),
+    }]);
 
     let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await

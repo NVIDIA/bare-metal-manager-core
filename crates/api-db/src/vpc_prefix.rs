@@ -16,6 +16,7 @@
  */
 
 pub use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NetworkPrefix;
@@ -234,6 +235,7 @@ impl ColumnInfo<'_> for IdColumn {
 
 pub async fn persist(
     value: NewVpcPrefix,
+    expected_vpc_version: ConfigVersion,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
     let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, labels, description, vpc_id) VALUES ($1, $2, $3, $4::json, $5, $6) RETURNING *";
@@ -248,7 +250,7 @@ pub async fn persist(
         .await
         .map_err(|e| DatabaseError::query(insert_query, e))?;
 
-    increment_vpc_version(txn, value.vpc_id).await?;
+    increment_vpc_version(txn, value.vpc_id, expected_vpc_version).await?;
 
     Ok(vpc_prefix)
 }
@@ -310,6 +312,7 @@ pub async fn update(
 
 pub async fn delete(
     value: &DeleteVpcPrefix,
+    expected_vpc_version: ConfigVersion,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefixId, DatabaseError> {
     let query = "DELETE FROM network_vpc_prefixes WHERE id=$1 RETURNING *";
@@ -319,7 +322,7 @@ pub async fn delete(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    increment_vpc_version(txn, deleted_prefix.vpc_id).await?;
+    increment_vpc_version(txn, deleted_prefix.vpc_id, expected_vpc_version).await?;
 
     Ok(deleted_prefix.id)
 }

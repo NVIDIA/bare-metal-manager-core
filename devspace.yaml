@@ -4,7 +4,7 @@ name: ncx-infra-controller-core
 vars:
   LOCAL_DEV_NAMESPACE:
     source: env
-    default: forge-system
+    default: nico-system
   LOCAL_DEV_CERT_ISSUER_KIND:
     source: env
     default: Issuer
@@ -16,12 +16,12 @@ vars:
     default: cert-manager.io
 
 images:
-  carbide-api:
-    image: carbide-api
+  nico-api:
+    image: nico-api
     custom:
       command: |-
         docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
-        docker build -t ${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag} -f dev/deployment/devspace/Dockerfile.api .
+        docker build -t ${runtime.images.nico-api.image}:${runtime.images.nico-api.tag} -f dev/deployment/devspace/Dockerfile.api .
       onChange:
         - .dockerignore
         - Cargo.toml
@@ -34,12 +34,12 @@ images:
         - dev/deployment/devspace/Dockerfile.api
         - pxe/templates
         - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
-  carbide-bmc-proxy:
-    image: carbide-bmc-proxy
+  nico-bmc-proxy:
+    image: nico-bmc-proxy
     custom:
       command: |-
         docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
-        docker build -t ${runtime.images.carbide-bmc-proxy.image}:${runtime.images.carbide-bmc-proxy.tag} -f dev/deployment/devspace/Dockerfile.bmc-proxy .
+        docker build -t ${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag} -f dev/deployment/devspace/Dockerfile.bmc-proxy .
       onChange:
         - .dockerignore
         - Cargo.toml
@@ -76,13 +76,13 @@ deployments:
       values:
         global:
           image:
-            repository: ${runtime.images.carbide-api.image}
-            tag: ${runtime.images.carbide-api.tag}
+            repository: ${runtime.images.nico-api.image}
+            tag: ${runtime.images.nico-api.tag}
             pullPolicy: IfNotPresent
-        carbide-bmc-proxy:
+        nico-bmc-proxy:
           image:
-            repository: ${runtime.images.carbide-bmc-proxy.image}
-            tag: ${runtime.images.carbide-bmc-proxy.tag}
+            repository: ${runtime.images.nico-bmc-proxy.image}
+            tag: ${runtime.images.nico-bmc-proxy.tag}
             pullPolicy: IfNotPresent
       valuesFiles:
         - dev/deployment/devspace/values.base.yaml
@@ -125,8 +125,8 @@ hooks:
         kind-*)
           echo "Loading images into kind cluster..."
           kind load docker-image \
-            "${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag}" \
-            "${runtime.images.carbide-bmc-proxy.image}:${runtime.images.carbide-bmc-proxy.tag}" \
+            "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" \
+            "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" \
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
         # Add new local K8s tools here

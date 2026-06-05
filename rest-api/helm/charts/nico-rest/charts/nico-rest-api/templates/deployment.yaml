@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nico-rest-api.name" . }}
+  namespace: {{ include "nico-rest-api.namespace" . }}
+  labels:
+    {{- include "nico-rest-api.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nico-rest-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-rest-api.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ include "nico-rest-api.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+              name: http
+            - containerPort: {{ .Values.service.metricsPort }}
+              name: metrics
+          env:
+            - name: CONFIG_FILE_PATH
+              value: /app/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            {{- if .Values.config.keycloak.enabled }}
+            - name: keycloak-secret
+              mountPath: /var/secrets/keycloak
+              readOnly: true
+            {{- end }}
+            - name: temporal-encryption-key
+              mountPath: /var/secrets/temporal
+              readOnly: true
+            - name: temporal-tls-certs
+              mountPath: /var/secrets/temporal/certs
+              readOnly: true
+            {{- if .Values.secrets.dbCreds }}
+            - name: db-creds
+              mountPath: /var/secrets/db
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nico-rest-api.name" . }}-config
+        {{- if .Values.config.keycloak.enabled }}
+        - name: keycloak-secret
+          secret:
+            secretName: {{ .Values.secrets.keycloakClientSecret }}
+            items:
+              - key: keycloak-client-secret
+                path: client-secret
+        {{- end }}
+        - name: temporal-encryption-key
+          secret:
+            secretName: {{ .Values.secrets.temporalEncryptionKey }}
+            items:
+              - key: temporal-encryption-key
+                path: encryption-key
+        - name: temporal-tls-certs
+          secret:
+            secretName: {{ .Values.secrets.temporalClientCerts }}
+        {{- if .Values.secrets.dbCreds }}
+        - name: db-creds
+          secret:
+            secretName: {{ .Values.secrets.dbCreds }}
+            items:
+              - key: password
+                path: password
+        {{- end }}

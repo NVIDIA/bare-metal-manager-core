@@ -339,10 +339,7 @@ fn lockdown_status<B: Bmc>(
             match (kcsacp, usb000, hi_enabled) {
                 (Some("Deny All"), Some("Disabled"), false) => Ok(InternalLockdownStatus::Enabled),
                 (Some("Allow All"), Some("Enabled"), true) => Ok(InternalLockdownStatus::Disabled),
-                (Some(_), Some(_), _) => Ok(InternalLockdownStatus::Partial),
-                _ => Err(Error::InvalidValue(format!(
-                    "AMI lockdown status: {message}"
-                ))),
+                _ => Ok(InternalLockdownStatus::Partial),
             }
             .map(|status| Some(LockdownStatus { status, message }))
         }

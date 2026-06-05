@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{CpuInfo, Gpu, InfinibandInterface, MemoryDevice};
 use rpc::{BlockDevice, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties};
@@ -312,16 +312,16 @@ impl NvidiaDgxH100<'_> {
                             fan: 36,              // FAN_*
                             power: 47,            // PWR_*
                             current: 3,           // AMP_*
-                            leak: 17,             // VOLT_*
-                                                  // TOTAL: 223 of 253
-                                                  // Omitted: 29
-                                                  //     ENERGY_* = 12,
-                                                  //     HMCReady,
-                                                  //     OVERT_* = 2,
-                                                  //     RST_GB1_GPU,
-                                                  //     SEL_FULLNESS,
-                                                  //     STATUS_* = 12,
-                                                  //     WATCHDOG2
+                            voltage: 17,
+                            // TOTAL: 223 of 253
+                            // Omitted: 29
+                            //     ENERGY_* = 12,
+                            //     HMCReady,
+                            //     OVERT_* = 2,
+                            //     RST_GB1_GPU,
+                            //     SEL_FULLNESS,
+                            //     STATUS_* = 12,
+                            //     WATCHDOG2
                         },
                     )),
                     ..redfish::chassis::SingleChassisConfig::defaults()
@@ -381,7 +381,7 @@ impl NvidiaDgxH100<'_> {
                 }))
                 .collect(),
             machine_type: CpuArchitecture::X86_64.to_string(),
-            machine_arch: Some(CpuArchitecture::X86_64.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(CpuArchitecture::X86_64)),
             nvme_devices: (0..2)
                 .map(|n| NvmeDevice {
                     model: "Micron_7450_MTFDKBG1T9TFR".into(),
@@ -567,7 +567,7 @@ fn hgx_gpu_sxm_chassis(index: usize, serial: &str) -> redfish::chassis::SingleCh
             redfish::sensor::Layout {
                 temperature: 3,
                 power: 2,
-                leak: 1, // Voltage
+                voltage: 1,
                 ..Default::default()
             },
         )),

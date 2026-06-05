@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::path::PathBuf;
+
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 
@@ -63,9 +65,25 @@ pub struct MaintenanceOptions {
 
     #[clap(
         long,
-        help = "Target firmware version for firmware-upgrade activity (omit for RMS default)"
+        help = "Raw SOT JSON for firmware-upgrade activity (prefer --sot-json-file)"
     )]
     pub firmware_version: Option<String>,
+
+    #[clap(
+        long = "sot-json-file",
+        value_name = "PATH",
+        help = "SOT JSON file for RMS ApplyFirmwareObjectFromJSON"
+    )]
+    pub sot_json_file: Option<PathBuf>,
+
+    #[clap(
+        long = "access-token",
+        help = "Artifact access token; required with --sot-json-file"
+    )]
+    pub access_token: Option<String>,
+
+    #[clap(long = "force-update", help = "Force firmware update when supported")]
+    pub force_update: bool,
 
     #[clap(
         long,
@@ -74,10 +92,4 @@ pub struct MaintenanceOptions {
         value_delimiter = ','
     )]
     pub components: Option<Vec<String>>,
-
-    #[clap(
-        long,
-        help = "Rack firmware ID containing the NVOS switch system image (omit for default)"
-    )]
-    pub rack_firmware_id: Option<String>,
 }

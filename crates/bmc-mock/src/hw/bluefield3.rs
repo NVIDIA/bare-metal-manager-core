@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use carbide_utils::models::arch::CpuArchitecture;
+use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData};
 use rpc::{NetworkInterface, PciDeviceProperties};
@@ -56,7 +56,7 @@ impl Bluefield3<'_> {
             fan: 4,
             power: 3,
             current: 3,
-            leak: 0,
+            voltage: 0,
         }
     }
 
@@ -294,7 +294,9 @@ impl Bluefield3<'_> {
             }))
             .collect(),
             machine_type: CpuArchitecture::Aarch64.to_string(),
-            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
+                CpuArchitecture::Aarch64,
+            )),
             nvme_devices: vec![],
             dmi_data: Some(DmiData {
                 board_name: "Bluefield-3 DPU".into(),

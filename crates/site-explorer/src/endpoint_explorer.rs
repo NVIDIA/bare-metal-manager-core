@@ -40,7 +40,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
-        last_report: Option<&EndpointExplorationReport>,
+        last_exploration_error: Option<&EndpointExplorationError>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 

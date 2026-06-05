@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 pub fn str_to_rpc_uuid(id: &str) -> CarbideCliResult<::rpc::common::Uuid> {
     let id: ::rpc::common::Uuid = uuid::Uuid::parse_str(id)

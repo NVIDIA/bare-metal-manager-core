@@ -36,7 +36,7 @@ use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn setup() {
     api_test_helper::setup_logging()
 }
@@ -111,7 +111,11 @@ async fn test_integration() -> eyre::Result<()> {
     let domain_id = domain::create(carbide_api_addrs, "tenant-1.local").await?;
     let managed_segment_id =
         subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
-    subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
+
+    // HostInband segments must live in a Flat VPC -- those VPC types are
+    // mutually bound. Create one for the HostInband fixture.
+    let flat_vpc = vpc::create_flat(carbide_api_addrs, tenant_org_id).await?;
+    subnet::create(carbide_api_addrs, &flat_vpc, &domain_id, 11, true).await?;
 
     // Create FNN VPC + VPC prefixes (IPv4 + IPv6) for dual-stack L3 linknet testing.
     let fnn_vpc = vpc::create_fnn(carbide_api_addrs, tenant_org_id).await?;
@@ -214,14 +218,14 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         .into_iter()
         .filter(|metric| !metric.name.starts_with("alt_metric"))
         .collect();
-    let mut docs = "# NCX Infra Controller (NICo) core metrics\n\n".to_string();
+    let mut docs = "# NVIDIA Infra Controller (NICo) Core Metrics\n\n".to_string();
     use std::fmt::Write;
 
     use askama_escape::Escaper;
 
     writeln!(
         &mut docs,
-        "This file contains a list of metrics exported by NCX Infra Controller (NICo). \
+        "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
         Metrics for workflows which are not exercised by the test are missing."
     )
@@ -245,7 +249,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         write!(&mut docs, "</td>").unwrap();
         writeln!(&mut docs, "</tr>").unwrap();
     }
-    writeln!(&mut docs, "<table>").unwrap();
+    writeln!(&mut docs, "</table>").unwrap();
 
     let path = std::path::Path::new(METRIC_DOC_PATH);
     assert!(
@@ -572,9 +576,10 @@ async fn test_machine_a_tron_zerodpu(
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
 
-                // Zero-DPU tenants don't pass any network config; the allocator instead
-                // auto-picks a HostInband segment for them (which is covered as part of
-                // the test_zero_dpu_instance_allocation_no_network_config test).
+                // Zero-DPU tenants pass `auto: true` with empty interfaces; the
+                // allocator resolves the host's HostInband segment(s) from the
+                // machine snapshot (which is also covered in unit tests as
+                // `test_zero_dpu_instance_allocation_auto`).
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
@@ -633,7 +638,9 @@ async fn test_machine_a_tron_singledpu_nic_mode(
 
                 // For a DPU in NIC-mode, the DPU is treated as a plain NIC, meaning
                 // allocation goes through HostInband the same way the zero-DPU path
-                // allocation does; no network config, and the allocator auto-picks.
+                // allocation does; the request carries `auto: true` with empty
+                // interfaces, and Carbide resolves from the host's HostInband
+                // segment(s).
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
@@ -904,6 +911,9 @@ where
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
+        register_expected_machines: true,
+        host_bmc_password: None,
+        dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,

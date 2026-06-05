@@ -573,11 +573,7 @@ impl MachineStateMachine {
     }
 
     async fn pxe_boot_request(&self) -> Result<OsImage, MachineStateError> {
-        let Some(machine_interface_id) = self
-            .machine_dhcp_info
-            .as_ref()
-            .and_then(|info| info.interface_id.as_ref())
-        else {
+        let Some(dhcp_info) = self.machine_dhcp_info.as_ref() else {
             return Err(MachineStateError::MissingInterfaceId);
         };
 
@@ -595,11 +591,8 @@ impl MachineStateMachine {
         let pxe_response = send_pxe_boot_request(
             &self.app_context,
             architecture,
-            *machine_interface_id,
+            dhcp_info.ip_address.into(),
             Some(product),
-            self.machine_dhcp_info
-                .as_ref()
-                .map(|info| info.ip_address.to_string()),
         )
         .await?;
 
@@ -752,11 +745,16 @@ impl MachineStateMachine {
         self.send_network_status_observation(machine_id.to_owned(), &network_config)
             .await?;
 
-        // Launch a DHCP server for the HostMachine to call, if it's not already running.
-        if let (Some(DpuDhcpRelay::DpuEnd(dhcp_relay)), true) = (
-            self.dpu_dhcp_relay.clone(),
-            self.dpu_dhcp_relay_handle.is_none(),
-        ) {
+        // Re-spawn the host-facing DHCP relay with the freshly-fetched
+        // network_config. We do this on every network observation (not
+        // just the first one) because the relay captures the config it
+        // was spawned with -- if we never re-spawn, the relay keeps
+        // returning stale tenant IPs after an instance is released and
+        // managed_host_network_config has switched back to admin-only.
+        // The caller assigns the returned handle into
+        // self.dpu_dhcp_relay_handle, which drops the prior handle and
+        // signals the old relay task to exit.
+        if let Some(DpuDhcpRelay::DpuEnd(dhcp_relay)) = self.dpu_dhcp_relay.clone() {
             Ok(Some(dhcp_relay.spawn(network_config.clone())))
         } else {
             Ok(None)
@@ -942,6 +940,17 @@ impl MachineStateMachine {
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
         );
+
+        let pw_override = match &self.machine_info {
+            MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
+            MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
+        };
+        if let Some(pw) = pw_override {
+            bmc_mock
+                .state()
+                .account_service_state
+                .change_factory_default_password(pw);
+        }
 
         let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
             BmcRegistrationMode::None(port) => {

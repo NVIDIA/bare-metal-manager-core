@@ -33,6 +33,10 @@ pub struct Options {
     #[clap(long, default_value = "0.0.0.0:80")]
     pub rest_address: String,
 
+    /// Prometheus scrape address for `/metrics` (HTTP request stats for the REST metadata API).
+    #[clap(long, default_value = "0.0.0.0:8888")]
+    pub metrics_address: String,
+
     /// Carbide API server address for phone_home.
     #[clap(long, default_value = "https://carbide-api.forge")]
     pub forge_api: String,

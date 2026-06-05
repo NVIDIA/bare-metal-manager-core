@@ -29,7 +29,7 @@ carbide-utils = { path = "../utils", default-features = false }
 
 arc-swap = { workspace = true }
 axum = { workspace = true }
-axum-extra = { features = [ "typed-header" ], workspace = true }
+axum-extra = { features = ["typed-header"], workspace = true }
 axum-server = { features = ["tls-rustls"], workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
@@ -39,6 +39,7 @@ eyre = { workspace = true }
 flate2 = { workspace = true }
 form_urlencoded = { workspace = true }
 futures = { workspace = true }
+glob = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 itertools = { workspace = true }

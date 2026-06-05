@@ -40,6 +40,7 @@ chrono = { features = ["serde"], workspace = true }
 regex = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+uuid = { features = ["v4"], workspace = true }
 
 # OAuth2 support
 oauth2 = { workspace = true }

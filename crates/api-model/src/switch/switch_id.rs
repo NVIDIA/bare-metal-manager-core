@@ -20,7 +20,13 @@ use sha2::{Digest, Sha256};
 
 /// Generates a Switch ID from the hardware fingerprint
 ///
-/// Returns `None` if no sufficient data is available
+/// Returns `MissingHardwareInfo::Serial` when the BMC hasn't surfaced a
+/// usable chassis serial yet. The literal `"NA"` is treated the same as
+/// amissing serial: the current switch BMC seems to return it in some
+/// type of error situation, and hashing it would result in us having a
+/// junk `SwitchId` that drifts to a real one once the BMC reports its
+/// actual serial on a later exploration cycle (which would ultimately
+/// give us two SwitchIds pointing to the same hardware).
 pub fn from_hardware_info_with_type(
     serial: &str,
     vendor: &str,
@@ -28,6 +34,10 @@ pub fn from_hardware_info_with_type(
     source: SwitchIdSource,
     switch_type: SwitchType,
 ) -> Result<SwitchId, MissingHardwareInfo> {
+    if serial == "NA" {
+        return Err(MissingHardwareInfo::Serial);
+    }
+
     let bytes = format!("s{}-b{}-c{}", serial, vendor, model);
     let mut hasher = Sha256::new();
     hasher.update(bytes.as_bytes());

@@ -126,6 +126,19 @@ extern "C" {
         }
 
 		handle->registerCallout("pkt4_receive", pkt4_receive);
+		// lease4_select fires between pkt4_receive and pkt4_send, and is the
+		// only place where we can override the IP that Kea will persist into
+		// its lease memfile. The pkt4_send hook still runs and still sets
+		// yiaddr/options on the outgoing packet, but lease4_select is what
+		// keeps the Kea memfile aligned with the NICo database regardless of
+		// what address the client requested (option 50 / ciaddr), because
+        // just because the client requested it doesn't mean that's what
+        // they're going to get, and that's ok.
+		handle->registerCallout("lease4_select", lease4_select);
+		// lease4_renew is the renewal-time side of lease4_select.
+		// Together they keep the Kea memfile aligned with the NICo
+		// database through both initial allocation and renewal.
+		handle->registerCallout("lease4_renew", lease4_renew);
 		handle->registerCallout("pkt4_send", pkt4_send);
 		handle->registerCallout("lease4_expire", lease4_expire);
 		handle->registerCallout("lease6_expire", lease6_expire);

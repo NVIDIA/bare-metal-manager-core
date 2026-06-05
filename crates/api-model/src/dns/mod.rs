@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
-use dns_record::SoaRecord;
 use serde::{Deserialize, Serialize};
 
 pub mod domain_info;
@@ -74,98 +72,5 @@ impl NewDomain {
             soa: Some(SoaSnapshot::new(&name)),
             name,
         }
-    }
-}
-
-impl TryFrom<rpc::protos::dns::Domain> for NewDomain {
-    type Error = RpcDataConversionError;
-
-    fn try_from(proto: rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
-        let soa = proto
-            .soa
-            .map(|soa| {
-                let record: SoaRecord = serde_json::from_str(&soa)
-                    .map_err(|e| RpcDataConversionError::InvalidSoaRecord(e.to_string()))?;
-                Ok::<SoaSnapshot, RpcDataConversionError>(SoaSnapshot(record))
-            })
-            .transpose()?;
-
-        Ok(NewDomain {
-            name: proto.name,
-            soa,
-        })
-    }
-}
-
-impl From<Domain> for rpc::protos::dns::Domain {
-    fn from(domain: Domain) -> Self {
-        rpc::protos::dns::Domain {
-            id: Some(domain.id),
-            name: domain.name,
-            created: Some(domain.created.into()),
-            updated: Some(domain.updated.into()),
-            deleted: domain.deleted.map(|d| d.into()),
-            metadata: domain.metadata.map(|m| m.into()),
-            soa: domain.soa.map(|s| s.0.to_string()),
-        }
-    }
-}
-
-impl TryFrom<rpc::protos::dns::Domain> for Domain {
-    type Error = RpcDataConversionError;
-
-    fn try_from(domain: rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
-        let domain_id = match domain.id {
-            Some(id) => id,
-            None => uuid::Uuid::new_v4().into(),
-        };
-
-        let created = match domain.created {
-            Some(created) => {
-                let system_time = std::time::SystemTime::try_from(created)
-                    .map_err(|_| RpcDataConversionError::InvalidTimestamp(created.to_string()))?;
-                DateTime::<Utc>::from(system_time)
-            }
-            None => Utc::now(),
-        };
-
-        let updated = match domain.updated {
-            Some(updated) => {
-                let system_time = std::time::SystemTime::try_from(updated)
-                    .map_err(|_| RpcDataConversionError::InvalidTimestamp(updated.to_string()))?;
-                DateTime::<Utc>::from(system_time)
-            }
-            None => Utc::now(),
-        };
-
-        let deleted: Option<DateTime<Utc>> = match domain.deleted {
-            Some(deleted) => {
-                let system_time = std::time::SystemTime::try_from(deleted)
-                    .map_err(|_| RpcDataConversionError::InvalidTimestamp(deleted.to_string()))?;
-                Some(DateTime::<Utc>::from(system_time))
-            }
-            None => None,
-        };
-
-        let soa: Option<SoaSnapshot> = domain
-            .soa
-            .map(|soa| {
-                let record: SoaRecord = serde_json::from_str(&soa)
-                    .map_err(|e| RpcDataConversionError::InvalidSoaRecord(e.to_string()))?;
-                Ok::<SoaSnapshot, RpcDataConversionError>(SoaSnapshot(record))
-            })
-            .transpose()?;
-
-        let metadata = domain.metadata.map(DomainMetadata::from);
-
-        Ok(Domain {
-            id: domain_id,
-            name: domain.name,
-            created,
-            updated,
-            deleted,
-            soa,
-            metadata,
-        })
     }
 }

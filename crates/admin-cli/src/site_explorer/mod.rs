@@ -24,6 +24,7 @@ pub mod get_report;
 mod have_credentials;
 mod is_bmc_in_managed_host;
 mod re_explore;
+mod refresh_endpoint;
 mod remediation;
 
 #[cfg(test)]
@@ -48,6 +49,11 @@ pub enum Cmd {
         about = "Asks carbide-api to explore a single host in the next exploration cycle. The results will be stored."
     )]
     ReExplore(re_explore::Args),
+    #[clap(
+        name = "refresh",
+        about = "Immediately probes a BMC endpoint and persists the report."
+    )]
+    RefreshEndpoint(refresh_endpoint::Args),
     #[clap(about = "Clear the last known error for the BMC in the latest site exploration report.")]
     ClearError(clear_error::Args),
     #[clap(about = "Delete an explored endpoint from the database.")]

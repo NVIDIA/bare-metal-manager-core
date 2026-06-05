@@ -15,10 +15,14 @@
  * limitations under the License.
  */
 
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[clap(help = "Switch ID or name to show (leave empty for all)")]
-    pub identifier: Option<String>,
+    #[clap(
+        default_value(None),
+        help = "The switch ID to query. Omit to show all switches."
+    )]
+    pub switch_id: Option<SwitchId>,
 }

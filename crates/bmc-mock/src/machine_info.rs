@@ -110,11 +110,11 @@ impl DpuMachineInfo {
 
     fn bluefield3(&self) -> hw::bluefield3::Bluefield3<'_> {
         let mode = match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 | HostHardwareType::NvidiaDgxH100 => {
-                hw::bluefield3::Mode::SuperNIC {
-                    nic_mode: self.settings.nic_mode,
-                }
-            }
+            HostHardwareType::DellPowerEdgeR750
+            | HostHardwareType::NvidiaDgxH100
+            | HostHardwareType::GenericAmi => hw::bluefield3::Mode::SuperNIC {
+                nic_mode: self.settings.nic_mode,
+            },
             HostHardwareType::WiwynnGB200Nvl | HostHardwareType::LenovoGB300Nvl => {
                 hw::bluefield3::Mode::B3240ColdAisle
             }
@@ -174,7 +174,8 @@ impl HostMachineInfo {
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
-            | HostHardwareType::NvidiaSwitchNd5200Ld => redfish::oem::State::Other,
+            | HostHardwareType::NvidiaSwitchNd5200Ld
+            | HostHardwareType::GenericAmi => redfish::oem::State::Other,
         }
     }
 
@@ -188,6 +189,7 @@ impl HostMachineInfo {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
             HostHardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
+            HostHardwareType::GenericAmi => redfish::oem::BmcVendor::Ami,
         }
     }
 
@@ -199,6 +201,7 @@ impl HostMachineInfo {
             HostHardwareType::LiteOnPowerShelf => None,
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
+            HostHardwareType::GenericAmi => Some("AMI Redfish Server"),
         }
     }
 
@@ -210,6 +213,7 @@ impl HostMachineInfo {
             HostHardwareType::LiteOnPowerShelf => "1.9.0",
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
+            HostHardwareType::GenericAmi => "1.17.0",
         }
     }
 
@@ -223,6 +227,7 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
+            HostHardwareType::GenericAmi => self.generic_ami().manager_config(),
         }
     }
 
@@ -241,6 +246,7 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
+            HostHardwareType::GenericAmi => self.generic_ami().system_config(callbacks),
         }
     }
 
@@ -254,6 +260,7 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
+            HostHardwareType::GenericAmi => self.generic_ami().chassis_config(),
         }
     }
 
@@ -269,6 +276,7 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
+            HostHardwareType::GenericAmi => self.generic_ami().update_service_config(),
         }
     }
 
@@ -278,6 +286,7 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
             HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
+            HostHardwareType::GenericAmi => self.generic_ami().discovery_info(),
             HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("discovery_info requested for {}", self.hw_type)
             }
@@ -287,7 +296,7 @@ impl HostMachineInfo {
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
         // TODO: need to be updated for each individual system.
         let id = match self.hw_type {
-            HostHardwareType::NvidiaDgxH100 => "2",
+            HostHardwareType::NvidiaDgxH100 | HostHardwareType::GenericAmi => "2",
             _ => DUMMY_FACTORY_USERNAME,
         };
         redfish::account_service::Account::administrator(
@@ -489,6 +498,20 @@ impl HostMachineInfo {
             bmc_mac_address_eth0: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
+        }
+    }
+
+    fn generic_ami(&self) -> hw::generic_ami::GenericAmi<'_> {
+        let nics = self
+            .dpus
+            .iter()
+            .enumerate()
+            .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
+            .collect();
+
+        hw::generic_ami::GenericAmi {
+            product_serial_number: Cow::Borrowed(&self.serial),
+            nics,
         }
     }
 }

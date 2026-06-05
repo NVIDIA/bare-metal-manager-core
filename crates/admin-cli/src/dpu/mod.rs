@@ -16,6 +16,7 @@
  */
 
 mod agent_upgrade_policy;
+mod health_report;
 mod network;
 mod reprovision;
 mod status;
@@ -43,4 +44,10 @@ pub enum Cmd {
     Status(status::Args),
     #[clap(subcommand, about = "Networking information")]
     Network(network::Args),
+    #[clap(
+        about = "Manage DPU health report sources",
+        subcommand,
+        visible_alias = "hr"
+    )]
+    HealthReport(health_report::Args),
 }

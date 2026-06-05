@@ -93,31 +93,34 @@ pub async fn find(
     txn: &mut PgConnection,
 ) -> Result<Vec<TenantKeyset>, DatabaseError> {
     let mut result = if let Some(organization_id) = organization_id {
-        let base_query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 {where}";
-
         match keyset_filter {
-            ObjectFilter::All => sqlx::query_as(&base_query.replace("{where}", ""))
-                .bind(organization_id.to_string())
-                .fetch_all(txn)
-                .await
-                .map_err(|e| DatabaseError::new("keyset All", e)),
+            ObjectFilter::All => {
+                sqlx::query_as("SELECT * FROM tenant_keysets WHERE organization_id = $1")
+                    .bind(organization_id.to_string())
+                    .fetch_all(txn)
+                    .await
+                    .map_err(|e| DatabaseError::new("keyset All", e))
+            }
 
             ObjectFilter::One(keyset_id) => {
-                sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = $2"))
+                let query =
+                    "SELECT * FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = $2";
+                sqlx::query_as(query)
                     .bind(organization_id.to_string())
                     .bind(keyset_id)
                     .fetch_all(txn)
                     .await
-                    .map_err(|e| DatabaseError::query(base_query, e))
+                    .map_err(|e| DatabaseError::query(query, e))
             }
 
             ObjectFilter::List(keyset_ids) => {
-                sqlx::query_as(&base_query.replace("{where}", "AND keyset_id = ANY($2)"))
+                let query = "SELECT * FROM tenant_keysets WHERE organization_id = $1 AND keyset_id = ANY($2)";
+                sqlx::query_as(query)
                     .bind(organization_id.to_string())
                     .bind(keyset_ids)
                     .fetch_all(txn)
                     .await
-                    .map_err(|e| DatabaseError::query(base_query, e))
+                    .map_err(|e| DatabaseError::query(query, e))
             }
         }
     } else {

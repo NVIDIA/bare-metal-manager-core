@@ -37,7 +37,7 @@ tokio = { features = ["full"], workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 mqttea = { path = "../mqttea" }
-carbide-rpc = { path = "../rpc" }
+carbide-dpa = { path = "../dpa" }
 
 [build-dependencies]
 prost-build = "0.14"

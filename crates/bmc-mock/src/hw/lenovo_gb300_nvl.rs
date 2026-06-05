@@ -237,10 +237,13 @@ impl LenovoGB300Nvl<'_> {
                         redfish::sensor::Layout {
                             temperature: 47,
                             power: 2,
-                            leak: 12, // Leak + Voltage
+                            voltage: 12,
                             fan: 24,
                             current: 0,
                         },
+                    )),
+                    leak_detectors: Some(redfish::leak_detector::generate_chassis_leak_detectors(
+                        4,
                     )),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 }))

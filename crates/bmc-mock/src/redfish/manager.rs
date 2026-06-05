@@ -176,7 +176,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         )
         .route(
             &redfish::host_interface::manager_resource(MGR_ID, HOST_IF_ID).odata_id,
-            get(get_host_interface),
+            get(get_host_interface).patch(patch_host_interface),
         )
         .route(&reset_target(MGR_ID), post(post_reset_manager))
         .route(
@@ -376,6 +376,23 @@ async fn get_host_interface(
                 .iter()
                 .find(|iface| iface.id == iface_id)
                 .map(|iface| iface.to_json().into_ok_response())
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn patch_host_interface(
+    State(state): State<BmcState>,
+    Path((manager_id, iface_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .manager
+        .find(&manager_id)
+        .and_then(|manager| manager.config.host_interfaces.as_ref())
+        .and_then(|host_interfaces| {
+            host_interfaces
+                .iter()
+                .find(|iface| iface.id == iface_id)
+                .map(|_| http::ok_no_content())
         })
         .unwrap_or_else(http::not_found)
 }

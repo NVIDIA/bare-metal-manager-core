@@ -16,11 +16,11 @@ test-support = []
 [dependencies]
 carbide-api-db = { path = "../api-db" }
 carbide-api-model = { path = "../api-model" }
-carbide-rpc = { path = "../rpc" } # TODO: it is only for Errors, can be improved. 
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
+libnmxc = { path = "../libnmxc" }
 libnmxm = { path = "../libnmxm" }
 
 # these are alphabetized

@@ -17,10 +17,11 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc};
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 // ensure, similar to persist, is an RPC endpoint meant for

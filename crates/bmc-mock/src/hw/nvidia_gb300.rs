@@ -30,7 +30,7 @@ impl NvidiaGB300Gpu<'_> {
             redfish::sensor::Layout {
                 temperature: 3,
                 power: 2,
-                leak: 1, // Leak + Voltage
+                voltage: 1,
                 fan: 0,
                 current: 0,
                 // + 1 Energy
@@ -60,7 +60,7 @@ impl NvidiaGB300Cpu<'_> {
             redfish::sensor::Layout {
                 temperature: 2,
                 power: 5,
-                leak: 2, // Voltage
+                voltage: 2,
                 fan: 0,
                 current: 0,
                 // + 1 Energy

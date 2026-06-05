@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
 use ::rpc::forge::ConfigSetting;
 
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn tracing_enabled(value: bool, api_client: &ApiClient) -> CarbideCliResult<()> {

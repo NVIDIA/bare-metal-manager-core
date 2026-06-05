@@ -57,6 +57,9 @@ fn event_context() -> EventContext {
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: MACHINE_ID.parse().expect("valid machine id"),
             machine_serial: None,
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
         })),
         rack_id: None,
     }

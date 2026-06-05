@@ -34,6 +34,17 @@ pub enum AllocationType {
     Static,
 }
 
+impl From<AddressSelectionStrategy> for AllocationType {
+    fn from(strategy: AddressSelectionStrategy) -> Self {
+        match strategy {
+            AddressSelectionStrategy::NextAvailableIp => AllocationType::Dhcp,
+            AddressSelectionStrategy::Automatic => AllocationType::Dhcp,
+            AddressSelectionStrategy::NextAvailablePrefix(_) => AllocationType::Dhcp,
+            AddressSelectionStrategy::StaticAddress(_) => AllocationType::Static,
+        }
+    }
+}
+
 /// The result of assigning a static address, indicating what
 /// previously existed for that address family on the interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,34 +86,12 @@ pub enum AssignStaticResult {
     ReplacedDhcp,
 }
 
-impl From<AssignStaticResult> for rpc::forge::AssignStaticAddressStatus {
-    fn from(result: AssignStaticResult) -> Self {
-        match result {
-            AssignStaticResult::Assigned => rpc::forge::AssignStaticAddressStatus::Assigned,
-            AssignStaticResult::ReplacedStatic => {
-                rpc::forge::AssignStaticAddressStatus::ReplacedStatic
-            }
-            AssignStaticResult::ReplacedDhcp => rpc::forge::AssignStaticAddressStatus::ReplacedDhcp,
-        }
-    }
-}
-
-impl From<AddressSelectionStrategy> for AllocationType {
-    fn from(strategy: AddressSelectionStrategy) -> Self {
-        match strategy {
-            AddressSelectionStrategy::NextAvailableIp => AllocationType::Dhcp,
-            AddressSelectionStrategy::Automatic => AllocationType::Dhcp,
-            AddressSelectionStrategy::NextAvailablePrefix(_) => AllocationType::Dhcp,
-            AddressSelectionStrategy::StaticAddress(_) => AllocationType::Static,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::*;
+    use crate::address_selection_strategy::AddressSelectionStrategy;
 
     #[test]
     fn next_available_ip_is_dhcp() {

@@ -5,4 +5,4 @@
 !.gitignore
 !hostname
 !modprobe.d
-!modprobe.d/blacklist.conf
+!modprobe.d/*.conf

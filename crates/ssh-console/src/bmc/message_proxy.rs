@@ -17,9 +17,10 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use russh::ChannelMsg;
 use russh::server::Msg;
-use russh::{ChannelMsg, CryptoVec};
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
@@ -105,16 +106,15 @@ impl From<ToFrontendMessage> for Arc<ChannelMsg> {
         match msg {
             ToFrontendMessage::ConnectionChanged(connection_changed) => connection_changed.into(),
             ToFrontendMessage::InformDisconnectedSince(Some(disconnected_since)) => {
-                let data: CryptoVec = format!(
+                let data: Bytes = format!(
                     "--- Console disconnected since {} ---\r\n",
                     disconnected_since.to_rfc2822()
                 )
-                .into_bytes()
                 .into();
                 Arc::new(ChannelMsg::Data { data })
             }
             ToFrontendMessage::InformDisconnectedSince(None) => {
-                let data: CryptoVec = b"--- Console not connected ---\r\n".to_vec().into();
+                let data: Bytes = "--- Console not connected ---\r\n".into();
                 Arc::new(ChannelMsg::Data { data })
             }
             ToFrontendMessage::Channel(msg) => msg,
@@ -124,10 +124,8 @@ impl From<ToFrontendMessage> for Arc<ChannelMsg> {
 
 impl From<ConnectionChangeMessage> for Arc<ChannelMsg> {
     fn from(value: ConnectionChangeMessage) -> Self {
-        let data: CryptoVec = match value {
-            ConnectionChangeMessage::Disconnected => {
-                b"\r\n--- Console disconnected! ---\r\n".to_vec().into()
-            }
+        let data: Bytes = match value {
+            ConnectionChangeMessage::Disconnected => "\r\n--- Console disconnected! ---\r\n".into(),
             ConnectionChangeMessage::Connected { last_disconnect } => {
                 if let Some(last_disconnect) = last_disconnect {
                     format!(

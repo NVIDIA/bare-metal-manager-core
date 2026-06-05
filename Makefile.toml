@@ -42,7 +42,7 @@ BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/
 #
 # Make sure to update the RUST_NIGHTLY variable in
 # dev/docker/Dockerfile.build-container-x86_64 if you change this.
-RUST_NIGHTLY = "nightly-2025-11-14"
+RUST_NIGHTLY = "nightly-2026-05-27"
 
 [tasks.book]
 workspace = false
@@ -83,6 +83,16 @@ description = "Build carbide-admin-cli in CI"
 workspace = false
 script = '''
 cargo build -p carbide-admin-cli
+# Emit man pages as a build artifact via the hidden `generate-man` subcommand.
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+'''
+
+[tasks.gen-man]
+category = "Build"
+description = "Generate carbide-admin-cli man pages into target/man"
+workspace = false
+script = '''
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
 '''
 
 [tasks.build-cli]
@@ -167,6 +177,57 @@ script = '''
 set -e
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
 echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
+'''
+
+[tasks.build-pxe-build-container]
+category = "Build"
+description = "Build the PXE artifact build container image (Ubuntu 24.04 + Rust 1.90 + mkosi deps). Required once before pxe-docker-x86."
+workspace = false
+script = '''
+set -e
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.pxe-build-container -t carbide-pxe-builder ${REPO_ROOT}/dev/docker
+echo "Image carbide-pxe-builder built. Run: cargo make pxe-docker-x86"
+'''
+
+[tasks.pxe-docker-x86]
+category = "Build"
+description = "Build x86_64 PXE boot artifacts inside a privileged container. Requires build-pxe-build-container first. Artifacts land in pxe/static/blobs/internal/x86_64/ via the repo mount."
+workspace = false
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
+mkdir -p "$SCCACHE_HOST"
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
+case "${PKG_VERSION}" in
+  [0-9]*) ;;
+  *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
+esac
+docker run --rm \
+  --privileged \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -v "${SCCACHE_HOST}":/sccache \
+  -w /code \
+  -e CARGO_HOME=/cargo \
+  -e SCCACHE_DIR=/sccache \
+  -e SA_ENABLEMENT=1 \
+  -e PKG_VERSION="${PKG_VERSION}" \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
+  carbide-pxe-builder \
+  sh -c 'git config --global --add safe.directory /code && git config --global --add safe.directory /code/pxe/ipxe/upstream && r=0; cargo make --cwd pxe --env PKG_VERSION=${PKG_VERSION} --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa || r=$?; chown -R ${HOST_UID}:${HOST_GID} /code 2>/dev/null || true; exit $r'
+'''
+
+[tasks.pxe-native-x86]
+category = "Build"
+description = "Build x86_64 PXE boot artifacts natively on the host/runner. All deps must be pre-installed (CI: use setup-mkosi-environment action). Artifacts land in pxe/static/blobs/internal/x86_64/."
+workspace = false
+script = '''
+set -e
+cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
 '''
 
 [tasks.cargo-docker]
@@ -489,6 +550,7 @@ dependencies = [
   "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
+  "check-isolated-package-builds",
   "check-licenses",
   "check-bans",
 ]
@@ -644,7 +706,7 @@ description = "Set up the `cargo carbide-lints` command"
 dependencies = ["setup-nightly-rust"]
 script = [
   # Don't waste cycles, only install what isn't installed
-  "which cargo-carbide-lints >/dev/null 2>&1 || (cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .)",
+  "cd \"${REPO_ROOT}/lints/carbide-lints\" && cargo +${RUST_NIGHTLY} install --path .",
 ]
 
 [tasks.carbide-lints]
@@ -659,6 +721,11 @@ description = "Check Cargo.toml files for dependency versions declared in crates
 script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
 ]
+
+[tasks.check-isolated-package-builds]
+workspace = false
+description = "Check that workspace packages build independently with default features"
+script = ["cargo xtask check-isolated-package-builds"]
 
 [tasks.check-licenses]
 workspace = false

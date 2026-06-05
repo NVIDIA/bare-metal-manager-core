@@ -20,11 +20,6 @@ use std::fmt::{Display, Formatter};
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use rpc::errors::RpcDataConversionError;
-use rpc::forge::{
-    ApproveRemediationRequest, CreateRemediationRequest, DisableRemediationRequest,
-    EnableRemediationRequest, RevokeRemediationRequest,
-};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
@@ -35,67 +30,11 @@ pub struct RemediationApplicationStatus {
     pub metadata: Option<Metadata>,
 }
 
-impl TryFrom<rpc::forge::RemediationApplicationStatus> for RemediationApplicationStatus {
-    type Error = RpcDataConversionError;
-
-    fn try_from(status: rpc::forge::RemediationApplicationStatus) -> Result<Self, Self::Error> {
-        let metadata = status.metadata.map(Metadata::try_from).transpose()?;
-        Ok(RemediationApplicationStatus {
-            succeeded: status.succeeded,
-            metadata,
-        })
-    }
-}
-
-// about 16KB file size, long enough for any reasonable script but small enough to make it
-// almost impossible to stuff a binary in the DB, which is the point of the limit.
-const MAXIMUM_SCRIPT_LENGTH: usize = 2 << 13;
-
 pub struct NewRemediation {
     pub script: String,
     pub metadata: Option<Metadata>,
     pub retries: i32,
     pub author: Author,
-}
-
-impl TryFrom<(CreateRemediationRequest, String)> for NewRemediation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: (CreateRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let rpc_request = value.0;
-        let author = value.1.into();
-
-        let metadata = if let Some(metadata) = rpc_request.metadata {
-            Some(Metadata::try_from(metadata)?)
-        } else {
-            None
-        };
-        let retries = if rpc_request.retries < 0 {
-            return Err(RpcDataConversionError::InvalidArgument(String::from(
-                "retries must be a positive integer or 0",
-            )));
-        } else {
-            rpc_request.retries
-        };
-
-        let script = rpc_request.script.to_string();
-        if script.len() > MAXIMUM_SCRIPT_LENGTH {
-            return Err(RpcDataConversionError::InvalidArgument(format!(
-                "script must not exceed length: {MAXIMUM_SCRIPT_LENGTH}"
-            )));
-        } else if script.is_empty() {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "script cannot be empty".to_string(),
-            ));
-        }
-
-        Ok(Self {
-            script,
-            metadata,
-            retries,
-            author,
-        })
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -142,29 +81,6 @@ pub struct Remediation {
     pub retries: i32,
     pub enabled: bool,
     pub creation_time: DateTime<Utc>,
-}
-
-impl From<Remediation> for rpc::forge::Remediation {
-    fn from(value: Remediation) -> Self {
-        Self {
-            id: value.id.into(),
-            metadata: value.metadata.map(|m| m.into()),
-            creation_time: Some(value.creation_time.into()),
-            script_author: value.author.to_string(),
-            script_reviewed_by: value.reviewer.map(|r| r.to_string()),
-            script: value.script,
-            enabled: value.enabled,
-            retries: value.retries,
-        }
-    }
-}
-
-impl From<Remediation> for rpc::forge::CreateRemediationResponse {
-    fn from(value: Remediation) -> Self {
-        rpc::forge::CreateRemediationResponse {
-            remediation_id: value.id.into(),
-        }
-    }
 }
 
 impl<'r> FromRow<'r, PgRow> for Remediation {
@@ -246,44 +162,10 @@ impl<'r> FromRow<'r, PgRow> for AppliedRemediation {
     }
 }
 
-impl From<AppliedRemediation> for rpc::forge::AppliedRemediation {
-    fn from(value: AppliedRemediation) -> Self {
-        let metadata = Metadata {
-            labels: value.status,
-            description: String::new(),
-            name: String::new(),
-        };
-        Self {
-            dpu_machine_id: Some(value.dpu_machine_id),
-            remediation_id: Some(value.id),
-            attempt: value.attempt,
-            metadata: Some(metadata.into()),
-            succeeded: value.succeeded,
-            applied_time: Some(value.applied_time.into()),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ApproveRemediation {
     pub id: RemediationId,
     pub reviewer: Reviewer,
-}
-
-impl TryFrom<(ApproveRemediationRequest, String)> for ApproveRemediation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: (ApproveRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value
-            .0
-            .remediation_id
-            .ok_or(RpcDataConversionError::MissingArgument(
-                "Request must contain a remediation id.",
-            ))?;
-        let reviewer = value.1.into();
-
-        Ok(Self { id, reviewer })
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -291,99 +173,12 @@ pub struct RevokeRemediation {
     pub id: RemediationId,
 }
 
-impl TryFrom<(RevokeRemediationRequest, String)> for RevokeRemediation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: (RevokeRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value
-            .0
-            .remediation_id
-            .ok_or(RpcDataConversionError::MissingArgument(
-                "Request must contain a remediation id.",
-            ))?;
-        let revoked_by = value.1;
-        tracing::info!("Remediation: '{}' revoked by: '{}'", id, revoked_by);
-
-        Ok(Self { id })
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct EnableRemediation {
     pub id: RemediationId,
 }
 
-impl TryFrom<(EnableRemediationRequest, String)> for EnableRemediation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: (EnableRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value
-            .0
-            .remediation_id
-            .ok_or(RpcDataConversionError::MissingArgument(
-                "Request must contain a remediation id.",
-            ))?;
-        let enabled_by = value.1;
-        tracing::info!("Remediation: '{}' enabled by: '{}'", id, enabled_by);
-
-        Ok(Self { id })
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct DisableRemediation {
     pub id: RemediationId,
-}
-
-impl TryFrom<(DisableRemediationRequest, String)> for DisableRemediation {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: (DisableRemediationRequest, String)) -> Result<Self, Self::Error> {
-        let id = value
-            .0
-            .remediation_id
-            .ok_or(RpcDataConversionError::MissingArgument(
-                "Request must contain a remediation id.",
-            ))?;
-        let disabled_by = value.1;
-        tracing::info!("Remediation: '{}' disabled by: '{}'", id, disabled_by);
-
-        Ok(Self { id })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn remediation_application_status_from_rpc_success_no_metadata() {
-        let rpc_status = rpc::forge::RemediationApplicationStatus {
-            succeeded: true,
-            metadata: None,
-        };
-        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
-        assert!(status.succeeded);
-        assert!(status.metadata.is_none());
-    }
-
-    #[test]
-    fn remediation_application_status_from_rpc_with_metadata() {
-        let rpc_status = rpc::forge::RemediationApplicationStatus {
-            succeeded: false,
-            metadata: Some(rpc::Metadata {
-                name: "test".to_string(),
-                description: "desc".to_string(),
-                labels: vec![rpc::forge::Label {
-                    key: "status".to_string(),
-                    value: Some("failed".to_string()),
-                }],
-            }),
-        };
-        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
-        assert!(!status.succeeded);
-        let metadata = status.metadata.unwrap();
-        assert_eq!(metadata.name, "test");
-        assert_eq!(metadata.labels.get("status"), Some(&"failed".to_string()));
-    }
 }

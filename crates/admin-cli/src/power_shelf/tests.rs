@@ -118,3 +118,233 @@ fn parse_list_invalid_bmc_mac() {
     let result = Cmd::try_parse_from(["power-shelf", "list", "--bmc-mac", "not-a-mac"]);
     assert!(result.is_err());
 }
+
+/////////////////////////////////////////////////////////////////////////////
+// Maintenance subcommand
+//
+// Tests for the `power-shelf maintenance` subcommand, covering both
+// `power-on` and `power-off`. These tests:
+//   - parse a representative `power-shelf maintenance ...` invocation,
+//   - verify the matching `Args` variant and ID list,
+//   - convert the parsed `Args` to a gRPC `PowerShelfMaintenanceRequest`
+//     via `into_request()` and assert the operation enum on the wire.
+
+use carbide_uuid::power_shelf::PowerShelfId;
+
+use super::maintenance;
+
+/// Sample power-shelf id used in CLI parse tests. Must round-trip through
+/// `PowerShelfId::from_str`, which `clap` uses to coerce the `--power-shelf-id`
+/// argument values.
+const SAMPLE_PS_ID_1: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+const SAMPLE_PS_ID_2: &str = "ps100hsasb5dsh6e6ogogslpovne4rj82rp9jlf00qd7mcvmaadv85phk3g";
+
+fn parse_ps_id(id: &str) -> PowerShelfId {
+    use std::str::FromStr;
+    PowerShelfId::from_str(id).unwrap_or_else(|e| panic!("invalid sample power-shelf id {id}: {e}"))
+}
+
+/// `power-shelf maintenance power-on --power-shelf-id <id>` parses to
+/// `Args::PowerOn` carrying the supplied id.
+#[test]
+fn parse_maintenance_power_on_single_id() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-on",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+    ])
+    .expect("should parse maintenance power-on");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
+            assert_eq!(args.power_shelf_ids, vec![parse_ps_id(SAMPLE_PS_ID_1)]);
+            assert!(args.reference.is_none());
+        }
+        other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
+    }
+}
+
+/// `power-shelf maintenance power-off --power-shelf-id <id1> --power-shelf-id <id2>`
+/// parses to `Args::PowerOff` carrying both ids.
+#[test]
+fn parse_maintenance_power_off_multiple_ids_repeated_flag() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-off",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+        "--power-shelf-id",
+        SAMPLE_PS_ID_2,
+    ])
+    .expect("should parse maintenance power-off with two ids");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOff(args)) => {
+            assert_eq!(
+                args.power_shelf_ids,
+                vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+            );
+        }
+        other => panic!("expected Maintenance(PowerOff(_)), got: {other:?}"),
+    }
+}
+
+/// `--power-shelf-id` accepts space-separated values in a single occurrence
+/// (per its `num_args = 1..` configuration). Both ids must round-trip.
+#[test]
+fn parse_maintenance_power_on_multiple_ids_single_flag() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-on",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+        SAMPLE_PS_ID_2,
+    ])
+    .expect("should parse maintenance power-on with two ids on one flag");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
+            assert_eq!(
+                args.power_shelf_ids,
+                vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+            );
+        }
+        other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
+    }
+}
+
+/// The `--reference` flag (with `--ref` alias) is captured.
+#[test]
+fn parse_maintenance_with_reference() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-on",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+        "--reference",
+        "https://issues.example.com/TICKET-1",
+    ])
+    .expect("should parse maintenance with reference");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
+            assert_eq!(
+                args.reference.as_deref(),
+                Some("https://issues.example.com/TICKET-1"),
+            );
+        }
+        other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
+    }
+}
+
+/// Maintenance subcommand requires at least one `--power-shelf-id`.
+#[test]
+fn parse_maintenance_rejects_missing_id() {
+    let result = Cmd::try_parse_from(["power-shelf", "maintenance", "power-on"]);
+    assert!(
+        result.is_err(),
+        "missing required --power-shelf-id should fail to parse"
+    );
+}
+
+/// Unknown subcommand under maintenance is rejected.
+#[test]
+fn parse_maintenance_rejects_unknown_action() {
+    let result = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-cycle",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+    ]);
+    assert!(
+        result.is_err(),
+        "unknown subcommand `power-cycle` should fail to parse"
+    );
+}
+
+/// `Args::PowerOn::into_request()` must produce a gRPC request with the
+/// `PowerOn` operation discriminant and the provided id list.
+#[test]
+fn power_on_into_request_uses_power_on_operation() {
+    let args = maintenance::Args::PowerOn(maintenance::args::MaintenancePowerArgs {
+        power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1)],
+        reference: Some("ref-1".to_string()),
+    });
+    let req = args.into_request();
+    assert_eq!(
+        req.operation,
+        rpc::forge::PowerShelfMaintenanceOperation::PowerOn as i32,
+    );
+    assert_eq!(req.power_shelf_ids, vec![parse_ps_id(SAMPLE_PS_ID_1)]);
+    assert_eq!(req.reference.as_deref(), Some("ref-1"));
+}
+
+/// `Args::PowerOff::into_request()` must produce a gRPC request with the
+/// `PowerOff` operation discriminant.
+#[test]
+fn power_off_into_request_uses_power_off_operation() {
+    let args = maintenance::Args::PowerOff(maintenance::args::MaintenancePowerArgs {
+        power_shelf_ids: vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+        reference: None,
+    });
+    let req = args.into_request();
+    assert_eq!(
+        req.operation,
+        rpc::forge::PowerShelfMaintenanceOperation::PowerOff as i32,
+    );
+    assert_eq!(
+        req.power_shelf_ids,
+        vec![parse_ps_id(SAMPLE_PS_ID_1), parse_ps_id(SAMPLE_PS_ID_2)],
+    );
+    assert!(req.reference.is_none());
+}
+
+/// `--ref` is a documented visible alias of `--reference`; verify it
+/// captures the same value.
+#[test]
+fn parse_maintenance_ref_alias_captures_reference() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-off",
+        "--power-shelf-id",
+        SAMPLE_PS_ID_1,
+        "--ref",
+        "TICKET-2",
+    ])
+    .expect("should parse maintenance with --ref alias");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOff(args)) => {
+            assert_eq!(args.reference.as_deref(), Some("TICKET-2"));
+        }
+        other => panic!("expected Maintenance(PowerOff(_)), got: {other:?}"),
+    }
+}
+
+/// `id` is a documented visible alias of `--power-shelf-id`; verify it
+/// captures the same value.
+#[test]
+fn parse_maintenance_id_alias_captures_power_shelf_id() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "maintenance",
+        "power-on",
+        "--id",
+        SAMPLE_PS_ID_1,
+    ])
+    .expect("should parse maintenance with --id alias");
+
+    match cmd {
+        Cmd::Maintenance(maintenance::Args::PowerOn(args)) => {
+            assert_eq!(args.power_shelf_ids, vec![parse_ps_id(SAMPLE_PS_ID_1)]);
+        }
+        other => panic!("expected Maintenance(PowerOn(_)), got: {other:?}"),
+    }
+}

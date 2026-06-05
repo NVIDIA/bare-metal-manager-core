@@ -22,7 +22,10 @@ port = 1266
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
-rack_id = "RACK-1"
+rack_id = "RACK_1"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+# switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-001", slot_number = 7, tray_index = 3 }
+# power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-POWER-SHELF-001" }
 
 [endpoint_sources.carbide_api]
 enabled = false
@@ -44,4 +47,10 @@ enabled = true
 enabled = false
 
 [sinks.rack_health_report]
+enabled = false
+
+[sinks.switch_health_report]
+enabled = false
+
+[sinks.power_shelf_health_report]
 enabled = false

@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+
+use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct Args {

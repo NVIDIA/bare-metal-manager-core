@@ -225,6 +225,7 @@ impl EventProcessor for HealthReportProcessor {
                 };
                 let report = HealthReport {
                     source: ReportSource::BmcSensors,
+                    target: context.health_report_target(),
                     observed_at: Some(chrono::Utc::now()),
                     successes: window.successes,
                     alerts: window.alerts,
@@ -261,6 +262,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::sink::HealthReportTarget;
 
     fn test_context() -> EventContext {
         EventContext {
@@ -276,6 +278,9 @@ mod tests {
                     .parse()
                     .expect("valid machine id"),
                 machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
             })),
             rack_id: None,
         }
@@ -321,6 +326,7 @@ mod tests {
         };
 
         assert_eq!(report.source, ReportSource::BmcSensors);
+        assert_eq!(report.target, Some(HealthReportTarget::Machine));
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
     }

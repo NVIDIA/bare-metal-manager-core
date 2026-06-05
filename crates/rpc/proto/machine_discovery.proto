@@ -8,8 +8,7 @@ message DiscoveryInfo {
   repeated NetworkInterface network_interfaces = 1;
 
   // Replaced with option 16: cpu_info, an aggregation of cpus per model
-  // Enumerates CPUs on the host
-  repeated Cpu cpus = 2 [deprecated = true];
+  reserved 2;
 
   // Enumerates discovered block devices on the host
   repeated BlockDevice block_devices = 3;

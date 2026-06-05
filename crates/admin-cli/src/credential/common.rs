@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::{Parser, ValueEnum};
+
+use crate::errors::CarbideCliError;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 

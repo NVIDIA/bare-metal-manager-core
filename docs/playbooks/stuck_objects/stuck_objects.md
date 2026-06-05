@@ -125,16 +125,16 @@ is the main state of an object and `BootingWithDiscoveryImage` is the substate.
 In order to understand why the state of an object doesn't advanced, we first
 need to determine the full state. This can be done using multiple approaches:
 
-### 2.1 Using carbide-admin-cli
+### 2.1 Using nico-admin-cli
 
-You can inspect the detailed state of a objects on NICo sites using `carbide-admin-cli`. Refer to [forge-admin-cli](forge_admin_cli.md) instructions
+You can inspect the detailed state of a objects on NICo sites using `nico-admin-cli`. Refer to [nico-admin-cli](nico_admin_cli.md) instructions
 on how to utilize it.
 
-Using carbide-admin-cli, you can inspect the state of an object e.g. with the
+Using nico-admin-cli, you can inspect the state of an object e.g. with the
 following queries:
 
 ```
-carbide-admin-cli managed-host show --all
+nico-admin-cli managed-host show --all
 +--------------------+-------------------------------------------------------------+------------------------------------+
 | Hostname           | Machine IDs (H/D)                                           | State                              |
 +--------------------+-------------------------------------------------------------+------------------------------------+
@@ -147,13 +147,13 @@ carbide-admin-cli managed-host show --all
 ```
 
 ```
-carbide-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
+nico-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 Hostname    : west-massachusetts
 State       : Assigned/BootingWithDiscoveryImage
 ```
 
 ```
-/opt/carbide/carbide-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
+/opt/nico/nico-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 {
   "id": "fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0",
   "state": "Assigned/BootingWithDiscoveryImage",
@@ -190,7 +190,7 @@ ManagedHost entered a certain state.
 
 For NetworkSegments, you can use the `network-segment` subcommand:
 ```
-/opt/carbide/carbide-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
+/opt/nico/nico-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 ID        : 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 DELETED   : Not Deleted
 STATE     : Ready
@@ -293,13 +293,13 @@ state.
 Inspecting the `rebooted` function further will tell us that checks that the `last_reboot_time` timestamp
 is more recent than the time when we entered the state. And checking even
 further for where the `last_reboot_time` is updated, we would learn that
-it happens when `forge-scout` is started and asks the `carbide-api` server
-via the `ForgeAgentControl` API call for instructions.
+it happens when `nico-scout` is started and asks the `nico-api` server
+via the `NicoAgentControl` API call for instructions.
 
 Therefore we can determine that possible sources of the ManagedHost being stuck are:
 - The Host is never rebooted
 - The Host is rebooted, but does not boot into the discovery image
-- The Host is rebooted and boots into the discovery image, but `forge-scout` is
+- The Host is rebooted and boots into the discovery image, but `nico-scout` is
   not running or might not be able to reach the API server.
 
 We can now continue troubleshooting by inspecting which of these steps might have
@@ -307,20 +307,20 @@ failed.
 
 ### 3.2 Learning more about failures from logs
 
-Sometimes we can easily learn from carbide-api logs why the state transition for
+Sometimes we can easily learn from nico-api logs why the state transition for
 a certain object failed. If a state machine tries to advance the state of an
 object and any function within the state machine returns an error, the error
 will be logged.
 
-For example the following carbide-api logs show us that the state-machine tried to advance
+For example the following nico-api logs show us that the state-machine tried to advance
 the state of ManagedHost `fm100htbj4teuomt9p8095cg3nikudaqq69uih6t3gg61tpgkkmtncvjbgg`
 from state `Assigned/WaitingForNetworkConfig`, but due to a vault issue we failed
 to load the BMC credentials for the reboot request that is required to exit the state:
 
 ```
-level=SPAN span_id="0x807c960ebf6ad096" span_name=state_controller_iteration status="Ok" busy_ns=42812249 code_filepath=api/src/state_controller/controller.rs code_lineno=115 code_namespace=carbide::state_controller::controller controller=machine_state_controller elapsed_us=61825 error_types="{\"assigned.waitingfornetworkconfig\":{\"redfish_client_creation_error\":1}}" handler_latencies_us="{\"ready\":{\"min\":20714,\"max\":22499,\"avg\":21551},\"assigned.waitingfornetworkconfig\":{\"min\":55593,\"max\":55593,\"avg\":55593}}" idle_ns=18985935 service_name=carbide-api service_namespace=forge-system skipped_iteration=false start_time=2023-09-11T07:55:36.598202068Z states="{\"assigned.waitingfornetworkconfig\":1,\"ready\":3}" times_in_state_s="{\"assigned.waitingfornetworkconfig\":{\"min\":2013,\"max\":2013,\"avg\":2013},\"ready\":{\"min\":1432860,\"max\":2998789,\"avg\":1954860}}"
+level=SPAN span_id="0x807c960ebf6ad096" span_name=state_controller_iteration status="Ok" busy_ns=42812249 code_filepath=api/src/state_controller/controller.rs code_lineno=115 code_namespace=nico::state_controller::controller controller=machine_state_controller elapsed_us=61825 error_types="{\"assigned.waitingfornetworkconfig\":{\"redfish_client_creation_error\":1}}" handler_latencies_us="{\"ready\":{\"min\":20714,\"max\":22499,\"avg\":21551},\"assigned.waitingfornetworkconfig\":{\"min\":55593,\"max\":55593,\"avg\":55593}}" idle_ns=18985935 service_name=nico-api service_namespace=nico-system skipped_iteration=false start_time=2023-09-11T07:55:36.598202068Z states="{\"assigned.waitingfornetworkconfig\":1,\"ready\":3}" times_in_state_s="{\"assigned.waitingfornetworkconfig\":{\"min\":2013,\"max\":2013,\"avg\":2013},\"ready\":{\"min\":1432860,\"max\":2998789,\"avg\":1954860}}"
 level=ERROR span_id="0x807c960ebf6ad096" error="An error occurred with the request" location="/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/vaultrs-0.6.2/src/auth/kubernetes.rs:53"
-level=WARN span_id="0x807c960ebf6ad096" msg="State handler error" error="RedfishClientCreationError(MissingCredentials(Failed to execute kubernetes service account login request\n\nCaused by:\n   0: An error occurred with the request\n   1: Error sending HTTP request\n   2: error sending request for url (https://vault.vault.svc.cluster.local:8200/v1/auth/kubernetes/login): error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   3: error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   4: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   5: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889:\n\nLocation:\n    forge_secrets/src/forge_vault.rs:141:22))" object_id=fm100htbj4teuomt9p8095cg3nikudaqq69uih6t3gg61tpgkkmtncvjbgg location="api/src/state_controller/controller.rs:357"
+level=WARN span_id="0x807c960ebf6ad096" msg="State handler error" error="RedfishClientCreationError(MissingCredentials(Failed to execute kubernetes service account login request\n\nCaused by:\n   0: An error occurred with the request\n   1: Error sending HTTP request\n   2: error sending request for url (https://vault.vault.svc.cluster.local:8200/v1/auth/kubernetes/login): error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   3: error trying to connect: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   4: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889: (certificate has expired)\n   5: error:0A000086:SSL routines:tls_post_process_server_certificate:certificate verify failed:../ssl/statem/statem_clnt.c:1889:\n\nLocation:\n    nico_secrets/src/nico_vault.rs:141:22))" object_id=fm100htbj4teuomt9p8095cg3nikudaqq69uih6t3gg61tpgkkmtncvjbgg location="api/src/state_controller/controller.rs:357"
 ```
 
 As seen from the example above, the field `error_types` can also provide

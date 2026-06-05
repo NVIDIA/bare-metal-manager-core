@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
@@ -114,13 +114,12 @@ pub async fn find_one_linked(
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id,
+ mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
  LEFT JOIN explored_endpoints ee ON mia.address = ee.address
- LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
  WHERE em.bmc_mac_address = $1
  ORDER BY em.bmc_mac_address
  "#;
@@ -159,13 +158,12 @@ pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Linke
  em.bmc_mac_address,
  mi.id AS interface_id,
  host(ee.address) AS address,
- mt.machine_id,
+ mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em
  LEFT JOIN machine_interfaces mi ON em.bmc_mac_address = mi.mac_address
  LEFT JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
  LEFT JOIN explored_endpoints ee ON mia.address = ee.address
- LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
  ORDER BY em.bmc_mac_address
  "#;
     sqlx::query_as(sql)
@@ -194,11 +192,10 @@ SELECT
     ee.address,
     mi.mac_address AS bmc_mac_address,
     ee.exploration_report,
-    mt.machine_id
+    mi.machine_id
 FROM explored_endpoints ee
     LEFT JOIN machine_interface_addresses mia ON ee.address = mia.address
     LEFT JOIN machine_interfaces mi ON mia.interface_id = mi.id
-    LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
 WHERE mi.mac_address IS NOT NULL
   AND ee.exploration_report->>'EndpointType' = 'Bmc'
   AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_machines)
@@ -388,29 +385,37 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// Updates an existing expected machine. If id is set, matches by ID; otherwise matches by
 /// `bmc_mac_address`. Includes `bmc_ip_address` when the operator configures a static BMC IP.
 pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
-    let (where_clause, target_id) = match machine.id {
-        Some(id) => ("id=$17::uuid", id.to_string()),
+    macro_rules! update_expected_machine_query {
+        ($where_clause:literal) => {
+            concat!(
+                "UPDATE expected_machines \
+                 SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
+                     fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
+                     metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
+                     default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
+                     dpf_enabled=COALESCE($12, dpf_enabled), \
+                     bmc_ip_address=$13, \
+                     bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
+                     dpu_mode=$15, \
+                     host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
+                 WHERE ",
+                $where_clause,
+            )
+        };
+    }
+
+    let (query, target_id) = match machine.id {
+        Some(id) => (
+            update_expected_machine_query!("id=$17::uuid"),
+            id.to_string(),
+        ),
         None => (
-            "bmc_mac_address=$17::macaddr",
+            update_expected_machine_query!("bmc_mac_address=$17::macaddr"),
             machine.bmc_mac_address.to_string(),
         ),
     };
 
-    let query = format!(
-        "UPDATE expected_machines \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
-             fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
-             metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
-             default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
-             dpf_enabled=COALESCE($12, dpf_enabled), \
-             bmc_ip_address=$13, \
-             bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
-             dpu_mode=$15, \
-             host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
-         WHERE {where_clause}"
-    );
-
-    let result = sqlx::query(&query)
+    let result = sqlx::query(query)
         .bind(&machine.data.bmc_username)
         .bind(&machine.data.bmc_password)
         .bind(&machine.data.serial_number)
@@ -433,7 +438,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(&target_id)
         .execute(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::query(&query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
         return Err(DatabaseError::NotFoundError {
@@ -441,32 +446,5 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
             id: target_id,
         });
     }
-    Ok(())
-}
-
-/// fn will insert rows that are not currently present in DB for each expected_machine arg in list,
-/// but will NOT overwrite existing rows matching by MAC addr.
-pub async fn create_missing_from(
-    txn: &mut PgConnection,
-    expected_machines: &[ExpectedMachine],
-) -> DatabaseResult<()> {
-    let existing_machines = find_all(&mut *txn).await?;
-    let existing_map: BTreeMap<String, ExpectedMachine> = existing_machines
-        .into_iter()
-        .map(|machine| (machine.bmc_mac_address.to_string(), machine))
-        .collect();
-
-    for expected_machine in expected_machines {
-        if existing_map.contains_key(&expected_machine.bmc_mac_address.to_string()) {
-            tracing::debug!(
-                "Not overwriting expected-machine with mac_addr: {}",
-                expected_machine.bmc_mac_address.to_string()
-            );
-            continue;
-        }
-
-        create(txn, expected_machine.clone()).await?;
-    }
-
     Ok(())
 }

@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::{Cell, Row, Table};
@@ -26,6 +26,7 @@ use rpc::forge::InterfaceAssociationType;
 use tracing::warn;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn handle_show(

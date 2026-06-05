@@ -16,49 +16,12 @@
  */
 use std::str::FromStr;
 
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
-use libmlx::device::info::MlxDeviceInfo;
-use mac_address::MacAddress;
-
-/// create_test_device creates a sample device for testing purposes.
-fn create_test_device() -> MlxDeviceInfo {
-    MlxDeviceInfo {
-        pci_name: "01:00.0".to_string(),
-        device_type: "ConnectX-6 Dx".to_string(),
-        psid: Some("MT_00000055".to_string()),
-        device_description: Some("Mellanox ConnectX-6 Dx EN 100GbE dual port".to_string()),
-        part_number: Some("MCX623106AN-CDAT".to_string()),
-        fw_version_current: Some("22.32.1010".to_string()),
-        pxe_version_current: Some("3.6.0502".to_string()),
-        uefi_version_current: Some("14.25.1020".to_string()),
-        uefi_version_virtio_blk_current: Some("1.0.0".to_string()),
-        uefi_version_virtio_net_current: Some("1.0.0".to_string()),
-        base_mac: Some(MacAddress::from_str("b8:3f:d2:12:34:56").unwrap()),
-        status: None,
-    }
-}
-
-/// create_test_device_with_missing_data creates a device with partial data (like a DPU).
-fn create_test_device_with_missing_data() -> MlxDeviceInfo {
-    MlxDeviceInfo {
-        pci_name: "b4:00.0".to_string(),
-        device_type: "BlueField3".to_string(),
-        psid: None,
-        device_description: None,
-        part_number: None,
-        fw_version_current: None,
-        pxe_version_current: None,
-        uefi_version_current: None,
-        uefi_version_virtio_blk_current: None,
-        uefi_version_virtio_net_current: None,
-        base_mac: None,
-        status: Some("Failed to open device".to_string()),
-    }
-}
 
 #[test]
 fn test_device_filter_set_no_filters_matches_all() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter_set = DeviceFilterSet::new();
 
     assert!(filter_set.matches(&device));
@@ -67,7 +30,7 @@ fn test_device_filter_set_no_filters_matches_all() {
 
 #[test]
 fn test_device_filter_device_type_exact_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::device_type(vec!["ConnectX-6 Dx".to_string()], MatchMode::Exact);
 
     assert!(filter.matches(&device));
@@ -75,7 +38,7 @@ fn test_device_filter_device_type_exact_match() {
 
 #[test]
 fn test_device_filter_device_type_prefix_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::device_type(vec!["ConnectX".to_string()], MatchMode::Prefix);
 
     assert!(filter.matches(&device));
@@ -83,7 +46,7 @@ fn test_device_filter_device_type_prefix_match() {
 
 #[test]
 fn test_device_filter_device_type_regex_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::device_type(vec!["Connect.*".to_string()], MatchMode::Regex);
 
     assert!(filter.matches(&device));
@@ -91,7 +54,7 @@ fn test_device_filter_device_type_regex_match() {
 
 #[test]
 fn test_device_filter_device_type_complex_regex() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::device_type(vec![".*X-6.*".to_string()], MatchMode::Regex);
 
     assert!(filter.matches(&device));
@@ -99,7 +62,7 @@ fn test_device_filter_device_type_complex_regex() {
 
 #[test]
 fn test_device_filter_part_number_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::part_number(vec!["MCX623".to_string()], MatchMode::Prefix);
 
     assert!(filter.matches(&device));
@@ -107,7 +70,7 @@ fn test_device_filter_part_number_match() {
 
 #[test]
 fn test_device_filter_firmware_version_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix);
 
     assert!(filter.matches(&device));
@@ -115,7 +78,7 @@ fn test_device_filter_firmware_version_match() {
 
 #[test]
 fn test_device_filter_mac_address_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::mac_address(vec!["b8:3f:d2".to_string()], MatchMode::Prefix);
 
     assert!(filter.matches(&device));
@@ -123,7 +86,7 @@ fn test_device_filter_mac_address_match() {
 
 #[test]
 fn test_device_filter_description_substring_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::description(vec![".*100GbE.*".to_string()], MatchMode::Regex);
 
     assert!(filter.matches(&device));
@@ -131,7 +94,7 @@ fn test_device_filter_description_substring_match() {
 
 #[test]
 fn test_device_filter_description_case_insensitive() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::description(vec!["mellanox".to_string()], MatchMode::Prefix);
 
     assert!(filter.matches(&device));
@@ -139,7 +102,7 @@ fn test_device_filter_description_case_insensitive() {
 
 #[test]
 fn test_device_filter_status_match() {
-    let device = create_test_device_with_missing_data();
+    let device = MlxDeviceInfo::create_test_device_with_missing_data();
     let filter = DeviceFilter::status(vec!["Failed to open device".to_string()], MatchMode::Exact);
 
     assert!(filter.matches(&device));
@@ -147,7 +110,7 @@ fn test_device_filter_status_match() {
 
 #[test]
 fn test_device_filter_set_multiple_criteria_all_match() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let mut filter_set = DeviceFilterSet::new();
 
     filter_set.add_filter(DeviceFilter::device_type(
@@ -169,7 +132,7 @@ fn test_device_filter_set_multiple_criteria_all_match() {
 
 #[test]
 fn test_device_filter_set_multiple_criteria_one_fails() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let mut filter_set = DeviceFilterSet::new();
 
     filter_set.add_filter(DeviceFilter::device_type(
@@ -247,7 +210,7 @@ fn test_device_filter_from_str_multiple_values() {
 
 #[test]
 fn test_device_filter_multiple_values_or_logic() {
-    let device = create_test_device();
+    let device = MlxDeviceInfo::create_test_device();
     let filter = DeviceFilter::device_type(
         vec!["ConnectX-7".to_string(), "ConnectX-6 Dx".to_string()],
         MatchMode::Exact,
@@ -259,7 +222,7 @@ fn test_device_filter_multiple_values_or_logic() {
 
 #[test]
 fn test_device_filter_with_missing_data() {
-    let device = create_test_device_with_missing_data();
+    let device = MlxDeviceInfo::create_test_device_with_missing_data();
 
     // Filtering on missing data should not match
     let part_filter = DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix);
@@ -318,7 +281,7 @@ fn test_device_field_from_str() {
 
 #[test]
 fn test_empty_field_filtering() {
-    let device = create_test_device_with_missing_data();
+    let device = MlxDeviceInfo::create_test_device_with_missing_data();
 
     // Test that empty fields don't match regular filters
     let fw_filter = DeviceFilter::firmware_version(vec!["22.32".to_string()], MatchMode::Prefix);
@@ -334,8 +297,8 @@ fn test_empty_field_filtering() {
 
 #[test]
 fn test_mixed_device_filtering() {
-    let complete_device = create_test_device();
-    let partial_device = create_test_device_with_missing_data();
+    let complete_device = MlxDeviceInfo::create_test_device();
+    let partial_device = MlxDeviceInfo::create_test_device_with_missing_data();
 
     // Filter that should match only complete devices
     let part_filter = DeviceFilter::part_number(vec!["MCX".to_string()], MatchMode::Prefix);

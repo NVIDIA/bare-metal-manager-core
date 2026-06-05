@@ -42,10 +42,23 @@ fn string_value(s: String) -> Option<AnyValue> {
     })
 }
 
+fn int_value(value: i64) -> Option<AnyValue> {
+    Some(AnyValue {
+        value: Some(any_value::Value::IntValue(value)),
+    })
+}
+
 fn kv(key: &str, val: String) -> KeyValue {
     KeyValue {
         key: key.to_string(),
         value: string_value(val),
+    }
+}
+
+fn int_kv(key: &str, value: i64) -> KeyValue {
+    KeyValue {
+        key: key.to_string(),
+        value: int_value(value),
     }
 }
 
@@ -57,6 +70,24 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     ];
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
+    }
+    if let Some(switch_id) = context.switch_id() {
+        attrs.push(kv("switch.id", switch_id.to_string()));
+    }
+    if let Some(slot) = context.slot_number() {
+        attrs.push(int_kv("machine.slot_number", i64::from(slot)));
+    }
+    if let Some(tray) = context.tray_index() {
+        attrs.push(int_kv("machine.tray_index", i64::from(tray)));
+    }
+    if let Some(domain) = context.nvlink_domain_uuid() {
+        attrs.push(kv("nvlink.domain.uuid", domain.to_string()));
+    }
+    if let Some(slot) = context.switch_slot_number() {
+        attrs.push(int_kv("switch.slot_number", i64::from(slot)));
+    }
+    if let Some(tray) = context.switch_tray_index() {
+        attrs.push(int_kv("switch.tray_index", i64::from(tray)));
     }
     attrs
 }
@@ -168,10 +199,12 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_uuid::nvlink::NvLinkDomainId;
+    use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::BmcAddr;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole};
     use crate::sink::{
         Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
     };
@@ -188,6 +221,102 @@ mod tests {
             metadata: None,
             rack_id: None,
         }
+    }
+
+    fn test_switch_id(label: &str) -> SwitchId {
+        let mut hash = [0u8; 32];
+        let bytes = label.as_bytes();
+        hash[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
+        SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
+    }
+
+    fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(|value| match value.value.as_ref()? {
+                any_value::Value::StringValue(value) => Some(value.as_str()),
+                _ => None,
+            })
+    }
+
+    fn attr_int_value(attrs: &[KeyValue], key: &str) -> Option<i64> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(|value| match value.value.as_ref()? {
+                any_value::Value::IntValue(value) => Some(*value),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn resource_attributes_include_machine_metadata_when_present() {
+        let domain_uuid = NvLinkDomainId::nil();
+        let context = EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+                machine_serial: None,
+                slot_number: Some(15),
+                tray_index: Some(5),
+                nvlink_domain_uuid: Some(domain_uuid),
+            })),
+            rack_id: None,
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(attr_int_value(&attrs, "machine.slot_number"), Some(15));
+        assert_eq!(attr_int_value(&attrs, "machine.tray_index"), Some(5));
+        assert_eq!(
+            attr_value(&attrs, "nvlink.domain.uuid"),
+            Some("00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
+    fn resource_attributes_include_switch_placement_metadata_when_present() {
+        let switch_id = test_switch_id("switch-a");
+        let switch_id_attr = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "11:22:33:44:55:66".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 1, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-001".to_string(),
+                slot_number: Some(7),
+                tray_index: Some(3),
+                endpoint_role: SwitchEndpointRole::Host,
+                is_primary: false,
+                nmxt_enabled: false,
+            })),
+            rack_id: None,
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(
+            attr_value(&attrs, "switch.id"),
+            Some(switch_id_attr.as_str())
+        );
+        assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
+        assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
     }
 
     #[test]
@@ -225,6 +354,7 @@ mod tests {
         let report = CollectorEvent::HealthReport(
             HealthReport {
                 source: ReportSource::BmcSensors,
+                target: None,
                 observed_at: None,
                 successes: vec![],
                 alerts: vec![HealthReportAlert {

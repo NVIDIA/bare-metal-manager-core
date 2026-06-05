@@ -1,17 +1,17 @@
 ## =============================================================================
-## Full Values — Carbide Bare Metal Manager
+## Full Values — NICo Bare Metal Manager
 ## =============================================================================
 ## Comprehensive example showing all configurable values with documentation.
 ## Copy and modify this file for your environment.
 ## See PREREQUISITES.md for required Secrets, ConfigMaps, and operators.
 ##
-## Install with: helm install carbide ./helm -n forge-system --create-namespace -f values-full.yaml
+## Install with: helm install nico ./helm -n nico-system --create-namespace -f values-full.yaml
 ## =============================================================================
 
 global:
-  ## Container image for Carbide core services (REQUIRED)
+  ## Container image for NICo core services (REQUIRED)
   image:
-    repository: "your-registry.example.com/carbide-core"
+    repository: "your-registry.example.com/nico-core"
     tag: "v2025.12.30"
     pullPolicy: IfNotPresent
 
@@ -28,12 +28,12 @@ global:
       size: 384
     issuerRef:
       kind: ClusterIssuer
-      name: vault-forge-issuer
+      name: vault-nico-issuer
       group: cert-manager.io
 
   ## SPIFFE trust domain for mTLS between services
   spiffe:
-    trustDomain: forge.local
+    trustDomain: nico.local
 
   ## Common labels applied to all resources
   labels:
@@ -41,9 +41,9 @@ global:
     app.kubernetes.io/part-of: site-controller
 
 ## ---------------------------------------------------------------------------
-## carbide-api — Core API server
+## nico-api — Core API server
 ## ---------------------------------------------------------------------------
-carbide-api:
+nico-api:
   enabled: true
   replicas: 1
 
@@ -69,48 +69,48 @@ carbide-api:
       command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
 
   env:
-    VAULT_PKI_ROLE_NAME: "forge-cluster"
+    VAULT_PKI_ROLE_NAME: "nico-cluster"
     RUST_BACKTRACE: "full"
     RUST_LIB_BACKTRACE: "0"
 
   ## OAuth2/SSO authentication — configure via extraEnv
   ## These are not built into the chart to keep it auth-provider agnostic.
   extraEnv:
-    - name: CARBIDE_WEB_AUTH_TYPE
+    - name: NICO_WEB_AUTH_TYPE
       value: "oauth2"
-    - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
+    - name: NICO_WEB_OAUTH2_AUTH_ENDPOINT
       value: "https://login.example.com/oauth2/v2.0/authorize"
-    - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
+    - name: NICO_WEB_OAUTH2_TOKEN_ENDPOINT
       value: "https://login.example.com/oauth2/v2.0/token"
-    - name: CARBIDE_WEB_OAUTH2_CLIENT_ID
+    - name: NICO_WEB_OAUTH2_CLIENT_ID
       value: "your-oauth2-client-id"
-    - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
+    - name: NICO_WEB_OAUTH2_CLIENT_SECRET
       valueFrom:
         secretKeyRef:
-          name: azure-sso-carbide-web-client-secret
+          name: azure-sso-nico-web-client-secret
           key: client_secret
-    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
-      value: "carbide-admins,carbide-operators"
+    - name: NICO_WEB_ALLOWED_ACCESS_GROUPS
+      value: "nico-admins,nico-operators"
 
-  ## Carbide Web UI hostname
-  hostname: "carbide.example.com"
+  ## NICo Web UI hostname
+  hostname: "nico.example.com"
 
   ## Site-specific config overrides
   siteConfig:
     enabled: true
-    carbideApiSiteConfig: |
-      dhcp_servers=["carbide-dhcp.forge-system.svc.cluster.local:67"]
+    nicoApiSiteConfig: |
+      dhcp_servers=["nico-dhcp.nico-system.svc.cluster.local:67"]
       route_servers=[]
 
   ## Create Vault and DB ConfigMaps from values (alternative to external ConfigMaps)
   vaultClusterInfo:
     VAULT_SERVICE: "https://vault.example.com"
-    FORGE_VAULT_MOUNT: "secrets"
-    FORGE_VAULT_PKI_MOUNT: "forgeca"
+    NICO_VAULT_MOUNT: "secrets"
+    NICO_VAULT_PKI_MOUNT: "nicoca"
   databaseConfig:
-    DB_HOST: "postgresql.forge-system.svc.cluster.local"
+    DB_HOST: "postgresql.nico-system.svc.cluster.local"
     DB_PORT: "5432"
-    DB_NAME: "carbide"
+    DB_NAME: "nico"
 
   ## External LoadBalancer (for MetalLB or similar)
   externalService:
@@ -126,59 +126,61 @@ carbide-api:
     scrapeTimeout: 25s
 
 ## ---------------------------------------------------------------------------
-## carbide-dhcp — DHCP server
+## nico-dhcp — DHCP server
 ## ---------------------------------------------------------------------------
-carbide-dhcp:
+nico-dhcp:
   enabled: true
   replicas: 1
 
+  ## kea-dhcp4 configuration — structured shape (chart assembles JSON).
+  ## See helm/charts/nico-dhcp/values.yaml for every supported field and
+  ## the matching kea JSON key. For full per-site override (multiple
+  ## hooks, custom logger destinations, advanced lease backends), set
+  ## `config.keaConfigJsonRaw` to a complete kea_config.json string
+  ## instead — the structured `kea:` block is then ignored.
   config:
     enabled: true
-    keaConfigJson: |
-      {
-        "Dhcp4": {
-          "interfaces-config": {
-            "interfaces": ["eth0"],
-            "dhcp-socket-type": "udp"
-          },
-          "lease-database": {
-            "type": "memfile",
-            "lfc-interval": 3600
-          },
-          "match-client-id": false,
-          "authoritative": true,
-          "renew-timer": 900,
-          "rebind-timer": 1800,
-          "valid-lifetime": 3600,
-          "hooks-libraries": [
-            {
-              "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
-              "parameters": {
-                "carbide-api-url": "https://carbide-api.forge-system.svc.cluster.local:1079",
-                "carbide-metrics-endpoint": "[::]:1089",
-                "carbide-nameservers": "10.0.0.20",
-                "carbide-ntpserver": "10.0.0.30",
-                "carbide-provisioning-server-ipv4": "10.0.0.40"
-              }
-            }
-          ],
-          "subnet4": [
-            {
-              "subnet": "10.0.0.0/24",
-              "pools": [
-                {
-                  "pool": "10.0.0.100-10.0.0.200"
-                }
-              ]
-            }
-          ],
-          "loggers": [
-            { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-            { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-            { "name": "kea-dhcp4.carbide-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
-          ]
-        }
-      }
+    kea:
+      ## libdhcp hook parameters — these are the IPs the DHCP server
+      ## advertises to PXE clients (DPUs / bare-metal hosts).
+      ## CRITICAL: replace each placeholder with a real IP the client
+      ## can reach (typically MetalLB LoadBalancer IPs of nico-dns /
+      ## site NTP / nico-pxe). Leaving 127.0.0.1 breaks DPU pre-ingestion.
+      hookParameters:
+        nameservers: "10.0.0.20"           # EXAMPLE — replace with nico-dns LB IP
+        ntpServer: "10.0.0.30"             # EXAMPLE — replace with site NTP IP(s), comma-separated for multi
+        provisioningServer: "10.0.0.40"    # EXAMPLE — replace with nico-pxe LB IP
+        # nicoApiUrl: ""                   # leave empty to derive https://<apiServiceName>.<ns>.svc.cluster.local:1079
+        # nicoMetricsEndpoint: "[::]:1089" # chart default
+
+      ## Subnets the DHCP server serves leases on.
+      subnet4:
+        - subnet: "10.0.0.0/24"
+          pools:
+            - "10.0.0.100-10.0.0.200"
+
+      ## All other kea-dhcp4 fields below default to sensible values and
+      ## can usually be omitted. Shown here for completeness.
+      # interfacesConfig:
+      #   interfaces: ["eth0"]
+      #   dhcpSocketType: udp
+      # leaseDatabase:
+      #   type: memfile
+      #   lfcInterval: 3600
+      # matchClientId: false
+      # authoritative: true
+      # renewTimer: 900
+      # rebindTimer: 1800
+      # validLifetime: 3600
+      # hookLibraryPath: /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so
+      # additionalHooksLibraries: []
+      # loggers:
+      #   - name: kea-dhcp4
+      #     severity: INFO
+      #   - name: kea-dhcp4.hooks
+      #     severity: INFO
+      #   - name: kea-dhcp4.nico-rust
+      #     severity: INFO
 
   externalService:
     enabled: true
@@ -187,9 +189,9 @@ carbide-dhcp:
       metallb.universe.tf/loadBalancerIPs: "10.0.0.11"
 
 ## ---------------------------------------------------------------------------
-## carbide-dns — Authoritative DNS
+## nico-dns — Authoritative DNS
 ## ---------------------------------------------------------------------------
-carbide-dns:
+nico-dns:
   enabled: true
   replicas: 2
 
@@ -201,9 +203,9 @@ carbide-dns:
       - metallb.universe.tf/loadBalancerIPs: "10.0.0.21"   # pod-1
 
 ## ---------------------------------------------------------------------------
-## carbide-dsx-exchange-consumer — DSX Exchange consumer
+## nico-dsx-exchange-consumer — DSX Exchange consumer
 ## ---------------------------------------------------------------------------
-carbide-dsx-exchange-consumer:
+nico-dsx-exchange-consumer:
   enabled: true
   replicas: 1
 
@@ -213,9 +215,9 @@ carbide-dsx-exchange-consumer:
     scrapeTimeout: 25s
 
 ## ---------------------------------------------------------------------------
-## carbide-hardware-health — Hardware health metrics
+## nico-hardware-health — Hardware health metrics
 ## ---------------------------------------------------------------------------
-carbide-hardware-health:
+nico-hardware-health:
   enabled: true
   replicas: 1
 
@@ -224,10 +226,16 @@ carbide-hardware-health:
     interval: 30s
     scrapeTimeout: 25s
 
+  ## Optional: scrape /telemetry for per-endpoint sensor gauges (high cardinality).
+  telemetryServiceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 25s
+
 ## ---------------------------------------------------------------------------
-## carbide-pxe — PXE boot server
+## nico-pxe — PXE boot server
 ## ---------------------------------------------------------------------------
-carbide-pxe:
+nico-pxe:
   enabled: true
   replicas: 1
 
@@ -253,9 +261,9 @@ carbide-pxe:
       metallb.universe.tf/loadBalancerIPs: "10.0.0.40"
 
 ## ---------------------------------------------------------------------------
-## carbide-ssh-console-rs — SSH console proxy
+## nico-ssh-console-rs — SSH console proxy
 ## ---------------------------------------------------------------------------
-carbide-ssh-console-rs:
+nico-ssh-console-rs:
   enabled: true
   replicas: 1
 
@@ -300,30 +308,30 @@ unbound:
         forward-addr: 1.1.1.1
 
 ## ---------------------------------------------------------------------------
-## carbide-bmc-proxy: Authenticating BMC redfish proxy
+## nico-bmc-proxy: Authenticating BMC redfish proxy
 ## ---------------------------------------------------------------------------
-carbide-bmc-proxy:
+nico-bmc-proxy:
   enabled: true
   replicas: 2
   configFiles:
     enabled: true
-    carbideBmcProxyConfig: |
+    nicoBmcProxyConfig: |
       listen = "[::]:1079"
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
-      allowed_principals = ["spiffe-service-id/carbide-api", "spiffe-service-id/nv-dps"]
+      allowed_principals = ["spiffe-service-id/nico-api", "spiffe-service-id/nv-dps"]
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
       identity_keyfile_path = "/var/run/secrets/spiffe.io/tls.key"
       root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
-      admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
+      admin_root_cafile_path = "/etc/nico/nico-bmc-proxy/site/admin_root_cert_pem"
 
       [auth.trust]
-      spiffe_trust_domain = "forge.local"
+      spiffe_trust_domain = "nico.local"
       spiffe_service_base_paths = [
-        "/forge-system/sa/",
+        "/nico-system/sa/",
         "/default/sa/",
       ]
-      spiffe_machine_base_path = "/forge-system/machine/"
+      spiffe_machine_base_path = "/nico-system/machine/"
       additional_issuer_cns = []

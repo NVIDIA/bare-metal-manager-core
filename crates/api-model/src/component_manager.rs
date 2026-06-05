@@ -49,9 +49,49 @@ pub enum NvSwitchComponent {
     Nvos,
 }
 
+impl std::fmt::Display for NvSwitchComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bmc => f.write_str("BMC"),
+            Self::Cpld => f.write_str("CPLD"),
+            Self::Bios => f.write_str("BIOS"),
+            Self::Nvos => f.write_str("NVOS"),
+        }
+    }
+}
+
 /// Updatable components of a PowerShelf.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerShelfComponent {
     Pmc,
     Psu,
+}
+
+impl std::fmt::Display for PowerShelfComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pmc => f.write_str("PMC"),
+            Self::Psu => f.write_str("PSU"),
+        }
+    }
+}
+
+/// Updatable components of a ComputeTray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComputeTrayComponent {
+    Bmc,
+    Cpld,
+    Bios,
+    Cx7,
+}
+
+impl std::fmt::Display for ComputeTrayComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bmc => f.write_str("BMC"),
+            Self::Cpld => f.write_str("CPLD"),
+            Self::Bios => f.write_str("BIOS"),
+            Self::Cx7 => f.write_str("CX7"),
+        }
+    }
 }

@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::SecretsError;
 use crate::credentials::{
-    CredentialKey, CredentialReader, CredentialType, Credentials, MqttCredentialType,
+    BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
+    MqttCredentialType,
 };
 
 mod env;
@@ -80,6 +81,7 @@ pub struct CredentialSnapshot {
     pub nmxm_auth_by_id: HashMap<String, UsernamePassword>,
     pub mqtt_auth_by_credential_type: HashMap<MqttCredentialType, UsernamePassword>,
     pub machine_identity: Option<MachineIdentityConfig>,
+    pub bmc_site_wide_root: Option<UsernamePassword>,
 }
 
 impl CredentialSnapshot {
@@ -134,6 +136,9 @@ impl CredentialSnapshot {
                     username: key_id.clone(),
                     password: secret,
                 }),
+            CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::SiteWideRoot,
+            } => self.bmc_site_wide_root.clone().map(Into::into),
             _ => None,
         }
     }
@@ -152,7 +157,6 @@ impl CredentialReader for CredentialSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::BmcCredentialType;
 
     fn up(user: &str, pass: &str) -> UsernamePassword {
         UsernamePassword {
@@ -193,6 +197,7 @@ mod tests {
                 up("mqtt-u", "mqtt-p"),
             )]),
             machine_identity: None,
+            bmc_site_wide_root: None,
         }
     }
 
@@ -313,20 +318,24 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_bmc_site_wide_root() {
+        let snap = CredentialSnapshot {
+            bmc_site_wide_root: Some(up("bmc-u", "bmc-p")),
+            ..Default::default()
+        };
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        };
+        assert_eq!(snap.get_credentials(&key), Some(cred("bmc-u", "bmc-p")));
+    }
+
+    #[test]
     fn snapshot_unsupported_keys_return_none() {
         let snap = populated_snapshot();
-        let keys: Vec<CredentialKey> = vec![
-            CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::SiteWideRoot,
-            },
-            CredentialKey::ExtensionService {
-                service_id: "svc".to_string(),
-                version: "1".to_string(),
-            },
-            CredentialKey::RackFirmware {
-                firmware_id: "fw".to_string(),
-            },
-        ];
+        let keys: Vec<CredentialKey> = vec![CredentialKey::ExtensionService {
+            service_id: "svc".to_string(),
+            version: "1".to_string(),
+        }];
         for key in &keys {
             assert_eq!(snap.get_credentials(key), None, "expected None for {key:?}");
         }

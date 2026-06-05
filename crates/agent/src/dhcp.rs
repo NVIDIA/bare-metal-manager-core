@@ -17,7 +17,7 @@
 use std::net::Ipv4Addr;
 
 use ::rpc::forge as rpc;
-use carbide_utils::models::dhcp::HostConfig;
+use carbide_rpc_utils::dhcp::HostConfig;
 use gtmpl_derive::Gtmpl;
 
 use crate::HBNDeviceNames;
@@ -66,7 +66,7 @@ pub fn build_server_config(
     nameservers: Vec<Ipv4Addr>,
     loopback_ip: Ipv4Addr,
 ) -> Result<String, eyre::Report> {
-    let dhcp_config = carbide_utils::models::dhcp::DhcpConfig::from_forge_dhcp_config(
+    let dhcp_config = carbide_rpc_utils::dhcp::DhcpConfig::from_forge_dhcp_config(
         pxe_ip,
         ntpservers,
         nameservers,

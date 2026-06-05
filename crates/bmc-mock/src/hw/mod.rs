@@ -24,6 +24,9 @@ pub mod nic;
 /// Support of NVIDIA Bluefield3 DPU.
 pub mod bluefield3;
 
+/// Generic AMI server.
+pub mod generic_ami;
+
 /// Support of Dell PowerEdge R750 servers.
 pub mod dell_poweredge_r750;
 

@@ -19,22 +19,18 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// JWT `alg` for per-tenant signing keys. Only ES256 (ECDSA P-256) is implemented end-to-end.
 pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 
-/// Per-tenant JWT signing algorithm persisted in `tenant_identity_config.algorithm` and site config.
+/// Per-tenant JWT signing algorithm persisted inside `signing_key_public_*` JSON (`alg`) and site config.
 /// Only [`SigningAlgorithm::Es256`] is implemented end-to-end today; the enum leaves room for more JOSE `alg` values later.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum SigningAlgorithm {
+    #[default]
     Es256,
-}
-
-impl Default for SigningAlgorithm {
-    fn default() -> Self {
-        Self::Es256
-    }
 }
 
 impl SigningAlgorithm {
@@ -79,7 +75,7 @@ impl sqlx::Type<sqlx::Postgres> for SigningAlgorithm {
 impl sqlx::Encode<'_, sqlx::Postgres> for SigningAlgorithm {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.to_string(), buf)
     }
@@ -96,7 +92,8 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for SigningAlgorithm {
 // --- JWT issuer (`iss`) ---
 
 /// Normalized JWT issuer URL or SPIFFE ID.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(transparent, type_name = "VARCHAR")]
 pub struct Issuer(String);
 
 impl Issuer {
@@ -180,28 +177,6 @@ impl FromStr for Issuer {
     }
 }
 
-impl sqlx::Type<sqlx::Postgres> for Issuer {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl sqlx::Encode<'_, sqlx::Postgres> for Issuer {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.0, buf)
-    }
-}
-
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Issuer {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        Self::try_from(s).map_err(|e: InvalidIssuer| sqlx::Error::Decode(Box::new(e)).into())
-    }
-}
-
 // --- Non-empty string newtype (shared) and machine-identity ciphertext types ---
 
 /// Owned UTF-8 string that is not empty and not only whitespace (`trim()` non-empty).
@@ -273,12 +248,16 @@ impl<S> sqlx::Type<sqlx::Postgres> for NonEmptyStr<S> {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         <String as sqlx::Type<sqlx::Postgres>>::type_info()
     }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
 }
 
 impl<S> sqlx::Encode<'_, sqlx::Postgres> for NonEmptyStr<S> {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.inner, buf)
     }
@@ -298,29 +277,193 @@ pub struct EncryptionKeyIdTag;
 /// Selects the AES key under `machine_identity.encryption_keys` and labels encryption envelopes.
 pub type EncryptionKeyId = NonEmptyStr<EncryptionKeyIdTag>;
 
-/// Marker for JWT `kid` / `tenant_identity_config.key_id` (e.g. hex digest of public key material).
+/// Marker for JWT `kid` inside `signing_key_public_*` JSON (e.g. hex digest of public key material).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantIdentitySigningKeyIdTag;
 
-/// Per-tenant signing key identifier stored in `key_id` (JWT `kid`); must be non-empty.
+/// Per-tenant signing key identifier (JWT `kid`), stored in `signing_key_public_*` JSON; must be non-empty.
 pub type KeyId = NonEmptyStr<TenantIdentitySigningKeyIdTag>;
 
-/// Marker for `tenant_identity_config.signing_key_public` (SPKI PEM text).
+impl KeyId {
+    /// JWT `kid` from `hex(sha256(utf8_bytes(public_key_material)))`.
+    ///
+    /// Delegates to [`Self::key_id_from_public_key`] (e.g. SPKI PEM from
+    /// ES256 key generation). Infallible: that function always yields 64 hex characters.
+    pub fn from_public_key_material(public_key_material: &str) -> Self {
+        Self::try_from(Self::key_id_from_public_key(public_key_material))
+            .expect("key_id_from_public_key yields 64 hex chars, always non-empty")
+    }
+
+    /// Computes key_id as hex(sha256(public_key)).
+    /// Works with any public key representation (PEM, DER, etc.).
+    ///
+    /// API domain code should prefer `KeyId::from_public_key_material` in `carbide-api-model`, which
+    /// delegates to this function (one implementation).
+    fn key_id_from_public_key(public_key: &str) -> String {
+        let hash = Sha256::digest(public_key.as_bytes());
+        hex::encode(hash)
+    }
+}
+
+/// Marker for `tenant_identity_config` PEM text embedded in signing public JSON (`public_pem`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantSigningPublicKeyPemTag;
 
-/// ES256 public key in PEM form (`signing_key_public` column).
+/// ES256 public key in PEM form (stored in `signing_key_public_* .public_pem`).
 pub type SigningPublicKeyPem = NonEmptyStr<TenantSigningPublicKeyPemTag>;
+
+fn serialize_signing_algorithm_as_jwt_alg_str<S>(
+    alg: &SigningAlgorithm,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(alg.as_jwt_alg_str())
+}
+
+/// Versioned signing public metadata JSON (`tenant_identity_config.signing_key_public_1|2`).
+///
+/// Fields are private; use [`Self::v`], [`Self::kid`], [`Self::alg`], [`Self::public_pem`].
+/// `serde::Deserialize` trims `public_pem` before recomputing [`KeyId`], matching [`Self::es256_from_public_pem`].
+/// JSON `alg` remains a JWT string (e.g. `"ES256"`), not an enum object — see [`serialize_signing_algorithm_as_jwt_alg_str`].
+/// `kid` and `public_pem` are trimmed on build/deserialize so values match [`KeyId::from_public_key_material`].
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct SigningKeyPublicV1 {
+    v: u32,
+    kid: String,
+    #[serde(serialize_with = "serialize_signing_algorithm_as_jwt_alg_str")]
+    alg: SigningAlgorithm,
+    public_pem: String,
+}
+
+#[derive(Deserialize)]
+struct SigningKeyPublicV1Wire {
+    v: u32,
+    kid: String,
+    alg: String,
+    public_pem: String,
+}
+
+impl<'de> Deserialize<'de> for SigningKeyPublicV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = SigningKeyPublicV1Wire::deserialize(deserializer)?;
+        let alg: SigningAlgorithm = wire.alg.parse().map_err(serde::de::Error::custom)?;
+        Self::try_from_parts(wire.v, wire.kid, alg, wire.public_pem)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl SigningKeyPublicV1 {
+    /// Only [`SigningAlgorithm::Es256`] is accepted for v1 documents, even if more variants are
+    /// added to [`SigningAlgorithm`] later (e.g. for other config surfaces).
+    fn try_from_parts(
+        v: u32,
+        kid: String,
+        alg: SigningAlgorithm,
+        public_pem: String,
+    ) -> Result<Self, String> {
+        let public_pem = public_pem.trim();
+        if public_pem.is_empty() {
+            return Err("signing public PEM is empty".to_string());
+        }
+        let public_pem = public_pem.to_string();
+        if v != 1 {
+            return Err(format!(
+                "unsupported tenant signing public document version {v}"
+            ));
+        }
+        let kid = kid.trim();
+        if kid.is_empty() {
+            return Err("signing public kid is empty".to_string());
+        }
+        let expected_kid = KeyId::from_public_key_material(&public_pem);
+        if expected_kid.as_str() != kid {
+            return Err("signing public kid does not match public_pem".to_string());
+        }
+        let kid = kid.to_string();
+        if alg != SigningAlgorithm::Es256 {
+            return Err("only ES256 tenant signing keys are supported".to_string());
+        }
+        Ok(Self {
+            v,
+            kid,
+            alg,
+            public_pem,
+        })
+    }
+
+    #[must_use]
+    pub const fn v(&self) -> u32 {
+        self.v
+    }
+
+    #[must_use]
+    pub fn kid(&self) -> &str {
+        self.kid.as_str()
+    }
+
+    #[must_use]
+    pub const fn alg(&self) -> SigningAlgorithm {
+        self.alg
+    }
+
+    #[must_use]
+    pub fn public_pem(&self) -> &str {
+        self.public_pem.as_str()
+    }
+
+    /// Builds version-1 JSON content for an ES256 SPKI PEM (canonical `kid` from [`KeyId::from_public_key_material`]).
+    ///
+    /// PEM is trimmed before hashing and storage so `kid` always matches persisted `public_pem`.
+    /// Generated PEM often ends with a trailing newline.
+    pub fn es256_from_public_pem(public_pem: &str) -> Result<Self, String> {
+        let trimmed = public_pem.trim();
+        if trimmed.is_empty() {
+            return Err("signing public PEM is empty".to_string());
+        }
+        let kid = KeyId::from_public_key_material(trimmed);
+        Self::try_from_parts(
+            1,
+            kid.as_str().to_string(),
+            SigningAlgorithm::Es256,
+            trimmed.to_string(),
+        )
+    }
+}
+
+/// Database enum `tenant_identity_current_signing_key_slot_t`: which slot signs new JWTs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "tenant_identity_current_signing_key_slot_t")]
+pub enum TenantIdentityCurrentSigningKeySlot {
+    #[sqlx(rename = "signing_key_1")]
+    SigningKey1,
+    #[sqlx(rename = "signing_key_2")]
+    SigningKey2,
+}
+
+impl TenantIdentityCurrentSigningKeySlot {
+    #[must_use]
+    pub const fn other(self) -> Self {
+        match self {
+            Self::SigningKey1 => Self::SigningKey2,
+            Self::SigningKey2 => Self::SigningKey1,
+        }
+    }
+}
 
 /// Non-empty UTF-8 string holding a `key_encryption` JSON envelope (base64). `M` distinguishes
 /// what plaintext the ciphertext wraps so distinct columns are not interchangeable.
 pub type EnvelopeCiphertext<M> = NonEmptyStr<M>;
 
-/// Marker for `tenant_identity_config.encrypted_signing_key` (encrypted ES256 private PEM).
+/// Marker for `tenant_identity_config.encrypted_signing_key_*` (encrypted ES256 private PEM).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TenantSigningPrivateKeyCiphertextTag;
 
-/// Ciphertext for stored signing private key (`encrypted_signing_key`).
+/// Ciphertext for a stored signing private key slot (`encrypted_signing_key_1` / `_2`).
 pub type EncryptedSigningPrivateKey = EnvelopeCiphertext<TenantSigningPrivateKeyCiphertextTag>;
 
 /// Marker for token-delegation auth config ciphertext (`encrypted_auth_method_config`).
@@ -330,3 +473,67 @@ pub struct TokenDelegationEncryptedAuthConfigTag;
 /// Ciphertext for `tenant_identity_config.encrypted_auth_method_config` (delegation client secret JSON).
 pub type EncryptedTokenDelegationAuthConfig =
     EnvelopeCiphertext<TokenDelegationEncryptedAuthConfigTag>;
+
+#[cfg(test)]
+mod key_id_tests {
+    use p256::pkcs8::{DecodePrivateKey, DecodePublicKey};
+    use serde_json::json;
+
+    use super::{KeyId, SigningKeyPublicV1};
+
+    #[test]
+    fn key_id_from_public_key_material_is_deterministic_hex64() {
+        let pem = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let a = KeyId::from_public_key_material(pem);
+        let b = KeyId::from_public_key_material(pem);
+        assert_eq!(a, b);
+        assert_eq!(a.as_str().len(), 64);
+        assert!(a.as_str().chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn es256_public_doc_trims_trailing_newline() {
+        let base = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let pem = format!("{base}\n");
+        let doc = SigningKeyPublicV1::es256_from_public_pem(&pem).expect("build doc");
+        assert_eq!(doc.public_pem(), base);
+        assert_eq!(doc.kid(), KeyId::from_public_key_material(base).as_str());
+    }
+
+    #[test]
+    fn signing_public_doc_trims_whitespace_around_kid() {
+        let base = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let canonical = SigningKeyPublicV1::es256_from_public_pem(base).expect("build doc");
+        let loose_kid = format!(" \t{} \n", canonical.kid());
+        let v = json!({
+            "v": 1,
+            "kid": loose_kid,
+            "alg": "ES256",
+            "public_pem": canonical.public_pem(),
+        });
+        let doc: SigningKeyPublicV1 = serde_json::from_value(v).expect("deserialize");
+        assert_eq!(doc.kid(), canonical.kid());
+        assert_eq!(doc, canonical);
+    }
+
+    #[test]
+    fn key_id_from_public_ke_yis_deterministic() {
+        let pub_key = "-----BEGIN PUBLIC KEY-----\nMFkw...\n-----END PUBLIC KEY-----";
+        let id1 = KeyId::key_id_from_public_key(pub_key);
+        let id2 = KeyId::key_id_from_public_key(pub_key);
+        assert_eq!(id1, id2);
+        assert_eq!(id1.len(), 64);
+    }
+
+    #[test]
+    fn generate_es256_key_pair_produces_valid_outputs() {
+        let (private_pem, public_pem) =
+            forge_secrets::key_encryption::generate_es256_key_pair().unwrap();
+        assert!(private_pem.starts_with(b"-----BEGIN"));
+        assert!(public_pem.contains("PUBLIC KEY"));
+        let key_id = KeyId::key_id_from_public_key(&public_pem);
+        assert_eq!(key_id.len(), 64);
+        p256::PublicKey::from_public_key_pem(public_pem.trim()).unwrap();
+        p256::SecretKey::from_pkcs8_pem(std::str::from_utf8(&private_pem).unwrap()).unwrap();
+    }
+}

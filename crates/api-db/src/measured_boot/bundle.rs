@@ -453,7 +453,7 @@ async fn match_bundle(
     // in the bundle, and return the most specific bundle
     // match (as in, the most unique values, if there is
     // one). If there's a conflict, then return an error.
-    matching.sort_by(|a, b| b.values.len().cmp(&a.values.len()));
+    matching.sort_by_key(|b| std::cmp::Reverse(b.values.len()));
     if matching[0].values.len() == matching[1].values.len() {
         return Err(DatabaseError::internal(String::from(
             "cannot determine most specific bundle match",
@@ -713,7 +713,7 @@ fn remove_all_subsets(bundles: &mut Vec<MeasurementBundle>) {
     // 3. if the shorter bundle is the subset, then remove it from the vector
 
     // 1.
-    bundles.sort_by(|a, b| b.values.len().cmp(&a.values.len()));
+    bundles.sort_by_key(|b| std::cmp::Reverse(b.values.len()));
 
     // 2.
     let mut indices_to_be_removed = Vec::<usize>::new();
@@ -1019,7 +1019,7 @@ mod tests {
 
     #[test]
     fn test_match_closest_bundle_better_match() {
-        let measurement_bundles = vec![
+        let measurement_bundles = [
             create_bundle_no_matches(),
             create_bundle_one_matching(),
             create_bundle_two_matching(),

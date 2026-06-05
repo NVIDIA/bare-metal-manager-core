@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
-use rand::Rng;
+use rand::RngExt;
 use rpc::Metadata;
 use rpc::forge::{
     GetNextRemediationForMachineRequest, RemediationApplicationStatus, RemediationAppliedRequest,

@@ -105,6 +105,7 @@ extern "C" {
 int pkt4_receive(CalloutHandle &handle);
 int subnet4_select(CalloutHandle &handle);
 int lease4_select(CalloutHandle &handle);
+int lease4_renew(CalloutHandle &handle);
 int pkt4_send(CalloutHandle &handle);
 int lease4_expire(CalloutHandle &handle);
 int lease6_expire(CalloutHandle &handle);

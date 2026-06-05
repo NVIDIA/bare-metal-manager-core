@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge::{self as forgerpc};
 use prettytable::{Table, row};
 
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::health_report::cmd::get_empty_template;
 use crate::machine::{HealthReportTemplates, get_health_report};
 

@@ -19,12 +19,13 @@
 // Command handlers for lockdown operations.
 
 use libmlx::lockdown::lockdown::StatusReport;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
     LockdownCommand, LockdownLockCommand, LockdownStatusCommand, LockdownUnlockCommand,
 };
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::mlx::CliContext;
 
 // dispatch routes lockdown subcommands to their handlers.

@@ -83,7 +83,7 @@ When a `firmware_version` is supplied through the CLI, the maintenance handler r
 
 ## gRPC API
 
-**Service method** (in `Forge` service):
+**Service method** (in `NICo` service):
 
 ```protobuf
 rpc OnDemandRackMaintenance(RackMaintenanceOnDemandRequest) returns (RackMaintenanceOnDemandResponse);
@@ -167,7 +167,7 @@ Power shelves continue to use the component manager backend directly (they do no
 ### Example: CLI triggers compute tray firmware upgrade
 
 ```bash
-carbide-cli component firmware update \
+nico-cli component firmware update \
   --compute-trays machine-001,machine-002 \
   --target-version fw-v2.1
 ```
@@ -189,7 +189,7 @@ The gRPC handler rejects the request with an error if:
 
 ## RBAC
 
-The `OnDemandRackMaintenance` permission is granted to the `ForgeAdminCLI` role.
+The `OnDemandRackMaintenance` permission is granted to the `NicoAdminCLI` role.
 
 ## Failure Handling
 
@@ -250,4 +250,4 @@ When the rack is in `Ready`, three config flags are checked in order. The first 
 | Firmware resolution & upgrade start | `start_firmware_upgrade` in `crates/api/src/state_controller/rack/maintenance.rs` |
 | Maintenance state dispatch | `handle_maintenance` in `crates/api/src/state_controller/rack/maintenance.rs` |
 | Component manager firmware entry point | `update_component_firmware` in `crates/api/src/handlers/component_manager.rs` |
-| Protobuf definitions | `crates/rpc/proto/forge.proto` |
+| Protobuf definitions | `crates/rpc/proto/nico.proto` |

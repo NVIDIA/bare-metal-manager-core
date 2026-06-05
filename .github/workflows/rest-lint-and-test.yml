@@ -1,0 +1,239 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Lint and Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+defaults:
+  run:
+    working-directory: rest-api
+
+env:
+  GO_VERSION: "1.25.4"
+
+jobs:
+  style:
+    name: Style Check
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install and run revive
+        run: |
+          go install github.com/mgechev/revive@v1.3.9
+          pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
+          go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config .revive.toml -set_exit_status
+
+      - name: Run go fmt
+        run: |
+          pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
+          go fmt $pkgs > /dev/null 2>&1
+          if git diff --quiet; then
+            echo "go fmt was clean"
+          else
+            echo "::error::go fmt was unclean on the following files:"
+            git -P diff --name-only
+            exit 1
+          fi
+
+  lint-go:
+    name: Lint Go
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.7.2
+          args: --timeout=10m --issues-exit-code=0 ./...
+          working-directory: rest-api
+
+  lint-openapi:
+    name: Lint OpenAPI
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install Redocly CLI
+        run: npm install -g @redocly/cli@latest
+
+      - name: Run OpenAPI lint
+        run: redocly lint ./openapi/spec.yaml --format=github-actions
+
+  check-generated-files:
+    name: Check Generated Files
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check OpenAPI generated files are up to date
+        run: |
+          BASE="origin/main"
+          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+            echo "Base branch $BASE not found, skipping check."
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE"...HEAD)
+
+          if echo "$CHANGED" | grep -q '^rest-api/openapi/spec.yaml$'; then
+            SDK_UPDATED=false
+            DOCS_UPDATED=false
+            echo "$CHANGED" | grep -q '^rest-api/sdk/standard/' && SDK_UPDATED=true
+            echo "$CHANGED" | grep -q '^rest-api/docs/index.html$' && DOCS_UPDATED=true
+
+            if [ "$SDK_UPDATED" = false ]; then
+              echo "::warning::rest-api/sdk/standard/ was not updated. Please ensure you have run: make generate-sdk"
+            fi
+            if [ "$DOCS_UPDATED" = false ]; then
+              echo "::warning::rest-api/docs/index.html was not updated. Please ensure you have run: make publish-openapi"
+            fi
+
+            if [ "$SDK_UPDATED" = false ] && [ "$DOCS_UPDATED" = false ]; then
+              echo "::error::rest-api/openapi/spec.yaml was modified but neither rest-api/sdk/standard/ nor rest-api/docs/index.html was updated."
+              exit 1
+            fi
+            echo "✓ rest-api/openapi/spec.yaml changed and generated files were also updated (sdk=$SDK_UPDATED, docs=$DOCS_UPDATED)."
+          else
+            echo "✓ rest-api/openapi/spec.yaml not changed, skipping generated files check."
+          fi
+
+  check-protobuf-generated:
+    name: Check Protobuf Generated Code
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Install buf and protoc plugins
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@latest
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Regenerate protobuf code
+        run: |
+          cd workflow-schema && buf generate
+          cd flow && buf generate
+
+      - name: Check for uncommitted changes
+        run: |
+          UNTRACKED=$(git ls-files --others --exclude-standard)
+
+          MEANINGFUL_DIFF=$(git diff --unified=0 | grep '^[+-]' | grep -v '^[+-][+-][+-]' | grep -v '^[+-]//.*protoc-gen-go' | grep -v '^[+-]//.*protoc v' || true)
+
+          if [ -z "$MEANINGFUL_DIFF" ] && [ -z "$UNTRACKED" ]; then
+            echo "✓ Protobuf generated code is up to date."
+          else
+            echo "::error::Protobuf generated code is out of date. Please run 'make core-protogen' and 'make flow-protogen' and commit the results."
+            echo ""
+            echo "Changed files:"
+            git status --porcelain
+            echo ""
+            echo "Diff:"
+            git -P diff
+            if [ -n "$UNTRACKED" ]; then
+              echo ""
+              echo "Untracked files:"
+              echo "$UNTRACKED"
+            fi
+            exit 1
+          fi
+
+  test:
+    name: Test (${{ matrix.module }})
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        # TODO: add flow / powershelf-manager / nvswitch-manager when rest-api/Makefile gets test-<X> targets
+        module:
+          - api
+          - auth
+          - cert-manager
+          - common
+          - db
+          - ipam
+          - site-agent
+          - site-manager
+          - site-workflow
+          - workflow
+
+    env:
+      # db/pkg/util/testing.go uses 'postgres' hostname when CI=true (GitLab convention); force localhost.
+      CI: "false"
+      DB_NAME: nicotest
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 30432
+      CGO_ENABLED: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Run unit tests for ${{ matrix.module }}
+        working-directory: .
+        run: make rest-api/test-${{ matrix.module }}

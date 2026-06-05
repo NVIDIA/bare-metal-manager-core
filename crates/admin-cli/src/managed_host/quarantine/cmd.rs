@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-
 use super::args::{Args, QuarantineOff, QuarantineOn};
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn quarantine_on(api_client: &ApiClient, args: QuarantineOn) -> CarbideCliResult<()> {

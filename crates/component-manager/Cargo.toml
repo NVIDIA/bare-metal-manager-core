@@ -25,8 +25,11 @@ authors.workspace = true
 async-trait = { workspace = true }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model" }
+carbide-redfish = { path = "../redfish" }
+carbide-secrets = { path = "../secrets" }
 carbide-uuid = { path = "../uuid" }
 chrono = { workspace = true }
+libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }

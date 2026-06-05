@@ -190,6 +190,7 @@ max_partition_per_tenant = 3
     }
 
     #[test]
+    #[allow(clippy::result_large_err)] // complains about figma::Error which we don't control
     fn deserialize_serialize_ib_config() {
         // An empty config matches the default object
         let deserialized_empty: IBFabricConfig = serde_json::from_str("{}").unwrap();

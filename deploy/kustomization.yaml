@@ -23,20 +23,20 @@ generatorOptions:
 buildMetadata: [originAnnotations]
 
 resources:
-  - forge-system
+  - nico-system
 
 images:
-  - name: yourdockerregistry.com/path/to/carbide-core
-    newName: CARBIDE_REGISTRY_PATH/carbide-core
-    newTag: CARBIDE_TAG
+  - name: yourdockerregistry.com/path/to/nico-core
+    newName: NICO_REGISTRY_PATH/nico-core
+    newTag: NICO_TAG
   - name: yourdockerregistry.com/path/to/boot-artifacts-aarch64
-    newName: CARBIDE_REGISTRY_PATH/boot-artifacts-aarch64
+    newName: NICO_REGISTRY_PATH/boot-artifacts-aarch64
     newTag: BOOT_ARTIFACTS_AARCH64_TAG
   - name: yourdockerregistry.com/path/to/boot-artifacts-x86_64
-    newName: CARBIDE_REGISTRY_PATH/boot-artifacts-x86_64
+    newName: NICO_REGISTRY_PATH/boot-artifacts-x86_64
     newTag: BOOT_ARTIFACTS_X86_TAG
   - name: yourdockerregistry.com/path/to/nvmetal-scout-burn-in
-    newName: CARBIDE_REGISTRY_PATH/machine_validation
+    newName: NICO_REGISTRY_PATH/machine_validation
     newTag: MACHINE_VALIDATION_TAG
 
 #
@@ -46,63 +46,63 @@ patches:
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_DHCP_EXTERNAL_IP
+        value: NICO_DHCP_EXTERNAL_IP
     target:
       version: v1
       kind: Service
-      name: carbide-dhcp-external
+      name: nico-dhcp-external
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_DNS_INSTANCE_0_IP
+        value: NICO_DNS_INSTANCE_0_IP
     target:
       version: v1
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-dns-instance-0
+      labelSelector: app.kubernetes.io/part-of=nico-dns-instance-0
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_DNS_INSTANCE_1_IP
+        value: NICO_DNS_INSTANCE_1_IP
     target:
       version: v1
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-dns-instance-1
+      labelSelector: app.kubernetes.io/part-of=nico-dns-instance-1
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_PXE_IP
+        value: NICO_PXE_IP
     target:
       version: v1
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-pxe
+      labelSelector: app.kubernetes.io/part-of=nico-pxe
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_API_EXTERNAL_IP
+        value: NICO_API_EXTERNAL_IP
     target:
       version: v1
       kind: Service
-      name: carbide-api-external
+      name: nico-api-external
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_SSH_CONSOLE_EXTERNAL_IP
+        value: NICO_SSH_CONSOLE_EXTERNAL_IP
     target:
       version: v1
       kind: Service
-      name: carbide-ssh-console-rs-external
+      name: nico-ssh-console-rs-external
   - patch: |-
       apiVersion: v1
       kind: Service
       metadata:
-        name: forge-unbound
+        name: nico-unbound
       spec:
         type: LoadBalancer
-        loadBalancerIP: FORGE_UNBOUND_EXTERNAL_IP
+        loadBalancerIP: NICO_UNBOUND_EXTERNAL_IP
     target:
       version: v1
       kind: Service
-      name: forge-unbound
+      name: nico-unbound
   - patch: |-
       - op: add
         path: "/spec/dnsNames/0"
@@ -111,47 +111,47 @@ patches:
       group: cert-manager.io
       version: v1
       kind: Certificate
-      name: carbide-api-certificate
+      name: nico-api-certificate
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_NTP_SERVERS_IP_0
+        value: NICO_NTP_SERVERS_IP_0
     target:
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-0
+      labelSelector: app.kubernetes.io/part-of=nico-ntp-instance-0
       version: v1
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_NTP_SERVERS_IP_1
+        value: NICO_NTP_SERVERS_IP_1
     target:
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-1
+      labelSelector: app.kubernetes.io/part-of=nico-ntp-instance-1
       version: v1
   - patch: |-
       - op: add
         path: "/metadata/annotations/metallb.universe.tf~1loadBalancerIPs"
-        value: CARBIDE_NTP_SERVERS_IP_2
+        value: NICO_NTP_SERVERS_IP_2
     target:
       kind: Service
-      labelSelector: app.kubernetes.io/part-of=carbide-ntp-instance-2
+      labelSelector: app.kubernetes.io/part-of=nico-ntp-instance-2
       version: v1
 
 configMapGenerator:
-  - name: carbide-dhcp-config
+  - name: nico-dhcp-config
     files:
       - files/kea_config.json
-  - name: carbide-api-site-config-files
+  - name: nico-api-site-config-files
     behavior: merge
     files:
-      - files/carbide-api/carbide-api-site-config.toml
-      - files/carbide-api/admin_root_cert_pem
-  - name: carbide-dns-config
+      - files/nico-api/nico-api-site-config.toml
+      - files/nico-api/admin_root_cert_pem
+  - name: nico-dns-config
     literals:
-      - "CARBIDE_API=https://carbide-api.forge-system.svc.cluster.local:1079"
-  - name: carbide-pxe-env-config
+      - "NICO_API=https://nico-api.nico-system.svc.cluster.local:1079"
+  - name: nico-pxe-env-config
     literals:
-      - "CARBIDE_STATIC_PXE_URL=http://carbide-static-pxe.forge"
+      - "NICO_STATIC_PXE_URL=http://nico-static-pxe.nico"
   - name: unbound-local-config
     behavior: merge
     files:
@@ -159,6 +159,6 @@ configMapGenerator:
       - local_data.conf=files/unbound/local_data.conf
       # Set up forwarders
       - forwarders.conf=files/unbound/forwarders.conf
-  - name: carbide-web-api-hostname
+  - name: nico-web-api-hostname
     literals:
       - "hostname=api-ENVIORNMENT_NAME.SITE_DOMAIN_NAME"

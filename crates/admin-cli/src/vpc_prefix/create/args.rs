@@ -96,7 +96,6 @@ impl From<Args> for VpcPrefixCreationRequest {
         VpcPrefixCreationRequest {
             id: args.vpc_prefix_id,
             prefix: String::new(), // Deprecated field
-            name: String::new(),   // Deprecated field
             vpc_id: Some(args.vpc_id),
             config: Some(rpc::forge::VpcPrefixConfig {
                 prefix: args.prefix.to_string(),

@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+#
+
+env:
+  dev: true
+  disconnected: true
+
+log:
+  level: debug
+  sentry:
+    dsn: ""
+
+api:
+  name: nico
+  route:
+    version: v2
+
+db:
+  host: localhost
+  port: 30432
+  name: nico
+  user: nico
+  password: nico
+
+temporal:
+  host: localhost
+  port: 30233
+  serverName: server.temporal.test.com
+  namespace: cloud
+  queue: cloud
+  tls:
+    enabled: true
+    certPath: certs/client-cloud/tls.crt
+    keyPath: certs/client-cloud/tls.key
+    caPath: certs/client-cloud/ca.crt
+  encryptionKey: "local-dev" # Must match encryption key in workflow module
+
+issuers:
+  - name: kas
+    origin: kas-legacy
+    jwks: https://authn.nvidia.com/pubJWKS
+    issuer: "authn.nvidia.com"
+
+siteManager:
+  enabled: false
+  svcEndpoint: "https://sitemgr.nico-rest-site-manager:8100/v1/site"
+
+metrics:
+  enabled: true
+  port: 9360
+
+tracing:
+  enabled: false
+  serviceName: cloud-api
+
+keycloak:
+  enabled: false
+  baseURL: http://keycloak.keycloak.svc.cluster.local:8082
+  externalBaseURL: https://keycloak.test.com
+  realm: nico
+  clientID: nico-cloud
+  clientSecretPath: /var/secrets/keycloak/client-secret
+  serviceAccount: true
+
+rateLimiter:
+  enabled: false
+  rate: 10.0        # requests per second
+  burst: 30         # maximum burst size
+  expiresIn: 180    # expiration time in seconds (3 minutes)

@@ -18,11 +18,10 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use clap::ValueEnum;
 use regex;
 use serde::{Deserialize, Serialize};
-
-use crate::device::info::MlxDeviceInfo;
 
 // MatchMode defines how filter values should be matched against device fields.
 // All matching is case-insensitive.

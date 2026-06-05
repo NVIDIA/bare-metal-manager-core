@@ -17,12 +17,13 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::OutputFormat;
 use carbide_uuid::dpu_remediations::RemediationId;
 use prettytable::{Table, row};
 use rpc::forge::{Remediation, RemediationList};
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln};
 

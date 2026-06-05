@@ -48,8 +48,7 @@ prettytable-rs = { workspace = true }
 
 # Async / networking
 tokio = { features = ["full"], workspace = true }
-reqwest = { features = ["rustls-tls"], workspace = true }
-async-ssh2-tokio = { workspace = true }
+reqwest = { features = ["rustls"], workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -63,6 +62,7 @@ quick-xml = { features = ["serialize"], workspace = true }
 prost-types = { workspace = true }
 
 # Utility
+async-trait = { workspace = true }
 regex = { workspace = true }
 chrono = { features = ["serde"], workspace = true }
 hostname = { workspace = true }
@@ -75,11 +75,21 @@ tempfile = { workspace = true }
 url = { workspace = true }
 
 # Internal
+carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
+carbide-ssh = { path = "../ssh" }
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
 [dev-dependencies]
+carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
+carbide-ssh = { path = "../ssh", features = ["test_support"] }
+russh = { workspace = true }
+
+[features]
+#default = ["mockdpa"]
+default = []
+mockdpa = []

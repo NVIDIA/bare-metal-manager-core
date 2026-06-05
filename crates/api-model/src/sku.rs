@@ -55,38 +55,6 @@ impl<'r> FromRow<'r, PgRow> for Sku {
     }
 }
 
-impl From<Sku> for rpc::forge::Sku {
-    fn from(value: Sku) -> Self {
-        rpc::forge::Sku {
-            schema_version: value.schema_version,
-            id: value.id,
-            description: Some(value.description),
-            created: Some(value.created.into()),
-            components: Some(value.components.into()),
-            // filled in afterwards
-            associated_machine_ids: Vec::default(),
-            device_type: value.device_type,
-        }
-    }
-}
-
-impl From<rpc::forge::Sku> for Sku {
-    fn from(value: rpc::forge::Sku) -> Self {
-        Sku {
-            schema_version: value.schema_version,
-            id: value.id,
-            description: value.description.unwrap_or_default(),
-            // Handle optional created field - if not provided, use current time
-            created: value
-                .created
-                .and_then(|t| DateTime::<Utc>::try_from(t).ok())
-                .unwrap_or_else(Utc::now),
-            components: value.components.unwrap_or_default().into(),
-            device_type: value.device_type,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SkuComponents {
     pub chassis: SkuComponentChassis,
@@ -100,100 +68,11 @@ pub struct SkuComponents {
     pub tpm: Option<SkuComponentTpm>,
 }
 
-impl From<rpc::forge::SkuComponents> for SkuComponents {
-    fn from(value: rpc::forge::SkuComponents) -> Self {
-        SkuComponents {
-            chassis: value.chassis.unwrap_or_default().into(),
-            cpus: value
-                .cpus
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            gpus: value
-                .gpus
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            memory: value
-                .memory
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            infiniband_devices: value
-                .infiniband_devices
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            storage: value
-                .storage
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            tpm: value.tpm.map(std::convert::Into::into),
-        }
-    }
-}
-
-impl From<SkuComponents> for rpc::forge::SkuComponents {
-    fn from(value: SkuComponents) -> Self {
-        rpc::forge::SkuComponents {
-            chassis: Some(value.chassis.into()),
-            cpus: value
-                .cpus
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            gpus: value
-                .gpus
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            ethernet_devices: Vec::default(),
-            infiniband_devices: value
-                .infiniband_devices
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            storage: value
-                .storage
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            memory: value
-                .memory
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
-            tpm: value.tpm.map(std::convert::Into::into),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct SkuComponentChassis {
     pub vendor: String,
     pub model: String,
     pub architecture: String,
-}
-
-impl From<rpc::forge::SkuComponentChassis> for SkuComponentChassis {
-    fn from(value: rpc::forge::SkuComponentChassis) -> Self {
-        SkuComponentChassis {
-            vendor: value.vendor,
-            model: value.model,
-            architecture: value.architecture,
-        }
-    }
-}
-
-impl From<SkuComponentChassis> for rpc::forge::SkuComponentChassis {
-    fn from(value: SkuComponentChassis) -> Self {
-        rpc::forge::SkuComponentChassis {
-            vendor: value.vendor,
-            model: value.model,
-            architecture: value.architecture,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
@@ -202,28 +81,6 @@ pub struct SkuComponentCpu {
     pub model: String,
     pub thread_count: u32,
     pub count: u32,
-}
-
-impl From<rpc::forge::SkuComponentCpu> for SkuComponentCpu {
-    fn from(value: rpc::forge::SkuComponentCpu) -> Self {
-        SkuComponentCpu {
-            vendor: value.vendor,
-            model: value.model,
-            count: value.count,
-            thread_count: value.thread_count,
-        }
-    }
-}
-
-impl From<SkuComponentCpu> for rpc::forge::SkuComponentCpu {
-    fn from(value: SkuComponentCpu) -> Self {
-        rpc::forge::SkuComponentCpu {
-            vendor: value.vendor,
-            model: value.model,
-            count: value.count,
-            thread_count: value.thread_count,
-        }
-    }
 }
 
 impl From<&CpuInfo> for SkuComponentCpu {
@@ -251,53 +108,11 @@ impl Display for SkuComponentGpu {
     }
 }
 
-impl From<rpc::forge::SkuComponentGpu> for SkuComponentGpu {
-    fn from(value: rpc::forge::SkuComponentGpu) -> Self {
-        SkuComponentGpu {
-            vendor: value.vendor,
-            model: value.model,
-            total_memory: value.total_memory,
-            count: value.count,
-        }
-    }
-}
-
-impl From<SkuComponentGpu> for rpc::forge::SkuComponentGpu {
-    fn from(value: SkuComponentGpu) -> Self {
-        rpc::forge::SkuComponentGpu {
-            vendor: value.vendor,
-            model: value.model,
-            total_memory: value.total_memory,
-            count: value.count,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentMemory {
     pub memory_type: String,
     pub capacity_mb: u32,
     pub count: u32,
-}
-
-impl From<rpc::forge::SkuComponentMemory> for SkuComponentMemory {
-    fn from(value: rpc::forge::SkuComponentMemory) -> Self {
-        SkuComponentMemory {
-            memory_type: value.memory_type,
-            capacity_mb: value.capacity_mb,
-            count: value.count,
-        }
-    }
-}
-
-impl From<SkuComponentMemory> for rpc::forge::SkuComponentMemory {
-    fn from(value: SkuComponentMemory) -> Self {
-        rpc::forge::SkuComponentMemory {
-            memory_type: value.memory_type,
-            capacity_mb: value.capacity_mb,
-            count: value.count,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Ord, PartialOrd)]
@@ -319,52 +134,10 @@ pub struct SkuComponentInfinibandDevices {
     pub inactive_devices: Vec<u32>,
 }
 
-impl From<rpc::forge::SkuComponentInfinibandDevices> for SkuComponentInfinibandDevices {
-    fn from(value: rpc::forge::SkuComponentInfinibandDevices) -> Self {
-        SkuComponentInfinibandDevices {
-            vendor: value.vendor,
-            model: value.model,
-            count: value.count,
-            inactive_devices: value.inactive_devices,
-        }
-    }
-}
-
-impl From<SkuComponentInfinibandDevices> for rpc::forge::SkuComponentInfinibandDevices {
-    fn from(value: SkuComponentInfinibandDevices) -> Self {
-        rpc::forge::SkuComponentInfinibandDevices {
-            vendor: value.vendor,
-            model: value.model,
-            count: value.count,
-            inactive_devices: value.inactive_devices,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SkuComponentStorage {
     pub model: String,
     pub count: u32,
-}
-
-impl From<rpc::forge::SkuComponentStorage> for SkuComponentStorage {
-    fn from(value: rpc::forge::SkuComponentStorage) -> Self {
-        SkuComponentStorage {
-            model: value.model,
-            count: value.count,
-        }
-    }
-}
-
-impl From<SkuComponentStorage> for rpc::forge::SkuComponentStorage {
-    fn from(value: SkuComponentStorage) -> Self {
-        rpc::forge::SkuComponentStorage {
-            vendor: String::default(),
-            model: value.model,
-            capacity_mb: 0u32,
-            count: value.count,
-        }
-    }
 }
 
 impl Display for SkuComponentStorage {
@@ -377,24 +150,6 @@ impl Display for SkuComponentStorage {
 pub struct SkuComponentTpm {
     pub vendor: String,
     pub version: String,
-}
-
-impl From<rpc::forge::SkuComponentTpm> for SkuComponentTpm {
-    fn from(value: rpc::forge::SkuComponentTpm) -> Self {
-        SkuComponentTpm {
-            vendor: value.vendor,
-            version: value.version,
-        }
-    }
-}
-
-impl From<SkuComponentTpm> for rpc::forge::SkuComponentTpm {
-    fn from(value: SkuComponentTpm) -> Self {
-        rpc::forge::SkuComponentTpm {
-            vendor: value.vendor,
-            version: value.version,
-        }
-    }
 }
 
 impl Display for SkuComponentTpm {
@@ -424,36 +179,6 @@ pub struct SkuStatus {
     // if the assigned SKU exists or the assigned SKU is not from the
     // expected machine.
     pub last_generate_attempt: Option<DateTime<Utc>>,
-}
-
-impl From<rpc::forge::SkuStatus> for SkuStatus {
-    fn from(value: rpc::forge::SkuStatus) -> Self {
-        let verify_request_time = value
-            .verify_request_time
-            .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
-        let last_match_attempt = value
-            .last_match_attempt
-            .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
-        let last_generate_attempt = value
-            .last_generate_attempt
-            .map(|t| DateTime::<Utc>::try_from(t).unwrap_or_default());
-
-        SkuStatus {
-            verify_request_time,
-            last_match_attempt,
-            last_generate_attempt,
-        }
-    }
-}
-
-impl From<SkuStatus> for rpc::forge::SkuStatus {
-    fn from(value: SkuStatus) -> Self {
-        rpc::forge::SkuStatus {
-            verify_request_time: value.verify_request_time.map(|t| t.into()),
-            last_match_attempt: value.last_match_attempt.map(|t| t.into()),
-            last_generate_attempt: value.last_generate_attempt.map(|t| t.into()),
-        }
-    }
 }
 
 /// diff an actual sku against an expected sku and return the differences.

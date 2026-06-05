@@ -21,9 +21,10 @@ use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::DpuMode;
+use rpc::forge::{DpuMode, ExpectedHostNic};
 use serde::{Deserialize, Serialize};
+
+use crate::errors::{CarbideCliError, CarbideCliResult};
 
 /// `forge-admin-cli expected-machine add` — mirrors expected switch flags; optional
 /// `--bmc-ip-address` forwards to the API static-BMC pre-allocation path.
@@ -33,8 +34,12 @@ pub struct Args {
     pub bmc_mac_address: MacAddress,
     #[clap(short = 'u', long, help = "BMC username of the expected machine")]
     pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected machine")]
-    pub bmc_password: String,
+    #[clap(
+        short = 'p',
+        long,
+        help = "BMC password of the expected machine (optional; defaults to empty string if not provided)"
+    )]
+    pub bmc_password: Option<String>,
     #[clap(
         short = 's',
         long,
@@ -89,7 +94,7 @@ pub struct Args {
     #[clap(
         long = "host_nics",
         value_name = "HOST_NICS",
-        help = "Host NICs MAC addresses as JSON",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, nic_type, fixed_ip, fixed_mask, fixed_gateway, primary)",
         action = clap::ArgAction::Append
     )]
     pub host_nics: Option<String>,
@@ -135,7 +140,7 @@ pub struct Args {
         long = "dpu-mode",
         value_name = "DPU_MODE",
         value_enum,
-        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset keeps the site default (site-wide `force_dpu_nic_mode` flag still applies when no per-host value is set)."
+        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset defers to the site-wide `[site_explorer] dpu_mode` setting (which itself falls back to `dpu-mode` when not set)."
     )]
     pub dpu_mode: Option<DpuMode>,
 
@@ -167,24 +172,14 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
 
         let host_nics = value
             .host_nics
-            .map(|s| serde_json::from_str::<Vec<MacAddress>>(&s))
+            .map(|s| serde_json::from_str::<Vec<ExpectedHostNic>>(&s))
             .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(|mac| rpc::forge::ExpectedHostNic {
-                mac_address: mac.to_string(),
-                nic_type: None,
-                fixed_ip: None,
-                fixed_mask: None,
-                fixed_gateway: None,
-                primary: None,
-            })
-            .collect();
+            .unwrap_or_default();
 
         Ok(rpc::forge::ExpectedMachine {
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
-            bmc_password: value.bmc_password,
+            bmc_password: value.bmc_password.unwrap_or_default(),
             chassis_serial_number: value.chassis_serial_number,
             fallback_dpu_serial_numbers: value.fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),

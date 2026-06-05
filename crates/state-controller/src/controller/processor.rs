@@ -173,7 +173,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             // The iteration might not have used up all of dispatch_interval in case
             // all dispatched tasks finished earlier. In this case we wait the configured
             // time before the next dispatch.
-            use rand::Rng;
+            use rand::RngExt;
             let sleep_time = next_dispatch_at.saturating_duration_since(std::time::Instant::now());
             if !sleep_time.is_zero() {
                 let cancelled_future = self.cancel_token.cancelled();

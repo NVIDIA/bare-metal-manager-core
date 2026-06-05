@@ -21,7 +21,6 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -50,31 +49,6 @@ pub struct MachineValidationTestAddRequest {
     pub is_enabled: Option<bool>,
 }
 
-impl From<rpc::forge::MachineValidationTestAddRequest> for MachineValidationTestAddRequest {
-    fn from(req: rpc::forge::MachineValidationTestAddRequest) -> Self {
-        MachineValidationTestAddRequest {
-            name: req.name,
-            description: req.description,
-            contexts: req.contexts,
-            img_name: req.img_name,
-            execute_in_host: req.execute_in_host,
-            container_arg: req.container_arg,
-            command: req.command,
-            args: req.args,
-            extra_err_file: req.extra_err_file,
-            external_config_file: req.external_config_file,
-            pre_condition: req.pre_condition,
-            timeout: req.timeout,
-            extra_output_file: req.extra_output_file,
-            supported_platforms: req.supported_platforms,
-            read_only: req.read_only,
-            custom_tags: req.custom_tags,
-            components: req.components,
-            is_enabled: req.is_enabled,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MachineValidationTestUpdatePayload {
     pub name: Option<String>,
@@ -97,48 +71,11 @@ pub struct MachineValidationTestUpdatePayload {
     pub is_enabled: Option<bool>,
 }
 
-impl From<rpc::forge::machine_validation_test_update_request::Payload>
-    for MachineValidationTestUpdatePayload
-{
-    fn from(p: rpc::forge::machine_validation_test_update_request::Payload) -> Self {
-        MachineValidationTestUpdatePayload {
-            name: p.name,
-            description: p.description,
-            contexts: p.contexts,
-            img_name: p.img_name,
-            execute_in_host: p.execute_in_host,
-            container_arg: p.container_arg,
-            command: p.command,
-            args: p.args,
-            extra_err_file: p.extra_err_file,
-            external_config_file: p.external_config_file,
-            pre_condition: p.pre_condition,
-            timeout: p.timeout,
-            extra_output_file: p.extra_output_file,
-            supported_platforms: p.supported_platforms,
-            verified: p.verified,
-            custom_tags: p.custom_tags,
-            components: p.components,
-            is_enabled: p.is_enabled,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct MachineValidationTestUpdateRequest {
     pub test_id: String,
     pub version: String,
     pub payload: Option<MachineValidationTestUpdatePayload>,
-}
-
-impl From<rpc::forge::MachineValidationTestUpdateRequest> for MachineValidationTestUpdateRequest {
-    fn from(req: rpc::forge::MachineValidationTestUpdateRequest) -> Self {
-        MachineValidationTestUpdateRequest {
-            test_id: req.test_id,
-            version: req.version,
-            payload: req.payload.map(MachineValidationTestUpdatePayload::from),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -151,21 +88,6 @@ pub struct MachineValidationTestsGetRequest {
     pub version: Option<String>,
     pub is_enabled: Option<bool>,
     pub verified: Option<bool>,
-}
-
-impl From<rpc::forge::MachineValidationTestsGetRequest> for MachineValidationTestsGetRequest {
-    fn from(req: rpc::forge::MachineValidationTestsGetRequest) -> Self {
-        MachineValidationTestsGetRequest {
-            supported_platforms: req.supported_platforms,
-            contexts: req.contexts,
-            test_id: req.test_id,
-            read_only: req.read_only,
-            custom_tags: req.custom_tags,
-            version: req.version,
-            is_enabled: req.is_enabled,
-            verified: req.verified,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, strum_macros::EnumString)]
@@ -234,71 +156,6 @@ impl<'r> FromRow<'r, PgRow> for MachineValidation {
     }
 }
 
-impl MachineValidation {
-    pub fn from_state(
-        state: MachineValidationState,
-    ) -> rpc::forge::machine_validation_status::MachineValidationState {
-        match state {
-            MachineValidationState::Started => {
-                rpc::forge::machine_validation_status::MachineValidationState::Started(
-                    rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
-                )
-            }
-            MachineValidationState::InProgress => {
-                rpc::forge::machine_validation_status::MachineValidationState::InProgress(
-                    rpc::forge::machine_validation_status::MachineValidationInProgress::InProgress
-                        .into(),
-                )
-            }
-            MachineValidationState::Success => {
-                rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                    rpc::forge::machine_validation_status::MachineValidationCompleted::Success
-                        .into(),
-                )
-            }
-            MachineValidationState::Skipped => {
-                rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                    rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped
-                        .into(),
-                )
-            }
-            MachineValidationState::Failed => {
-                rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                    rpc::forge::machine_validation_status::MachineValidationCompleted::Failed
-                        .into(),
-                )
-            }
-        }
-    }
-}
-
-impl From<MachineValidation> for rpc::forge::MachineValidationRun {
-    fn from(value: MachineValidation) -> Self {
-        let mut end_time = None;
-        if value.end_time.is_some() {
-            end_time = Some(value.end_time.unwrap_or_default().into());
-        }
-        let status = value.status.unwrap_or_default();
-        let start_time = Some(value.start_time.unwrap_or_default().into());
-        rpc::forge::MachineValidationRun {
-            validation_id: Some(value.id),
-            name: value.name,
-            start_time,
-            end_time,
-            context: value.context,
-            machine_id: Some(value.machine_id),
-            status: Some(rpc::forge::MachineValidationStatus {
-                machine_validation_state: MachineValidation::from_state(status.state).into(),
-                total: status.total.try_into().unwrap_or(0),
-                completed_tests: status.completed.try_into().unwrap_or(0),
-            }),
-            duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(
-                value.duration_to_complete.try_into().unwrap_or(0),
-            ))),
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct MachineValidationExternalConfig {
     pub name: String,
@@ -314,31 +171,6 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationExternalConfig {
             description: row.try_get("description")?,
             config: row.try_get("config")?,
             version: row.try_get("version")?,
-        })
-    }
-}
-
-impl From<MachineValidationExternalConfig> for rpc::forge::MachineValidationExternalConfig {
-    fn from(value: MachineValidationExternalConfig) -> Self {
-        rpc::forge::MachineValidationExternalConfig {
-            name: value.name,
-            config: value.config,
-            description: Some(value.description),
-            version: value.version.version_nr().to_string(),
-            timestamp: Some(value.version.timestamp().into()),
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::MachineValidationExternalConfig> for MachineValidationExternalConfig {
-    type Error = RpcDataConversionError;
-    fn try_from(value: rpc::forge::MachineValidationExternalConfig) -> Result<Self, Self::Error> {
-        Ok(MachineValidationExternalConfig {
-            name: value.name,
-            description: value.description.unwrap_or_default(),
-            config: value.config,
-            version: ConfigVersion::from_str(&value.version)
-                .map_err(|_| RpcDataConversionError::InvalidConfigVersion(value.version))?,
         })
     }
 }
@@ -400,91 +232,6 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationTest {
     }
 }
 
-impl From<MachineValidationTest> for rpc::forge::MachineValidationTest {
-    fn from(value: MachineValidationTest) -> Self {
-        rpc::forge::MachineValidationTest {
-            test_id: value.test_id,
-            name: value.name,
-            description: value.description,
-            contexts: value.contexts,
-            img_name: value.img_name,
-            execute_in_host: value.execute_in_host,
-            container_arg: value.container_arg,
-            command: value.command,
-            args: value.args,
-            extra_output_file: value.extra_output_file,
-            extra_err_file: value.extra_err_file,
-            external_config_file: value.external_config_file,
-            pre_condition: value.pre_condition,
-            timeout: value.timeout,
-            version: value.version.version_string(),
-            supported_platforms: value.supported_platforms,
-            modified_by: value.modified_by,
-            verified: value.verified,
-            read_only: value.read_only,
-            custom_tags: value.custom_tags.unwrap_or_default(),
-            components: value.components,
-            last_modified_at: value.last_modified_at.to_string(),
-            is_enabled: value.is_enabled,
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
-    type Error = RpcDataConversionError;
-    fn try_from(value: rpc::forge::MachineValidationTest) -> Result<Self, Self::Error> {
-        Ok(MachineValidationTest {
-            test_id: value.test_id,
-            name: value.name,
-            description: value.description,
-            contexts: value.contexts,
-            img_name: value.img_name,
-            execute_in_host: value.execute_in_host,
-            container_arg: value.container_arg,
-            command: value.command,
-            args: value.args,
-            extra_output_file: value.extra_output_file,
-            extra_err_file: value.extra_err_file,
-            external_config_file: value.external_config_file,
-            pre_condition: value.pre_condition,
-            timeout: value.timeout,
-            version: ConfigVersion::from_str(&value.version)
-                .map_err(|_| RpcDataConversionError::InvalidConfigVersion(value.version))?,
-            supported_platforms: value.supported_platforms,
-            modified_by: value.modified_by,
-            verified: value.verified,
-            read_only: value.read_only,
-            custom_tags: if value.custom_tags.is_empty() {
-                None
-            } else {
-                Some(value.custom_tags)
-            },
-            components: value.components,
-            last_modified_at: Utc::now(),
-            is_enabled: value.is_enabled,
-        })
-    }
-}
-
-impl From<MachineValidationResult> for rpc::forge::MachineValidationResult {
-    fn from(value: MachineValidationResult) -> Self {
-        rpc::forge::MachineValidationResult {
-            validation_id: Some(value.validation_id),
-            command: value.command,
-            args: value.args,
-            std_out: value.stdout,
-            std_err: value.stderr,
-            name: value.name,
-            description: value.description,
-            context: value.context,
-            exit_code: value.exit_code,
-            start_time: Some(value.start_time.into()),
-            end_time: Some(value.end_time.into()),
-            test_id: value.test_id,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct MachineValidationResult {
     pub validation_id: MachineValidationId,
@@ -520,59 +267,9 @@ impl<'r> FromRow<'r, PgRow> for MachineValidationResult {
     }
 }
 
-impl TryFrom<rpc::forge::MachineValidationResult> for MachineValidationResult {
-    type Error = RpcDataConversionError;
-    fn try_from(value: rpc::forge::MachineValidationResult) -> Result<Self, Self::Error> {
-        let val_id = value
-            .validation_id
-            .ok_or(RpcDataConversionError::MissingArgument("validation_id"))?;
-        let start_time = match value.start_time {
-            Some(time) => {
-                DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()
-            }
-            None => Utc::now(),
-        };
-        let end_time = match value.end_time {
-            Some(time) => {
-                DateTime::from_timestamp(time.seconds, time.nanos.try_into().unwrap()).unwrap()
-            }
-            None => Utc::now(),
-        };
-        Ok(MachineValidationResult {
-            validation_id: val_id,
-            command: value.command,
-            name: value.name,
-            description: value.description,
-            args: value.args,
-            context: value.context,
-            stdout: value.std_out,
-            stderr: value.std_err,
-            exit_code: value.exit_code,
-            start_time,
-            end_time,
-            test_id: value.test_id,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tests_get_request_from_rpc() {
-        let rpc_req = rpc::forge::MachineValidationTestsGetRequest {
-            test_id: Some("forge_mytest".to_string()),
-            is_enabled: Some(true),
-            verified: Some(false),
-            ..Default::default()
-        };
-        let req = MachineValidationTestsGetRequest::from(rpc_req);
-        assert_eq!(req.test_id, Some("forge_mytest".to_string()));
-        assert_eq!(req.is_enabled, Some(true));
-        assert_eq!(req.verified, Some(false));
-        assert!(req.version.is_none());
-    }
 
     #[test]
     fn tests_get_request_default_serializes_to_all_null_optionals() {
@@ -583,42 +280,5 @@ mod tests {
         assert!(obj["test_id"].is_null());
         assert!(obj["is_enabled"].is_null());
         assert_eq!(obj["supported_platforms"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn test_add_request_from_rpc() {
-        let rpc_req = rpc::forge::MachineValidationTestAddRequest {
-            name: "my_test".to_string(),
-            command: "/bin/test".to_string(),
-            args: "--verbose".to_string(),
-            supported_platforms: vec!["x86_64".to_string()],
-            ..Default::default()
-        };
-        let req = MachineValidationTestAddRequest::from(rpc_req);
-        assert_eq!(req.name, "my_test");
-        assert_eq!(req.command, "/bin/test");
-        assert_eq!(req.supported_platforms, vec!["x86_64"]);
-    }
-
-    #[test]
-    fn test_update_request_from_rpc_with_payload() {
-        let rpc_req = rpc::forge::MachineValidationTestUpdateRequest {
-            test_id: "forge_mytest".to_string(),
-            version: "1".to_string(),
-            payload: Some(
-                rpc::forge::machine_validation_test_update_request::Payload {
-                    verified: Some(true),
-                    is_enabled: Some(false),
-                    ..Default::default()
-                },
-            ),
-        };
-        let req = MachineValidationTestUpdateRequest::from(rpc_req);
-        assert_eq!(req.test_id, "forge_mytest");
-        assert_eq!(req.version, "1");
-        let payload = req.payload.unwrap();
-        assert_eq!(payload.verified, Some(true));
-        assert_eq!(payload.is_enabled, Some(false));
-        assert!(payload.name.is_none());
     }
 }

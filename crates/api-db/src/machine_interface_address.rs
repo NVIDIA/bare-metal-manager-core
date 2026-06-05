@@ -18,12 +18,25 @@ use std::net::IpAddr;
 
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
+use mac_address::MacAddress;
 use model::allocation_type::{AllocationType, AssignStaticResult};
 use model::network_segment::NetworkSegmentType;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;
 use crate::db_read::DbReader;
+
+/// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
+/// when the target IP is already held by some other interface.
+#[derive(thiserror::Error, Debug)]
+#[error("Address already in use: {0} by {1} in network segment {2} (Interface: {3})")]
+pub struct AddressAlreadyInUseError(
+    pub IpAddr,
+    pub MacAddress,
+    pub NetworkSegmentId,
+    pub MachineInterfaceId,
+);
 
 #[derive(Debug, FromRow, Clone)]
 pub struct MachineInterfaceAddress {
@@ -200,6 +213,32 @@ pub async fn delete_by_address(
     sqlx::query(query)
         .bind(address)
         .bind(allocation_type)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Delete an address allocation for a given (ip, mac) pair, which
+/// of course only actually deletes when the pair matches.
+///
+/// Returns true if a matching allocation was found and deleted.
+pub async fn delete_by_address_and_mac(
+    txn: &mut PgConnection,
+    address: IpAddr,
+    mac_address: mac_address::MacAddress,
+    allocation_type: AllocationType,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses mia
+        USING machine_interfaces mi
+        WHERE mia.interface_id = mi.id
+          AND mia.address = $1::inet
+          AND mia.allocation_type = $2
+          AND mi.mac_address = $3::macaddr";
+    sqlx::query(query)
+        .bind(address)
+        .bind(allocation_type)
+        .bind(mac_address)
         .execute(txn)
         .await
         .map(|r| r.rows_affected() > 0)

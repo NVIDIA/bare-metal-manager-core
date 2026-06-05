@@ -21,6 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
+use forge_ssh::ssh_client::{AuthConfig, HostKeyVerification, SshClientConfig};
 use tokio::io::AsyncWriteExt;
 use tracing;
 
@@ -45,13 +46,7 @@ pub enum FirmwareSource {
     // Ssh fetches firmware from a remote host via SSH, using
     // key-based or agent authentication. Uses base64 encoding
     // for binary-safe transfer.
-    Ssh {
-        host: String,
-        port: u16,
-        username: String,
-        remote_path: String,
-        credentials: Option<Credentials>,
-    },
+    Ssh(SshSource),
 }
 
 impl FirmwareSource {
@@ -71,13 +66,13 @@ impl FirmwareSource {
     // ssh creates an Ssh source with the given host and remote path.
     // Defaults to port 22 and the current user.
     pub fn ssh(host: impl Into<String>, remote_path: impl Into<String>) -> Self {
-        Self::Ssh {
+        Self::Ssh(SshSource {
             host: host.into(),
             port: 22,
             username: whoami().unwrap_or_else(|| "root".to_string()),
             remote_path: remote_path.into(),
             credentials: None,
-        }
+        })
     }
 
     // from_url parses a URL string into a FirmwareSource. The URL
@@ -91,13 +86,13 @@ impl FirmwareSource {
             Ok(Self::http(url))
         } else if url.starts_with("ssh://") {
             let (host, username, remote_path) = parse_ssh_url(url)?;
-            Ok(Self::Ssh {
+            Ok(Self::Ssh(SshSource {
                 host,
                 port: 22,
                 username,
                 remote_path,
                 credentials: None,
-            })
+            }))
         } else if let Some(path) = url.strip_prefix("file://") {
             Ok(Self::local(path))
         } else {
@@ -113,7 +108,7 @@ impl FirmwareSource {
     pub fn with_credentials(mut self, cred: Credentials) -> Self {
         match &mut self {
             Self::Http { credentials, .. } => *credentials = Some(cred),
-            Self::Ssh { credentials, .. } => *credentials = Some(cred),
+            Self::Ssh(SshSource { credentials, .. }) => *credentials = Some(cred),
             Self::Local { .. } => {} // no-op for local sources
         }
         self
@@ -121,7 +116,7 @@ impl FirmwareSource {
 
     // with_port sets the SSH port. Only affects Ssh sources.
     pub fn with_port(mut self, p: u16) -> Self {
-        if let Self::Ssh { port, .. } = &mut self {
+        if let Self::Ssh(SshSource { port, .. }) = &mut self {
             *port = p;
         }
         self
@@ -129,7 +124,7 @@ impl FirmwareSource {
 
     // with_username sets the SSH username. Only affects Ssh sources.
     pub fn with_username(mut self, user: impl Into<String>) -> Self {
-        if let Self::Ssh { username, .. } = &mut self {
+        if let Self::Ssh(SshSource { username, .. }) = &mut self {
             *username = user.into();
         }
         self
@@ -144,23 +139,7 @@ impl FirmwareSource {
             Self::Http { url, credentials } => {
                 resolve_http(url, credentials.as_ref(), work_dir).await
             }
-            Self::Ssh {
-                host,
-                port,
-                username,
-                remote_path,
-                credentials,
-            } => {
-                resolve_ssh(
-                    host,
-                    *port,
-                    username,
-                    remote_path,
-                    credentials.as_ref(),
-                    work_dir,
-                )
-                .await
-            }
+            Self::Ssh(ssh_source) => resolve_ssh(ssh_source, work_dir, None).await,
         }
     }
 
@@ -170,13 +149,13 @@ impl FirmwareSource {
         match self {
             Self::Local { path } => format!("local:{}", path.display()),
             Self::Http { url, .. } => format!("http:{url}"),
-            Self::Ssh {
+            Self::Ssh(SshSource {
                 host,
                 port,
                 username,
                 remote_path,
                 ..
-            } => format!("ssh://{username}@{host}:{port}:{remote_path}"),
+            }) => format!("ssh://{username}@{host}:{port}:{remote_path}"),
         }
     }
 }
@@ -265,16 +244,29 @@ async fn resolve_http(
     Ok(dest_path)
 }
 
+pub struct SshSource {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub remote_path: String,
+    pub credentials: Option<Credentials>,
+}
+
 // resolve_ssh fetches firmware from a remote host via SSH using
 // base64 encoding for binary-safe transfer.
 async fn resolve_ssh(
-    host: &str,
-    port: u16,
-    username: &str,
-    remote_path: &str,
-    credentials: Option<&Credentials>,
+    ssh_source: &SshSource,
     work_dir: &Path,
+    known_hosts_file: Option<&Path>,
 ) -> FirmwareResult<PathBuf> {
+    let SshSource {
+        host,
+        port,
+        username,
+        remote_path,
+        credentials,
+    } = ssh_source;
+
     let dest_path = work_dir.join(
         Path::new(remote_path)
             .file_name()
@@ -288,65 +280,37 @@ async fn resolve_ssh(
         path = %remote_path,
         "Downloading via SSH"
     );
+
     if let Some(creds) = credentials {
         tracing::debug!(credential_type = %credential_type_name(creds), "Using SSH credentials");
     }
 
-    // Build the authorization method based on credentials.
-    let auth_method = match credentials {
-        Some(Credentials::SshKey {
-            path, passphrase, ..
-        }) => {
-            let private_key = tokio::fs::read_to_string(path).await.map_err(|e| {
-                FirmwareError::SshError(format!("Failed to read SSH key '{path}': {e}"))
-            })?;
-            async_ssh2_tokio::AuthMethod::with_key(&private_key, passphrase.as_deref())
-        }
-        Some(Credentials::SshAgent) => async_ssh2_tokio::AuthMethod::with_agent(),
-        Some(other) => {
-            other.validate_ssh()?;
-            unreachable!()
-        }
-        None => {
-            // Default to key file at ~/.ssh/id_rsa.
-            let key_path = default_ssh_key_path();
-            let private_key = tokio::fs::read_to_string(&key_path).await.map_err(|e| {
-                FirmwareError::SshError(format!(
-                    "Failed to read default SSH key '{}': {e}",
-                    key_path.display()
-                ))
-            })?;
-            async_ssh2_tokio::AuthMethod::with_key(&private_key, None)
-        }
+    let auth = credentials.clone().map(AuthConfig::try_from).transpose()?;
+
+    let host_key_verification = match known_hosts_file {
+        Some(path) => HostKeyVerification::KnownHostsFile(path.to_path_buf()),
+        None => HostKeyVerification::DefaultKnownHostsFile,
     };
 
-    // Connect to the SSH server.
-    let server_check = async_ssh2_tokio::ServerCheckMethod::DefaultKnownHostsFile;
-
-    let client = async_ssh2_tokio::client::Client::connect(
-        (host, port),
+    let client = SshClientConfig {
+        host,
+        port: *port,
         username,
-        auth_method,
-        server_check,
-    )
-    .await
-    .map_err(|e| FirmwareError::SshError(format!("Failed to connect to {host}:{port}: {e}")))?;
+        auth: auth.as_ref(),
+        host_key_verification,
+    }
+    .make_authenticated_client()
+    .await?;
 
-    // Transfer the file over SSH using base64 encoding. We can't use
-    // plain `cat` because async-ssh2-tokio returns stdout as a String
-    // (UTF-8), which corrupts binary data — invalid byte sequences get
-    // replaced with the 3-byte U+FFFD replacement character, inflating
-    // file size and corrupting contents. Base64 ensures safe text
-    // transport, then we decode locally.
+    // Transfer the file over SSH using base64 encoding. Base64 keeps the
+    // command output text-safe before we decode it back to bytes locally.
     // Use `cat | base64` for portability across Linux (coreutils) and
     // macOS (BSD). Positional file args and the -w0 flag are not portable.
     let command = format!("cat {} | base64", shell_escape(remote_path));
-    let result = client.execute(&command).await.map_err(|e| {
-        FirmwareError::SshError(format!("Failed to read remote file '{remote_path}': {e}"))
-    })?;
+    let result = client.execute_ssh_command(&command).await?;
 
     if result.exit_status != 0 {
-        return Err(FirmwareError::SshError(format!(
+        return Err(FirmwareError::CommandFailed(format!(
             "Remote command failed (exit {}): {}",
             result.exit_status,
             result.stderr.trim()
@@ -361,7 +325,9 @@ async fn resolve_ssh(
     b64.retain(|c| !c.is_whitespace());
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(&b64)
-        .map_err(|e| FirmwareError::SshError(format!("Failed to decode base64 transfer: {e}")))?;
+        .map_err(|e| {
+            FirmwareError::CommandFailed(format!("Failed to decode base64 transfer: {e}"))
+        })?;
 
     tokio::fs::write(&dest_path, &decoded)
         .await
@@ -439,14 +405,78 @@ fn whoami() -> Option<String> {
         .ok()
 }
 
-// default_ssh_key_path returns the default SSH private key path (~/.ssh/id_rsa).
-fn default_ssh_key_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    PathBuf::from(home).join(".ssh").join("id_rsa")
-}
-
 // shell_escape performs basic shell escaping for a path string to
 // prevent command injection in SSH commands.
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use base64::Engine;
+    use forge_ssh::ssh_client::tests::TestSshServer;
+    use russh::keys::known_hosts::learn_known_hosts_path;
+    use russh::keys::signature::digest::common::getrandom::SysRng;
+    use russh::keys::ssh_key::LineEnding;
+    use russh::keys::ssh_key::rand_core::UnwrapErr;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn resolve_ssh_fetches_firmware_from_russh_server()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempdir()?;
+        let work_dir = temp_dir.path().join("work");
+        tokio::fs::create_dir(&work_dir).await?;
+
+        let mut rng = SysRng;
+        let client_key = russh::keys::PrivateKey::random(
+            &mut UnwrapErr(&mut rng),
+            russh::keys::Algorithm::Ed25519,
+        )?;
+        let client_key_path = temp_dir.path().join("id_ed25519");
+        client_key.write_openssh_file(&client_key_path, LineEnding::LF)?;
+
+        let remote_path = "/firmware/mlx-fw.bin".to_string();
+        let firmware = b"firmware bytes\0with binary data\n".to_vec();
+        let firmware_encoded = base64::engine::general_purpose::STANDARD.encode(&firmware);
+        let server = TestSshServer::spawn(
+            "firmware-user".to_string(),
+            client_key.public_key().clone(),
+            HashMap::from([(
+                format!("cat {} | base64", shell_escape(&remote_path)),
+                firmware_encoded,
+            )]),
+        )
+        .await?;
+
+        let known_hosts_path = temp_dir.path().join(".ssh").join("known_hosts");
+        learn_known_hosts_path(
+            "127.0.0.1",
+            server.port,
+            &server.host_public_key,
+            &known_hosts_path,
+        )?;
+
+        let ssh_source = SshSource {
+            host: "127.0.0.1".into(),
+            port: server.port,
+            username: "firmware-user".into(),
+            remote_path,
+            credentials: Some(Credentials::ssh_key(
+                client_key_path.to_string_lossy().into_owned(),
+            )),
+        };
+
+        let resolved_path =
+            resolve_ssh(&ssh_source, &work_dir, Some(known_hosts_path.as_path())).await?;
+
+        assert_eq!(resolved_path, work_dir.join("mlx-fw.bin"));
+        assert_eq!(tokio::fs::read(resolved_path).await?, firmware);
+
+        Ok(())
+    }
 }

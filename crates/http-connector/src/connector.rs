@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use std::{fmt, io};
 
 use futures_util::future::Either;
-use hickory_resolver::Name;
+use hickory_resolver::proto::rr::Name;
 use hyper::http::Uri;
 use hyper::http::uri::Scheme;
 use hyper::service::Service;

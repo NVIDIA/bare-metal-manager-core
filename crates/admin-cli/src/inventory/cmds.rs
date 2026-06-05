@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::fs;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::site_explorer::ExploredManagedHost;
 use ::rpc::{InstanceList, MachineList};
 use carbide_uuid::instance::InstanceId;
@@ -26,6 +25,7 @@ use carbide_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::args::Cmd;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 // Expected output

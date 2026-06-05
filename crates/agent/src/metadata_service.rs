@@ -24,17 +24,28 @@ use crate::instrumentation::{
     AgentMetricsState, WithTracingLayer, get_metrics_router, get_prometheus_registry,
 };
 
+/// Exposes Prometheus metrics on `[telemetry] metrics-address` (default `0.0.0.0:8888`),
+/// matching the `/metrics` route served alongside embedded FMDS on DPU OS.
+pub fn spawn_prometheus_metrics_server(
+    metrics_address: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!(
+        metrics_address = %metrics_address,
+        "Starting Prometheus /metrics endpoint"
+    );
+    let prometheus_registry = get_prometheus_registry();
+    start_server(
+        metrics_address,
+        Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
+    )
+}
+
 pub fn spawn_metadata_service(
     metadata_service_address: String,
-    metrics_address: String,
     metrics_state: Arc<AgentMetricsState>,
     state: Arc<InstanceMetadataRouterStateImpl>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let instance_metadata_state = state;
-
-    let prometheus_registry = get_prometheus_registry();
-    // let meter = get_dpu_agent_meter();
-    // let metrics_state = create_metrics(meter);
 
     start_server(
         metadata_service_address,
@@ -51,10 +62,7 @@ pub fn spawn_metadata_service(
     )
     .expect("metadata server panicked");
 
-    start_server(
-        metrics_address,
-        Router::new().nest("/metrics", get_metrics_router(prometheus_registry)),
-    )
+    Ok(())
 }
 
 /// Spawns a background task to run an axum server listening on given socket, and returns.

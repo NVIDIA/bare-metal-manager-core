@@ -65,7 +65,7 @@ spec:
                   properties:
                     name:
                       description: Name is the name of the interface
-                      maxLength: 28
+                      maxLength: 15
                       minLength: 1
                       type: string
                     network:
@@ -307,8 +307,8 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: interfaces are not supported when deploying in cluster
-              rule: '!has(self.interfaces) || (has(self.interfaces) && (self.serviceConfiguration.deployInCluster
-                == false || !has(self.serviceConfiguration.deployInCluster)))'
+              rule: '!has(self.interfaces) || (has(self.interfaces) && (!has(self.serviceConfiguration)
+                || self.serviceConfiguration.deployInCluster == false || !has(self.serviceConfiguration.deployInCluster)))'
           status:
             description: DPUServiceConfigurationStatus defines the observed state
               of DPUServiceConfiguration

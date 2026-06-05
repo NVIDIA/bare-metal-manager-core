@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nico-hardware-health.name" . }}
+  namespace: {{ include "nico-hardware-health.namespace" . }}
+  labels:
+    {{- include "nico-hardware-health.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nico-hardware-health.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-hardware-health.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nico-hardware-health.name" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "nico-hardware-health.name" . }}
+          image: "{{ include "nico-hardware-health.image" . }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ -x /opt/nico/nico-hw-health ]; then
+                exec /opt/nico/nico-hw-health
+              else
+                exec /opt/carbide/forge-hw-health
+              fi
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources: {}
+          volumeMounts:
+            - mountPath: "/var/run/secrets/spiffe.io"
+              name: spiffe
+              readOnly: true
+      volumes:
+        - name: spiffe
+          secret:
+            secretName: {{ include "nico-hardware-health.name" . }}-certificate

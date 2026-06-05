@@ -20,10 +20,11 @@
 
 use libmlx::variables::registry::MlxVariableRegistry;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use rpc::admin_cli::OutputFormat;
 use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{RegistryCommand, RegistryListCommand, RegistryShowCommand};
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::mlx::{CliContext, wrap_text};
 
 // dispatch routes registry subcommands to their handlers.

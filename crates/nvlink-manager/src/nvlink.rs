@@ -15,123 +15,143 @@
  * limitations under the License.
  */
 
-use async_trait::async_trait;
-use db::DatabaseError;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-use libnmxm::{Nmxm, NmxmApiError};
-
-use crate::DEFAULT_NMX_M_NAME;
-
-#[allow(dead_code)]
-#[derive(thiserror::Error, Debug)]
-pub enum NvLinkPartitionError {
-    #[error("Failed to look up credentials {0}")]
-    MissingCredentials(eyre::Report),
-    #[error("Failed NMX-M api request {0}")]
-    NmxmApiError(NmxmApiError),
-    #[error("Database error {0}")]
-    DbError(DatabaseError),
-    #[error("{0}: {1} in use / busy")]
-    ObjectInUse(String, String),
-    #[error("Not found: {0}")]
-    NotFound(String),
-    #[error("Invalid arguments")]
-    InvalidArguments,
-    #[error("Invalid API response")]
-    InvalidApiResponse,
-}
-
-#[async_trait]
-pub trait NmxmClientPool: Send + Sync + 'static {
-    async fn create_client(
-        &self,
-        endpoint: &str,
-        nmxm_id: Option<String>,
-    ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError>;
-}
-
-#[derive(Debug)]
-pub struct NmxmClientPoolImpl<C> {
-    pool: libnmxm::NmxmClientPool,
-    credential_reader: C,
-}
-
-impl<C: CredentialReader> NmxmClientPoolImpl<C> {
-    pub fn new(credential_reader: C, pool: libnmxm::NmxmClientPool) -> Self {
-        NmxmClientPoolImpl {
-            credential_reader,
-            pool,
-        }
-    }
-}
-
-#[async_trait]
-impl<C: CredentialReader + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
-    async fn create_client(
-        &self,
-        endpoint: &str,
-        nmxm_id: Option<String>,
-    ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError> {
-        let id = nmxm_id.unwrap_or(DEFAULT_NMX_M_NAME.to_string());
-        let credentials = self
-            .credential_reader
-            .get_credentials(&CredentialKey::NmxM { nmxm_id: id })
-            .await
-            .map_err(|e| NvLinkPartitionError::MissingCredentials(eyre::Report::from(e)))?
-            .ok_or(NvLinkPartitionError::MissingCredentials(eyre::Report::msg(
-                "NMX-M credentials not found",
-            )))?;
-        let (user, pass) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-        if endpoint.parse::<http::Uri>().is_err() {
-            return Err(NvLinkPartitionError::InvalidArguments);
-        };
-        let endpoint = libnmxm::Endpoint {
-            host: endpoint.to_string(),
-            username: Some(user),
-            password: Some(pass),
-        };
-
-        self.pool
-            .create_client(endpoint)
-            .await
-            .map_err(NvLinkPartitionError::NmxmApiError)
-    }
-}
-
 #[cfg(feature = "test-support")]
 pub mod test_support {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    use uuid::Uuid;
+    use libnmxc::nmxc_model::{
+        self, GetComputeNodeCountResponse, GetComputeNodeInfoListResponse, GetGpuInfoListResponse,
+        GetPartitionCountResponse, GetPartitionIdListResponse, GetPartitionInfoListResponse,
+        GetSwitchNodeCountResponse, GetSwitchNodeInfoListResponse,
+    };
+    use libnmxc::{Endpoint, Nmxc, NmxcClientPool, NmxcError, NmxcPool, NmxcTlsConfig};
 
-    use super::*;
-
-    // mock similar to RedfishSim
-    #[derive(Debug)]
-    pub struct NmxmSimClient {
-        _state: Arc<Mutex<u32>>,
-        _partitions: Arc<Mutex<Vec<libnmxm::nmxm_model::Partition>>>,
-        _gpus: Arc<Mutex<Vec<libnmxm::nmxm_model::Gpu>>>,
-        _fail_after_n_creates: Option<Arc<Mutex<usize>>>,
+    /// TLS settings for mutual TLS when both client certificate and key paths are configured.
+    fn nmxc_mtls_config_from_nvlink(cfg: &crate::config::NvLinkConfig) -> Option<NmxcTlsConfig> {
+        if cfg.nmx_c_tls_client_cert_path.is_none() || cfg.nmx_c_tls_client_key_path.is_none() {
+            return None;
+        }
+        let ca = cfg.nmx_c_tls_ca_cert_path.as_ref().map(PathBuf::from);
+        let client_cert = cfg.nmx_c_tls_client_cert_path.as_ref().map(PathBuf::from);
+        let client_key = cfg.nmx_c_tls_client_key_path.as_ref().map(PathBuf::from);
+        Some(NmxcTlsConfig {
+            ca_cert_path: ca,
+            client_cert_path: client_cert,
+            client_key_path: client_key,
+            authority: cfg.nmx_c_tls_authority.clone(),
+        })
     }
 
-    impl Default for NmxmSimClient {
+    #[derive(Debug)]
+    struct SimPartition {
+        partition_id: u32,
+        name: String,
+        gpu_uids: Vec<u64>,
+    }
+
+    /// In-memory NMX-C gRPC API mock, mirroring [`NmxmSimClient`] partition presets for tests.
+    #[derive(Debug)]
+    pub struct NmxcSimClient {
+        _partitions: Arc<Mutex<Vec<SimPartition>>>,
+        _next_partition_id: Arc<Mutex<u32>>,
+        _fail_after_n_creates: Option<Arc<Mutex<usize>>>,
+        _grpc_pool: Option<NmxcClientPool>,
+        _simulator_endpoint: Option<Endpoint>,
+    }
+
+    impl Default for NmxcSimClient {
         fn default() -> Self {
-            NmxmSimClient {
-                _state: Arc::new(Mutex::new(0)),
+            NmxcSimClient {
                 _partitions: Arc::new(Mutex::new(Vec::new())),
-                _gpus: Arc::new(Mutex::new(Self::default_gpus())),
+                _next_partition_id: Arc::new(Mutex::new(1)),
                 _fail_after_n_creates: None,
+                _grpc_pool: None,
+                _simulator_endpoint: None,
             }
         }
     }
 
-    impl NmxmSimClient {
-        // After n create_requests succeed, they will start failing.
+    impl NmxcSimClient {
+        /// Default simulator URL: plain gRPC on port 9601 (`http://localhost:9601`).
+        pub const SIMULATOR_URL: &'static str = "http://localhost:9601";
+
+        /// Default simulator URL when [`crate::config::NvLinkConfig`] includes client TLS material
+        /// (HTTPS + mTLS to match [`libnmxc::NmxcClientPool`] behavior).
+        pub const SIMULATOR_URL_MTLS: &'static str = "https://localhost:9601";
+
+        /// Creates a pool that proxies to the NMX-C gRPC simulator.
+        pub fn simulator() -> Self {
+            Self::with_simulator_url(Self::SIMULATOR_URL)
+        }
+
+        /// Like [`Self::simulator`], but uses HTTPS and the same TLS settings as production when
+        /// `nvlink` has both client certificate and key paths configured.
+        pub fn simulator_for_nvlink_config(nvlink: &crate::config::NvLinkConfig) -> Self {
+            if let Some(tls) = nmxc_mtls_config_from_nvlink(nvlink) {
+                let pool = NmxcClientPool::builder()
+                    .tls(tls)
+                    .build()
+                    .expect("NmxcClientPool with TLS");
+                NmxcSimClient {
+                    _grpc_pool: Some(pool),
+                    _simulator_endpoint: Some(
+                        Endpoint::new(Self::SIMULATOR_URL_MTLS).expect("SIMULATOR_URL_MTLS"),
+                    ),
+                    ..Self::default()
+                }
+            } else {
+                Self::simulator()
+            }
+        }
+
+        /// Creates a pool that proxies to an NMX-C gRPC simulator URL.
+        pub fn with_simulator_url(url: impl Into<String>) -> Self {
+            NmxcSimClient {
+                _grpc_pool: Some(
+                    NmxcClientPool::builder()
+                        .build()
+                        .expect("NmxcClientPool::builder default"),
+                ),
+                _simulator_endpoint: Some(Endpoint::new(url.into()).expect("simulator URL")),
+                ..Self::default()
+            }
+        }
+
+        /// Like [`Self::with_simulator_url`], but enables mTLS when `nvlink` has client cert and
+        /// key paths. An `http://` URL is upgraded to `https://` so [`libnmxc::NmxcClientPool`]
+        /// applies TLS.
+        pub fn with_simulator_url_for_nvlink(
+            url: impl Into<String>,
+            nvlink: &crate::config::NvLinkConfig,
+        ) -> Self {
+            let url_str = url.into();
+            if let Some(tls) = nmxc_mtls_config_from_nvlink(nvlink) {
+                let endpoint_url = if let Some(rest) = url_str.strip_prefix("http://") {
+                    format!("https://{rest}")
+                } else {
+                    url_str
+                };
+                let pool = NmxcClientPool::builder()
+                    .tls(tls)
+                    .build()
+                    .expect("NmxcClientPool with TLS");
+                NmxcSimClient {
+                    _grpc_pool: Some(pool),
+                    _simulator_endpoint: Some(
+                        Endpoint::new(endpoint_url).expect("simulator endpoint URL"),
+                    ),
+                    ..Self::default()
+                }
+            } else {
+                Self::with_simulator_url(url_str)
+            }
+        }
+
+        /// After n successful [`Nmxc::create_partition`] calls, further creates fail.
         pub fn with_fail_after_n_creates(n: usize) -> Self {
-            NmxmSimClient {
+            NmxcSimClient {
                 _fail_after_n_creates: Some(Arc::new(Mutex::new(n))),
                 ..Self::default()
             }
@@ -139,612 +159,456 @@ pub mod test_support {
 
         pub fn with_unknown_partition() -> Self {
             let client = Self::default();
-            client.create_partition(
-                12345,
-                client
-                    ._gpus
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|gpu| gpu.id.clone())
-                    .collect(),
-            );
+            client.push_partition(12345, "unknown-partition", Self::default_gpu_uids());
             client
         }
 
         pub fn with_default_partition() -> Self {
             let client = Self::default();
-            client.create_partition(
-                32766, // default partition id.
-                client
-                    ._gpus
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|gpu| gpu.id.clone())
-                    .collect(),
-            );
+            client.push_partition(32766, "default-partition", Self::default_gpu_uids());
             client
         }
 
-        /// Creates a partition with given partition_id containing the specified GPU IDs.
-        fn create_partition(&self, partition_id: i32, gpu_ids: Vec<String>) {
-            let partition = libnmxm::nmxm_model::Partition {
-                id: "default-partition".to_string(),
-                partition_id,
-                name: "Default Partition".to_string(),
-                r#type: libnmxm::nmxm_model::PartitionType::PartitionTypeIDBased,
-                health: libnmxm::nmxm_model::PartitionHealth::PartitionHealthHealthy,
-                members: Box::new(libnmxm::nmxm_model::PartitionMembers::Ids(gpu_ids)),
-                created_at: "2021-01-01T12:00:00Z".to_string(),
-                updated_at: "2021-01-01T12:00:00Z".to_string(),
-            };
-            self._partitions.lock().unwrap().push(partition);
+        fn default_gpu_uids() -> Vec<u64> {
+            vec![
+                0xdb488cb17978480,
+                0xdb488cb17978481,
+                0xdb488cb17978482,
+                0xdb488cb17978483,
+                0xeb488cb17978480,
+                0xeb488cb17978481,
+                0xeb488cb17978482,
+                0xeb488cb17978483,
+                0xfb488cb17978480,
+                0xfb488cb17978481,
+                0xfb488cb17978482,
+                0xfb488cb17978483,
+            ]
         }
 
-        fn default_gpus() -> Vec<libnmxm::nmxm_model::Gpu> {
-            let all_ones_uuid = Uuid::from_bytes([
-                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                0xFF, 0xFF,
-            ]);
-            let all_ones_minus_one_uuid = Uuid::from_bytes([
-                0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                0xFF, 0xFF,
-            ]);
+        fn push_partition(&self, partition_id: u32, name: impl Into<String>, gpu_uids: Vec<u64>) {
+            self._partitions.lock().unwrap().push(SimPartition {
+                partition_id,
+                name: name.into(),
+                gpu_uids,
+            });
+        }
 
-            let location1 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
+        fn to_partition_info(p: &SimPartition) -> nmxc_model::PartitionInfo {
+            nmxc_model::PartitionInfo {
+                partition_id: Some(nmxc_model::PartitionId {
+                    partition_id: p.partition_id,
+                }),
+                name: p.name.clone(),
+                num_gpus: p.gpu_uids.len() as u32,
+                gpu_location_list: vec![],
+                gpu_uid_list: p.gpu_uids.clone(),
+                health: nmxc_model::PartitionHealth::NmxPartitionHealthHealthy as i32,
+                partition_type: nmxc_model::PartitionType::NmxPartitionTypeGpuuidBased as i32,
+                num_allocated_multicast_groups: 0,
+                attr: None,
+            }
+        }
 
-            let location2 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS1")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
+        fn uids_from_resource_ids(ids: &[nmxc_model::GpuResourceId]) -> Vec<u64> {
+            ids.iter()
+                .filter_map(|r| match &r.resource_id {
+                    Some(nmxc_model::gpu_resource_id::ResourceId::GpuUid(uid)) => Some(*uid),
+                    _ => None,
+                })
+                .collect()
+        }
 
-            let location3 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS2")),
-                slot_id: Some(0),
-                tray_index: Some(0),
-                host_id: Some(1),
-            };
+        fn success_server_header() -> nmxc_model::ServerHeader {
+            nmxc_model::ServerHeader {
+                return_code: nmxc_model::StReturnCode::NmxStSuccess as i32,
+                ..Default::default()
+            }
+        }
 
-            let location4 = libnmxm::nmxm_model::LocationInfo {
-                chassis_id: Some(101),
-                chassis_serial_number: Some(String::from("SN_WHATISTHIS1")),
-                slot_id: Some(1),
-                tray_index: Some(1),
-                host_id: Some(1),
-            };
-
-            vec![
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu1")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 1")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location1.clone())),
-                    device_uid: 12345,
-                    device_id: 1,
-                    device_pcie_id: 1001,
-                    system_uid: 10001,
-                    vendor_id: 4318,
-                    alid_list: vec![1111, 2222],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu2")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 2")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location1.clone())),
-                    device_uid: 12346,
-                    device_id: 2,
-                    device_pcie_id: 1002,
-                    system_uid: 10002,
-                    vendor_id: 4318,
-                    alid_list: vec![3333, 4444],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu3")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 3")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location1.clone())),
-                    device_uid: 12347,
-                    device_id: 3,
-                    device_pcie_id: 1003,
-                    system_uid: 10003,
-                    vendor_id: 4318,
-                    alid_list: vec![5555, 6666],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu4")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 4")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location1)),
-                    device_uid: 12348,
-                    device_id: 4,
-                    device_pcie_id: 1004,
-                    system_uid: 10004,
-                    vendor_id: 4318,
-                    alid_list: vec![7777, 8888],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu11")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 11")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location2.clone())),
-                    device_uid: 12345,
-                    device_id: 1,
-                    device_pcie_id: 1001,
-                    system_uid: 10001,
-                    vendor_id: 4318,
-                    alid_list: vec![1111, 2222],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu12")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 12")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location2.clone())),
-                    device_uid: 12346,
-                    device_id: 2,
-                    device_pcie_id: 1002,
-                    system_uid: 10002,
-                    vendor_id: 4318,
-                    alid_list: vec![3333, 4444],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu13")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 13")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location2.clone())),
-                    device_uid: 12347,
-                    device_id: 3,
-                    device_pcie_id: 1003,
-                    system_uid: 10003,
-                    vendor_id: 4318,
-                    alid_list: vec![5555, 6666],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu14")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 14")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location2)),
-                    device_uid: 12348,
-                    device_id: 4,
-                    device_pcie_id: 1004,
-                    system_uid: 10004,
-                    vendor_id: 4318,
-                    alid_list: vec![7777, 8888],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu21")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 21")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location3.clone())),
-                    device_uid: 12349,
-                    device_id: 1,
-                    device_pcie_id: 1005,
-                    system_uid: 10005,
-                    vendor_id: 4318,
-                    alid_list: vec![9999, 9888],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu22")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 22")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location3.clone())),
-                    device_uid: 12350,
-                    device_id: 2,
-                    device_pcie_id: 1006,
-                    system_uid: 10006,
-                    vendor_id: 4318,
-                    alid_list: vec![1212, 2121],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu23")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 23")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location3.clone())),
-                    device_uid: 12351,
-                    device_id: 3,
-                    device_pcie_id: 1007,
-                    system_uid: 10007,
-                    vendor_id: 4318,
-                    alid_list: vec![1313, 1414],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu24")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 24")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_minus_one_uuid),
-                    location_info: Some(Box::new(location3)),
-                    device_uid: 12352,
-                    device_id: 4,
-                    device_pcie_id: 1008,
-                    system_uid: 10008,
-                    vendor_id: 4318,
-                    alid_list: vec![1515, 1616],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu31")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 31")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location4.clone())),
-                    device_uid: 12353,
-                    device_id: 1,
-                    device_pcie_id: 1009,
-                    system_uid: 10009,
-                    vendor_id: 4318,
-                    alid_list: vec![1717, 1818],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu32")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 32")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location4.clone())),
-                    device_uid: 12354,
-                    device_id: 2,
-                    device_pcie_id: 1010,
-                    system_uid: 10010,
-                    vendor_id: 4318,
-                    alid_list: vec![1919, 2020],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu33")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 33")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location4.clone())),
-                    device_uid: 12355,
-                    device_id: 3,
-                    device_pcie_id: 1011,
-                    system_uid: 10011,
-                    vendor_id: 4318,
-                    alid_list: vec![2121, 2222],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-                libnmxm::nmxm_model::Gpu {
-                    id: Some(String::from("gpu34")),
-                    name: Some(String::from("NVIDIA GB200 NVL")),
-                    description: Some(String::from("High-end gaming GPU")),
-                    internal_description: Some(String::from("Internal description for GPU 34")),
-                    created_at: Some(String::from("2021-01-01T12:00:00Z")),
-                    updated_at: Some(String::from("2021-06-01T12:00:00Z")),
-                    domain_uuid: Some(all_ones_uuid),
-                    location_info: Some(Box::new(location4)),
-                    device_uid: 12356,
-                    device_id: 4,
-                    device_pcie_id: 1012,
-                    system_uid: 10012,
-                    vendor_id: 4318,
-                    alid_list: vec![2323, 2424],
-                    partition_id: None,
-                    port_id_list: None,
-                    health: None,
-                },
-            ]
+        /// True when `endpoint` carries a URL from `nvlink_nmxc_endpoints` (non-empty host).
+        fn nvlink_nmxc_endpoint_is_set(endpoint: &Endpoint) -> bool {
+            endpoint.uri.host().is_some_and(|host| !host.is_empty())
         }
     }
 
-    #[async_trait]
-    impl Nmxm for NmxmSimClient {
-        async fn create(
-            &self,
-            _endpoint: libnmxm::Endpoint,
-        ) -> Result<Box<dyn Nmxm>, NmxmApiError> {
-            todo!()
+    #[::async_trait::async_trait]
+    impl Nmxc for NmxcSimClient {
+        async fn hello(&mut self, _gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
+            Ok(nmxc_model::ServerHello {
+                server_header: Some({
+                    let mut header = Self::success_server_header();
+                    header.domain_uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string();
+                    header
+                }),
+                components_ver: vec![],
+                capabilities: vec![],
+                host_os_details: String::new(),
+                major_version: nmxc_model::ProtoMsgMajorVersion::ProtoMsgMajorVersion as i32,
+                minor_version: nmxc_model::ProtoMsgMinorVersion::ProtoMsgMinorVersion as i32,
+            })
         }
 
-        async fn raw_get(
-            &self,
-            _api: &str,
-        ) -> Result<libnmxm::nmxm_model::RawResponse, NmxmApiError> {
-            todo!()
+        #[allow(deprecated)]
+        async fn get_domain_properties(
+            &mut self,
+            _context: Option<nmxc_model::Context>,
+            _gateway_id: &str,
+        ) -> Result<nmxc_model::DomainProperties, NmxcError> {
+            Ok(nmxc_model::DomainProperties {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                max_compute_nodes: 0,
+                max_compute_nodes_per_chassis: 0,
+                max_gpus_per_compute_node: 0,
+                max_gpu_nv_links: 0,
+                line_rate_mbps: 0,
+                max_switch_nodes: 0,
+                max_switch_nodes_per_chassis: 0,
+                max_switches_per_switch_node: 0,
+                max_switch_nv_links: 0,
+                min_gpus_per_partition: 0,
+                max_num_partitions: 0,
+                max_num_alids: 0,
+                max_multicast_groups: 0,
+                max_num_ports: 0,
+            })
         }
 
-        async fn get_chassis(
-            &self,
-            _id: String,
-        ) -> Result<Vec<libnmxm::nmxm_model::Chassis>, NmxmApiError> {
-            todo!()
+        async fn get_domain_state_info(
+            &mut self,
+            _context: Option<nmxc_model::Context>,
+            _gateway_id: &str,
+        ) -> Result<nmxc_model::DomainStateInfo, NmxcError> {
+            Ok(nmxc_model::DomainStateInfo {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                control_plane_state: 0,
+                available_multicast_groups: 0,
+                config_status_description: String::new(),
+                nmx_controller_health: 0,
+            })
         }
 
-        async fn get_chassis_count(
-            &self,
-            _domain: Option<Vec<uuid::Uuid>>,
-        ) -> Result<i64, NmxmApiError> {
-            todo!()
+        async fn get_topology_info(
+            &mut self,
+            _context: Option<nmxc_model::Context>,
+            _gateway_id: &str,
+        ) -> Result<nmxc_model::FmTopologyInfo, NmxcError> {
+            Ok(nmxc_model::FmTopologyInfo {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                device_topo_info: vec![],
+            })
         }
 
-        async fn get_gpu(
-            &self,
-            _id: Option<String>,
-        ) -> Result<Vec<libnmxm::nmxm_model::Gpu>, NmxmApiError> {
-            Ok(self._gpus.lock().unwrap().clone())
+        async fn get_compute_node_count(
+            &mut self,
+            _req: nmxc_model::GetComputeNodeCountRequest,
+        ) -> Result<GetComputeNodeCountResponse, NmxcError> {
+            Ok(GetComputeNodeCountResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                num_nodes: 0,
+            })
         }
 
-        async fn get_gpu_count(
-            &self,
-            _domain: Option<Vec<uuid::Uuid>>,
-        ) -> Result<i64, NmxmApiError> {
-            todo!()
+        async fn get_compute_node_info_list(
+            &mut self,
+            _req: nmxc_model::GetComputeNodeInfoListRequest,
+        ) -> Result<GetComputeNodeInfoListResponse, NmxcError> {
+            Ok(GetComputeNodeInfoListResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                node_info_list: vec![],
+            })
         }
 
-        async fn get_partition(
-            &self,
-            _id: String,
-        ) -> Result<libnmxm::nmxm_model::Partition, NmxmApiError> {
-            todo!()
+        async fn get_gpu_info_list(
+            &mut self,
+            _req: nmxc_model::GetGpuInfoListRequest,
+        ) -> Result<GetGpuInfoListResponse, NmxcError> {
+            Ok(GetGpuInfoListResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                gpu_info_list: vec![],
+            })
         }
 
-        async fn get_partitions_list(
-            &self,
-        ) -> Result<Vec<libnmxm::nmxm_model::Partition>, NmxmApiError> {
-            let mut _state = self._state.lock().unwrap();
-            let mut _p = self._partitions.lock().unwrap();
-            let partitions = _p.clone();
-
-            Ok(partitions)
+        async fn get_switch_node_count(
+            &mut self,
+            _req: nmxc_model::GetSwitchNodeCountRequest,
+        ) -> Result<GetSwitchNodeCountResponse, NmxcError> {
+            Ok(GetSwitchNodeCountResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                num_nodes: 0,
+            })
         }
 
-        async fn get_compute_node(
-            &self,
-            _id: Option<String>,
-        ) -> Result<Vec<libnmxm::nmxm_model::ComputeNode>, NmxmApiError> {
-            todo!()
+        async fn get_switch_node_info_list(
+            &mut self,
+            _req: nmxc_model::GetSwitchNodeInfoListRequest,
+        ) -> Result<GetSwitchNodeInfoListResponse, NmxcError> {
+            Ok(GetSwitchNodeInfoListResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                node_info_list: vec![],
+            })
         }
 
-        async fn get_compute_nodes_count(
-            &self,
-            _domain: Option<Vec<uuid::Uuid>>,
-        ) -> Result<i64, NmxmApiError> {
-            todo!()
+        async fn get_partition_count(
+            &mut self,
+            _req: nmxc_model::GetPartitionCountRequest,
+        ) -> Result<GetPartitionCountResponse, NmxcError> {
+            let n = self._partitions.lock().unwrap().len() as u32;
+            Ok(GetPartitionCountResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                num_partitions: n,
+            })
         }
 
-        async fn get_port(
-            &self,
-            _id: Option<String>,
-        ) -> Result<Vec<libnmxm::nmxm_model::Port>, NmxmApiError> {
-            todo!()
+        async fn get_partition_id_list(
+            &mut self,
+            _req: nmxc_model::GetPartitionIdListRequest,
+        ) -> Result<GetPartitionIdListResponse, NmxcError> {
+            let parts = self._partitions.lock().unwrap();
+            let partition_list = parts
+                .iter()
+                .map(|p| nmxc_model::Partition {
+                    partition_id: Some(nmxc_model::PartitionId {
+                        partition_id: p.partition_id,
+                    }),
+                    num_gpus: p.gpu_uids.len() as u32,
+                })
+                .collect();
+            Ok(GetPartitionIdListResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_list,
+            })
         }
 
-        async fn get_ports_count(
-            &self,
-            _domain: Option<Vec<uuid::Uuid>>,
-        ) -> Result<i64, NmxmApiError> {
-            todo!()
-        }
-
-        async fn get_switch_node(
-            &self,
-            _id: Option<String>,
-        ) -> Result<Vec<libnmxm::nmxm_model::SwitchNode>, NmxmApiError> {
-            todo!()
-        }
-
-        async fn get_switch_nodes_count(
-            &self,
-            _domain: Option<Vec<uuid::Uuid>>,
-        ) -> Result<i64, NmxmApiError> {
-            todo!()
+        async fn get_partition_info_list(
+            &mut self,
+            req: nmxc_model::GetPartitionInfoListRequest,
+        ) -> Result<GetPartitionInfoListResponse, NmxcError> {
+            let parts = self._partitions.lock().unwrap();
+            let partition_info_list: Vec<nmxc_model::PartitionInfo> =
+                if req.partition_id_list.is_empty() {
+                    parts.iter().map(Self::to_partition_info).collect()
+                } else {
+                    let wanted: HashSet<u32> = req
+                        .partition_id_list
+                        .iter()
+                        .map(|p| p.partition_id)
+                        .collect();
+                    parts
+                        .iter()
+                        .filter(|p| wanted.contains(&p.partition_id))
+                        .map(Self::to_partition_info)
+                        .collect()
+                };
+            Ok(GetPartitionInfoListResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_info_list,
+            })
         }
 
         async fn create_partition(
-            &self,
-            _req: Option<libnmxm::nmxm_model::CreatePartitionRequest>,
-        ) -> Result<libnmxm::nmxm_model::AsyncResponse, NmxmApiError> {
-            {
-                if let Some(fail_counter) = &self._fail_after_n_creates {
-                    let mut fail_counter = fail_counter.lock().unwrap();
-                    if *fail_counter == 0 {
-                        return Err(NmxmApiError::InvalidArguments);
-                    }
-                    *fail_counter -= 1;
+            &mut self,
+            req: nmxc_model::CreatePartitionRequest,
+        ) -> Result<nmxc_model::CreatePartitionResponse, NmxcError> {
+            if let Some(fail_counter) = &self._fail_after_n_creates {
+                let mut fail_counter = fail_counter.lock().unwrap();
+                if *fail_counter == 0 {
+                    return Err(NmxcError::invalid_response("fail after n creates"));
                 }
+                *fail_counter -= 1;
             }
-            let r = _req.unwrap();
-            let mut _p = self._partitions.lock().unwrap();
-            let partition = libnmxm::nmxm_model::Partition {
-                id: uuid::Uuid::new_v4().into(),
-                partition_id: 1,
-                name: r.name,
-                r#type: libnmxm::nmxm_model::PartitionType::PartitionTypeIDBased,
-                health: libnmxm::nmxm_model::PartitionHealth::PartitionHealthHealthy,
-                members: r.members,
-                created_at: String::from("2023-03-01T12:00:00.000Z"),
-                updated_at: String::from("2023-03-01T12:00:00.000Z"),
+            let gpu_uids = Self::uids_from_resource_ids(&req.gpu_resource_id);
+            let partition_id = if let Some(ref pid) = req.partition_id {
+                pid.partition_id
+            } else {
+                let mut next = self._next_partition_id.lock().unwrap();
+                let id = *next;
+                *next = next.saturating_add(1);
+                id
             };
-
-            _p.push(partition);
-
-            Ok(libnmxm::nmxm_model::AsyncResponse {
-                operation_id: "5151515151".to_string(),
+            self._partitions.lock().unwrap().push(SimPartition {
+                partition_id,
+                name: req.name,
+                gpu_uids,
+            });
+            Ok(nmxc_model::CreatePartitionResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_id: Some(nmxc_model::PartitionId { partition_id }),
             })
         }
 
         async fn delete_partition(
-            &self,
-            _id: String,
-        ) -> Result<libnmxm::nmxm_model::AsyncResponse, NmxmApiError> {
-            let mut _p = self._partitions.lock().unwrap();
-            _p.retain(|partition| partition.id != _id);
-            Ok(libnmxm::nmxm_model::AsyncResponse {
-                operation_id: "5151515151".to_string(),
+            &mut self,
+            req: nmxc_model::DeletePartitionRequest,
+        ) -> Result<nmxc_model::DeletePartitionResponse, NmxcError> {
+            let pid = req.partition_id.map(|p| p.partition_id).unwrap_or_default();
+            self._partitions
+                .lock()
+                .unwrap()
+                .retain(|p| p.partition_id != pid);
+            Ok(nmxc_model::DeletePartitionResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
             })
         }
 
-        async fn update_partition(
-            &self,
-            _id: String,
-            _req: libnmxm::nmxm_model::UpdatePartitionRequest,
-        ) -> Result<libnmxm::nmxm_model::AsyncResponse, NmxmApiError> {
-            let mut _p = self._partitions.lock().unwrap();
-            if let Some(partition) = _p.iter_mut().find(|p| p.id == _id) {
-                partition.members = _req.members;
+        async fn add_gpus_to_partition(
+            &mut self,
+            req: nmxc_model::UpdatePartitionRequest,
+        ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
+            let pid = req
+                .partition_id
+                .as_ref()
+                .ok_or_else(|| NmxcError::invalid_response("partition_id"))?
+                .partition_id;
+            let mut parts = self._partitions.lock().unwrap();
+            let partition = parts
+                .iter_mut()
+                .find(|p| p.partition_id == pid)
+                .ok_or_else(|| NmxcError::invalid_response("partition not found"))?;
+            for u in &req.gpu_uid {
+                if !partition.gpu_uids.contains(u) {
+                    partition.gpu_uids.push(*u);
+                }
             }
-            Ok(libnmxm::nmxm_model::AsyncResponse {
-                operation_id: "5151515151".to_string(),
+            Ok(nmxc_model::UpdatePartitionResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
             })
         }
 
-        async fn get_operation(
-            &self,
-            _id: String,
-        ) -> Result<libnmxm::nmxm_model::Operation, NmxmApiError> {
-            let operation_request = libnmxm::nmxm_model::OperationRequest {
-                method: libnmxm::nmxm_model::OperationRequestMethod::Post,
-                uri: String::from("/nmx/v1/create_partition"),
-                body: Some(Some(serde_json::json!({"key": "value"}))),
-                cancellable: true,
-            };
-            let operation = libnmxm::nmxm_model::Operation {
-                id: String::from("5151515151"),
-                created_at: String::from("2025-10-10T10:00:00Z"),
-                updated_at: String::from("2025-10-10T11:00:00Z"),
-                status: libnmxm::nmxm_model::OperationStatus::Completed,
-                percentage: 75.0,
-                current_step: String::from("Done"),
-                request: Box::new(operation_request),
-                result: None,
-            };
-
-            Ok(operation)
-        }
-
-        async fn get_operations_list(
-            &self,
-        ) -> Result<Vec<libnmxm::nmxm_model::Operation>, NmxmApiError> {
-            todo!()
-        }
-
-        async fn cancel_operation(
-            &self,
-            _id: String,
-        ) -> Result<libnmxm::nmxm_model::AsyncResponse, NmxmApiError> {
-            todo!()
+        async fn remove_gpus_from_partition(
+            &mut self,
+            req: nmxc_model::UpdatePartitionRequest,
+        ) -> Result<nmxc_model::UpdatePartitionResponse, NmxcError> {
+            let pid = req
+                .partition_id
+                .as_ref()
+                .ok_or_else(|| NmxcError::invalid_response("partition_id"))?
+                .partition_id;
+            let remove: HashSet<u64> = req.gpu_uid.iter().copied().collect();
+            let mut parts = self._partitions.lock().unwrap();
+            let partition = parts
+                .iter_mut()
+                .find(|p| p.partition_id == pid)
+                .ok_or_else(|| NmxcError::invalid_response("partition not found"))?;
+            partition.gpu_uids.retain(|u| !remove.contains(u));
+            Ok(nmxc_model::UpdatePartitionResponse {
+                server_header: Some(Self::success_server_header()),
+                context: None,
+                partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
+            })
         }
     }
 
-    #[async_trait]
-    impl NmxmClientPool for NmxmSimClient {
-        async fn create_client(
-            &self,
-            _endpoint: &str,
-            _nmxm_id: Option<String>,
-        ) -> Result<Box<dyn Nmxm>, NvLinkPartitionError> {
-            Ok(Box::new(NmxmSimClient {
-                _state: self._state.clone(),
+    #[::async_trait::async_trait]
+    impl NmxcPool for NmxcSimClient {
+        async fn create_client(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
+            if let Some(pool) = &self._grpc_pool {
+                let ep = if Self::nvlink_nmxc_endpoint_is_set(&endpoint) {
+                    endpoint
+                } else {
+                    self._simulator_endpoint
+                        .clone()
+                        .expect("simulator mode must set _simulator_endpoint")
+                };
+                return pool.create_client(ep).await;
+            }
+            Ok(Box::new(NmxcSimClient {
                 _partitions: self._partitions.clone(),
-                _gpus: self._gpus.clone(),
+                _next_partition_id: self._next_partition_id.clone(),
                 _fail_after_n_creates: self._fail_after_n_creates.clone(),
+                _grpc_pool: self._grpc_pool.clone(),
+                _simulator_endpoint: self._simulator_endpoint.clone(),
             }))
+        }
+    }
+    #[cfg(test)]
+    mod nmxc_sim_client_tests {
+        use std::sync::Arc;
+
+        use libnmxc::NmxcPool;
+
+        use super::NmxcSimClient;
+
+        #[test]
+        fn default_simulator_url_is_localhost_9601() {
+            let s = NmxcSimClient::simulator();
+            assert_eq!(NmxcSimClient::SIMULATOR_URL, "http://localhost:9601");
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .uri,
+                NmxcSimClient::SIMULATOR_URL.parse::<http::Uri>().unwrap(),
+            );
+        }
+
+        #[test]
+        fn with_simulator_url_overrides_endpoint() {
+            let s = NmxcSimClient::with_simulator_url("http://127.0.0.1:19999");
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .uri,
+                "http://127.0.0.1:19999".parse::<http::Uri>().unwrap(),
+            );
+        }
+
+        #[test]
+        fn simulator_for_nvlink_with_mtls_uses_https_default() {
+            let cfg = crate::config::NvLinkConfig {
+                nmx_c_tls_client_cert_path: Some("/tmp/client.pem".to_string()),
+                nmx_c_tls_client_key_path: Some("/tmp/client-key.pem".to_string()),
+                ..Default::default()
+            };
+            let s = NmxcSimClient::simulator_for_nvlink_config(&cfg);
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .uri,
+                NmxcSimClient::SIMULATOR_URL_MTLS
+                    .parse::<http::Uri>()
+                    .unwrap(),
+            );
+        }
+
+        #[test]
+        fn with_simulator_url_for_nvlink_upgrades_http_to_https() {
+            let cfg = crate::config::NvLinkConfig {
+                nmx_c_tls_client_cert_path: Some("/c".to_string()),
+                nmx_c_tls_client_key_path: Some("/k".to_string()),
+                ..Default::default()
+            };
+            let s = NmxcSimClient::with_simulator_url_for_nvlink("http://127.0.0.1:19999", &cfg);
+            assert_eq!(
+                s._simulator_endpoint
+                    .as_ref()
+                    .expect("simulator endpoint should be set")
+                    .uri,
+                "https://127.0.0.1:19999".parse::<http::Uri>().unwrap(),
+            );
+        }
+
+        #[test]
+        fn implements_nmxc_pool() {
+            let _pool: Arc<dyn NmxcPool> = Arc::new(NmxcSimClient::simulator());
         }
     }
 }

@@ -11,14 +11,17 @@ name = "carbide_redfish"
 
 [features]
 default = []
-test-support = [ "dep:chrono", "dep:serde_json", "dep:tokio" ]
+test-support = ["dep:chrono", "dep:serde_json", "dep:tokio", "carbide-secrets/test-support"]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", default-features = false }
+# state-controller is required only to convert redfish errors to
+# controller external errors. We can make it more tight if move
+# StateHandlerError to separate crate.
+state-controller = { path = "../state-controller", default-features = false }
 
 #these are alphabetized
 arc-swap = { workspace = true }
@@ -27,10 +30,10 @@ chrono = { workspace = true, optional = true }
 http = { workspace = true }
 libredfish = { workspace = true }
 mac_address = { workspace = true }
-nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
+nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe", "session-service"] }
 reqwest = { workspace = true, default-features = false }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
-sqlx = { workspace = true, features = [ "postgres" ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }

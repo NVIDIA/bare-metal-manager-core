@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 use ::carbide_uuid::machine::MachineId;
+use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::device::filters::{DeviceFilter, DeviceFilterSet};
-use crate::device::info::MlxDeviceInfo;
 
 // MlxDeviceReport represents a complete device discovery report
 // with metadata and filtered device results.
