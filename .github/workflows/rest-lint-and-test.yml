@@ -108,9 +108,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check OpenAPI breaking changes
-        # If this action is not approved, the following command can be used instead:
-        # oasdiff breaking <(git show origin/main:rest-api/openapi/spec.yaml) rest-api/openapi/spec.yaml --fail-on ERR
-        uses: oasdiff/oasdiff-action/breaking@v0.0.51
+        uses: oasdiff/oasdiff-action/breaking@a8c7f0e5649d20d623edb5b38446d3ab3d82d43c
         with:
           # Compare the exact base and head commits from this PR.
           base: '${{ github.event.pull_request.base.sha }}:rest-api/openapi/spec.yaml'

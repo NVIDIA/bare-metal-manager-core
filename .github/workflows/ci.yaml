@@ -833,18 +833,17 @@ jobs:
         with:
           fetch-depth: 0 # Required: Buf needs the history to compare against main
 
-      - name: Setup Buf CLI
-        uses: bufbuild/buf-setup-action@v1
+      - name: Install Buf CLI
+        run: |
+          sudo curl -sSL https://github.com/bufbuild/buf/releases/download/v1.70.0/buf-Linux-x86_64 -o /usr/local/bin/buf
+          sudo chmod +x /usr/local/bin/buf
+          buf --version
 
       - name: Check for Breaking Changes
-        # If this action is not approved, the following command can be used instead:
-        # buf breaking crates/rpc/proto --against 'https://github.com/NVIDIA/infra-controller.git#branch=main,subdir=crates/rpc/proto'
-        uses: bufbuild/buf-breaking-action@v1
-        with:
-          # Points Buf to the protobuf module in this branch
-          input: 'crates/rpc/proto'
-          # Compare against the same module path on main
-          against: 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto'
+        run: |
+          buf breaking crates/rpc/proto \
+            --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
+            --error-format=github-actions
 
   lint-police:
     needs:
