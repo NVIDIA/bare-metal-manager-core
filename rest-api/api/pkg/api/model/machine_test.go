@@ -746,7 +746,7 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToInsertHealthReportProto(t *testing.T) {
 	type fields struct {
 		HealthIssue *APIMachineHealthIssue
 	}
@@ -828,7 +828,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToRemoveHealthReportProto(t *testing.T) {
 	tests := []struct {
 		name       string
 		machineID  string

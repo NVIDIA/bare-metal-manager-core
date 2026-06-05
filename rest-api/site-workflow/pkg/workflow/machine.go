@@ -87,7 +87,7 @@ func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadat
 	return nil
 }
 
-// CreateMachineHealthReportOverride inserts the tenant-reported OnlineRepair health override on Site.
+// CreateMachineHealthReport inserts the tenant-reported OnlineRepair health report on Site.
 func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
 	logger := log.With().Str("Workflow", "CreateMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")
@@ -114,7 +114,7 @@ func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMach
 	return nil
 }
 
-// DeleteMachineHealthReport removes the tenant-reported OnlineRepair health override on Site.
+// DeleteMachineHealthReport removes the tenant-reported OnlineRepair health report on Site.
 func DeleteMachineHealthReport(ctx workflow.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
 	logger := log.With().Str("Workflow", "DeleteMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")

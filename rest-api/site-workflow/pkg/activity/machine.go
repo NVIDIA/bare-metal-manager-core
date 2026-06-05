@@ -102,7 +102,7 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 	return err
 }
 
-// CreateMachineHealthReportOverrideOnSite applies a health report override on the Site controller.
+// CreateMachineHealthReportOnSite applies a health report on the Site controller.
 func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
 	logger := log.With().Str("Activity", "CreateMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
@@ -127,9 +127,9 @@ func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, re
 	return nil
 }
 
-// DeleteMachineHealthReportOnSite removes a health report on the Site controller.
+// DeleteMachineHealthReportOnSite removes a health report override on the Site controller.
 func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
-	logger := log.With().Str("Activity", "DeleteMachineHealthReportOverrideOnSite").Logger()
+	logger := log.With().Str("Activity", "DeleteMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.Source == "" {
@@ -144,7 +144,7 @@ func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, re
 
 	_, err := grpcServiceClient.RemoveMachineHealthReport(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to remove health report override using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to remove health report using Site Controller API")
 		return swe.WrapErr(err)
 	}
 
