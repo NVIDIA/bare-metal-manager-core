@@ -78,7 +78,7 @@ pub struct MaintenanceOptions {
 
     #[clap(
         long = "access-token",
-        help = "Artifact access token; required with --sot-json-file"
+        help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
     pub access_token: Option<String>,
 

@@ -153,7 +153,7 @@ pub struct FirmwareSourceArgs {
 
     #[clap(
         long = "access-token",
-        help = "Artifact access token; required with --sot-json-file"
+        help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
     pub access_token: Option<String>,
 }
@@ -187,20 +187,17 @@ fn resolve_firmware_source(
             }
         }
         (None, Some(sot_json_file), access_token) => {
-            let token = access_token.ok_or_else(|| {
-                CarbideCliError::GenericError(
-                    "--access-token is required with --sot-json-file".to_string(),
-                )
-            })?;
-            if token.trim().is_empty() {
-                return Err(CarbideCliError::GenericError(
-                    "--access-token must not be empty".to_string(),
-                ));
-            }
+            let token = access_token.and_then(|token| {
+                if token.trim().is_empty() {
+                    None
+                } else {
+                    Some(token)
+                }
+            });
 
             let config_json = std::fs::read_to_string(sot_json_file)?;
             serde_json::from_str::<serde_json::Value>(&config_json)?;
-            Ok((config_json, Some(token)))
+            Ok((config_json, token))
         }
     }
 }
@@ -342,6 +339,37 @@ mod tests {
 
         assert_eq!(target_version, r#"{"Id":"fw-object"}"#);
         assert_eq!(access_token.as_deref(), Some("token"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sot_json_source_allows_missing_access_token() {
+        let path = temp_sot_file(r#"{"Id":"fw-object"}"#);
+
+        let (target_version, access_token) = resolve_firmware_source(FirmwareSourceArgs {
+            target_version: None,
+            sot_json_file: Some(path.clone()),
+            access_token: None,
+        })
+        .expect("SOT source should resolve without an access token");
+
+        assert_eq!(target_version, r#"{"Id":"fw-object"}"#);
+        assert_eq!(access_token, None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sot_json_source_treats_empty_access_token_as_missing() {
+        let path = temp_sot_file(r#"{"Id":"fw-object"}"#);
+
+        let (_, access_token) = resolve_firmware_source(FirmwareSourceArgs {
+            target_version: None,
+            sot_json_file: Some(path.clone()),
+            access_token: Some(String::new()),
+        })
+        .expect("SOT source should resolve with an empty access token");
+
+        assert_eq!(access_token, None);
         let _ = std::fs::remove_file(path);
     }
 
