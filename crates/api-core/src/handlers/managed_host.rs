@@ -19,8 +19,10 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_boot_interface::MachineBootInterface;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -149,8 +151,22 @@ pub(crate) async fn set_primary_dpu(
         .ok_or_else(|| {
             CarbideError::internal("Primary interface disappeared during update".to_string())
         })?
-        .mac_address
-        .to_string();
+        .mac_address;
+
+    // The operator picked this primary NIC by MAC. Resolve its Redfish interface
+    // id from the host's exploration report so we can send a complete pair (which
+    // enables the interface-id fallback); if the report has no id for it, target
+    // the MAC alone.
+    let boot_interface_id = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr])
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|endpoint| {
+            endpoint
+                .report
+                .find_interface_id_for_mac(primary_interface_mac_address)
+                .map(str::to_string)
+        });
 
     txn.rollback().await?;
 
@@ -167,13 +183,18 @@ pub(crate) async fn set_primary_dpu(
         .into());
     };
 
-    // set the boot device
+    // Set the boot device. Send the complete (MAC + interface id) pair when the
+    // report gave us an id, so the boot-order call can fall back to the interface
+    // id; otherwise target the MAC alone.
+    let boot_target = match boot_interface_id {
+        Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: primary_interface_mac_address,
+            interface_id,
+        }),
+        None => BootInterfaceTarget::MacOnly(primary_interface_mac_address),
+    };
     api.endpoint_explorer
-        .set_boot_order_dpu_first(
-            bmc_socket_addr,
-            &bmc_interface,
-            &primary_interface_mac_address,
-        )
+        .set_boot_order_dpu_first(bmc_socket_addr, &bmc_interface, &boot_target)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

@@ -184,7 +184,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _boot_interface_mac: Option<&str>,
+        _boot_interface: Option<&carbide_redfish::boot_interface::BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }
@@ -193,7 +193,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _boot_interface_mac: &str,
+        _boot_interface: &carbide_redfish::boot_interface::BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

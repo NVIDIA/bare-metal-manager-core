@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
 use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
@@ -30,7 +31,7 @@ use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{Redfish, RedfishError};
+use libredfish::{BootInterfaceRef, Redfish, RedfishError};
 use mac_address::MacAddress;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
@@ -506,7 +507,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<&str>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
@@ -514,15 +515,33 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         // We will be redoing machine_setup later and can worry about getting the profile right then.
-        client
-            .machine_setup(
-                boot_interface_mac,
-                &HashMap::default(),
-                libredfish::BiosProfileType::Performance,
-                &HashMap::default(),
-            )
-            .await
-            .map_err(map_redfish_error)?;
+        // Bind the empty profiles outside the fallback closure so they outlive both attempts.
+        let empty_profiles: libredfish::BiosProfileVendor = HashMap::default();
+        let result = match boot_interface {
+            Some(target) => {
+                target
+                    .run(|bi| {
+                        client.machine_setup(
+                            Some(bi),
+                            &empty_profiles,
+                            libredfish::BiosProfileType::Performance,
+                            &empty_profiles,
+                        )
+                    })
+                    .await
+            }
+            None => {
+                client
+                    .machine_setup(
+                        None,
+                        &empty_profiles,
+                        libredfish::BiosProfileType::Performance,
+                        &empty_profiles,
+                    )
+                    .await
+            }
+        };
+        result.map_err(map_redfish_error)?;
 
         Ok(())
     }
@@ -531,15 +550,15 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: &str,
+        boot_interface: &BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client
-            .set_boot_order_dpu_first(boot_interface_mac)
+        boot_interface
+            .run(|bi| client.set_boot_order_dpu_first(bi))
             .await
             .map_err(map_redfish_error)?;
 
@@ -1143,7 +1162,7 @@ async fn fetch_machine_setup_status(
     boot_interface_mac: Option<MacAddress>,
 ) -> Result<MachineSetupStatus, RedfishError> {
     let status = client
-        .machine_setup_status(boot_interface_mac.map(|mac| mac.to_string()).as_deref())
+        .machine_setup_status(boot_interface_mac.map(BootInterfaceRef::Mac))
         .await?;
     let mut diffs: Vec<MachineSetupDiff> = Vec::new();
 

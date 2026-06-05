@@ -100,8 +100,21 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
-            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, *machine_id).await?;
+            let dpa_snapshots =
+                db::dpa_interface::find_by_machine_id(&mut *txn, *machine_id).await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
+
+            // Populate the host's stored boot interface (MAC + Redfish interface id)
+            // from its explored endpoint, so setup flows can target the MAC first
+            // and fall back to the [stable] interface id when the MAC isn't resolvable.
+            if let Ok(bmc_ip) = retstate.host_snapshot.bmc_info.ip_addr() {
+                retstate.boot_interface =
+                    db::explored_endpoints::find_by_ips(&mut *txn, vec![bmc_ip])
+                        .await?
+                        .into_iter()
+                        .next()
+                        .and_then(|ep| ep.boot_interface());
+            }
         };
 
         return Ok(retstate);

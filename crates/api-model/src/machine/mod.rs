@@ -48,6 +48,7 @@ use super::hardware_info::MachineInventory;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
+use super::machine_boot_interface::MachineBootInterface;
 use super::metadata::Metadata;
 use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
@@ -109,6 +110,11 @@ pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Machine,
     pub dpu_snapshots: Vec<Machine>,
     pub dpa_interface_snapshots: Vec<DpaInterface>,
+    /// The host's boot interface (MAC + Redfish interface id), captured by
+    /// site-explorer. Populated at read time by `load_object_state` (like
+    /// `dpa_interface_snapshots`); `None` until the host has been explored with
+    /// a fully-resolved boot interface.
+    pub boot_interface: Option<MachineBootInterface>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// its state
     pub instance: Option<InstanceSnapshot>,
@@ -186,6 +192,8 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshots,
             dpa_interface_snapshots,
+            // Filled by load_object_state later (see dpa_interface_snapshots).
+            boot_interface: None,
             managed_state,
             instance,
             rack_health_overrides,

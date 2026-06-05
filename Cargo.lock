@@ -6498,11 +6498,12 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.4#dd2152ac5642c5256b893e396647e159003d0071"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.7#e463ca91e6e995a162e15f1b1ba7cf90869eb40a"
 dependencies = [
  "chrono",
  "clap",
  "log",
+ "mac_address",
  "regex",
  "reqwest 0.12.28",
  "serde",
