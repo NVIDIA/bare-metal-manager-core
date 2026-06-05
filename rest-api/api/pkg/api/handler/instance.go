@@ -87,7 +87,7 @@ func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 // apiRequest will be mutated for use in createFromParams.
 // osConfig will hold the struct/data for use with Temporal/NICo calls.
 // Errors should be returned in the form of cutil.NewAPIErrorResponse
-func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIInstanceCreateRequest, site *cdbm.Site) (*cwssaws.OperatingSystem, *uuid.UUID, *cutil.APIError) {
+func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIInstanceCreateRequest, site *cdbm.Site) (*cwssaws.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
 
 	ctx := c.Request().Context()
 
@@ -99,10 +99,10 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Failed to validate OperatingSystem data", err)
 		}
 
-		return &cwssaws.OperatingSystem{
+		return &cwssaws.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe, // Set by the earlier call to ValidateAndSetOperatingSystemData
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,         // Set by the earlier call to ValidateAndSetOperatingSystemData
-			Variant: &cwssaws.OperatingSystem_Ipxe{
+			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 				Ipxe: &cwssaws.InlineIpxe{
 					IpxeScript: *apiRequest.IpxeScript,
 				},
@@ -197,10 +197,10 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 	// earlier call to ValidateAndSetOperatingSystemData
 
 	if os.Type == cdbm.OperatingSystemTypeIPXE {
-		return &cwssaws.OperatingSystem{
+		return &cwssaws.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.OperatingSystem_Ipxe{
+			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 				Ipxe: &cwssaws.InlineIpxe{
 					IpxeScript: *apiRequest.IpxeScript,
 				},
@@ -208,9 +208,9 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 			UserData: apiRequest.UserData,
 		}, osID, nil
 	} else {
-		return &cwssaws.OperatingSystem{
+		return &cwssaws.InstanceOperatingSystemConfig{
 			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.OperatingSystem_OsImageId{
+			Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
 				OsImageId: &cwssaws.UUID{
 					Value: os.ID.String(),
 				},
@@ -1858,7 +1858,7 @@ func (uih UpdateInstanceHandler) handleReboot(c echo.Context, logger *zerolog.Lo
 // apiRequest will be mutated for use in UpdateFromParams.
 // osConfig will hold the struct/data for use with Temporal/NICo calls.
 // Errors should be returned in the form of cutil.NewAPIErrorResponse
-func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIInstanceUpdateRequest, instance *cdbm.Instance, site *cdbm.Site) (*cwssaws.OperatingSystem, *uuid.UUID, *cutil.APIError) {
+func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIInstanceUpdateRequest, instance *cdbm.Instance, site *cdbm.Site) (*cwssaws.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
 
 	var os *cdbm.OperatingSystem
 	var osID *uuid.UUID
@@ -1873,10 +1873,10 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Failed to validate OperatingSystem data", err)
 		}
 
-		return &cwssaws.OperatingSystem{
+		return &cwssaws.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: instance.AlwaysBootWithCustomIpxe,
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled, // Set by the earlier call to ValidateAndSetOperatingSystemData
-			Variant: &cwssaws.OperatingSystem_Ipxe{
+			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 				Ipxe: &cwssaws.InlineIpxe{
 					IpxeScript: *apiRequest.IpxeScript,
 				},
@@ -2015,10 +2015,10 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 
 	if os != nil {
 		if os.Type == cdbm.OperatingSystemTypeIPXE {
-			return &cwssaws.OperatingSystem{
+			return &cwssaws.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
 				PhoneHomeEnabled:                       phoneHomeEnabled,
-				Variant: &cwssaws.OperatingSystem_Ipxe{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &cwssaws.InlineIpxe{
 						IpxeScript: *ipxeScript,
 					},
@@ -2026,9 +2026,9 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 				UserData: userData,
 			}, osID, nil
 		} else if os.Type == cdbm.OperatingSystemTypeImage {
-			return &cwssaws.OperatingSystem{
+			return &cwssaws.InstanceOperatingSystemConfig{
 				PhoneHomeEnabled: phoneHomeEnabled,
-				Variant: &cwssaws.OperatingSystem_OsImageId{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
 					OsImageId: &cwssaws.UUID{
 						Value: os.ID.String(),
 					},
@@ -2038,10 +2038,10 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 		}
 	}
 
-	return &cwssaws.OperatingSystem{
+	return &cwssaws.InstanceOperatingSystemConfig{
 		RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
 		PhoneHomeEnabled:                       phoneHomeEnabled,
-		Variant: &cwssaws.OperatingSystem_Ipxe{
+		Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 			Ipxe: &cwssaws.InlineIpxe{
 				IpxeScript: *ipxeScript,
 			},

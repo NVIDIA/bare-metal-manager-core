@@ -272,7 +272,7 @@ func (mur APIMachineUpdateRequest) Validate() error {
 	return err
 }
 
-func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID string) (*cwssaws.InsertHealthReportOverrideRequest, error) {
+func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*cwssaws.InsertMachineHealthReportRequest, error) {
 	mhi := mur.HealthIssue
 
 	m, err := json.Marshal(struct {
@@ -304,17 +304,17 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID s
 		Source: MachineHealthOverrideSourceOnlineRepair,
 		Alerts: []*cwssaws.HealthProbeAlert{alert},
 	}
-	return &cwssaws.InsertHealthReportOverrideRequest{
+	return &cwssaws.InsertMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: machineID},
-		Override: &cwssaws.HealthReportOverride{
+		HealthReportEntry: &cwssaws.HealthReportEntry{
 			Report: hr,
-			Mode:   cwssaws.OverrideMode_Merge,
+			Mode:   cwssaws.HealthReportApplyMode_Merge,
 		},
 	}, nil
 }
 
-func (mur APIMachineUpdateRequest) ToRemoveHealthReportOverrideProto(machineID string) (*cwssaws.RemoveHealthReportOverrideRequest, error) {
-	return &cwssaws.RemoveHealthReportOverrideRequest{
+func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*cwssaws.RemoveMachineHealthReportRequest, error) {
+	return &cwssaws.RemoveMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: machineID},
 		Source:    MachineHealthOverrideSourceOnlineRepair,
 	}, nil

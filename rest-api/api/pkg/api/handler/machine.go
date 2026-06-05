@@ -1393,7 +1393,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Instance must be in Ready state to enter online repair (current state: %s)", inst.Status), nil)
 				}
 
-				insReq, perr := apiRequest.ToInsertHealthReportOverrideProto(machine.ID)
+				insReq, perr := apiRequest.ToInsertHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build online repair request", nil)
@@ -1505,7 +1505,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair exit", nil)
 				}
 
-				rmReq, perr := apiRequest.ToRemoveHealthReportOverrideProto(machine.ID)
+				rmReq, perr := apiRequest.ToRemoveHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build remove online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build remove online repair request", nil)
