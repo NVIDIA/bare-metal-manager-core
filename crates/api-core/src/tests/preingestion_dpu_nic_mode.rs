@@ -105,6 +105,7 @@ fn host_bmc_report() -> EndpointExplorationReport {
         physical_slot_number: None,
         revision_id: None,
         topology_id: None,
+        remediation_error: None,
     }
 }
 

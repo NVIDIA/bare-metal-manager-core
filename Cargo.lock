@@ -2840,6 +2840,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-explorer",
+ "bmc-vendor",
+ "carbide-api-core",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
@@ -2847,7 +2849,9 @@ dependencies = [
  "carbide-ipmi",
  "carbide-network",
  "carbide-redfish",
+ "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-harness",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2868,6 +2872,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic",
  "tracing",
  "version-compare 0.2.1",
 ]
@@ -3028,6 +3033,29 @@ dependencies = [
  "eyre",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "carbide-test-harness"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-macros",
+ "carbide-network-segment-controller",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "ctor",
+ "ipnetwork",
+ "sqlx",
+ "state-controller",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "uuid",
 ]
 
 [[package]]
