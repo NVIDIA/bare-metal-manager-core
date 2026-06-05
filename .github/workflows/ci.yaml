@@ -824,6 +824,28 @@ jobs:
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
+  proto-breaking-changes:
+    name: Proto Breaking Changes Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required: Buf needs the history to compare against main
+
+      - name: Setup Buf CLI
+        uses: bufbuild/buf-setup-action@v1
+
+      - name: Check for Breaking Changes
+        # If this action is not approved, the following command can be used instead:
+        # buf breaking crates/rpc/proto --against 'https://github.com/NVIDIA/infra-controller.git#branch=main,subdir=crates/rpc/proto'
+        uses: bufbuild/buf-breaking-action@v1
+        with:
+          # Points Buf to the protobuf module in this branch
+          input: 'crates/rpc/proto'
+          # Compare against the same module path on main
+          against: 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto'
+
   lint-police:
     needs:
       - prepare
