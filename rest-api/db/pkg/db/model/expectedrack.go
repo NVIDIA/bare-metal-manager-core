@@ -125,7 +125,9 @@ func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
 	if proto.RackId != nil && proto.RackId.Id != "" {
 		er.RackID = proto.RackId.Id
 	}
-	er.RackProfileID = proto.RackProfileId.Id
+	if proto.RackProfileId != nil && proto.RackProfileId.Id != "" {
+		er.RackProfileID = proto.RackProfileId.Id
+	}
 	if proto.Metadata != nil {
 		er.Name = proto.Metadata.Name
 		er.Description = proto.Metadata.Description
