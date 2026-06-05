@@ -81,9 +81,30 @@ pub mod topology;
 pub mod upgrade_policy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuOsOperationalState {
+    pub state_detail: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuRepresentorStatus {
+    pub name: String,
+    pub carrier_up: Option<bool>,
+    pub state: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuInfoStatusObservation {
+    pub os_operational_state: Option<DpuOsOperationalState>,
+    pub firmware_version: Option<String>,
+    pub representors: Vec<DpuRepresentorStatus>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DpuInfo {
     pub id: String,
     pub loopback_ip: String,
+    pub observed_status: Option<DpuInfoStatusObservation>,
 }
 
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
