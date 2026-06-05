@@ -78,11 +78,6 @@ type DiscoveryInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Enumerates discovered network interfaces on the host
 	NetworkInterfaces []*NetworkInterface `protobuf:"bytes,1,rep,name=network_interfaces,json=networkInterfaces,proto3" json:"network_interfaces,omitempty"`
-	// Replaced with option 16: cpu_info, an aggregation of cpus per model
-	// Enumerates CPUs on the host
-	//
-	// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
-	Cpus []*Cpu `protobuf:"bytes,2,rep,name=cpus,proto3" json:"cpus,omitempty"`
 	// Enumerates discovered block devices on the host
 	BlockDevices []*BlockDevice `protobuf:"bytes,3,rep,name=block_devices,json=blockDevices,proto3" json:"block_devices,omitempty"`
 	// Deprecated. Prefer machine_arch.
@@ -145,14 +140,6 @@ func (*DiscoveryInfo) Descriptor() ([]byte, []int) {
 func (x *DiscoveryInfo) GetNetworkInterfaces() []*NetworkInterface {
 	if x != nil {
 		return x.NetworkInterfaces
-	}
-	return nil
-}
-
-// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
-func (x *DiscoveryInfo) GetCpus() []*Cpu {
-	if x != nil {
-		return x.Cpus
 	}
 	return nil
 }
@@ -1388,10 +1375,9 @@ var File_machine_discovery_nico_proto protoreflect.FileDescriptor
 
 const file_machine_discovery_nico_proto_rawDesc = "" +
 	"\n" +
-	"\x1cmachine_discovery_nico.proto\x12\x11machine_discovery\"\xa1\b\n" +
+	"\x1cmachine_discovery_nico.proto\x12\x11machine_discovery\"\xf7\a\n" +
 	"\rDiscoveryInfo\x12R\n" +
-	"\x12network_interfaces\x18\x01 \x03(\v2#.machine_discovery.NetworkInterfaceR\x11networkInterfaces\x12.\n" +
-	"\x04cpus\x18\x02 \x03(\v2\x16.machine_discovery.CpuB\x02\x18\x01R\x04cpus\x12C\n" +
+	"\x12network_interfaces\x18\x01 \x03(\v2#.machine_discovery.NetworkInterfaceR\x11networkInterfaces\x12C\n" +
 	"\rblock_devices\x18\x03 \x03(\v2\x1e.machine_discovery.BlockDeviceR\fblockDevices\x12!\n" +
 	"\fmachine_type\x18\x04 \x01(\tR\vmachineType\x12@\n" +
 	"\fnvme_devices\x18\x05 \x03(\v2\x1d.machine_discovery.NvmeDeviceR\vnvmeDevices\x121\n" +
@@ -1409,7 +1395,7 @@ const file_machine_discovery_nico_proto_rawDesc = "" +
 	"\x13_tpm_ek_certificateB\v\n" +
 	"\t_dpu_infoB\x12\n" +
 	"\x10_tpm_descriptionB\x0f\n" +
-	"\r_machine_archJ\x04\b\x06\x10\a\"S\n" +
+	"\r_machine_archJ\x04\b\x02\x10\x03J\x04\b\x06\x10\a\"S\n" +
 	"\rAttestKeyInfo\x12\x14\n" +
 	"\x05EKPub\x18\x01 \x01(\fR\x05EKPub\x12\x14\n" +
 	"\x05AKPub\x18\x02 \x01(\fR\x05AKPub\x12\x16\n" +
@@ -1558,27 +1544,26 @@ var file_machine_discovery_nico_proto_goTypes = []any{
 }
 var file_machine_discovery_nico_proto_depIdxs = []int32{
 	4,  // 0: machine_discovery.DiscoveryInfo.network_interfaces:type_name -> machine_discovery.NetworkInterface
-	6,  // 1: machine_discovery.DiscoveryInfo.cpus:type_name -> machine_discovery.Cpu
-	8,  // 2: machine_discovery.DiscoveryInfo.block_devices:type_name -> machine_discovery.BlockDevice
-	9,  // 3: machine_discovery.DiscoveryInfo.nvme_devices:type_name -> machine_discovery.NvmeDevice
-	10, // 4: machine_discovery.DiscoveryInfo.dmi_data:type_name -> machine_discovery.DmiData
-	5,  // 5: machine_discovery.DiscoveryInfo.infiniband_interfaces:type_name -> machine_discovery.InfinibandInterface
-	13, // 6: machine_discovery.DiscoveryInfo.dpu_info:type_name -> machine_discovery.DpuData
-	15, // 7: machine_discovery.DiscoveryInfo.gpus:type_name -> machine_discovery.Gpu
-	16, // 8: machine_discovery.DiscoveryInfo.memory_devices:type_name -> machine_discovery.MemoryDevice
-	3,  // 9: machine_discovery.DiscoveryInfo.tpm_description:type_name -> machine_discovery.TpmDescription
-	0,  // 10: machine_discovery.DiscoveryInfo.machine_arch:type_name -> machine_discovery.CpuArchitecture
-	2,  // 11: machine_discovery.DiscoveryInfo.attest_key_info:type_name -> machine_discovery.AttestKeyInfo
-	7,  // 12: machine_discovery.DiscoveryInfo.cpu_info:type_name -> machine_discovery.CpuInfo
-	11, // 13: machine_discovery.NetworkInterface.pci_properties:type_name -> machine_discovery.PciDeviceProperties
-	11, // 14: machine_discovery.InfinibandInterface.pci_properties:type_name -> machine_discovery.PciDeviceProperties
-	12, // 15: machine_discovery.DpuData.switches:type_name -> machine_discovery.LldpSwitchData
-	14, // 16: machine_discovery.Gpu.platform_info:type_name -> machine_discovery.GpuPlatformInfo
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	8,  // 1: machine_discovery.DiscoveryInfo.block_devices:type_name -> machine_discovery.BlockDevice
+	9,  // 2: machine_discovery.DiscoveryInfo.nvme_devices:type_name -> machine_discovery.NvmeDevice
+	10, // 3: machine_discovery.DiscoveryInfo.dmi_data:type_name -> machine_discovery.DmiData
+	5,  // 4: machine_discovery.DiscoveryInfo.infiniband_interfaces:type_name -> machine_discovery.InfinibandInterface
+	13, // 5: machine_discovery.DiscoveryInfo.dpu_info:type_name -> machine_discovery.DpuData
+	15, // 6: machine_discovery.DiscoveryInfo.gpus:type_name -> machine_discovery.Gpu
+	16, // 7: machine_discovery.DiscoveryInfo.memory_devices:type_name -> machine_discovery.MemoryDevice
+	3,  // 8: machine_discovery.DiscoveryInfo.tpm_description:type_name -> machine_discovery.TpmDescription
+	0,  // 9: machine_discovery.DiscoveryInfo.machine_arch:type_name -> machine_discovery.CpuArchitecture
+	2,  // 10: machine_discovery.DiscoveryInfo.attest_key_info:type_name -> machine_discovery.AttestKeyInfo
+	7,  // 11: machine_discovery.DiscoveryInfo.cpu_info:type_name -> machine_discovery.CpuInfo
+	11, // 12: machine_discovery.NetworkInterface.pci_properties:type_name -> machine_discovery.PciDeviceProperties
+	11, // 13: machine_discovery.InfinibandInterface.pci_properties:type_name -> machine_discovery.PciDeviceProperties
+	12, // 14: machine_discovery.DpuData.switches:type_name -> machine_discovery.LldpSwitchData
+	14, // 15: machine_discovery.Gpu.platform_info:type_name -> machine_discovery.GpuPlatformInfo
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_machine_discovery_nico_proto_init() }
