@@ -3273,26 +3273,15 @@ async fn test_site_explorer_switch_discovery(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:C0".parse().unwrap();
     let serial_number = "SW-SN-001".to_string();
     let bmc_username = "ADMIN".to_string();
     let bmc_password = "Pwd2023".to_string();
-    let segment = underlay_segment;
 
     let response = env
         .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                bmc_mac.to_string(),
-                match segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
+        .discover_dhcp(DhcpDiscovery::builder(bmc_mac.to_string(), UNDERLAY_RELAY).tonic_request())
         .await?
         .into_inner();
     tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
