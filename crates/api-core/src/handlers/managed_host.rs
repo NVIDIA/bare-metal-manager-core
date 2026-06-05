@@ -153,21 +153,6 @@ pub(crate) async fn set_primary_dpu(
         })?
         .mac_address;
 
-    // The operator picked this primary NIC by MAC. Resolve its Redfish interface
-    // id from the host's exploration report so we can send a complete pair (which
-    // enables the interface-id fallback); if the report has no id for it, target
-    // the MAC alone.
-    let boot_interface_id = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr])
-        .await?
-        .into_iter()
-        .next()
-        .and_then(|endpoint| {
-            endpoint
-                .report
-                .find_interface_id_for_mac(primary_interface_mac_address)
-                .map(str::to_string)
-        });
-
     txn.rollback().await?;
 
     let Some(current_primary_interface_id) = current_primary_interface_id else {
@@ -183,10 +168,10 @@ pub(crate) async fn set_primary_dpu(
         .into());
     };
 
-    // Set the boot device. Send the complete (MAC + interface id) pair when the
-    // report gave us an id, so the boot-order call can fall back to the interface
-    // id; otherwise target the MAC alone.
-    let boot_target = match boot_interface_id {
+    // Set the boot device. The new primary interface row already stores its
+    // Redfish interface id, so send the complete (MAC + id) pair when present,
+    // allowing for interface ID fallback (and target the MAC alone otherwise).
+    let boot_target = match new_primary_interface.boot_interface_id.clone() {
         Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
             mac_address: primary_interface_mac_address,
             interface_id,
