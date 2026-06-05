@@ -1962,6 +1962,31 @@ fn dormant_admin_hostname(mac_address: &MacAddress) -> String {
     format!("noip-{}", mac_address.to_string().replace(':', "-"))
 }
 
+/// Syncs a machine interface's hostname to its current address state after an address deletion.
+///
+/// - If the interface still has addresses, picks IPv4 (preferred) or the first remaining address
+///   and updates the hostname while preserving the existing domain_id.
+/// - If no addresses remain, resets to the dormant `noip-{mac}` placeholder and clears domain_id.
+pub async fn sync_hostname_after_address_change(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+    mac_address: &MacAddress,
+) -> DatabaseResult<()> {
+    let snapshot = find_one(&mut *txn, interface_id).await?;
+    let (hostname, domain_id) = if let Some(addr) = snapshot
+        .addresses
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or(snapshot.addresses.first())
+    {
+        (address_to_hostname(addr)?, snapshot.domain_id)
+    } else {
+        (dormant_admin_hostname(mac_address), None)
+    };
+    update_hostname_and_domain(txn, interface_id, &hostname, domain_id).await?;
+    Ok(())
+}
+
 pub async fn find_by_machine_and_segment(
     txn: &mut PgConnection,
     machine_id: &MachineId,
@@ -2128,6 +2153,19 @@ pub async fn allocate_address_for_family(
     }
 
     fast_txn.commit().await?;
+
+    // Sync the hostname to the newly allocated address so it stays consistent
+    // with machine_interface_addresses. Prefer IPv4 (more human-readable).
+    if let Some(addr) = allocated_addresses
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or(allocated_addresses.first())
+    {
+        let hostname = address_to_hostname(addr)?;
+        update_hostname_and_domain(txn, interface_id, &hostname, segment.config.subdomain_id)
+            .await?;
+    }
+
     Ok(allocated_addresses)
 }
 
