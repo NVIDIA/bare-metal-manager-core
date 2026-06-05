@@ -22,7 +22,6 @@ use std::sync::Arc;
 
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
@@ -68,16 +67,28 @@ use crate::tests::common::rpc_builder::DhcpDiscovery;
 struct FakeMachine {
     pub mac: MacAddress,
     pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
+    pub relay_address: &'static str,
     pub ip: String,
 }
 
+const UNDERLAY_RELAY: &str = "192.0.1.1";
+const ADMIN_RELAY: &str = "192.0.2.1";
+
 impl FakeMachine {
-    fn new(mac: &str, vendor: &str, segment: NetworkSegmentId) -> Self {
+    fn new_admin(mac: &str, vendor: &str) -> Self {
         Self {
             mac: mac.parse().unwrap(),
             dhcp_vendor: vendor.to_string(),
-            segment,
+            relay_address: ADMIN_RELAY,
+            ip: String::new(),
+        }
+    }
+
+    fn new(mac: &str, vendor: &str) -> Self {
+        Self {
+            mac: mac.parse().unwrap(),
+            dhcp_vendor: vendor.to_string(),
+            relay_address: UNDERLAY_RELAY,
             ip: String::new(),
         }
     }
@@ -104,14 +115,10 @@ trait DiscoverDhcp {
 
 impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
-        let relay_address = match self.segment {
-            s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-            _ => "192.0.2.1".to_string(),
-        };
         let response = env
             .api
             .discover_dhcp(
-                DhcpDiscovery::builder(self.mac, relay_address)
+                DhcpDiscovery::builder(self.mac, self.relay_address)
                     .vendor_string(&self.dhcp_vendor)
                     .tonic_request(),
             )
@@ -167,32 +174,21 @@ impl SiteExplorerConstructor for TestEnv {
 struct FakePowerShelf {
     pub bmc_mac_address: MacAddress,
     pub serial_number: String,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    #[allow(dead_code)]
-    pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
+    pub bmc_username: &'static str,
+    pub bmc_password: &'static str,
+    pub relay_address: &'static str,
     pub ip: String, // DHCP assigned IP (may be different from ip_address)
 }
 
 impl FakePowerShelf {
-    fn new(
-        bmc_mac_address: MacAddress,
-        ip: String,
-        serial_number: String,
-        bmc_username: String,
-        bmc_password: String,
-        dhcp_vendor: String,
-        segment: NetworkSegmentId,
-    ) -> Self {
+    fn new(bmc_mac_address: &str, ip: &str, serial_number: &str) -> Self {
         Self {
-            bmc_mac_address,
-            ip,
-            serial_number,
-            bmc_username,
-            bmc_password,
-            dhcp_vendor,
-            segment,
+            bmc_mac_address: bmc_mac_address.parse().unwrap(),
+            ip: ip.to_string(),
+            serial_number: serial_number.to_string(),
+            bmc_username: "admin",
+            bmc_password: "password",
+            relay_address: UNDERLAY_RELAY,
         }
     }
 
@@ -202,8 +198,8 @@ impl FakePowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: self.bmc_mac_address,
-            bmc_username: self.bmc_username.clone(),
-            bmc_password: self.bmc_password.clone(),
+            bmc_username: self.bmc_username.to_string(),
+            bmc_password: self.bmc_password.to_string(),
             serial_number: self.serial_number.clone(),
             bmc_ip_address: Some(self.ip.parse().unwrap()),
             metadata: Metadata {
@@ -245,11 +241,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     .unwrap();
     txn.commit().await?;
 
-    let mut machines = vec![FakeMachine::new(
-        &bmc_mac_address.to_string(),
-        "Vendor1",
-        underlay_segment,
-    )];
+    let mut machines = vec![FakeMachine::new(&bmc_mac_address.to_string(), "Vendor1")];
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -385,9 +377,8 @@ async fn test_handle_redfish_error_powers_on_machine(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new("6a:6b:6c:6d:6e:70", "Vendor1", underlay_segment);
+    let mut machine = FakeMachine::new("6a:6b:6c:6d:6e:70", "Vendor1");
     machine.discover_dhcp(&env).await?;
     let bmc_ip: IpAddr = machine.ip.parse()?;
 
@@ -465,17 +456,13 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     // to a panic if the machine is queried
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
-        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", underlay_segment),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
         // machines[1] has 1 dpu (machines[0])
-        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", underlay_segment),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
         // machines[2] has no DPUs
-        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3", underlay_segment),
+        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3"),
         // machines[3] is not on the underlay network and should not be searched.
-        FakeMachine::new(
-            "AA:AB:AC:AD:BB:01",
-            "VendorInvalidSegment",
-            env.admin_segment(),
-        ),
+        FakeMachine::new_admin("AA:AB:AC:AD:BB:01", "VendorInvalidSegment"),
     ];
     machines.discover_dhcp(&env).await?;
 
@@ -791,7 +778,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     addresses.sort();
     let mut expected_addresses: Vec<String> = machines
         .iter()
-        .filter(|m| m.segment == underlay_segment)
+        .filter(|m| m.relay_address == UNDERLAY_RELAY)
         .map(|m| m.ip.to_string())
         .collect();
     expected_addresses.sort();
@@ -855,9 +842,8 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:11", "Vendor1", underlay_segment);
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:11", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     // expected_machine WITHOUT a NoDpu declaration -- the host is
@@ -951,9 +937,8 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:22", "Vendor1", underlay_segment);
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:22", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -1027,9 +1012,8 @@ async fn test_site_explorer_ingests_no_dpu_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:33", "Vendor1", underlay_segment);
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:33", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -1139,20 +1123,20 @@ async fn test_site_explorer_audit_exploration_results(
         // This will be our expected DPU, and it will have the
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
-        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1", underlay_segment),
+        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1"),
         // This will be expected but unauthorized, and the serial is mismatched
-        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3", underlay_segment),
+        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3"),
         // This host will be expected but missing credentials, and the serial is mismatched
-        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3", underlay_segment),
+        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3"),
         // This host will be expected, but the serial number will be mismatched.
-        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3", underlay_segment),
+        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3"),
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
-        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3", underlay_segment),
+        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3"),
         // This host is not expected.
-        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3", underlay_segment),
+        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3"),
         // This DPU is really not expected. (i.e. no DB entry)
-        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3", underlay_segment),
+        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3"),
     ];
 
     machines.discover_dhcp(&env).await?;
@@ -1473,8 +1457,8 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     let underlay_segment = env.underlay_segment.unwrap();
 
     let mut machines = vec![
-        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1", underlay_segment),
-        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2", underlay_segment),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
     ];
 
     machines.discover_dhcp(&env).await?;
@@ -1738,15 +1722,14 @@ async fn test_disable_machine_creation_outside_site_explorer(
 #[sqlx_test]
 async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC", underlay_segment);
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", underlay_segment);
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -2530,7 +2513,7 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new("B8:3F:D2:90:97:A7", "Vendor1", underlay_segment);
+    let mut machine = FakeMachine::new("B8:3F:D2:90:97:A7", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -2726,15 +2709,14 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
 #[sqlx_test]
 async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC", underlay_segment);
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", underlay_segment);
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -2876,7 +2858,6 @@ async fn test_expected_machine_device_type_metrics(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     let test_sku_gpu_id = format!("test-sku-gpu-{}", uuid::Uuid::new_v4());
     let test_sku_no_type_id = format!("test-sku-no-type-{}", uuid::Uuid::new_v4());
@@ -2886,9 +2867,9 @@ async fn test_expected_machine_device_type_metrics(
 
     // Create fake machines with network interfaces so they can be discovered
     let mut machines = vec![
-        FakeMachine::new(EXPECTED_MACHINE_1_MAC, "Vendor1", underlay_segment),
-        FakeMachine::new(EXPECTED_MACHINE_2_MAC, "Vendor2", underlay_segment),
-        FakeMachine::new(EXPECTED_MACHINE_3_MAC, "Vendor3", underlay_segment),
+        FakeMachine::new(EXPECTED_MACHINE_1_MAC, "Vendor1"),
+        FakeMachine::new(EXPECTED_MACHINE_2_MAC, "Vendor2"),
+        FakeMachine::new(EXPECTED_MACHINE_3_MAC, "Vendor3"),
     ];
     machines.discover_dhcp(&env).await?;
 
@@ -3166,27 +3147,15 @@ async fn test_site_explorer_power_shelf_discovery(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3450,28 +3419,16 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create a power shelf using the new FakePowerShelf struct
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.168.1.100".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B1", "192.168.1.100", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3570,37 +3527,12 @@ async fn test_site_explorer_power_shelf_creation_limit(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create multiple power shelf machines using FakePowerShelf
     let mut power_shelves = vec![
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B2".parse().unwrap(),
-            "".to_string(),
-            "PS123456790".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor1".to_string(),
-            underlay_segment,
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B3".parse().unwrap(),
-            "".to_string(),
-            "PS123456791".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor2".to_string(),
-            underlay_segment,
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B4".parse().unwrap(),
-            "".to_string(),
-            "PS123456792".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor3".to_string(),
-            underlay_segment,
-        ),
+        FakePowerShelf::new("B8:3F:D2:90:97:B2", "", "PS123456790"),
+        FakePowerShelf::new("B8:3F:D2:90:97:B3", "", "PS123456791"),
+        FakePowerShelf::new("B8:3F:D2:90:97:B4", "", "PS123456792"),
     ];
     for power_shelf in &mut power_shelves {
         let response = env
@@ -3608,10 +3540,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
             .discover_dhcp(
                 DhcpDiscovery::builder(
                     power_shelf.bmc_mac_address.to_string(),
-                    match power_shelf.segment {
-                        s if s == underlay_segment => "192.0.1.1".to_string(),
-                        _ => "192.0.2.1".to_string(),
-                    },
+                    power_shelf.relay_address.to_string(),
                 )
                 .tonic_request(),
             )
@@ -3724,27 +3653,15 @@ async fn test_site_explorer_power_shelf_disabled(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B5".parse().unwrap(),
-        "".to_string(),
-        "PS123456793".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B5", "", "PS123456793");
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3841,28 +3758,16 @@ async fn test_site_explorer_power_shelf_error_handling(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B6".parse().unwrap(),
-        "".to_string(),
-        "PS123456794".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B6", "", "PS123456794");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3946,7 +3851,6 @@ async fn test_site_explorer_creates_power_shelf(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let explorer_config = SiteExplorerConfig {
@@ -3964,25 +3868,14 @@ async fn test_site_explorer_creates_power_shelf(
     let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4151,28 +4044,16 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4374,28 +4255,11 @@ async fn test_power_shelf_state_history_multiple(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create multiple power shelves
-    let power_shelf1 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.2".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor1".to_string(),
-        underlay_segment,
-    );
+    let power_shelf1 = FakePowerShelf::new("B8:3F:D2:90:97:B0", "192.0.1.2", "PS123456789");
 
-    let power_shelf2 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.0.1.3".parse().unwrap(),
-        "PS987654321".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor2".to_string(),
-        underlay_segment,
-    );
+    let power_shelf2 = FakePowerShelf::new("B8:3F:D2:90:97:B1", "192.0.1.3", "PS987654321");
 
     // Create expected power shelf entries in the database
     let mut txn = env.pool.begin().await?;
@@ -4642,28 +4506,16 @@ async fn test_power_shelf_state_history_error_handling(
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS999999999".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "TestVendor".to_string(),
-        underlay_segment,
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS999999999");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == underlay_segment => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4846,17 +4698,8 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let underlay_segment = env.underlay_segment.unwrap();
 
-    let power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.180".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        underlay_segment,
-    );
+    let power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "192.0.1.180", "PS123456789");
 
     tracing::info!(
         "Static ip {} assigned to power shelf mac {}",
