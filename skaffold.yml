@@ -31,9 +31,6 @@ build:
         infer:
           - "carbide"
           - pxe/static/*
-    - image: forge-unbound-localdev
-      docker:
-        dockerfile: dev/deployment/localdev/Dockerfile.unbound.localdev
     - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
