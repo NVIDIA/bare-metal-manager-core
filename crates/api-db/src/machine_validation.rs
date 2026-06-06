@@ -112,14 +112,20 @@ pub async fn update_run(
     total: i32,
     duration_to_complete: i64,
 ) -> DatabaseResult<()> {
-    let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0  WHERE id=$1 RETURNING *";
-    let _id = sqlx::query_as::<_, MachineValidation>(query)
+    let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0,state=$4 WHERE id=$1 AND end_time IS NULL RETURNING *";
+    let updated = sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)
         .bind(duration_to_complete)
         .bind(total)
-        .fetch_one(txn)
+        .bind(MachineValidationState::InProgress.to_string())
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+    if updated.is_none() {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "Machine validation run {id} is not active"
+        )));
+    }
     Ok(())
 }
 
@@ -230,6 +236,19 @@ pub async fn find_by_machine_id(
         ObjectColumnFilter::List(MachineIdColumn, std::slice::from_ref(machine_id)),
     )
     .await
+}
+
+pub async fn find_active(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
+    let query = "
+        SELECT * FROM machine_validation
+        WHERE end_time IS NULL
+        AND state IN ('Started', 'InProgress')
+        ORDER BY start_time";
+
+    sqlx::query_as::<_, MachineValidation>(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn find_active_machine_validation_by_machine_id(
