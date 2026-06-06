@@ -32,7 +32,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_provisioning(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -40,7 +40,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_ready(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -48,7 +48,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_unlocking(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -56,7 +56,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_apply_firmware(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -64,7 +64,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_apply_profile(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -72,7 +72,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_locking(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;
@@ -80,7 +80,7 @@ pub trait DpaInterfaceStateHandler: Sync {
     async fn handle_assigned(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult>;

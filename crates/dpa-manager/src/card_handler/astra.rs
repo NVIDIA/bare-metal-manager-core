@@ -31,11 +31,22 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_provisioning(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_provisioning idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let host_use_admin_network = dpa_interface.use_admin_network();
         if host_use_admin_network {
@@ -56,11 +67,23 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_ready(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_ready idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+
         let host_use_admin_network = dpa_interface.use_admin_network();
         if !host_use_admin_network {
             let new_state = DpaInterfaceControllerState::Assigned;
@@ -81,15 +104,28 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_unlocking(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_unlocking idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+
         tracing::warn!(
-            "Astra DPA interface state unexpcted state: {:#?}",
+            "Astra DPA interface state unexpected state: {:#?}",
             dpa_interface.id
         );
+
         return Ok(HandlerResult {
             new_state: None,
             txn: None,
@@ -99,15 +135,28 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_apply_firmware(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+
         tracing::warn!(
-            "Astra DPA interface state unexpcted state: {:#?}",
+            "Astra DPA interface state unexpected state: {:#?}",
             dpa_interface.id
         );
+
         return Ok(HandlerResult {
             new_state: None,
             txn: None,
@@ -117,13 +166,24 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_apply_profile(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_apply_profile idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
         tracing::warn!(
-            "Astra DPA interface state unexpcted state: {:#?}",
+            "Astra DPA interface state unexpected state: {:#?}",
             dpa_interface.id
         );
         return Ok(HandlerResult {
@@ -135,13 +195,24 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_locking(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_locking idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
         tracing::warn!(
-            "Astra DPA interface state unexpcted state: {:#?}",
+            "Astra DPA interface state unexpected state: {:#?}",
             dpa_interface.id
         );
         return Ok(HandlerResult {
@@ -153,11 +224,22 @@ impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_assigned(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_assigned idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let host_use_admin_network = dpa_interface.use_admin_network();
 

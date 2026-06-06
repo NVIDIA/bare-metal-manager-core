@@ -337,7 +337,7 @@ impl DpaMonitor {
     // If so, call send_set_vni_command to send the heart beat or set vni
     pub(crate) async fn do_heartbeat<'a>(
         &mut self,
-        state: &mut DpaInterface,
+        state: &DpaInterface,
         client: Arc<MqtteaClient>,
         dpa_info: &Arc<DpaInfo>,
         hb_interval: TimeDelta,
@@ -380,8 +380,8 @@ impl DpaMonitor {
     // revision being "NIL"). If needs_vni is true, get the VNI to use from the DB. Otherwise, vni
     // sent is 0.
     pub(crate) async fn send_set_vni_command<'a>(
-        &mut self,
-        state: &mut DpaInterface,
+        &self,
+        state: &DpaInterface,
         client: Arc<MqtteaClient>,
         dpa_info: &Arc<DpaInfo>, // dpa_info contains the subnet_ip and subnet_mask to use for the SetVni command
         vni: u32,

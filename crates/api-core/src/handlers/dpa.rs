@@ -209,7 +209,13 @@ pub(crate) async fn process_scout_req(
         let cstate = &sn.controller_state.value;
         let pci_name = &sn.pci_name;
 
-        assert_eq!(sn.interface_type, DpaInterfaceType::Svpc);
+        if sn.interface_type != DpaInterfaceType::Svpc {
+            tracing::error!(
+                %machine_id, %pci_name,
+                "interface type is not Svpc, skipping"
+            );
+            continue;
+        }
 
         let dpa_cmd = match cstate {
             DpaInterfaceControllerState::Provisioning

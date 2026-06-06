@@ -41,7 +41,7 @@ impl SvpcInterfaceHandler {
     async fn reconcile_assigned_state<'a>(
         db_pool: &PgPool,
         monitor: &mut DpaMonitor,
-        dpa_interface: &mut DpaInterface,
+        dpa_interface: &DpaInterface,
         machine: &Machine,
         instance: &InstanceSnapshot,
         client: Arc<MqtteaClient>,
@@ -190,7 +190,7 @@ impl SvpcInterfaceHandler {
     async fn reconcile_ready_state<'a>(
         monitor: &mut DpaMonitor,
         machine: &Machine,
-        dpa_interface: &mut DpaInterface,
+        dpa_interface: &DpaInterface,
         client: Arc<MqtteaClient>,
         dpa_info: &Arc<DpaInfo>,
         hb_interval: TimeDelta,
@@ -274,11 +274,22 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_provisioning(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_provisioning idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let host_use_admin_network = dpa_interface.use_admin_network();
         if host_use_admin_network {
@@ -299,11 +310,22 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_ready(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_ready idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let host_use_admin_network = dpa_interface.use_admin_network();
         if !host_use_admin_network {
@@ -344,11 +366,22 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_unlocking(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_unlocking idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         if dpa_interface.card_state.is_none() {
             tracing::info!("card_state none for dpa: {:#?}", dpa_interface.id);
@@ -358,7 +391,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             });
         }
 
-        if let Some(ref mut cs) = dpa_interface.card_state
+        if let Some(ref cs) = dpa_interface.card_state
             && cs.lockmode == Some(Unlocked)
         {
             let new_state = DpaInterfaceControllerState::ApplyFirmware;
@@ -379,11 +412,22 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_apply_firmware(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let Some(ref card_state) = dpa_interface.card_state else {
             tracing::info!(
@@ -428,22 +472,33 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_apply_profile(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        handle_apply_profile(&mh.dpa_interface_snapshots[idx])
+        apply_profile(&mh.dpa_interface_snapshots[idx])
     }
 
     #[allow(clippy::unused_async)]
     async fn handle_locking(
         &self,
         _monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_locking idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let Some(ref cs) = dpa_interface.card_state else {
             tracing::error!(
@@ -474,11 +529,22 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     async fn handle_assigned(
         &self,
         monitor: &mut DpaMonitor,
-        mh: &mut ManagedHostStateSnapshot,
+        mh: &ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        if idx >= mh.dpa_interface_snapshots.len() {
+            tracing::error!(
+                "handle_assigned idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let dpa_interface = &mh.dpa_interface_snapshots[idx];
 
         let host_use_admin_network = dpa_interface.use_admin_network();
 
@@ -523,7 +589,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     }
 }
 
-fn handle_apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
+fn apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
     let Some(ref cs) = state.card_state else {
         tracing::info!(
             "no profile report, because card_state none for dpa: {:#?}, waiting for retry",
