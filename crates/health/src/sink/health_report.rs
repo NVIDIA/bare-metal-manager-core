@@ -143,6 +143,11 @@ impl HealthReportSink {
     pub fn pop_pending_for_bench(&self) -> Option<(MachineId, Arc<HealthReport>)> {
         self.queue.pop().map(|(key, report)| (key.id, report))
     }
+
+    #[cfg(feature = "bench-hooks")]
+    pub fn content_hash_for_bench(report: &HealthReport) -> u64 {
+        content_hash(report)
+    }
 }
 
 impl DataSink for HealthReportSink {

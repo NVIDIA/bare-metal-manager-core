@@ -446,6 +446,54 @@ fn bench_queue_key_construction(c: &mut Criterion) {
     group.finish();
 }
 
+fn make_carbide_report(alert_count: usize, success_count: usize) -> CarbideHealthReport {
+    use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess};
+    CarbideHealthReport {
+        source: "bench-source".to_string(),
+        triggered_by: None,
+        observed_at: Some(chrono::Utc::now()),
+        successes: (0..success_count)
+            .map(|i| HealthProbeSuccess {
+                id: HealthProbeId::from_str(&format!("Probe{i}")).unwrap(),
+                target: Some(format!("target-{i}")),
+            })
+            .collect(),
+        alerts: (0..alert_count)
+            .map(|i| HealthProbeAlert {
+                id: HealthProbeId::from_str(&format!("Alert{i}")).unwrap(),
+                target: Some(format!("target-{i}")),
+                in_alert_since: None,
+                message: format!("alert message for probe {i}"),
+                tenant_message: None,
+                classifications: vec![HealthAlertClassification::prevent_allocations()],
+            })
+            .collect(),
+    }
+}
+
+fn bench_content_hash(c: &mut Criterion) {
+    let mut group = c.benchmark_group("health_report_content_hash");
+
+    for (label, alerts, successes) in [
+        ("empty", 0usize, 0usize),
+        ("small_success_only", 0, 8),
+        ("large_success_only", 0, 256),
+        ("small_with_alerts", 4, 4),
+        ("large_with_alerts", 64, 64),
+    ] {
+        let report: HealthReport = make_carbide_report(alerts, successes)
+            .try_into()
+            .expect("conversion should succeed");
+        let report = Arc::new(report);
+
+        group.bench_with_input(BenchmarkId::new("hash", label), &report, |b, report| {
+            b.iter(|| black_box(HealthReportSink::content_hash_for_bench(report)));
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_prometheus_sink,
@@ -453,5 +501,6 @@ criterion_group!(
     bench_health_report_sink,
     bench_otlp_sink,
     bench_queue_key_construction,
+    bench_content_hash,
 );
 criterion_main!(benches);
