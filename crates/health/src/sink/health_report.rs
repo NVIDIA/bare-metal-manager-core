@@ -181,6 +181,12 @@ impl DataSink for HealthReportSink {
                 if report.alerts.is_empty() {
                     let hash = content_hash(report);
                     let mut last_sent = self.last_sent.lock().expect("last_sent mutex poisoned");
+
+                    // Evict stale entries so the map doesn't grow without bound as
+                    // hardware is added and removed over the lifetime of the process.
+                    let evict_after = suppress_interval * 2;
+                    last_sent.retain(|_, v| v.sent_at.elapsed() < evict_after);
+
                     if let Some(prev) = last_sent.get(&key) {
                         if prev.content_hash == hash && prev.sent_at.elapsed() < suppress_interval {
                             tracing::debug!(

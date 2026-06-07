@@ -446,26 +446,24 @@ fn bench_queue_key_construction(c: &mut Criterion) {
     group.finish();
 }
 
-fn make_carbide_report(alert_count: usize, success_count: usize) -> CarbideHealthReport {
-    use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess};
-    CarbideHealthReport {
-        source: "bench-source".to_string(),
-        triggered_by: None,
+fn make_sink_report(alert_count: usize, success_count: usize) -> HealthReport {
+    use carbide_health::sink::{HealthReportAlert, HealthReportSuccess};
+    HealthReport {
+        source: ReportSource::BmcSensors,
+        target: Some(carbide_health::sink::HealthReportTarget::Machine),
         observed_at: Some(chrono::Utc::now()),
         successes: (0..success_count)
-            .map(|i| HealthProbeSuccess {
-                id: HealthProbeId::from_str(&format!("Probe{i}")).unwrap(),
+            .map(|i| HealthReportSuccess {
+                probe_id: carbide_health::sink::Probe::Sensor,
                 target: Some(format!("target-{i}")),
             })
             .collect(),
         alerts: (0..alert_count)
-            .map(|i| HealthProbeAlert {
-                id: HealthProbeId::from_str(&format!("Alert{i}")).unwrap(),
+            .map(|i| HealthReportAlert {
+                probe_id: carbide_health::sink::Probe::Sensor,
                 target: Some(format!("target-{i}")),
-                in_alert_since: None,
                 message: format!("alert message for probe {i}"),
-                tenant_message: None,
-                classifications: vec![HealthAlertClassification::prevent_allocations()],
+                classifications: vec![Classification::SensorCritical],
             })
             .collect(),
     }
@@ -481,10 +479,7 @@ fn bench_content_hash(c: &mut Criterion) {
         ("small_with_alerts", 4, 4),
         ("large_with_alerts", 64, 64),
     ] {
-        let report: HealthReport = make_carbide_report(alerts, successes)
-            .try_into()
-            .expect("conversion should succeed");
-        let report = Arc::new(report);
+        let report = Arc::new(make_sink_report(alerts, successes));
 
         group.bench_with_input(BenchmarkId::new("hash", label), &report, |b, report| {
             b.iter(|| black_box(HealthReportSink::content_hash_for_bench(report)));
