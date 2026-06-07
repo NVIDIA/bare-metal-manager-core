@@ -182,6 +182,25 @@ pub async fn set_primary_interface(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Records the vendor-native Redfish `EthernetInterface.Id` on the machine_interface
+/// row(s) with the given MAC. Captured by site-explorer per exploration; callers only
+/// invoke this when the id resolves from the current report, so a wiped MAC leaves the
+/// last-known-good id in place.
+pub async fn set_boot_interface_id(
+    mac_address: MacAddress,
+    boot_interface_id: &str,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machine_interfaces SET boot_interface_id=$1 WHERE mac_address=$2";
+    sqlx::query(query)
+        .bind(boot_interface_id)
+        .bind(mac_address)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn associate_interface_with_dpu_machine(
     interface_id: &MachineInterfaceId,
     dpu_machine_id: &MachineId,

@@ -3410,6 +3410,49 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     Ok(())
 }
 
+/// A managed host's DPU-facing `machine_interface` is created (via DHCP) with
+/// just a MAC and no `boot_interface_id`. The exploration that ingests the host
+/// then backfills the vendor-specific Redfish interface id onto that row, matched
+/// by MAC, at which the primary interface ends up with a full `MachineBootInterface`.
+/// This is the same backfill path any DHCP-derived interface takes (the capture is
+/// keyed on MAC, not on how the row was created).
+#[sqlx_test]
+async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let dpu = DpuConfig::default();
+    let host_pf_mac = dpu.host_mac_address;
+    let mh = common::api_fixtures::create_managed_host_with_config(
+        &env,
+        ManagedHostConfig::with_dpus(vec![dpu]),
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let primary = interfaces
+        .get(&mh.id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.primary_interface)
+        .expect("ingested host should have a primary machine_interface");
+
+    // The primary row is the DPU host-PF interface (same factory MAC), now
+    // holding both halves of the pair: its MAC plus the Redfish interface id the
+    // host report named for it. The `ManagedHostConfig` fixture ids its DPU
+    // interfaces "NIC.Slot.{index + 5}-1", so the first DPU is "NIC.Slot.5-1".
+    assert_eq!(primary.mac_address, host_pf_mac);
+    assert_eq!(
+        primary.boot_interface_id.as_deref(),
+        Some("NIC.Slot.5-1"),
+        "exploration should backfill the Redfish interface id onto the machine_interface row",
+    );
+
+    Ok(())
+}
+
 /// A Managed Host whose `expected_machines` row is later removed becomes an
 /// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
 /// alert on the host's Machine. Re-adding the entry clears the alert on the

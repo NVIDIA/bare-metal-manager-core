@@ -131,11 +131,6 @@ pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Machine,
     pub dpu_snapshots: Vec<Machine>,
     pub dpa_interface_snapshots: Vec<DpaInterface>,
-    /// The host's boot interface (MAC + Redfish interface id), captured by
-    /// site-explorer. Populated at read time by `load_object_state` (like
-    /// `dpa_interface_snapshots`); `None` until the host has been explored with
-    /// a fully-resolved boot interface.
-    pub boot_interface: Option<MachineBootInterface>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// its state
     pub instance: Option<InstanceSnapshot>,
@@ -213,8 +208,6 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshots,
             dpa_interface_snapshots,
-            // Filled by load_object_state later (see dpa_interface_snapshots).
-            boot_interface: None,
             managed_state,
             instance,
             rack_health_overrides,
@@ -280,19 +273,38 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 ///    so it's on the caller to figure out. What this usually means is the
 ///    caller passes `boot_interface_mac: None` to machine_setup, and then
 ///    subsequent logic flows from there (e.g. ::NoDpu handling).
-fn pick_boot_interface_mac(
+fn pick_boot_interface(
     interfaces: &[MachineInterfaceSnapshot],
-) -> Option<mac_address::MacAddress> {
+) -> Option<&MachineInterfaceSnapshot> {
     // The primary wins!
     if let Some(primary) = interfaces.iter().find(|x| x.primary_interface) {
-        return Some(primary.mac_address);
+        return Some(primary);
     }
     // ..no primary, so lets try to find *some* interface.
     interfaces
         .iter()
         .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
         .min_by_key(|x| x.mac_address)
-        .map(|x| x.mac_address)
+}
+
+fn pick_boot_interface_mac(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<mac_address::MacAddress> {
+    pick_boot_interface(interfaces).map(|x| x.mac_address)
+}
+
+/// Resolves the boot interface to a fully-populated [`MachineBootInterface`]
+/// (MAC + Redfish interface id) from the picked interface's own row. Split out
+/// like `pick_boot_interface_mac` so it's unit-testable without a full snapshot.
+fn pick_boot_interface_pair(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<MachineBootInterface> {
+    pick_boot_interface(interfaces).and_then(|interface| {
+        MachineBootInterface::from_parts(
+            Some(interface.mac_address),
+            interface.boot_interface_id.clone(),
+        )
+    })
 }
 
 impl ManagedHostStateSnapshot {
@@ -363,6 +375,19 @@ impl ManagedHostStateSnapshot {
     /// into things like machine_setup, is_bios_setup, etc.
     pub fn boot_interface_mac(&self) -> Option<mac_address::MacAddress> {
         pick_boot_interface_mac(&self.host_snapshot.interfaces)
+    }
+
+    /// Returns the host's boot interface as a fully-populated
+    /// [`MachineBootInterface`] (MAC + Redfish interface id), derived from the
+    /// same primary `machine_interface` row that [`Self::boot_interface_mac`]
+    /// selects.
+    ///
+    /// Returns `None` when that row hasn't captured a Redfish interface id yet
+    /// (e.g. not yet explored, or a zero-DPU host) -- callers then target the MAC
+    /// alone. Because the MAC and id come from one row, the pair can never name a
+    /// different interface than `boot_interface_mac`.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        pick_boot_interface_pair(&self.host_snapshot.interfaces)
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -2321,6 +2346,11 @@ pub struct MachineInterfaceSnapshot {
     pub interface_type: InterfaceType,
     pub primary_interface: bool,
     pub mac_address: MacAddress,
+    /// Vendor-native Redfish `EthernetInterface.Id` for this interface, captured
+    /// by site-explorer alongside the MAC. Combined with `mac_address` it forms a
+    /// [`MachineBootInterface`]; for the `primary_interface` row that pair is the
+    /// host's boot device.
+    pub boot_interface_id: Option<String>,
     pub attached_dpu_machine_id: Option<MachineId>,
     pub domain_id: Option<DomainId>,
     pub machine_id: Option<MachineId>,
@@ -2345,6 +2375,7 @@ impl MachineInterfaceSnapshot {
             machine_id: None,
             segment_id: uuid::Uuid::nil().into(),
             mac_address,
+            boot_interface_id: None,
             hostname: String::new(),
             interface_type: InterfaceType::Data,
             primary_interface: true,
@@ -2643,6 +2674,7 @@ impl<'r> FromRow<'r, PgRow> for MachineInterfaceSnapshot {
             hostname: row.try_get("hostname")?,
             interface_type: row.try_get("interface_type")?,
             mac_address: row.try_get("mac_address")?,
+            boot_interface_id: row.try_get("boot_interface_id")?,
             primary_interface: row.try_get("primary_interface")?,
             created: row.try_get("created")?,
             last_dhcp: row.try_get("last_dhcp")?,
@@ -3318,6 +3350,38 @@ mod tests {
             pick_boot_interface_mac(&interfaces),
             Some(onboard_mac_lo.parse().unwrap())
         );
+    }
+
+    // boot_interface() derives the full pair from the SAME primary row that the
+    // MAC selection uses, so the MAC and id can never name different interfaces.
+    #[test]
+    fn pick_boot_interface_pair_uses_primary_rows_mac_and_id() {
+        let other = build_mock_interface(
+            "05:00:00:00:00:01",
+            false,
+            Some(NetworkSegmentType::HostInband),
+        );
+        let primary = MachineInterfaceSnapshot {
+            boot_interface_id: Some("NIC.Slot.7-1-1".to_string()),
+            ..build_mock_interface("10:00:00:00:00:01", true, Some(NetworkSegmentType::Admin))
+        };
+
+        assert_eq!(
+            pick_boot_interface_pair(&[other, primary]),
+            Some(MachineBootInterface {
+                mac_address: "10:00:00:00:00:01".parse().unwrap(),
+                interface_id: "NIC.Slot.7-1-1".to_string(),
+            })
+        );
+    }
+
+    // When the primary row hasn't captured a Redfish interface id yet, there's no
+    // complete pair -- callers fall back to the MAC alone.
+    #[test]
+    fn pick_boot_interface_pair_is_none_without_captured_id() {
+        let primary =
+            build_mock_interface("10:00:00:00:00:01", true, Some(NetworkSegmentType::Admin));
+        assert_eq!(pick_boot_interface_pair(&[primary]), None);
     }
 
     // Check the case  where only the BMC has been discovered so far (which

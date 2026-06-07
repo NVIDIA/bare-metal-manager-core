@@ -21,17 +21,17 @@ use model::machine::ManagedHostStateSnapshot;
 
 /// Resolve how to target this host's boot interface for Redfish setup calls.
 ///
-/// Prefers the stored, fully-captured boot interface (MAC + Redfish interface
-/// id), which enables the MAC-first / interface-id fallback; it falls back to
-/// the machine-interfaces-derived MAC (no id fallback) when no captured boot
-/// interface is available yet.
+/// Uses the host's primary `machine_interface`: when that row has a captured
+/// Redfish interface id, the full pair is returned (enabling the MAC-first /
+/// interface-id fallback); otherwise it targets the MAC alone. Both come from the
+/// same row, so the pair can never name a different interface than the MAC.
 ///
 /// Returns `None` only when the host has no boot interface at all (e.g. only the
 /// BMC has been discovered, or the primary NIC hasn't appeared yet).
 pub fn boot_interface_target(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Option<BootInterfaceTarget> {
-    if let Some(boot_interface) = mh_snapshot.boot_interface.clone() {
+    if let Some(boot_interface) = mh_snapshot.boot_interface() {
         return Some(BootInterfaceTarget::Pair(boot_interface));
     }
     mh_snapshot

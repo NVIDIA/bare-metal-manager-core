@@ -1003,6 +1003,9 @@ impl SiteExplorer {
 
         let mut managed_hosts = Vec::new();
         let mut boot_interfaces: Vec<(IpAddr, MachineBootInterface)> = Vec::new();
+        // Per-DPU (host PF MAC -> Redfish interface id) pairs to stamp onto their
+        // machine_interfaces rows so the primary row holds the full boot pair.
+        let mut interface_boot_ids: Vec<(MacAddress, String)> = Vec::new();
 
         for (_, ep) in explored_hosts {
             // Resolve the operator-declared DPU mode for this host once;
@@ -1271,6 +1274,18 @@ impl SiteExplorer {
                 });
             }
 
+            // Capture each explored DPU interface's Redfish interface id onto its
+            // machine_interfaces row (matched by MAC), so the primary-flagged row
+            // holds the full boot pair (MAC + id). Last-known-good: only record
+            // when the id resolves from this report -- a wiped MAC keeps its prior id.
+            for dpu in &dpus_explored_for_host {
+                if let Some(mac) = dpu.host_pf_mac_address
+                    && let Some(interface_id) = ep.report.find_interface_id_for_mac(mac)
+                {
+                    interface_boot_ids.push((mac, interface_id.to_string()));
+                }
+            }
+
             // For NicMode hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
@@ -1315,6 +1330,12 @@ impl SiteExplorer {
         // Persist boot interface MACs for host endpoints
         for (address, boot_interface) in &boot_interfaces {
             db::explored_endpoints::set_boot_interface(*address, boot_interface, &mut txn).await?;
+        }
+
+        // Stamp each DPU interface's Redfish id onto its machine_interfaces row so the
+        // primary-flagged row is the host's complete boot interface (MAC + id).
+        for (mac, interface_id) in &interface_boot_ids {
+            db::machine_interface::set_boot_interface_id(*mac, interface_id, &mut txn).await?;
         }
 
         txn.commit().await?;

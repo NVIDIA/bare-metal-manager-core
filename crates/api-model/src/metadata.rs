@@ -21,6 +21,9 @@ use serde::Deserialize;
 
 use crate::ConfigValidationError;
 
+/// Maximum number of labels allowed on a resource's metadata.
+const MAX_LABELS: usize = 16;
+
 /// Metadata that can get associated with Forge managed resources
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
 pub struct Metadata {
@@ -96,9 +99,10 @@ impl Metadata {
             }
         }
 
-        if self.labels.len() > 10 {
+        if self.labels.len() > MAX_LABELS {
             return Err(ConfigValidationError::InvalidValue(format!(
-                "Cannot have more than 10 labels, got {}",
+                "Cannot have more than {} labels, got {}",
+                MAX_LABELS,
                 self.labels.len()
             )));
         }
@@ -230,11 +234,11 @@ mod tests {
             Err(ConfigValidationError::InvalidValue(_))
         ));
 
-        // Too many labels
+        // Too many labels (17 > 16)
         let metadata = Metadata {
             name: "nice name".to_string(),
             description: "anything is fine".to_string(),
-            labels: "abcdefghijk"
+            labels: "abcdefghijklmnopq"
                 .chars()
                 .map(|c| (c.to_string(), "x".to_string()))
                 .collect(),
