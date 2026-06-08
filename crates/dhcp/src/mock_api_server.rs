@@ -21,13 +21,16 @@
 ///
 /// Module only included if #cfg(test)
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::{SocketAddr, SocketAddrV4};
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use ::rpc::forge as rpc;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
+use http_body_util::BodyExt;
+use hyper::body::{Body as HttpBody, Bytes, Frame, Incoming};
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper::{Request, Response, body, header};
@@ -147,7 +150,7 @@ impl MockAPIServer {
                                 let c3 = c3.clone();
                                 let i3 = i3.clone();
                                 async move {
-                                    Ok::<Response<Full<Bytes>>, hyper::Error>(MockAPIServer::handler(req, c3.clone(), i3.clone()).await.unwrap())
+                                    Ok::<Response<GrpcBody>, hyper::Error>(MockAPIServer::handler(req, c3.clone(), i3.clone()).await.unwrap())
                                 }
                             })).await.inspect_err(|e| eprintln!("ERROR: {e:?}")).unwrap()
                         });
@@ -192,7 +195,7 @@ impl MockAPIServer {
         req: Request<Incoming>,
         calls: Arc<Mutex<HashMap<String, usize>>>,
         fail: Arc<Mutex<bool>>,
-    ) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
+    ) -> Result<Response<GrpcBody>, MockAPIServerError> {
         let path = req.uri().path();
         calls
             .lock()
@@ -207,9 +210,7 @@ impl MockAPIServer {
                 if inject_failure {
                     Err(MockAPIServerError::MockAPIFetchMachineError)
                 } else {
-                    Ok(Response::new(
-                        MockAPIServer::discover_dhcp(req).await.into(),
-                    ))
+                    Ok(grpc_response(MockAPIServer::discover_dhcp(req).await))
                 }
             }
             ENDPOINT_EXPIRE_DHCP_LEASE => {
@@ -245,8 +246,60 @@ impl Drop for MockAPIServer {
     }
 }
 
-/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC axum response
-fn respond(out: impl prost::Message) -> Result<Response<Full<Bytes>>, MockAPIServerError> {
+struct GrpcBody {
+    data: Option<Bytes>,
+    trailers: Option<hyper::HeaderMap>,
+}
+
+impl GrpcBody {
+    fn new(data: Vec<u8>) -> Self {
+        let mut trailers = hyper::HeaderMap::new();
+        trailers.insert(
+            header::HeaderName::from_static("grpc-status"),
+            header::HeaderValue::from_static("0"),
+        );
+
+        Self {
+            data: Some(Bytes::from(data)),
+            trailers: Some(trailers),
+        }
+    }
+}
+
+impl HttpBody for GrpcBody {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        if let Some(data) = this.data.take() {
+            return Poll::Ready(Some(Ok(Frame::data(data))));
+        }
+        if let Some(trailers) = this.trailers.take() {
+            return Poll::Ready(Some(Ok(Frame::trailers(trailers))));
+        }
+
+        Poll::Ready(None)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.data.is_none() && self.trailers.is_none()
+    }
+}
+
+fn grpc_response(body: Vec<u8>) -> Response<GrpcBody> {
+    Response::builder()
+        .status(200)
+        .header(header::CONTENT_TYPE, "application/grpc+tonic")
+        .body(GrpcBody::new(body))
+        .unwrap()
+}
+
+/// Takes an rpc object (built from rpc/proto/forge.proto) and turns into into a gRPC response
+fn respond(out: impl prost::Message) -> Result<Response<GrpcBody>, MockAPIServerError> {
     let msg_len = out.encoded_len() as u32;
     let mut body = Vec::with_capacity(1 + 4 + msg_len as usize);
     // first byte is compression: 0 means none
@@ -256,9 +309,5 @@ fn respond(out: impl prost::Message) -> Result<Response<Full<Bytes>>, MockAPISer
     // and finally the message
     out.encode(&mut body).unwrap();
 
-    Ok(Response::builder()
-        .status(200)
-        .header(header::CONTENT_TYPE, "application/grpc+tonic")
-        .body(body.into())
-        .unwrap())
+    Ok(grpc_response(body))
 }

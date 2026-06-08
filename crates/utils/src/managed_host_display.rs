@@ -261,7 +261,7 @@ impl From<Machine> for ManagedHostOutput {
             // dpus and exploration_report are filled in later
             health_overrides,
             dpus: Default::default(),
-            exploration_report: Default::default()
+            exploration_report: Default::default(),
         }
     }
 }
