@@ -30,7 +30,7 @@ pub struct Args {
         short = 'd',
         long,
         action,
-        help = "Delete interfaces. Redeploy kea after deleting machine interfaces."
+        help = "Delete interfaces."
     )]
     pub delete_interfaces: bool,
 
@@ -38,7 +38,7 @@ pub struct Args {
         short = 'b',
         long,
         action,
-        help = "Delete BMC interfaces. Redeploy kea after deleting machine interfaces."
+        help = "Delete BMC interfaces."
     )]
     pub delete_bmc_interfaces: bool,
 

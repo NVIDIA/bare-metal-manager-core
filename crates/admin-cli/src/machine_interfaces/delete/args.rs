@@ -20,6 +20,6 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[clap(help = "The interface ID to delete. Redeploy kea after deleting machine interfaces.")]
+    #[clap(help = "The interface ID to delete.")]
     pub interface_id: MachineInterfaceId,
 }
