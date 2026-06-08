@@ -150,17 +150,22 @@ config:
       nicoApiUrl: ""
       ## Where the hook publishes its own Prometheus metrics.
       nicoMetricsEndpoint: "[::]:1089"
-      ## DNS server IP. PLACEHOLDER — operators must override.
+      ## DNS server IP. Operators MUST override in site values.
       ## Set to nico-dns externalService LoadBalancer IP (single string
-      ## or comma-separated for multiple).
-      nameservers: "127.0.0.1"
-      ## NTP server IP(s), comma-separated. PLACEHOLDER — operators
-      ## must override. The helm-prereqs side does NOT ship an
-      ## in-cluster NTP today; provide a site-local NTP service IP.
-      ntpServer: "127.0.0.1"
-      ## PXE / boot-artifact server IP. PLACEHOLDER — operators must
-      ## override. Set to nico-pxe externalService LoadBalancer IP.
-      provisioningServer: "127.0.0.1"
+      ## or comma-separated for multiple). The "REPLACE_WITH_..."
+      ## placeholder below is intentional — kea surfaces it at startup
+      ## so a missed override is loud at runtime instead of producing a
+      ## silently-non-functional cluster (which the old "127.0.0.1"
+      ## fallback did).
+      nameservers: "REPLACE_WITH_NICO_DNS_VIP"
+      ## NTP server IP(s), comma-separated. Operators MUST override in
+      ## site values. Set to the comma-joined list of nico-ntp per-pod
+      ## externalService LoadBalancer IPs (or a site-local NTP service
+      ## if you're disabling the bundled nico-ntp subchart).
+      ntpServer: "REPLACE_WITH_NICO_NTP_VIPS"
+      ## PXE / boot-artifact server IP. Operators MUST override in
+      ## site values. Set to nico-pxe externalService LoadBalancer IP.
+      provisioningServer: "REPLACE_WITH_NICO_PXE_VIP"
 
     ## DHCPv4 subnets. Each entry maps to a kea subnet4 entry.
     ## `pools` entries can be either:

@@ -88,6 +88,12 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         ));
     }
 
+    if sku.id.is_empty() {
+        return Err(DatabaseError::InvalidArgument(
+            "SKU ID must not be empty".to_string(),
+        ));
+    }
+
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
@@ -209,6 +215,12 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
             "SKU version is no longer supported".to_string(),
+        ));
+    }
+
+    if sku.id.is_empty() {
+        return Err(DatabaseError::InvalidArgument(
+            "SKU ID must not be empty".to_string(),
         ));
     }
 

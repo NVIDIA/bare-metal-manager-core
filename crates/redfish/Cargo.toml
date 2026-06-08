@@ -38,3 +38,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

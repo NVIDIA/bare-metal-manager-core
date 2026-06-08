@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 const driftFieldSerialNumber = "serial_number"
@@ -32,14 +33,21 @@ func runInventoryOne(
 ) {
 	var allDrifts []model.ComponentDrift
 
-	machineDrifts := syncMachines(ctx, pool, nicoClient)
+	computeReceived, machineDrifts := syncMachines(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, machineDrifts...)
 
-	nvSwitchDrifts := syncNVSwitchesNICo(ctx, pool, nicoClient)
+	switchesReceived, nvSwitchDrifts := syncNVSwitchesNICo(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, nvSwitchDrifts...)
 
-	powershelfDrifts := syncPowershelvesNICo(ctx, pool, nicoClient)
+	powershelvesReceived, powershelfDrifts := syncPowershelvesNICo(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, powershelfDrifts...)
+
+	log.Info().
+		Int("compute", computeReceived).
+		Int("nvswitches", switchesReceived).
+		Int("powershelves", powershelvesReceived).
+		Msgf("Inventory received from Core: compute=%d nvswitches=%d powershelves=%d",
+			computeReceived, switchesReceived, powershelvesReceived)
 
 	// Persist all drifts atomically (replace entire table)
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
@@ -79,14 +87,14 @@ func syncMachines(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) []model.ComponentDrift {
+) (received int, drifts []model.ComponentDrift) {
 	log.Debug().Msg("Syncing machines...")
 
 	// Step 1: Get all machine components from DB
 	allComponents, err := model.GetAllComponents(ctx, pool.DB)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve components from db: %v", err)
-		return nil
+		return 0, nil
 	}
 
 	var components []model.Component
@@ -97,15 +105,16 @@ func syncMachines(
 	}
 
 	if len(components) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// Step 2: Fetch all machine details from NICo
 	allMachineDetails, err := nicoClient.GetMachines(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine details from NICo: %v", err)
-		return nil
+		return 0, nil
 	}
+	received = len(allMachineDetails)
 
 	detailByID := make(map[string]nicoapi.MachineDetail)
 	for _, d := range allMachineDetails {
@@ -119,7 +128,7 @@ func syncMachines(
 	allComponents, err = model.GetAllComponents(ctx, pool.DB)
 	if err != nil {
 		log.Error().Msgf("Unable to re-read components from db after machine ID update: %v", err)
-		return nil
+		return received, nil
 	}
 	components = components[:0]
 	for _, c := range allComponents {
@@ -140,7 +149,7 @@ func syncMachines(
 	}
 
 	if len(machineIDs) == 0 {
-		return buildDriftsForUnmatchedComponents(components, allMachineDetails)
+		return received, buildDriftsForUnmatchedComponents(components, allMachineDetails)
 	}
 
 	// Step 4: Direct-write power_state (requires separate NICo API)
@@ -149,11 +158,14 @@ func syncMachines(
 	// Step 5: Direct-write firmware_version (from pre-fetched details, no extra API call)
 	syncFirmwareVersions(ctx, pool, detailByID, componentsByExternalID)
 
+	// Step 5b: Direct-write derived ComponentStatus (from pre-fetched detail.State).
+	syncMachineStatuses(ctx, pool, detailByID, componentsByExternalID)
+
 	// Step 6: Fetch positions and build drift records (requires separate NICo API)
 	machinePositions, err := nicoClient.GetMachinePositionInfo(ctx, machineIDs)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine positions from NICo: %v", err)
-		return nil
+		return received, nil
 	}
 
 	positionByID := make(map[string]nicoapi.MachinePosition)
@@ -162,7 +174,6 @@ func syncMachines(
 	}
 
 	now := time.Now()
-	var drifts []model.ComponentDrift
 
 	for i := range components {
 		comp := &components[i]
@@ -227,7 +238,7 @@ func syncMachines(
 	}
 
 	log.Info().Msgf("Machine sync: %d drift(s) out of %d component(s)", len(drifts), len(components))
-	return drifts
+	return received, drifts
 }
 
 // buildDriftsForUnmatchedComponents returns missing_in_actual drifts for all
@@ -378,6 +389,119 @@ func syncFirmwareVersions(
 	}
 }
 
+// syncMachineStatuses derives a types.ComponentStatus from each machine's
+// controller_state (already fetched as detail.State) and direct-writes it to
+// the component row. Only rows whose status actually changed are updated.
+func syncMachineStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	detailByID map[string]nicoapi.MachineDetail,
+	componentsByExternalID map[string]*model.Component,
+) {
+	statesByID := make(map[string]string, len(detailByID))
+	for id, d := range detailByID {
+		if d.State != "" {
+			statesByID[id] = d.State
+		}
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypeCompute, statesByID, componentsByExternalID)
+}
+
+// syncSwitchStatuses fetches controller_state for the matched switches and
+// persists the derived ComponentStatus per DB row.
+func syncSwitchStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	nicoClient nicoapi.Client,
+	componentsBySwitchID map[string]*model.Component,
+) {
+	ids := mapKeys(componentsBySwitchID)
+	if len(ids) == 0 {
+		return
+	}
+	statesByID, err := nicoClient.FindSwitchControllerStates(ctx, ids)
+	if err != nil {
+		log.Error().Msgf("Unable to retrieve switch controller_states from NICo: %v", err)
+		return
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypeNVSwitch, statesByID, componentsBySwitchID)
+}
+
+// syncPowershelfStatuses is the power-shelf equivalent of syncSwitchStatuses.
+func syncPowershelfStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	nicoClient nicoapi.Client,
+	componentsByShelfID map[string]*model.Component,
+) {
+	ids := mapKeys(componentsByShelfID)
+	if len(ids) == 0 {
+		return
+	}
+	statesByID, err := nicoClient.FindPowerShelfControllerStates(ctx, ids)
+	if err != nil {
+		log.Error().Msgf("Unable to retrieve power-shelf controller_states from NICo: %v", err)
+		return
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypePowerShelf, statesByID, componentsByShelfID)
+}
+
+func mapKeys(m map[string]*model.Component) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// persistComponentStatuses maps raw core controller_state strings to
+// ComponentStatus values via the per-type mapper and writes any deltas to the
+// component table. components are keyed by external_id (machineID / switchID /
+// shelfID). Entries without a state in statesByID are skipped — missing data
+// is not a status reset.
+func persistComponentStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	componentType types.ComponentType,
+	statesByID map[string]string,
+	componentsByExternalID map[string]*model.Component,
+) {
+	if len(statesByID) == 0 {
+		return
+	}
+
+	var toUpdate []model.Component
+	for externalID, raw := range statesByID {
+		comp, ok := componentsByExternalID[externalID]
+		if !ok {
+			continue
+		}
+		newStatus := nicoapi.MapComponentStatus(componentType, raw)
+		if comp.Status != nil && comp.Status.Equal(newStatus) {
+			continue
+		}
+		comp.Status = &newStatus
+		toUpdate = append(toUpdate, *comp)
+	}
+
+	if len(toUpdate) == 0 {
+		return
+	}
+	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		for _, cur := range toUpdate {
+			if err := cur.SetStatusByComponentID(ctx, tx); err != nil {
+				return fmt.Errorf("set component status: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Error().Msgf("Unable to persist component statuses: %v", err)
+	}
+}
+
 // compareMachineFieldsForDrift compares validation fields between expected (DB) and actual (NICo).
 // Validation fields: slot_id, tray_index, host_id, serial_number.
 func compareMachineFieldsForDrift(
@@ -467,17 +591,17 @@ func syncNVSwitchesNICo(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) []model.ComponentDrift {
+) (received int, drifts []model.ComponentDrift) {
 	log.Debug().Msg("Syncing NV switches via NICo...")
 
 	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve NVSwitch components from db: %v", err)
-		return nil
+		return 0, nil
 	}
 
 	if len(expectedSwitches) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	expectedByBmcMac := make(map[string]*model.Component)
@@ -499,8 +623,9 @@ func syncNVSwitchesNICo(
 	linked, err := nicoClient.GetAllExpectedSwitchesLinked(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve linked expected switches from NICo: %v", err)
-		return nil
+		return 0, nil
 	}
+	received = len(linked)
 
 	linkedByMac := make(map[string]nicoapi.LinkedExpectedSwitch)
 	for _, les := range linked {
@@ -535,7 +660,6 @@ func syncNVSwitchesNICo(
 
 	// Fetch inventory from Core for all matched switches
 	now := time.Now()
-	var drifts []model.ComponentDrift
 	if len(switchIDs) > 0 {
 		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
 			Target: &pb.GetComponentInventoryRequest_SwitchIds{
@@ -548,6 +672,8 @@ func syncNVSwitchesNICo(
 			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsBySwitchID)...)
 		}
 	}
+
+	syncSwitchStatuses(ctx, pool, nicoClient, componentsBySwitchID)
 
 	// Build drifts for components that don't have a Core SwitchId yet
 	for _, sw := range expectedByBmcMac {
@@ -564,7 +690,7 @@ func syncNVSwitchesNICo(
 	}
 
 	log.Info().Msgf("NVSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
-	return drifts
+	return received, drifts
 }
 
 // ---------------------------------------------------------------------------
@@ -589,17 +715,17 @@ func syncPowershelvesNICo(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) []model.ComponentDrift {
+) (received int, drifts []model.ComponentDrift) {
 	log.Debug().Msg("Syncing powershelves via NICo...")
 
 	expectedPowershelves, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypePowerShelf)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve powershelf components from db: %v", err)
-		return nil
+		return 0, nil
 	}
 
 	if len(expectedPowershelves) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	expectedByPmcMac := make(map[string]*model.Component)
@@ -621,8 +747,9 @@ func syncPowershelvesNICo(
 	linked, err := nicoClient.GetAllExpectedPowerShelvesLinked(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve linked expected power shelves from NICo: %v", err)
-		return nil
+		return 0, nil
 	}
+	received = len(linked)
 
 	linkedByMac := make(map[string]nicoapi.LinkedExpectedPowerShelf)
 	for _, leps := range linked {
@@ -657,7 +784,6 @@ func syncPowershelvesNICo(
 
 	// Fetch inventory from Core for all matched power shelves
 	now := time.Now()
-	var drifts []model.ComponentDrift
 	if len(shelfIDs) > 0 {
 		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
 			Target: &pb.GetComponentInventoryRequest_PowerShelfIds{
@@ -670,6 +796,8 @@ func syncPowershelvesNICo(
 			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsByShelfID)...)
 		}
 	}
+
+	syncPowershelfStatuses(ctx, pool, nicoClient, componentsByShelfID)
 
 	// Build drifts for components that don't have a Core PowerShelfId yet
 	for _, ps := range expectedByPmcMac {
@@ -686,7 +814,7 @@ func syncPowershelvesNICo(
 	}
 
 	log.Info().Msgf("Powershelf NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedPowershelves))
-	return drifts
+	return received, drifts
 }
 
 // applyInventoryToComponents extracts firmware_version and power_state from

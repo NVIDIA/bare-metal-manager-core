@@ -17,6 +17,7 @@
 
 use std::net::SocketAddr;
 
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use libredfish::RoleId;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
@@ -113,14 +114,14 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        boot_interface_mac: Option<&str>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn set_boot_order_dpu_first(
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        boot_interface_mac: &str,
+        boot_interface: &BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn set_nic_mode(

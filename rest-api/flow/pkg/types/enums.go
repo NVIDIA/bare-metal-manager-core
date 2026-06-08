@@ -80,3 +80,23 @@ const (
 	OperationTypePowerControl    OperationType = "POWER_CONTROL"
 	OperationTypeFirmwareControl OperationType = "FIRMWARE_CONTROL"
 )
+
+// Phase is the coarse lifecycle bucket a component is in. Shared across
+// compute, nvswitch, and power shelf; map new core sub-states onto an
+// existing phase rather than adding new ones.
+type Phase string
+
+const (
+	// PhaseUnknown: no (or undecodable) core state observed yet.
+	PhaseUnknown Phase = "UNKNOWN"
+	// PhaseInitializing: on the path to Ready (provisioning, validating).
+	PhaseInitializing Phase = "INITIALIZING"
+	// PhaseReady: steady operational state.
+	PhaseReady Phase = "READY"
+	// PhaseInUse: tenant-owned or core has in-progress work.
+	PhaseInUse Phase = "IN_USE"
+	// PhaseError: terminal failure; needs human intervention.
+	PhaseError Phase = "ERROR"
+	// PhaseDeleting: being torn down.
+	PhaseDeleting Phase = "DELETING"
+)

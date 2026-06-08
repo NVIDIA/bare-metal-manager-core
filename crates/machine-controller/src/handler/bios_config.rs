@@ -32,6 +32,7 @@ use super::{
     ReachabilityParams, RebootStatus, call_machine_setup_and_handle_no_dpu_error,
     handler_host_power_control, trigger_reboot_if_needed,
 };
+use crate::boot_interface::boot_interface_target;
 use crate::config::MachineStateControllerConfig;
 use crate::context::MachineStateHandlerContextObjects;
 
@@ -89,11 +90,11 @@ pub(super) async fn configure_host_bios(
     mh_snapshot: &ManagedHostStateSnapshot,
     retry_count: u32,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    let boot_interface_mac = mh_snapshot.boot_interface_mac().map(|m| m.to_string());
+    let boot_interface = boot_interface_target(mh_snapshot);
 
     let bios_job_id = match call_machine_setup_and_handle_no_dpu_error(
         redfish_client,
-        boot_interface_mac.as_deref(),
+        boot_interface.as_ref(),
         mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
         &ctx.services.site_config,
     )
@@ -386,13 +387,18 @@ pub(super) async fn advance_polling_bios_setup(
     retry_count: u32,
     machine_controller_config: &MachineStateControllerConfig,
 ) -> Result<PollingBiosSetupOutcome, StateHandlerError> {
-    let boot_interface_mac = mh_snapshot.boot_interface_mac().map(|m| m.to_string());
+    let boot_interface = boot_interface_target(mh_snapshot);
     let stuck_for = mh_snapshot.host_snapshot.state.version.since_state_change();
 
-    match redfish_client
-        .is_bios_setup(boot_interface_mac.as_deref())
-        .await
-    {
+    let is_bios_setup_result = match &boot_interface {
+        Some(target) => {
+            target
+                .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                .await
+        }
+        None => redfish_client.is_bios_setup(None).await,
+    };
+    match is_bios_setup_result {
         Ok(true) => {
             tracing::info!("BIOS setup verified successfully");
             Ok(PollingBiosSetupOutcome::Verified)
@@ -458,15 +464,20 @@ pub(super) async fn handle_bios_setup_failed_recovery(
     mh_snapshot: &ManagedHostStateSnapshot,
     recovered_state: ManagedHostState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let boot_interface_mac = mh_snapshot.boot_interface_mac().map(|m| m.to_string());
+    let boot_interface = boot_interface_target(mh_snapshot);
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
         .await?;
-    match redfish_client
-        .is_bios_setup(boot_interface_mac.as_deref())
-        .await
-    {
+    let is_bios_setup_result = match &boot_interface {
+        Some(target) => {
+            target
+                .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                .await
+        }
+        None => redfish_client.is_bios_setup(None).await,
+    };
+    match is_bios_setup_result {
         Ok(true) => {
             tracing::info!("BIOS setup verified after manual remediation; resuming state machine");
             Ok(StateHandlerOutcome::transition(recovered_state))

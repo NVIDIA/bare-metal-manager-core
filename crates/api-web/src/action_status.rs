@@ -27,9 +27,11 @@ pub(crate) enum Type {
     MachineSetup,
     SetDpuFirstBootOrder,
     SetFirstBootOrder,
+    RestoreBootInterface,
     DisableSecureBoot,
     EnableLockdown,
     DisableLockdown,
+    Sku,
 }
 
 impl Type {
@@ -43,9 +45,11 @@ impl Type {
                 "machine_setup" => Some(Type::MachineSetup),
                 "set_dpu_first_boot_order" => Some(Type::SetDpuFirstBootOrder),
                 "set_first_boot_order" => Some(Type::SetFirstBootOrder),
+                "restore_boot_interface" => Some(Type::RestoreBootInterface),
                 "disable_secure_boot" => Some(Type::DisableSecureBoot),
                 "enable_lockdown" => Some(Type::EnableLockdown),
                 "disable_lockdown" => Some(Type::DisableLockdown),
+                "sku" => Some(Type::Sku),
                 _ => None,
             })
     }
@@ -58,9 +62,11 @@ impl Type {
                 Type::MachineSetup => "machine_setup",
                 Type::SetDpuFirstBootOrder => "set_dpu_first_boot_order",
                 Type::SetFirstBootOrder => "set_first_boot_order",
+                Type::RestoreBootInterface => "restore_boot_interface",
                 Type::DisableSecureBoot => "disable_secure_boot",
                 Type::EnableLockdown => "enable_lockdown",
                 Type::DisableLockdown => "disable_lockdown",
+                Type::Sku => "sku",
             },
         )
     }
@@ -70,9 +76,11 @@ impl Type {
             Type::ResetBmc => "BMC Reset",
             Type::MachineSetup => "Machine Setup",
             Type::SetDpuFirstBootOrder | Type::SetFirstBootOrder => "Boot Order",
+            Type::RestoreBootInterface => "Restore Boot Interface",
             Type::DisableSecureBoot => "Disable Secure Boot",
             Type::EnableLockdown => "Enable Lockdown",
             Type::DisableLockdown => "Disable Lockdown",
+            Type::Sku => "SKU Assignment",
         }
     }
 }
