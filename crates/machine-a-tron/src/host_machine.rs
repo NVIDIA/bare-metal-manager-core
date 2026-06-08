@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
+use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use carbide_uuid::machine::MachineId;
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
@@ -35,7 +36,6 @@ use crate::config::{MachineATronContext, MachineConfig, PersistedHostMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
-use crate::machine_utils::create_random_self_signed_cert;
 use crate::saturating_add_duration_to_instant;
 use crate::tui::{HostDetails, UiUpdate};
 
