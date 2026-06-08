@@ -14,7 +14,7 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-var ProtoToAPIRackTaskStatusName = map[flowv1.TaskStatus]string{
+var ProtoToAPITaskStatusName = map[flowv1.TaskStatus]string{
 	flowv1.TaskStatus_TASK_STATUS_UNKNOWN:    "Unknown",
 	flowv1.TaskStatus_TASK_STATUS_PENDING:    "Pending",
 	flowv1.TaskStatus_TASK_STATUS_RUNNING:    "Running",
@@ -24,8 +24,10 @@ var ProtoToAPIRackTaskStatusName = map[flowv1.TaskStatus]string{
 	flowv1.TaskStatus_TASK_STATUS_WAITING:    "Waiting",
 }
 
-// APIRackTask is the API response model for a rack task (OpenAPI schema RackTask).
-type APIRackTask struct {
+// APITask is the API response model for a Flow-scheduled task
+// (OpenAPI schema Task). It covers both rack- and tray-scoped tasks
+// because Flow drives them through the same Task entity.
+type APITask struct {
 	ID          string           `json:"id"`
 	Status      string           `json:"status"`
 	Description string           `json:"description"`
@@ -37,46 +39,46 @@ type APIRackTask struct {
 	Report      *json.RawMessage `json:"report,omitempty"`
 }
 
-// APIRackTaskOption configures optional fields populated on an APIRackTask.
-// Used by NewAPIRackTask so list endpoints can omit large optional payloads
+// APITaskOption configures optional fields populated on an APITask.
+// Used by NewAPITask so list endpoints can omit large optional payloads
 // (Report in particular) by default while single-task endpoints opt in.
-type APIRackTaskOption func(*apiRackTaskOptions)
+type APITaskOption func(*apiTaskOptions)
 
-type apiRackTaskOptions struct {
+type apiTaskOptions struct {
 	withReport bool
 }
 
-// WithReport populates APIRackTask.Report from Task.report when the proto
+// WithReport populates APITask.Report from Task.report when the proto
 // field is non-empty. Without this option, Report is left nil and is
 // omitted from the JSON response.
-func WithReport() APIRackTaskOption {
-	return func(o *apiRackTaskOptions) { o.withReport = true }
+func WithReport() APITaskOption {
+	return func(o *apiTaskOptions) { o.withReport = true }
 }
 
-// BuildAPIRackTaskOptions translates the opt-in toggles on an
-// APIGetTasksRequest into the APIRackTaskOption slice the list-task
-// handlers pass to NewAPIRackTask. Centralized so new opt-in fields
+// BuildAPITaskOptions translates the opt-in toggles on an
+// APIGetTasksRequest into the APITaskOption slice the list-task
+// handlers pass to NewAPITask. Centralized so new opt-in fields
 // only need wiring in one place rather than in each list handler.
-func BuildAPIRackTaskOptions(req APIGetTasksRequest) []APIRackTaskOption {
-	var opts []APIRackTaskOption
+func BuildAPITaskOptions(req APIGetTasksRequest) []APITaskOption {
+	var opts []APITaskOption
 	if req.WithReport {
 		opts = append(opts, WithReport())
 	}
 	return opts
 }
 
-func (t *APIRackTask) FromProto(task *flowv1.Task, opts ...APIRackTaskOption) {
+func (t *APITask) FromProto(task *flowv1.Task, opts ...APITaskOption) {
 	if task == nil {
 		return
 	}
-	o := apiRackTaskOptions{}
+	o := apiTaskOptions{}
 	for _, opt := range opts {
 		opt(&o)
 	}
 	if task.GetId() != nil {
 		t.ID = task.GetId().GetId()
 	}
-	t.Status = enumOr(ProtoToAPIRackTaskStatusName, task.GetStatus(), "Unknown")
+	t.Status = enumOr(ProtoToAPITaskStatusName, task.GetStatus(), "Unknown")
 	t.Description = task.GetDescription()
 	t.Message = task.GetMessage()
 	if ts := task.GetStartedAt(); ts != nil {
@@ -97,8 +99,8 @@ func (t *APIRackTask) FromProto(task *flowv1.Task, opts ...APIRackTaskOption) {
 	}
 }
 
-func NewAPIRackTask(task *flowv1.Task, opts ...APIRackTaskOption) *APIRackTask {
-	t := &APIRackTask{}
+func NewAPITask(task *flowv1.Task, opts ...APITaskOption) *APITask {
+	t := &APITask{}
 	t.FromProto(task, opts...)
 	return t
 }

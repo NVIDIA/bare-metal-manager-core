@@ -10168,7 +10168,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10245,7 +10245,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10331,7 +10331,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -10991,7 +10991,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -17657,8 +17657,8 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
-    RackTask:
-      title: RackTask
+    Task:
+      title: Task
       type: object
       description: A task representing an asynchronous operation on rack infrastructure.
       properties:

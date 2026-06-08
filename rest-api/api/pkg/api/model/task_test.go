@@ -15,16 +15,16 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 )
 
-func TestNewAPIRackTask(t *testing.T) {
+func TestNewAPITask(t *testing.T) {
 	tests := []struct {
 		name     string
 		task     *flowv1.Task
-		expected *APIRackTask
+		expected *APITask
 	}{
 		{
-			name:     "nil task returns empty APIRackTask",
+			name:     "nil task returns empty APITask",
 			task:     nil,
-			expected: &APIRackTask{},
+			expected: &APITask{},
 		},
 		{
 			name: "task with all fields",
@@ -36,7 +36,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_RUNNING,
 				Message:     "Processing 3 of 5 components",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-123",
 				Status:      "Running",
 				Description: "Power on rack components",
@@ -50,7 +50,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Description: "Firmware upgrade",
 				Status:      flowv1.TaskStatus_TASK_STATUS_PENDING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-001",
 				Status:      "Pending",
 				Description: "Firmware upgrade",
@@ -64,7 +64,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_COMPLETED,
 				Message:     "All components ready",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-002",
 				Status:      "Succeeded",
 				Description: "Bring up rack",
@@ -79,7 +79,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_FAILED,
 				Message:     "BMC unreachable",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-003",
 				Status:      "Failed",
 				Description: "Power off rack",
@@ -92,7 +92,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Id:     &flowv1.UUID{Id: "task-004"},
 				Status: flowv1.TaskStatus_TASK_STATUS_UNKNOWN,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:     "task-004",
 				Status: "Unknown",
 			},
@@ -103,7 +103,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Description: "Orphan task",
 				Status:      flowv1.TaskStatus_TASK_STATUS_PENDING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				Status:      "Pending",
 				Description: "Orphan task",
 			},
@@ -115,7 +115,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:  flowv1.TaskStatus_TASK_STATUS_TERMINATED,
 				Message: "Expired: queue timeout reached",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:      "task-005",
 				Status:  "Terminated",
 				Message: "Expired: queue timeout reached",
@@ -127,7 +127,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Id:     &flowv1.UUID{Id: "task-006"},
 				Status: flowv1.TaskStatus_TASK_STATUS_WAITING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:     "task-006",
 				Status: "Waiting",
 			},
@@ -136,7 +136,7 @@ func TestNewAPIRackTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NewAPIRackTask(tt.task)
+			result := NewAPITask(tt.task)
 			assert.NotNil(t, result)
 			assert.Equal(t, tt.expected.ID, result.ID)
 			assert.Equal(t, tt.expected.Status, result.Status)
@@ -148,7 +148,7 @@ func TestNewAPIRackTask(t *testing.T) {
 	}
 }
 
-func TestNewAPIRackTask_Timestamps(t *testing.T) {
+func TestNewAPITask_Timestamps(t *testing.T) {
 	createdTime := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	updatedTime := time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC)
 	startTime := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
@@ -163,7 +163,7 @@ func TestNewAPIRackTask_Timestamps(t *testing.T) {
 		FinishedAt: timestamppb.New(endTime),
 	}
 
-	result := NewAPIRackTask(task)
+	result := NewAPITask(task)
 
 	assert.True(t, result.Created.Equal(createdTime))
 	assert.True(t, result.Updated.Equal(updatedTime))
@@ -173,7 +173,7 @@ func TestNewAPIRackTask_Timestamps(t *testing.T) {
 	assert.True(t, result.Finished.Equal(endTime))
 }
 
-func TestNewAPIRackTask_Report(t *testing.T) {
+func TestNewAPITask_Report(t *testing.T) {
 	t.Run("report omitted by default", func(t *testing.T) {
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-1"},
@@ -181,7 +181,7 @@ func TestNewAPIRackTask_Report(t *testing.T) {
 			Report: `{"version":1,"stages":[]}`,
 		}
 
-		result := NewAPIRackTask(task)
+		result := NewAPITask(task)
 
 		assert.Nil(t, result.Report, "Report must default to nil so the JSON field is omitted")
 	})
@@ -194,7 +194,7 @@ func TestNewAPIRackTask_Report(t *testing.T) {
 			Report: body,
 		}
 
-		result := NewAPIRackTask(task, WithReport())
+		result := NewAPITask(task, WithReport())
 
 		assert.NotNil(t, result.Report)
 		assert.JSONEq(t, body, string(*result.Report))
@@ -206,29 +206,29 @@ func TestNewAPIRackTask_Report(t *testing.T) {
 			Status: flowv1.TaskStatus_TASK_STATUS_PENDING,
 		}
 
-		result := NewAPIRackTask(task, WithReport())
+		result := NewAPITask(task, WithReport())
 
 		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
 	})
 }
 
-func TestBuildAPIRackTaskOptions(t *testing.T) {
+func TestBuildAPITaskOptions(t *testing.T) {
 	t.Run("default request yields no options", func(t *testing.T) {
-		opts := BuildAPIRackTaskOptions(APIGetTasksRequest{SiteID: "s"})
+		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s"})
 		assert.Empty(t, opts)
 	})
 
 	t.Run("withReport=true yields WithReport()", func(t *testing.T) {
-		opts := BuildAPIRackTaskOptions(APIGetTasksRequest{SiteID: "s", WithReport: true})
+		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s", WithReport: true})
 		require.Len(t, opts, 1)
 
-		// The option must surface APIRackTask.Report when the proto report is non-empty.
+		// The option must surface APITask.Report when the proto report is non-empty.
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-built"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
 			Report: `{"version":1}`,
 		}
-		got := NewAPIRackTask(task, opts...)
+		got := NewAPITask(task, opts...)
 		require.NotNil(t, got.Report)
 		assert.JSONEq(t, `{"version":1}`, string(*got.Report))
 	})
