@@ -61,7 +61,7 @@ func WithReport() APITaskOption {
 // only need wiring in one place rather than in each list handler.
 func BuildAPITaskOptions(req APIGetTasksRequest) []APITaskOption {
 	var opts []APITaskOption
-	if req.WithReport {
+	if req.IncludeReport {
 		opts = append(opts, WithReport())
 	}
 	return opts
@@ -133,9 +133,9 @@ func (r *APICancelTaskRequest) Validate() error {
 // APIGetTasksRequest binds query parameters for rack- and tray-scoped task list
 // endpoints. Pagination is bound separately via pagination.PageRequest.
 type APIGetTasksRequest struct {
-	SiteID     string `query:"siteId"`
-	ActiveOnly bool   `query:"activeOnly"`
-	WithReport bool   `query:"withReport"`
+	SiteID        string `query:"siteId"`
+	ActiveOnly    bool   `query:"activeOnly"`
+	IncludeReport bool   `query:"includeReport"`
 }
 
 func (r *APIGetTasksRequest) Validate() error {
@@ -154,8 +154,8 @@ func (r *APIGetTasksRequest) QueryValues(page pagination.PageRequest) url.Values
 	if r.ActiveOnly {
 		v.Set("activeOnly", strconv.FormatBool(r.ActiveOnly))
 	}
-	if r.WithReport {
-		v.Set("withReport", strconv.FormatBool(r.WithReport))
+	if r.IncludeReport {
+		v.Set("includeReport", strconv.FormatBool(r.IncludeReport))
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))

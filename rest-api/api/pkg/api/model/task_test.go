@@ -218,8 +218,8 @@ func TestBuildAPITaskOptions(t *testing.T) {
 		assert.Empty(t, opts)
 	})
 
-	t.Run("withReport=true yields WithReport()", func(t *testing.T) {
-		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s", WithReport: true})
+	t.Run("includeReport=true yields WithReport()", func(t *testing.T) {
+		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s", IncludeReport: true})
 		require.Len(t, opts, 1)
 
 		// The option must surface APITask.Report when the proto report is non-empty.
@@ -235,20 +235,20 @@ func TestBuildAPITaskOptions(t *testing.T) {
 }
 
 func TestAPIGetTasksRequest_QueryValues(t *testing.T) {
-	t.Run("withReport=true surfaces in query values", func(t *testing.T) {
-		req := APIGetTasksRequest{SiteID: "site-x", WithReport: true}
+	t.Run("includeReport=true surfaces in query values", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "site-x", IncludeReport: true}
 		v := req.QueryValues(pagination.PageRequest{})
 
-		assert.Equal(t, "true", v.Get("withReport"))
+		assert.Equal(t, "true", v.Get("includeReport"))
 		assert.Equal(t, "site-x", v.Get("siteId"))
 	})
 
-	t.Run("withReport=false is omitted from query values", func(t *testing.T) {
+	t.Run("includeReport=false is omitted from query values", func(t *testing.T) {
 		req := APIGetTasksRequest{SiteID: "site-y"}
 		v := req.QueryValues(pagination.PageRequest{})
 
-		assert.Empty(t, v.Get("withReport"))
-		assert.False(t, v.Has("withReport"), "Default-false withReport must not affect deterministic workflow ID hashing")
+		assert.Empty(t, v.Get("includeReport"))
+		assert.False(t, v.Has("includeReport"), "Default-false includeReport must not affect deterministic workflow ID hashing")
 	})
 }
 

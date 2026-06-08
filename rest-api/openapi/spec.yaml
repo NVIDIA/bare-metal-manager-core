@@ -10286,7 +10286,7 @@ paths:
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
 
-        By default the `report` field is omitted from each task in the response. Set `withReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10304,7 +10304,7 @@ paths:
         - schema:
             type: boolean
             default: false
-          name: withReport
+          name: includeReport
           in: query
           description: Include the per-task execution report on each returned task.
         - schema:
@@ -10946,7 +10946,7 @@ paths:
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
 
-        By default the `report` field is omitted from each task in the response. Set `withReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10964,7 +10964,7 @@ paths:
         - schema:
             type: boolean
             default: false
-          name: withReport
+          name: includeReport
           in: query
           description: Include the per-task execution report on each returned task.
         - schema:
@@ -17702,7 +17702,7 @@ components:
         report:
           type: object
           description: |
-            Structured execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `withReport=true` is set.
+            Structured execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set.
 
             The body is an opaque, versioned JSON document produced by the Site execution layer. Clients **must** branch on `version` before interpreting any other field; the rest of the schema is allowed to change between versions without a breaking change to this REST API. Fields outside this anchor are not guaranteed and may be added, removed, or restructured.
 

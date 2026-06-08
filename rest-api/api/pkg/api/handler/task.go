@@ -393,7 +393,7 @@ func NewGetRackTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Rack"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
-// @Param withReport query boolean false "Include the per-task execution report in each response (default false)"
+// @Param includeReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APITask
@@ -491,7 +491,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		RackId:     &flowv1.UUID{Id: rackID},
 		ActiveOnly: apiRequest.ActiveOnly,
-		WithReport: apiRequest.WithReport,
+		WithReport: apiRequest.IncludeReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
@@ -579,7 +579,7 @@ func NewGetTrayTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Tray"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
-// @Param withReport query boolean false "Include the per-task execution report in each response (default false)"
+// @Param includeReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APITask
@@ -677,7 +677,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		ComponentId: &flowv1.UUID{Id: trayID},
 		ActiveOnly:  apiRequest.ActiveOnly,
-		WithReport:  apiRequest.WithReport,
+		WithReport:  apiRequest.IncludeReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
