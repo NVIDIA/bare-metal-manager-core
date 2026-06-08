@@ -1079,18 +1079,23 @@ pub async fn initialize_and_start_controllers<'a>(
         .to_string();
 
     // Cross-controller registry feeding the per-object health metrics; shared by
-    // every state controller and registered once. Retention mirrors the
-    // controllers' per-object metric hold time.
+    // every state controller and registered once.
+    let per_object_metric_hold_time = [
+        &carbide_config.machine_state_controller.controller,
+        &carbide_config.switch_state_controller.controller,
+        &carbide_config.rack_state_controller.controller,
+        &carbide_config.power_shelf_state_controller.controller,
+    ]
+    .into_iter()
+    .map(|controller| controller.metric_hold_time)
+    .max()
+    .unwrap_or_default();
     let per_object_metrics_registry = PerObjectMetricsRegistry::new(
         carbide_config
             .observability
             .per_object_metrics_for_classifications
             .clone(),
-        carbide_config
-            .machine_state_controller
-            .controller
-            .metric_hold_time
-            .saturating_add(std::time::Duration::from_secs(60)),
+        per_object_metric_hold_time.saturating_add(std::time::Duration::from_secs(60)),
     );
     per_object_metrics_registry.register(&meter);
 
