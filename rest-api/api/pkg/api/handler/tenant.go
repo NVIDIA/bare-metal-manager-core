@@ -167,10 +167,11 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		if len(tns) == 0 {
 			// Create Tenant
 			created, derr := tnDAO.Create(ctx, tx, cdbm.TenantCreateInput{
-				Name:        userOrgDetails.Name,
-				DisplayName: &userOrgDetails.DisplayName,
-				Org:         org,
-				CreatedBy:   dbUser.ID,
+				Name:           userOrgDetails.Name,
+				DisplayName:    &userOrgDetails.DisplayName,
+				Org:            org,
+				OrgDisplayName: cutil.GetPtr(org),
+				CreatedBy:      dbUser.ID,
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Tenant DB entity")
