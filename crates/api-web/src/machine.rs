@@ -459,6 +459,7 @@ struct MachineDetail<'a> {
     capabilities_json: String,
     validation_runs: Vec<ValidationRun>,
     hw_sku: String,
+    available_skus: Vec<String>,
     quarantine_state: Option<ManagedHostQuarantineState>,
     quarantine_state_is_link: bool,
     instance_type_id: String,
@@ -761,6 +762,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                 .unwrap_or_default(),
             validation_runs: Vec::new(),
             hw_sku: m.hw_sku.unwrap_or_default(),
+            available_skus: Vec::new(), // filled in later
             quarantine_state_is_link: quarantine_state
                 .as_ref()
                 .is_some_and(|r| r.reason_str().starts_with("http")),
@@ -831,6 +833,23 @@ pub async fn detail(
             }
             Err(e) => return e,
         };
+    }
+
+    // Populate the list of SKUs available for assignment (hosts only).
+    if display.is_host {
+        match state
+            .get_all_sku_ids(tonic::Request::new(()))
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(mut sku_ids) => {
+                sku_ids.ids.sort_unstable();
+                display.available_skus = sku_ids.ids;
+            }
+            Err(err) => {
+                tracing::warn!(%err, %machine_id, "get_all_sku_ids failed");
+            }
+        }
     }
 
     // Get validation results
@@ -999,6 +1018,84 @@ pub async fn quarantine(
     }
 
     Redirect::to(&view_url).into_response()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SkuAction {
+    action: String,
+    sku_id: Option<String>,
+    force: Option<String>,
+}
+
+/// Assign / Remove a SKU on a machine
+pub async fn sku(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(machine_id): AxumPath<String>,
+    Form(form): Form<SkuAction>,
+) -> Response {
+    let view_url = format!("/admin/machine/{machine_id}#sku_view");
+
+    let machine_id = match machine_id.parse::<MachineId>() {
+        Ok(machine_id) => machine_id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    // Checkboxes submit "on" when checked and are omitted otherwise.
+    let force = form.force.as_deref() == Some("on");
+
+    let result = match form.action.as_str() {
+        "assign" => {
+            let sku_id = form.sku_id.unwrap_or_default();
+            if sku_id.is_empty() {
+                let redirect_url = ActionStatus {
+                    action: action_status::Type::Sku,
+                    class: action_status::Class::Error,
+                    message: "No SKU selected".into(),
+                }
+                .update_redirect_url(&view_url);
+                return Redirect::to(&redirect_url).into_response();
+            }
+            state
+                .assign_sku_to_machine(tonic::Request::new(forgerpc::SkuMachinePair {
+                    sku_id: sku_id.clone(),
+                    machine_id: Some(machine_id),
+                    force,
+                }))
+                .await
+                .map(|_| format!("SKU {sku_id} assigned successfully"))
+        }
+        "remove" => state
+            .remove_sku_association(tonic::Request::new(forgerpc::RemoveSkuRequest {
+                machine_id: Some(machine_id),
+                force,
+            }))
+            .await
+            .map(|_| "SKU association removed successfully".to_string()),
+        unknown => {
+            tracing::error!("Expected SKU action to be 'assign' or 'remove' but got {unknown}");
+            return Redirect::to(&view_url).into_response();
+        }
+    };
+
+    let redirect_url = match result {
+        Ok(message) => ActionStatus {
+            action: action_status::Type::Sku,
+            class: action_status::Class::Success,
+            message: message.into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, %machine_id, "sku action failed");
+            ActionStatus {
+                action: action_status::Type::Sku,
+                class: action_status::Class::Error,
+                message: err.message().to_string().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
+
+    Redirect::to(&redirect_url).into_response()
 }
 
 #[derive(Deserialize, Debug)]
