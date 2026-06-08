@@ -162,7 +162,14 @@ impl SvpcInterfaceHandler {
                 let vni =
                     Self::get_partition_vni(monitor, configured_partition_id.unwrap()).await?;
                 let txn = monitor
-                    .send_set_vni_command(dpa_interface, client, dpa_info, vni, false, instance_version.to_string())
+                    .send_set_vni_command(
+                        dpa_interface,
+                        client,
+                        dpa_info,
+                        vni,
+                        false,
+                        instance_version.to_string(),
+                    )
                     .await?;
                 Ok(txn)
             }
