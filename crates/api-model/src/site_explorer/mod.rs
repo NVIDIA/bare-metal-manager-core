@@ -386,6 +386,13 @@ pub enum PreingestionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    /// One-shot BMC reset run immediately after `Initial` for every endpoint,
+    /// so a freshly-booted BMC report is what pairing/ingestion reads. Notably
+    /// refreshes GB200 host BMCs that intermittently drop a DPU from their
+    /// PCIe inventory.
+    InitialBMCReset {
+        phase: InitialBmcResetPhase,
+    },
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,
@@ -432,6 +439,21 @@ pub enum InitialResetPhase {
     Start,
     BMCWasReset,
     WaitHostBoot,
+}
+
+/// Phases of the one-shot `InitialBMCReset` state. `Start { attempts }` issues
+/// the BMC reset; if the BMC is reachable but the reset errors, it retries up
+/// to a bound and then proceeds without the reset rather than blocking
+/// ingestion. `WaitForBmc` polls until the BMC comes back; an unreachable BMC
+/// keeps waiting (it is never a reason to move on). Once it returns, a fresh
+/// exploration report is requested and `WaitForExplorerRefresh` waits for it so
+/// the relocated checks (and downstream pairing) read the post-reset inventory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialBmcResetPhase {
+    Start { attempts: u32 },
+    WaitForBmc,
+    WaitForExplorerRefresh,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
