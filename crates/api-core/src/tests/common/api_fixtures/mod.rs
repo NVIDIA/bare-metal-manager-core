@@ -1311,14 +1311,13 @@ pub async fn create_test_env_with_overrides(
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();
 
-    let per_object_metrics_registry =
-        carbide_health_metrics::PerObjectMetricsRegistry::new(
-            config
-                .observability
-                .per_object_metrics_for_classifications
-                .clone(),
-            std::time::Duration::from_secs(60),
-        );
+    let per_object_metrics_registry = carbide_health_metrics::PerObjectMetricsRegistry::new(
+        config
+            .observability
+            .per_object_metrics_for_classifications
+            .clone(),
+        std::time::Duration::from_secs(60),
+    );
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())

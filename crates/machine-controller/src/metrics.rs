@@ -1136,5 +1136,4 @@ mod tests {
             HashMap::from_iter([("machine a".to_string(), 2), ("machine b".to_string(), 3)])
         );
     }
-
 }

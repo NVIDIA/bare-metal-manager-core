@@ -38,6 +38,7 @@ use carbide_utils::config::{as_duration, as_std_duration};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
+use health_report::HealthAlertClassification;
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use libmlx::firmware::config::FirmwareFlasherProfile;
@@ -45,7 +46,6 @@ use libmlx::profile::profile::MlxConfigProfile;
 use libmlx::profile::serialization::{
     deserialize_option_profile_map, serialize_option_profile_map,
 };
-use health_report::HealthAlertClassification;
 use model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
