@@ -6897,8 +6897,8 @@ message DpaInterface {
 }
 
 enum DpaInterfaceType {
-  Svpc = 0;
-  Astra = 1;
+  DPA_INTERFACE_TYPE_SVPC = 0;
+  DPA_INTERFACE_TYPE_ASTRA = 1;
 }
 
 message DpaInterfaceCreationRequest {

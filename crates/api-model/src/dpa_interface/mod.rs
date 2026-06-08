@@ -293,6 +293,10 @@ impl DpaInterface {
 
         // If we haven't yet seen any observations, we are not synced
         let Some(spx_status_observation) = spx_status_observation else {
+            tracing::info!(
+                "DPA interface {dpa_id} is not synced because no SPX status observation is available",
+                dpa_id = self.id
+            );
             return false;
         };
 
@@ -318,9 +322,24 @@ impl DpaInterface {
             if obs.mac_address == self.mac_address
                 && let Some(config_version) = obs.config_version
             {
-                return config_version == dpa_expected_version;
+                if config_version != dpa_expected_version {
+                    tracing::info!(
+                        "DPA interface {dpa_id} is not synced version mismatch: {config_version} != {dpa_expected_version}",
+                        dpa_id = self.id,
+                        config_version = config_version,
+                        dpa_expected_version = dpa_expected_version
+                    );
+                    return false;
+                }
+                return true;
             }
         }
+
+        tracing::info!(
+            "DPA interface {dpa_id} is not synced verrsion mismatch: {dpa_expected_version}",
+            dpa_id = self.id,
+            dpa_expected_version = dpa_expected_version
+        );
 
         false
     }

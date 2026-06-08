@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use carbide_dpa::DpaInfo;
-use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
+use carbide_uuid::spx::{NULL_SPX_PARTITION_ID, SpxPartitionId};
 use chrono::TimeDelta;
 use db::{self, ObjectColumnFilter};
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
@@ -27,7 +27,7 @@ use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{Machine, ManagedHostStateSnapshot};
 use mqttea::client::MqtteaClient;
-use sqlx::{PgPool, PgTransaction};
+use sqlx::PgTransaction;
 
 use super::DpaInterfaceStateHandler;
 use crate::errors::{DpaManagerError, DpaManagerResult};
@@ -36,155 +36,137 @@ use crate::{DpaMonitor, HandlerResult};
 
 pub struct SvpcInterfaceHandler;
 
+enum ReconcileAction {
+    Noop,
+    Heartbeat,
+    Create,
+    Delete,
+}
+
 impl SvpcInterfaceHandler {
-    #[allow(clippy::too_many_arguments)]
+    fn at_most_one<I: Iterator>(mut iter: I, ctx: &str) -> DpaManagerResult<Option<I::Item>> {
+        let first = iter.next();
+        if first.is_some() && iter.next().is_some() {
+            tracing::error!("{ctx}: more than one match");
+            return Err(DpaManagerError::InvalidArgument(format!(
+                "{ctx}: more than one match"
+            )));
+        }
+        Ok(first)
+    }
+
+    async fn get_partition_vni(
+        monitor: &mut DpaMonitor,
+        partition_id: SpxPartitionId,
+    ) -> DpaManagerResult<u32> {
+        let db_pool = monitor.db_services.db_pool.clone();
+        let mut txn = db_pool
+            .begin()
+            .await
+            .map_err(|e| db::AnnotatedSqlxError::new("get_partition_vni begin txn", e))?;
+        let partition = db::spx_partition::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::List(db::spx_partition::IdColumn, &[partition_id]),
+        )
+        .await?;
+        txn.commit()
+            .await
+            .map_err(|e| db::AnnotatedSqlxError::new("get_partition_vni commit txn", e))?;
+        Ok(partition[0].vni.unwrap_or(0) as u32)
+    }
+
     async fn reconcile_assigned_state<'a>(
-        db_pool: &PgPool,
         monitor: &mut DpaMonitor,
         dpa_interface: &DpaInterface,
         machine: &Machine,
         instance: &InstanceSnapshot,
         client: Arc<MqtteaClient>,
         dpa_info: &Arc<DpaInfo>,
-        hb_interval: TimeDelta,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
         let this_mac = dpa_interface.mac_address;
 
-        let spx_config = instance.config.spxconfig.clone();
-
         let instance_version = instance.spx_config_version;
         let nic_version = dpa_interface.network_config.version.to_string();
 
-        let mut need_creation = false;
-        let mut need_deletion = false;
-        let mut need_heartbeat = false;
-
-        let mut vni = 0_u32;
-
-        let mut this_nic_configured_attachments = spx_config
-            .spx_attachments
-            .iter()
-            .filter(|a| a.mac_address == Some(this_mac.to_string()))
-            .collect::<Vec<_>>();
-
-        if this_nic_configured_attachments.len() > 1 {
-            tracing::error!(
-                "reconcile_assigned_state: this_nic_configured_attachments length is greater than 1"
-            );
-            return Err(DpaManagerError::InvalidArgument(
-                "reconcile_assigned_state this_nic_configured_attachments length is greater than 1"
-                    .to_string(),
-            ));
-        }
-
-        let mut this_nic_observed_attachments = Vec::new();
-
-        let observed = machine.spx_status_observation.clone();
-        if let Some(observed) = observed {
-            this_nic_observed_attachments = observed
+        let configured = Self::at_most_one(
+            instance
+                .config
+                .spxconfig
                 .spx_attachments
-                .into_iter()
-                .filter(|a| a.mac_address == this_mac)
-                .collect::<Vec<_>>();
-        }
+                .iter()
+                .filter(|a| a.mac_address.as_deref() == Some(this_mac.to_string().as_str())),
+            "reconcile_assigned_state configured attachments",
+        )?;
 
-        if this_nic_observed_attachments.len() > 1 {
-            tracing::error!(
-                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
-            );
-            return Err(DpaManagerError::InvalidArgument(
-                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
-                    .to_string(),
-            ));
-        }
+        let observed = Self::at_most_one(
+            machine
+                .spx_status_observation
+                .iter()
+                .flat_map(|o| &o.spx_attachments)
+                .filter(|a| a.mac_address == this_mac),
+            "reconcile_assigned_state observed attachments",
+        )?;
 
-        if this_nic_configured_attachments.is_empty() {
-            if !this_nic_observed_attachments.is_empty() {
-                need_deletion = true;
-            }
-        } else {
-            let mut txn = db_pool.begin().await.map_err(|e| {
-                db::AnnotatedSqlxError::new("reconcile_assigned_state begin txn", e)
-            })?;
-            let partition_id = this_nic_configured_attachments.remove(0).spx_partition_id;
-            let partition = db::spx_partition::find_by(
-                txn.as_mut(),
-                ObjectColumnFilter::List(db::spx_partition::IdColumn, &[partition_id]),
-            )
-            .await?;
+        let configured_partition_id = configured
+            .as_ref()
+            .map(|attachment| attachment.spx_partition_id);
 
-            txn.commit().await.map_err(|e| {
-                db::AnnotatedSqlxError::new("reconcile_assigned_state commit txn", e)
-            })?;
-
-            if partition.len() != 1 {
-                tracing::error!(
-                    "reconcile_assigned_state SPX partition {partition_id} is not found"
-                );
-                return Err(DpaManagerError::InvalidArgument(format!(
-                    "SPX partition {partition_id} is not found",
-                )));
-            }
-
-            vni = partition[0].vni.unwrap_or(0) as u32;
-            debug_assert_ne!(vni, 0, "VNI in SPX partition {partition_id} is 0");
-
-            if !this_nic_observed_attachments.is_empty() {
-                let observed_attachment = this_nic_observed_attachments.remove(0);
-
-                if (observed_attachment.partition_id != Some(partition_id))
-                    || (observed_attachment.config_version != Some(instance_version))
-                {
-                    need_creation = true;
-                } else {
-                    need_heartbeat = true;
+        let action = match configured {
+            Some(configured_attachment) => match observed {
+                Some(observed_attachment) => {
+                    if observed_attachment.partition_id
+                        != Some(configured_attachment.spx_partition_id)
+                        || observed_attachment.config_version != Some(instance_version)
+                    {
+                        ReconcileAction::Create
+                    } else {
+                        ReconcileAction::Heartbeat
+                    }
                 }
-            } else {
-                need_creation = true;
+                None => ReconcileAction::Create,
+            },
+            None => match observed {
+                Some(_observed_attachment) => ReconcileAction::Delete,
+                None => ReconcileAction::Noop,
+            },
+        };
+
+        match action {
+            ReconcileAction::Noop => Ok(None),
+            ReconcileAction::Delete => {
+                metrics.num_deletes += 1;
+                let txn = monitor
+                    .send_set_vni_command(
+                        dpa_interface,
+                        client,
+                        dpa_info,
+                        0_u32,
+                        false,
+                        nic_version,
+                    )
+                    .await?;
+                Ok(txn)
+            }
+            ReconcileAction::Heartbeat => {
+                let vni =
+                    Self::get_partition_vni(monitor, configured_partition_id.unwrap()).await?;
+                let hb_interval = monitor.config.hb_interval;
+                let txn = monitor
+                    .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, vni, metrics)
+                    .await?;
+                Ok(txn)
+            }
+            ReconcileAction::Create => {
+                metrics.num_creates += 1;
+                let vni =
+                    Self::get_partition_vni(monitor, configured_partition_id.unwrap()).await?;
+                let txn = monitor
+                    .send_set_vni_command(dpa_interface, client, dpa_info, vni, false, instance_version.to_string())
+                    .await?;
+                Ok(txn)
             }
         }
-
-        if !need_creation && !need_deletion && !need_heartbeat {
-            return Ok(None);
-        }
-
-        debug_assert_eq!(
-            (need_creation as u8) + (need_deletion as u8) + (need_heartbeat as u8),
-            1,
-            "reconcile_assigned_state: at most one of need_creation, need_deletion, need_heartbeat should be set"
-        );
-
-        tracing::debug!(
-            "[{}] reconcile_assigned_state: need_creation {need_creation}, need_deletion {need_deletion}, need_heartbeat {need_heartbeat}",
-            chrono::Utc::now()
-        );
-
-        if need_creation {
-            let txn = monitor
-                .send_set_vni_command(
-                    dpa_interface,
-                    client,
-                    dpa_info,
-                    vni,
-                    false,
-                    instance_version.to_string(),
-                )
-                .await?;
-            return Ok(txn);
-        } else if need_deletion {
-            let txn = monitor
-                .send_set_vni_command(dpa_interface, client, dpa_info, 0_u32, false, nic_version)
-                .await?;
-            return Ok(txn);
-        } else if need_heartbeat {
-            let txn = monitor
-                .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, vni, metrics)
-                .await?;
-            return Ok(txn);
-        }
-
-        Ok(None)
     }
 
     async fn reconcile_ready_state<'a>(
@@ -199,22 +181,19 @@ impl SvpcInterfaceHandler {
         let nic_version = dpa_interface.network_config.version;
         let nic_version_str = nic_version.to_string();
 
-        let mut need_deletion = false;
-        let mut need_heartbeat = false;
-
         let this_mac = dpa_interface.mac_address;
 
-        let observed = machine.spx_status_observation.clone();
-
-        let mut this_nic_observed_attachments = Vec::new();
-
-        if let Some(observed) = observed {
-            this_nic_observed_attachments = observed
-                .spx_attachments
-                .into_iter()
-                .filter(|a| a.mac_address == this_mac)
-                .collect::<Vec<_>>();
-        }
+        let this_nic_observed_attachments = machine
+            .spx_status_observation
+            .clone()
+            .map(|observed| {
+                observed
+                    .spx_attachments
+                    .into_iter()
+                    .filter(|a| a.mac_address == this_mac)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         if this_nic_observed_attachments.len() > 1 {
             tracing::error!(
@@ -230,22 +209,19 @@ impl SvpcInterfaceHandler {
             return Ok(None);
         }
 
-        let observed_attachment = this_nic_observed_attachments.remove(0).clone();
+        let observed_attachment = &this_nic_observed_attachments[0];
 
-        if (observed_attachment.partition_id != Some(NULL_SPX_PARTITION_ID))
-            || (observed_attachment.config_version != Some(nic_version))
-        {
-            need_deletion = true;
-        } else {
-            need_heartbeat = true;
-        }
+        let need_deletion = (observed_attachment.partition_id != Some(NULL_SPX_PARTITION_ID))
+            || (observed_attachment.config_version != Some(nic_version));
 
         tracing::debug!(
-            "[{}] reconcile_ready_state: need_deletion {need_deletion}, need_heartbeat {need_heartbeat}",
-            chrono::Utc::now()
+            "[{}] reconcile_ready_state: need_deletion {need_deletion}, need_heartbeat {}",
+            chrono::Utc::now(),
+            !need_deletion
         );
 
         if need_deletion {
+            metrics.num_deletes += 1;
             let txn = monitor
                 .send_set_vni_command(
                     dpa_interface,
@@ -257,14 +233,12 @@ impl SvpcInterfaceHandler {
                 )
                 .await?;
             return Ok(txn);
-        } else if need_heartbeat {
-            let txn = monitor
-                .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, 0_u32, metrics)
-                .await?;
-            return Ok(txn);
         }
 
-        Ok(None)
+        let txn = monitor
+            .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, 0_u32, metrics)
+            .await?;
+        Ok(txn)
     }
 }
 
@@ -558,7 +532,6 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         }
 
         let dpa_info = monitor.dpa_info.clone().unwrap();
-        let hb_interval = monitor.config.hb_interval;
         let client = dpa_info
             .mqtt_client
             .clone()
@@ -568,16 +541,13 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             tracing::error!("reconcile_assigned_state instance is missing");
             eyre::eyre!("reconcile_assigned_state instance is missing")
         })?;
-        let db_pool = monitor.db_services.db_pool.clone();
         let txn = Self::reconcile_assigned_state(
-            &db_pool,
             monitor,
             dpa_interface,
             &mh.host_snapshot,
             instance,
             client,
             &dpa_info,
-            hb_interval,
             metrics,
         )
         .await?;
