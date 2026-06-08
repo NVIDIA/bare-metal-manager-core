@@ -7,11 +7,10 @@ NICo supports two ways of provisioning DPUs:
 1. iPXE based
 2. DPF based
 
-This manual covers the **DPF based** flow and is written as a deployment guide
-for DPF when it is going to be used by NICo. It assumes that a working
-Kubernetes cluster is already available, and is intentionally agnostic to the
-specific cluster implementation (kubeadm, k3s, RKE2, managed clouds, etc.) —
-any conformant cluster that satisfies the DPF prerequisites is acceptable.
+This manual covers deployment of **DPF based** provisioning as it is used by NICo.
+It assumes that a working Kubernetes cluster is already available, and is intentionally
+agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clouds, etc.)—any
+conformant cluster that satisfies the DPF prerequisites is acceptable.
 
 This guide is **not a replacement** for the official DPF documentation. The
 authoritative source for installing and configuring DPF is the upstream guide:
