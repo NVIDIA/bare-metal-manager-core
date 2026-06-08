@@ -389,8 +389,6 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			logger.Error().Msg("Site is not associated with org")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
 		}
-
-		filterInput.SiteIDs = []uuid.UUID{site.ID}
 	}
 
 	// Get and validate includeRelation params
