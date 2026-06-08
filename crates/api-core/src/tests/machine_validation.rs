@@ -1383,6 +1383,28 @@ async fn test_machine_validation_manager_reconciles_stale_run(
     .run_single_iteration()
     .await?;
 
+    env.api
+        .machine_validation_completed(tonic::Request::new(
+            rpc::forge::MachineValidationCompletedRequest {
+                machine_id: Some(mh.host().id),
+                machine_validation_error: None,
+                validation_id: Some(validation_id),
+            },
+        ))
+        .await?;
+
+    let update_completed_run = env
+        .api
+        .update_machine_validation_run(tonic::Request::new(
+            rpc::forge::MachineValidationRunRequest {
+                validation_id: Some(validation_id),
+                duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(1))),
+                total: 1,
+            },
+        ))
+        .await;
+    assert!(update_completed_run.is_err());
+
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
     let failed_state_int = rpc::forge::machine_validation_status::MachineValidationState::Completed(
         rpc::forge::machine_validation_status::MachineValidationCompleted::Failed.into(),

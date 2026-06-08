@@ -106,13 +106,61 @@ pub async fn update_end_time(
     Ok(())
 }
 
+pub async fn update_end_time_if_active(
+    txn: &mut PgConnection,
+    id: &MachineValidationId,
+    status: &MachineValidationStatus,
+) -> DatabaseResult<Option<MachineValidation>> {
+    let query = "
+        UPDATE machine_validation
+        SET end_time=NOW(),state=$2
+        WHERE id=$1
+        AND end_time IS NULL
+        AND state IN ('Started', 'InProgress')
+        RETURNING *";
+    sqlx::query_as::<_, MachineValidation>(query)
+        .bind(id)
+        .bind(status.state.to_string())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn mark_stale_if_active(
+    txn: &mut PgConnection,
+    id: &MachineValidationId,
+    stale_run_timeout: std::time::Duration,
+    now: chrono::DateTime<chrono::Utc>,
+    status: &MachineValidationStatus,
+) -> DatabaseResult<Option<MachineValidation>> {
+    let stale_run_timeout_seconds = i64::try_from(stale_run_timeout.as_secs()).unwrap_or(i64::MAX);
+    let query = "
+        UPDATE machine_validation
+        SET end_time=NOW(),state=$2
+        WHERE id=$1
+        AND end_time IS NULL
+        AND state IN ('Started', 'InProgress')
+        AND start_time
+            + (GREATEST(duration_to_complete, 0) * INTERVAL '1 second')
+            + ($3::bigint * INTERVAL '1 second') < $4
+        RETURNING *";
+    sqlx::query_as::<_, MachineValidation>(query)
+        .bind(id)
+        .bind(status.state.to_string())
+        .bind(stale_run_timeout_seconds)
+        .bind(now)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn update_run(
     txn: &mut PgConnection,
     id: &MachineValidationId,
     total: i32,
     duration_to_complete: i64,
 ) -> DatabaseResult<()> {
-    let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0,state=$4 WHERE id=$1 AND end_time IS NULL RETURNING *";
+    let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0,state=$4 WHERE id=$1 AND end_time IS NULL AND state IN ('Started', 'InProgress') RETURNING *";
     let updated = sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)
         .bind(duration_to_complete)
@@ -257,7 +305,14 @@ pub async fn find_active_machine_validation_by_machine_id(
 ) -> DatabaseResult<MachineValidation> {
     let ret = find_by_machine_id(txn, machine_id).await?;
     for iter in ret {
-        if iter.end_time.is_none() {
+        if iter.end_time.is_none()
+            && iter.status.as_ref().is_some_and(|status| {
+                matches!(
+                    status.state,
+                    MachineValidationState::Started | MachineValidationState::InProgress
+                )
+            })
+        {
             return Ok(iter);
         }
     }
@@ -289,13 +344,15 @@ pub async fn mark_machine_validation_complete(
     machine_id: &MachineId,
     id: &MachineValidationId,
     status: MachineValidationStatus,
-) -> DatabaseResult<()> {
+) -> DatabaseResult<bool> {
+    let Some(_updated) = update_end_time_if_active(txn, id, &status).await? else {
+        return Ok(false);
+    };
+
     //Mark machine validation request to false
     crate::machine::set_machine_validation_request(txn, machine_id, false).await?;
 
     crate::machine::update_machine_validation_time(machine_id, txn).await?;
 
-    //TODO repopulate the status
-    update_end_time(txn, id, &status).await?;
-    Ok(())
+    Ok(true)
 }

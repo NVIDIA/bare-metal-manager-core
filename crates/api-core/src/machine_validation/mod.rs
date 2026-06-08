@@ -104,10 +104,18 @@ impl MachineValidationManager {
             self.config.stale_run_timeout,
             now,
         );
-        metrics.stale_validation = stale_validations.len();
 
         for validation in stale_validations {
-            reconcile_stale_validation(txn.as_pgconn(), validation).await?;
+            if reconcile_stale_validation(
+                txn.as_pgconn(),
+                validation,
+                self.config.stale_run_timeout,
+                now,
+            )
+            .await?
+            {
+                metrics.stale_validation += 1;
+            }
         }
 
         metrics.completed_validation = db::machine_validation::find_by(
@@ -191,11 +199,34 @@ fn stale_validations(
 async fn reconcile_stale_validation(
     txn: &mut sqlx::PgConnection,
     validation: MachineValidation,
-) -> CarbideResult<()> {
+    stale_run_timeout: std::time::Duration,
+    now: chrono::DateTime<chrono::Utc>,
+) -> CarbideResult<bool> {
     let error_message = format!(
         "Machine validation run {} exceeded its expected duration plus stale timeout",
         validation.id
     );
+
+    let status = MachineValidationStatus {
+        state: MachineValidationState::Failed,
+        ..MachineValidationStatus::default()
+    };
+
+    let Some(validation) = db::machine_validation::mark_stale_if_active(
+        txn,
+        &validation.id,
+        stale_run_timeout,
+        now,
+        &status,
+    )
+    .await?
+    else {
+        tracing::debug!(
+            validation_id = %validation.id,
+            "skipping stale machine validation because it is no longer active or stale"
+        );
+        return Ok(false);
+    };
 
     let Some(machine) = db::machine::find_by_validation_id(txn, &validation.id).await? else {
         tracing::warn!(
@@ -203,16 +234,7 @@ async fn reconcile_stale_validation(
             machine_id = %validation.machine_id,
             "stale machine validation has no owning machine"
         );
-        db::machine_validation::update_end_time(
-            txn,
-            &validation.id,
-            &MachineValidationStatus {
-                state: MachineValidationState::Failed,
-                ..MachineValidationStatus::default()
-            },
-        )
-        .await?;
-        return Ok(());
+        return Ok(true);
     };
 
     db::machine::update_failure_details_by_machine_id(
@@ -240,16 +262,8 @@ async fn reconcile_stale_validation(
     });
     db::machine::update_machine_validation_health_report(txn, &machine.id, &health_report).await?;
 
-    db::machine_validation::mark_machine_validation_complete(
-        txn,
-        &machine.id,
-        &validation.id,
-        MachineValidationStatus {
-            state: MachineValidationState::Failed,
-            ..MachineValidationStatus::default()
-        },
-    )
-    .await?;
+    db::machine::set_machine_validation_request(txn, &machine.id, false).await?;
+    db::machine::update_machine_validation_time(&machine.id, txn).await?;
 
     tracing::warn!(
         validation_id = %validation.id,
@@ -257,7 +271,7 @@ async fn reconcile_stale_validation(
         "reconciled stale machine validation run"
     );
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
