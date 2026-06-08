@@ -581,10 +581,45 @@ fn sysfs_path_is_sata(path: &std::path::Path) -> bool {
     path.to_string_lossy().contains("/ata")
 }
 
+fn sysfs_path_is_usb(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str().to_string_lossy().starts_with("usb"))
+}
+
 fn is_sata_device(devname: &str) -> bool {
     fs::canonicalize(format!("/sys/block/{devname}"))
         .map(|p| sysfs_path_is_sata(&p))
         .unwrap_or(false)
+}
+
+fn is_usb_device(devname: &str) -> bool {
+    fs::canonicalize(format!("/sys/block/{devname}"))
+        .map(|p| sysfs_path_is_usb(&p))
+        .unwrap_or(false)
+}
+
+fn read_block_sysfs_attr(devname: &str, attr: &str) -> Option<String> {
+    fs::read_to_string(format!("/sys/block/{devname}/{attr}"))
+        .ok()
+        .map(|value| value.trim().to_string())
+}
+
+fn block_device_cleanup_skip_reason(devname: &str) -> Option<String> {
+    if read_block_sysfs_attr(devname, "hidden").is_some_and(|value| value == "1") {
+        return Some("hidden block device".to_string());
+    }
+
+    if let Some(removable) = read_block_sysfs_attr(devname, "removable")
+        && removable != "0"
+    {
+        return Some(format!("removable block device (removable={removable})"));
+    }
+
+    if is_usb_device(devname) {
+        return Some("USB transport block device".to_string());
+    }
+
+    None
 }
 
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
@@ -609,6 +644,15 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
             let devname = entry.file_name().to_string_lossy().to_string();
             let devpath = format!("/dev/{devname}");
             if SD_DEV_RE.is_match(&devpath) {
+                if let Some(reason) = block_device_cleanup_skip_reason(&devname) {
+                    tracing::info!(
+                        device = %devpath,
+                        reason = %reason,
+                        "Skipping HDD/SAS cleanup candidate"
+                    );
+                    continue;
+                }
+
                 block_devicepaths.push(devpath);
             }
         }
@@ -1259,6 +1303,20 @@ mod tests {
         )));
         // SAS: path goes through SAS host, no /ata component
         assert!(!sysfs_path_is_sata(Path::new(
+            "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
+        )));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb() {
+        use std::path::Path;
+        assert!(sysfs_path_is_usb(Path::new(
+            "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0/host0/target0:0:0/0:0:0:0/block/sda"
+        )));
+        assert!(!sysfs_path_is_usb(Path::new(
+            "/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/sda"
+        )));
+        assert!(!sysfs_path_is_usb(Path::new(
             "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
         )));
     }
