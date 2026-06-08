@@ -28,6 +28,10 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
+# Temporary: increase Rust test thread stack to avoid stack overflows in tests.
+# TODO: remove after stack-heavy tests/code paths are refactored.
+RUST_MIN_STACK = { value = "8388608", condition = { env_not_set = ["RUST_MIN_STACK"] } }
+
 BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = [
   "BUILD_CONTAINER_X86_URL",
 ] } }

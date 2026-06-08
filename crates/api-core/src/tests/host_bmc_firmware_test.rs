@@ -38,8 +38,8 @@ use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-    InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
-    TimeSyncResetPhase,
+    InitialBmcResetPhase, InitialResetPhase, Inventory, PowerDrainState, PowerState,
+    PreingestionState, Service, TimeSyncResetPhase,
 };
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
@@ -353,10 +353,17 @@ async fn insert_endpoint(
     bmc_version: &str,
     uefi_version: &str,
 ) -> Result<(), DatabaseError> {
+    let address = IpAddr::V4(Ipv4Addr::from_str(addr).unwrap());
     db::explored_endpoints::insert(
-        IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
+        address,
         &build_exploration_report(vendor, model, bmc_version, uefi_version, machine_id_str),
         false,
+        txn,
+    )
+    .await?;
+    db::explored_endpoints::set_preingestion_initial_bmc_reset(
+        address,
+        InitialBmcResetPhase::WaitForExplorerRefresh,
         txn,
     )
     .await

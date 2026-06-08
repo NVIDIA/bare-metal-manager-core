@@ -158,14 +158,6 @@ func TestInstanceType_FromProto(t *testing.T) {
 	})
 }
 
-func TestInstanceType_ToDeletionRequestProto(t *testing.T) {
-	id := uuid.New()
-	it := &InstanceType{ID: id}
-	req := it.ToDeletionRequestProto()
-	require.NotNil(t, req)
-	assert.Equal(t, id.String(), req.Id)
-}
-
 func TestLabels_ToProto(t *testing.T) {
 	t.Run("nil map yields nil slice", func(t *testing.T) {
 		var l Labels

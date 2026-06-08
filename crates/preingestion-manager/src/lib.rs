@@ -42,8 +42,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialResetPhase, NicMode, PowerDrainState, PreingestionState,
-    TimeSyncResetPhase,
+    ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase, NicMode, PowerDrainState,
+    PreingestionState, TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -68,6 +68,12 @@ const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
 
 /// Timeout for waiting for DPU to report valid firmware after BFB installation.
 const BFB_INSTALLATION_TIMEOUT_MINS: i64 = 45;
+
+/// How many times to attempt issuing the one-shot `InitialBMCReset` before
+/// giving up and proceeding with preingestion without it. Failing to issue the
+/// reset shouldn't block ingestion: the BMC is presumably still up, we just
+/// lose the inventory refresh.
+const INITIAL_BMC_RESET_MAX_ATTEMPTS: u32 = 3;
 
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
@@ -332,48 +338,21 @@ async fn one_endpoint(
     // Main state machine match.
     let delayed_upgrade = match &endpoint.preingestion_state {
         PreingestionState::Initial => {
-            // Check BMC time sync first before proceeding with firmware checks
-            match static_info.check_bmc_time_sync(db, endpoint).await {
-                Ok(true) => {
-                    // Time is in sync, proceed with firmware version check
-                    static_info
-                        .check_firmware_versions_below_preingestion(db, endpoint)
-                        .await?
-                }
-                Ok(false) => {
-                    // Time is not in sync, initiate reset sequence
-                    tracing::warn!(
-                        "{} BMC time is out of sync, initiating reset to fix time synchronization",
-                        endpoint.address
-                    );
-                    static_info
-                        .time_sync_resets(db, endpoint, &TimeSyncResetPhase::Start, None)
-                        .await?
-                }
-                Err(e) => {
-                    if let PreingestionManagerError::Internal { message } = e {
-                        tracing::error!(
-                            "{} internal error checking BMC time sync: {message}, failing preingestion",
-                            endpoint.address
-                        );
-                        db.with_txn(|txn| {
-                            db::explored_endpoints::set_preingestion_failed(
-                                endpoint.address,
-                                format!("Failed to check BMC time sync: {message}"),
-                                txn,
-                            )
-                            .boxed()
-                        })
-                        .await??;
-                    } else {
-                        tracing::warn!(
-                            "{} retryable error checking BMC time sync: {e}, will retry later",
-                            endpoint.address
-                        );
-                    }
-                    false
-                }
-            }
+            // Kick off a one-shot BMC reset before the time-sync / firmware
+            // checks so pairing sees a stable BMC.
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                    endpoint.address,
+                    InitialBmcResetPhase::Start { attempts: 0 },
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            false
+        }
+        PreingestionState::InitialBMCReset { phase } => {
+            static_info.initial_bmc_reset(db, endpoint, phase).await?
         }
         PreingestionState::RecheckVersionsAfterFailure { .. } => {
             static_info
@@ -1312,6 +1291,188 @@ impl PreingestionManagerStatic {
         .await??;
 
         Ok(())
+    }
+
+    async fn run_initial_checks(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> PreingestionManagerResult<bool> {
+        match self.check_bmc_time_sync(db, endpoint).await {
+            Ok(true) => {
+                // Time is in sync, proceed with firmware version check
+                self.check_firmware_versions_below_preingestion(db, endpoint)
+                    .await
+            }
+            Ok(false) => {
+                // Time is not in sync, initiate reset sequence
+                tracing::warn!(
+                    "{} BMC time is out of sync, initiating reset to fix time synchronization",
+                    endpoint.address
+                );
+                self.time_sync_resets(db, endpoint, &TimeSyncResetPhase::Start, None)
+                    .await
+            }
+            Err(e) => {
+                if let PreingestionManagerError::Internal { message } = e {
+                    tracing::error!(
+                        "{} internal error checking BMC time sync: {message}, failing preingestion",
+                        endpoint.address
+                    );
+                    db.with_txn(|txn| {
+                        db::explored_endpoints::set_preingestion_failed(
+                            endpoint.address,
+                            format!("Failed to check BMC time sync: {message}"),
+                            txn,
+                        )
+                        .boxed()
+                    })
+                    .await??;
+                } else {
+                    tracing::warn!(
+                        "{} retryable error checking BMC time sync: {e}, will retry later",
+                        endpoint.address
+                    );
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    async fn initial_bmc_reset(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        phase: &InitialBmcResetPhase,
+    ) -> PreingestionManagerResult<bool> {
+        match phase {
+            InitialBmcResetPhase::Start { attempts } => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(endpoint.address, db)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Redfish connection to {} failed: {e}; will retry initial bmc reset",
+                            endpoint.address
+                        );
+                        return Ok(false);
+                    }
+                };
+                if let Err(e) = redfish_client.bmc_reset().await {
+                    let next = attempts + 1;
+                    if next >= INITIAL_BMC_RESET_MAX_ATTEMPTS {
+                        tracing::warn!(
+                            "{} initial BMC reset failed {next} times: {e}; \
+                             proceeding with preingestion without it",
+                            endpoint.address
+                        );
+                        return self.run_initial_checks(db, endpoint).await;
+                    }
+                    tracing::warn!(
+                        "{} initial BMC reset attempt {next}/{INITIAL_BMC_RESET_MAX_ATTEMPTS} \
+                         failed: {e}; will retry",
+                        endpoint.address
+                    );
+                    db.with_txn(|txn| {
+                        db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                            endpoint.address,
+                            InitialBmcResetPhase::Start { attempts: next },
+                            txn,
+                        )
+                        .boxed()
+                    })
+                    .await??;
+                    return Ok(false);
+                }
+                tracing::info!(
+                    "{} initial BMC reset initiated; polling for BMC return",
+                    endpoint.address
+                );
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                        endpoint.address,
+                        InitialBmcResetPhase::WaitForBmc,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(false)
+            }
+            InitialBmcResetPhase::WaitForBmc => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(endpoint.address, db)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Redfish connection to {} failed: {e}; will retry waiting for BMC",
+                            endpoint.address
+                        );
+                        return Ok(false);
+                    }
+                };
+                match redfish_client.get_service_root().await {
+                    Ok(_) => {
+                        // BMC is back. Force a fresh exploration and wait for it
+                        // before running checks, so pairing/ingestion reads the
+                        // post-reset inventory (e.g. a DPU that reappeared), not the
+                        // stale pre-reset report.
+                        let address = endpoint.address;
+                        db.with_txn(|txn| {
+                            async move {
+                                db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                                    address,
+                                    InitialBmcResetPhase::WaitForExplorerRefresh,
+                                    txn,
+                                )
+                                .await?;
+                                db::explored_endpoints::request_exploration_for_addresses(
+                                    &[address],
+                                    txn,
+                                )
+                                .await?;
+                                db::explored_endpoints::set_waiting_for_explorer_refresh(
+                                    address, txn,
+                                )
+                                .await?;
+                                Ok::<_, DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??;
+                        tracing::info!(
+                            "{} BMC came back after initial reset; awaiting fresh exploration report before continuing",
+                            endpoint.address
+                        );
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        // An unreachable BMC is never a reason to move on: keep
+                        // waiting and continue once it comes back.
+                        tracing::info!(
+                            "Waiting for {} BMC to return after initial reset: {e}",
+                            endpoint.address
+                        );
+                        Ok(false)
+                    }
+                }
+            }
+            InitialBmcResetPhase::WaitForExplorerRefresh => {
+                // Reached only once the refresh flag is cleared, i.e. site
+                // explorer re-reads the BMC post-reset.
+                tracing::info!(
+                    "{} fresh exploration report received after initial BMC reset; running time-sync / firmware checks",
+                    endpoint.address
+                );
+                self.run_initial_checks(db, endpoint).await
+            }
+        }
     }
 
     /// Helper: Execute power off and BMC reset sequence

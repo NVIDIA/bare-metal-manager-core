@@ -157,15 +157,34 @@ controls the YAML→JSON name mapping.
     "renew-timer": {{ default 900 $k.renewTimer | toJson }},
     "rebind-timer": {{ default 1800 $k.rebindTimer | toJson }},
     "valid-lifetime": {{ default 3600 $k.validLifetime | toJson }},
+    {{- /*
+      Hook parameters — write both nico-* and carbide-* keys with identical
+      values so the kea hook library (crates/dhcp/src/kea/loader.cc still
+      reads carbide-*) and any future nico-named build both find the value
+      they expect. Drop the carbide-* mirror once every consuming binary
+      has been rebuilt to read nico-*.
+
+      nameservers / ntpServer / provisioningServer fall back to the chart-
+      level placeholders in values.yaml when site values don't override
+      them. The placeholders are loud "REPLACE_WITH_..." strings — kea
+      will surface them at startup so operators see the misconfiguration
+      instead of getting a silently-non-functional cluster (which is what
+      the old "127.0.0.1" fallback produced).
+    */ -}}
     "hooks-libraries": [
       {
         "library": {{ $libPath | quote }},
         "parameters": {
           "nico-api-url": {{ $apiUrl | quote }},
+          "carbide-api-url": {{ $apiUrl | quote }},
           "nico-metrics-endpoint": {{ default "[::]:1089" $hp.nicoMetricsEndpoint | quote }},
-          "nico-nameservers": {{ default "127.0.0.1" $hp.nameservers | quote }},
-          "nico-ntpserver": {{ default "127.0.0.1" $hp.ntpServer | quote }},
-          "nico-provisioning-server-ipv4": {{ default "127.0.0.1" $hp.provisioningServer | quote }}
+          "carbide-metrics-endpoint": {{ default "[::]:1089" $hp.nicoMetricsEndpoint | quote }},
+          "nico-nameservers": {{ $hp.nameservers | quote }},
+          "carbide-nameservers": {{ $hp.nameservers | quote }},
+          "nico-ntpserver": {{ $hp.ntpServer | quote }},
+          "carbide-ntpserver": {{ $hp.ntpServer | quote }},
+          "nico-provisioning-server-ipv4": {{ $hp.provisioningServer | quote }},
+          "carbide-provisioning-server-ipv4": {{ $hp.provisioningServer | quote }}
         }
       }
 {{- range $i, $extra := $extraHooks }},
