@@ -370,10 +370,10 @@ mod tests {
         let event = CollectorEvent::HealthReport(Arc::clone(&report));
 
         sink.handle_event(&ctx, &event);
-        assert_eq!(sink.queue.pop().is_some(), true, "first send should go through");
+        assert!(sink.queue.pop().is_some(), "first send should go through");
 
         sink.handle_event(&ctx, &event);
-        assert_eq!(sink.queue.pop().is_none(), true, "identical repeat within interval should be suppressed");
+        assert!(sink.queue.pop().is_none(), "identical repeat within interval should be suppressed");
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
 
         // DedupQueue replaces the value for the same key, so only one entry exists,
         // but both sends reached the queue (not suppressed).
-        assert_eq!(sink.queue.pop().is_some(), true);
+        assert!(sink.queue.pop().is_some());
     }
 
     #[test]
