@@ -252,9 +252,9 @@ mod tests {
         values.iter().map(|v| classification(v)).collect()
     }
 
-    fn snapshot(
-        registry: &PerObjectMetricsRegistry,
-    ) -> Vec<(String, String, Vec<String>, Vec<(String, String)>)> {
+    type SnapshotRow = (String, String, Vec<String>, Vec<(String, String)>);
+
+    fn snapshot(registry: &PerObjectMetricsRegistry) -> Vec<SnapshotRow> {
         let mut rows = Vec::new();
         registry.for_each_live(|key, record| {
             let mut classifications = record.classifications.clone();
