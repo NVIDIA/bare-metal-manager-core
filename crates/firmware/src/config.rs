@@ -43,12 +43,26 @@ impl FirmwareConfigSnapshot {
 
     pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
         let dpu_model = DpuModel::from(model);
-        let key = if dpu_model != DpuModel::Unknown {
-            vendor_model_to_key(vendor, &dpu_model.to_string())
+        let model = if dpu_model != DpuModel::Unknown {
+            dpu_model.to_string()
         } else {
-            vendor_model_to_key(vendor, model)
+            model.to_string()
         };
-        let ret = self.data.get(&key).map(|x| x.to_owned());
+        let key = vendor_model_to_key(vendor, &model);
+        let ret = self
+            .data
+            .get(&key)
+            .or_else(|| {
+                if vendor == bmc_vendor::BMCVendor::LenovoAMI {
+                    // LenovoAMI identifies the BMC implementation; firmware bundle
+                    // compatibility is still scoped by the Lenovo hardware model.
+                    self.data
+                        .get(&vendor_model_to_key(bmc_vendor::BMCVendor::Lenovo, &model))
+                } else {
+                    None
+                }
+            })
+            .cloned();
         tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
         ret
     }

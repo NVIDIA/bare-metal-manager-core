@@ -40,6 +40,7 @@ use crate::errors::{ModelError, ModelResult};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
+use crate::machine_boot_interface::MachineBootInterface;
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -156,6 +157,20 @@ impl EndpointExplorationReport {
             .dedup()
             .collect()
     }
+
+    /// Finds the Redfish interface id of the host ethernet interface whose MAC
+    /// matches `mac`, if any.
+    ///
+    /// Used to capture the boot interface's [stable] Redfish interface id
+    /// alongside its MAC, giving setup calls a second, [stable] handle to target
+    /// in addition to the MAC.
+    pub fn find_interface_id_for_mac(&self, mac: MacAddress) -> Option<&str> {
+        self.systems
+            .iter()
+            .flat_map(|s| s.ethernet_interfaces.iter())
+            .find(|e| e.mac_address == Some(mac))
+            .and_then(|e| e.id.as_deref())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +203,10 @@ pub struct ExploredEndpoint {
     pub pause_remediation: bool,
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     pub boot_interface_mac: Option<MacAddress>,
+    /// The vendor-native Redfish interface id of the boot interface, captured
+    /// alongside `boot_interface_mac`. Combined with the MAC via
+    /// [`ExploredEndpoint::boot_interface`] to form a [`MachineBootInterface`].
+    pub boot_interface_id: Option<String>,
 }
 
 impl Display for ExploredEndpoint {
@@ -197,6 +216,16 @@ impl Display for ExploredEndpoint {
 }
 
 impl ExploredEndpoint {
+    /// Returns the fully-populated boot interface (MAC + Redfish interface id)
+    /// for this endpoint, or `None` if either part is missing.
+    ///
+    /// `None` means we have no complete pair yet -- e.g. the endpoint predates
+    /// interface-id capture, or has only ever been reported without a resolvable
+    /// interface id.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        MachineBootInterface::from_parts(self.boot_interface_mac, self.boot_interface_id.clone())
+    }
+
     /// find_version will locate a version number within an ExploredEndpoint
     pub fn find_version(
         &self,
@@ -357,6 +386,13 @@ pub enum PreingestionState {
         phase: InitialResetPhase,
         last_time: DateTime<Utc>,
     },
+    /// One-shot BMC reset run immediately after `Initial` for every endpoint,
+    /// so a freshly-booted BMC report is what pairing/ingestion reads. Notably
+    /// refreshes GB200 host BMCs that intermittently drop a DPU from their
+    /// PCIe inventory.
+    InitialBMCReset {
+        phase: InitialBmcResetPhase,
+    },
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,
@@ -403,6 +439,21 @@ pub enum InitialResetPhase {
     Start,
     BMCWasReset,
     WaitHostBoot,
+}
+
+/// Phases of the one-shot `InitialBMCReset` state. `Start { attempts }` issues
+/// the BMC reset; if the BMC is reachable but the reset errors, it retries up
+/// to a bound and then proceeds without the reset rather than blocking
+/// ingestion. `WaitForBmc` polls until the BMC comes back; an unreachable BMC
+/// keeps waiting (it is never a reason to move on). Once it returns, a fresh
+/// exploration report is requested and `WaitForExplorerRefresh` waits for it so
+/// the relocated checks (and downstream pairing) read the post-reset inventory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialBmcResetPhase {
+    Start { attempts: u32 },
+    WaitForBmc,
+    WaitForExplorerRefresh,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1536,6 +1587,7 @@ mod tests {
             last_redfish_powercycle: None,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
     }
@@ -2003,6 +2055,58 @@ mod tests {
             ..Default::default()
         };
         assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn find_interface_id_for_mac_matches_host_ethernet_interface() {
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let other = MacAddress::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.1".to_string()),
+                        mac_address: Some(other),
+                        ..Default::default()
+                    },
+                    EthernetInterface {
+                        id: Some("NIC.Slot.7-1-1".to_string()),
+                        mac_address: Some(mac),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            report.find_interface_id_for_mac(mac),
+            Some("NIC.Slot.7-1-1")
+        );
+        // Unknown MAC -> None (so the capture keeps the last-known-good record).
+        assert_eq!(
+            report.find_interface_id_for_mac(MacAddress::new([0, 0, 0, 0, 0, 0])),
+            None
+        );
+    }
+
+    #[test]
+    fn find_interface_id_for_mac_none_when_id_missing() {
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: None,
+                    mac_address: Some(mac),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // MAC present but no interface id -> can't form a fully-populated pair.
+        assert_eq!(report.find_interface_id_for_mac(mac), None);
     }
 
     #[test]
