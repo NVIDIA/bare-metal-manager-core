@@ -79,6 +79,7 @@ fn services_with_rms_client(
             username: TEST_BMC_USER.into(),
             password: TEST_BMC_PASSWORD.into(),
         })),
+        per_object_metrics_registry: env.per_object_metrics_registry(),
     }
 }
 

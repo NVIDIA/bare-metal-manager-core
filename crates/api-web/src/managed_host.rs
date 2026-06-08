@@ -391,7 +391,7 @@ pub async fn show_html(
     state: AxumState<Arc<Api>>,
     Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
-    let host_health = state.runtime_config.host_health.clone();
+    let host_health = state.runtime_config.host_health;
     let managed_hosts = match managed_host::load_all(
         &state.database_connection,
         LoadSnapshotOptions {

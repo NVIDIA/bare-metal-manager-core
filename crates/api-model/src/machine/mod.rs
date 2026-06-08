@@ -402,7 +402,7 @@ impl ManagedHostStateSnapshot {
 
     /// Derives the aggregate health of the Managed Host based on individual
     /// health reports
-    pub fn derive_aggregate_health(&mut self, host_health_config: &HostHealthConfig) {
+    pub fn derive_aggregate_health(&mut self, host_health_config: HostHealthConfig) {
         let source = "aggregate-host-health".to_string();
         let observed_at = Some(chrono::Utc::now());
 
@@ -2643,7 +2643,7 @@ impl Display for PowerState {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct HostHealthConfig {
     /// Whether or not to use hardware health reports in aggregate health reports
     /// and for restricting state transitions.
@@ -2668,17 +2668,6 @@ pub struct HostHealthConfig {
     /// Whether the scout heartbeat timeout alert should suppress external alerting
     #[serde(default = "HostHealthConfig::default_suppress_ext_alert_on_scout_heartbeat")]
     pub suppress_external_alerting_on_scout_heartbeat_timeout: bool,
-
-    /// Health alert classifications for which an additional per-machine metric
-    /// (`carbide_hosts_unhealthy_by_host_and_classification_count`) should be
-    /// emitted, including the `machine_id` as a label.
-    ///
-    /// Per-machine metrics increase the number of emitted time series (up to one
-    /// extra series per host and matching classification), so this defaults to
-    /// empty (disabled) to keep metric cardinality bounded. Only classifications
-    /// listed here are emitted per-machine.
-    #[serde(default)]
-    pub per_machine_metrics_for_classifications: Vec<health_report::HealthAlertClassification>,
 }
 
 /// As of now, chrono::Duration does not support Serialization, so we have to handle it manually.
@@ -2699,7 +2688,6 @@ impl Default for HostHealthConfig {
             prevent_allocations_on_scout_heartbeat_timeout: false,
             suppress_external_alerting_on_scout_heartbeat_timeout:
                 Self::default_suppress_ext_alert_on_scout_heartbeat(),
-            per_machine_metrics_for_classifications: Vec::new(),
         }
     }
 }

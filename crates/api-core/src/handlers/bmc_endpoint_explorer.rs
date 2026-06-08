@@ -412,7 +412,7 @@ pub(crate) async fn admin_power_control(
                 LoadSnapshotOptions {
                     include_history: true,
                     include_instance_data: false,
-                    host_health_config: api.runtime_config.host_health.clone(),
+                    host_health_config: api.runtime_config.host_health,
                 },
             )
             .await?

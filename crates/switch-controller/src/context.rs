@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_health_metrics::PerObjectMetricsRegistry;
 use forge_secrets::credentials::CredentialManager;
 use librms::RmsApi;
 use sqlx::PgPool;
@@ -32,6 +33,8 @@ pub struct SwitchStateHandlerServices {
     /// Rack Manager Service client
     pub rms_client: Option<Arc<dyn RmsApi>>,
     pub credential_manager: Arc<dyn CredentialManager>,
+    /// Shared registry backing the generic per-object health metrics.
+    pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }
 
 impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {

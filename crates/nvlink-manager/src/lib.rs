@@ -1763,7 +1763,7 @@ impl NvlPartitionMonitor {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
-                host_health_config: self.host_health.clone(),
+                host_health_config: self.host_health,
             },
         )
         .await

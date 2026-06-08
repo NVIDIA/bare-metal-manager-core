@@ -191,7 +191,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                host_health_config: env.config.host_health.clone(),
+                host_health_config: env.config.host_health,
             },
         )
         .await;

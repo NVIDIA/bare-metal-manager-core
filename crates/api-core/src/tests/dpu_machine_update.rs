@@ -73,7 +73,7 @@ async fn create_machines(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: test_env.config.host_health.clone(),
+            host_health_config: test_env.config.host_health,
         },
     )
     .await
@@ -98,7 +98,7 @@ pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, Managed
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: test_env.config.host_health.clone(),
+            host_health_config: test_env.config.host_health,
         },
     )
     .await
@@ -289,7 +289,7 @@ async fn test_find_available_outdated_dpus_multidpu(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: env.config.host_health.clone(),
+            host_health_config: env.config.host_health,
         },
     )
     .await
@@ -336,7 +336,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: env.config.host_health.clone(),
+            host_health_config: env.config.host_health,
         },
     )
     .await
@@ -400,7 +400,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: env.config.host_health.clone(),
+            host_health_config: env.config.host_health,
         },
     )
     .await

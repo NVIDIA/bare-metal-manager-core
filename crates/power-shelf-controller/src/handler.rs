@@ -51,6 +51,11 @@ impl PowerShelfStateHandler {
             &aggregate_health,
             &state.health_reports,
         );
+        ctx.services
+            .per_object_metrics_registry
+            .observe("power_shelf", &state.id.to_string())
+            .classifications(&ctx.metrics.health.health_alert_classifications)
+            .commit();
     }
 
     /// Attempts a state transition by delegating to the appropriate state handler.

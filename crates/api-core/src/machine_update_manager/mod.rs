@@ -83,7 +83,7 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules: modules,
             metrics: None,
-            host_health: config.host_health.clone(),
+            host_health: config.host_health,
             work_lock_manager_handle,
         }
     }
@@ -119,7 +119,7 @@ impl MachineUpdateManager {
             run_interval: Duration::from_secs(config.machine_update_run_interval.unwrap_or(300)),
             update_modules,
             metrics: Some(machine_update_metrics),
-            host_health: config.host_health.clone(),
+            host_health: config.host_health,
             work_lock_manager_handle,
         }
     }
@@ -177,7 +177,7 @@ impl MachineUpdateManager {
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                host_health_config: self.host_health.clone(),
+                host_health_config: self.host_health,
             },
         )
         .await

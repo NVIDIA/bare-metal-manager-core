@@ -107,7 +107,7 @@ pub(crate) async fn find_machines_by_ids(
         LoadSnapshotOptions {
             include_history: request.include_history,
             include_instance_data: false,
-            host_health_config: api.runtime_config.host_health.clone(),
+            host_health_config: api.runtime_config.host_health,
         },
     )
     .await?;

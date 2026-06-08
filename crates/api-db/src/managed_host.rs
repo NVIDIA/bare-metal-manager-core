@@ -59,7 +59,7 @@ pub async fn load_all(
         .map_err(|e| DatabaseError::new("managed_host::load_all", e))?
         .into_iter()
         .map(|mut snapshot: ManagedHostStateSnapshot| {
-            snapshot.derive_aggregate_health(&options.host_health_config);
+            snapshot.derive_aggregate_health(options.host_health_config);
             snapshot
         })
         .collect())
@@ -129,7 +129,7 @@ where
         .map_err(|e| DatabaseError::new("managed_host::load_by_machine_ids", e))?
         .into_iter()
         .map(|mut snapshot: ManagedHostStateSnapshot| {
-            snapshot.derive_aggregate_health(&options.host_health_config);
+            snapshot.derive_aggregate_health(options.host_health_config);
             (snapshot.host_snapshot.id, snapshot)
         })
         .collect();
@@ -201,7 +201,7 @@ pub async fn load_by_instance_ids(
         .map_err(|e| DatabaseError::new("managed_host::load_by_instance_ids", e))?
         .into_iter()
         .map(|mut s: ManagedHostStateSnapshot| {
-            s.derive_aggregate_health(&load_snapshot_options.host_health_config);
+            s.derive_aggregate_health(load_snapshot_options.host_health_config);
             s
         })
         .collect();

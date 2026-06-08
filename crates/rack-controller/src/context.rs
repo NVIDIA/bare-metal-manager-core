@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::metrics::RackMetrics;
@@ -41,6 +42,8 @@ pub struct RackStateHandlerServices {
     /// librms::RmsApi.
     pub switch_system_image_rms_client: Option<Arc<dyn SwitchSystemImageRmsClient>>,
     pub credential_manager: Arc<dyn CredentialManager>,
+    /// Shared registry backing the generic per-object health metrics.
+    pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }
 
 impl StateHandlerContextObjects for RackStateHandlerContextObjects {

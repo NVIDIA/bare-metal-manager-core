@@ -1209,6 +1209,7 @@ dependencies = [
  "carbide-dpa-manager",
  "carbide-dpf",
  "carbide-firmware",
+ "carbide-health-metrics",
  "carbide-health-report",
  "carbide-host-support",
  "carbide-ib-fabric",

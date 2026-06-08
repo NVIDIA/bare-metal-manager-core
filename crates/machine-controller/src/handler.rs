@@ -549,17 +549,17 @@ impl MachineStateHandler {
             &state.host_snapshot.health_reports,
         );
 
-        let per_machine_classifications = &ctx
-            .services
-            .site_config
-            .host_health
-            .per_machine_metrics_for_classifications;
-        ctx.metrics.per_machine_alert_classifications = state
-            .aggregate_health
-            .classifications()
-            .filter(|classification| per_machine_classifications.contains(classification))
-            .map(|classification| classification.to_string())
-            .collect();
+        // Feed the per-object health classification metric. The registry filters
+        // to the opted-in classifications and emits a series labeled with this
+        // host's id; emitting an empty set clears any prior series once the host
+        // becomes healthy.
+        let in_use = ctx.metrics.in_use_by_tenant.is_some();
+        ctx.services
+            .per_object_metrics_registry
+            .observe("machine", &state.host_snapshot.id.to_string())
+            .classifications(&ctx.metrics.health.health_alert_classifications)
+            .label("in_use", in_use.to_string())
+            .commit();
     }
 
     fn record_health_history(

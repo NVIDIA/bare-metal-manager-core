@@ -25,6 +25,7 @@ use arc_swap::ArcSwap;
 use carbide_dpa::DpaInfo;
 use carbide_dpa_manager::DpaMonitor;
 use carbide_firmware::FirmwareDownloader;
+use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
@@ -1068,6 +1069,22 @@ pub async fn initialize_and_start_controllers<'a>(
         .to_string_lossy()
         .to_string();
 
+    // Cross-controller registry feeding the per-object health metrics; shared by
+    // every state controller and registered once. Retention mirrors the
+    // controllers' per-object metric hold time.
+    let per_object_metrics_registry = PerObjectMetricsRegistry::new(
+        carbide_config
+            .observability
+            .per_object_metrics_for_classifications
+            .clone(),
+        carbide_config
+            .machine_state_controller
+            .controller
+            .metric_hold_time
+            .saturating_add(std::time::Duration::from_secs(60)),
+    );
+    per_object_metrics_registry.register(&meter);
+
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
     StateController::<MachineStateControllerIO>::builder()
@@ -1081,6 +1098,7 @@ pub async fn initialize_and_start_controllers<'a>(
                 redfish_client_pool: shared_redfish_pool.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1137,10 +1155,6 @@ pub async fn initialize_and_start_controllers<'a>(
                 suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
-                per_machine_metrics_for_classifications: carbide_config
-                    .host_health
-                    .per_machine_metrics_for_classifications
-                    .clone(),
             },
             sla_config: model::machine::slas::MachineSlaConfig::new(
                 carbide_config.machine_state_controller.failure_retry_time,
@@ -1230,6 +1244,7 @@ pub async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 rms_client: rms_client.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1254,6 +1269,7 @@ pub async fn initialize_and_start_controllers<'a>(
                 .into(),
                 switch_system_image_rms_client,
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1270,6 +1286,7 @@ pub async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 rms_client: rms_client.clone(),
                 credential_manager: credential_manager.clone(),
+                per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
         )
@@ -1287,7 +1304,7 @@ pub async fn initialize_and_start_controllers<'a>(
         },
         meter.clone(),
         ib_fabric_manager.clone(),
-        carbide_config.host_health.clone(),
+        carbide_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1297,7 +1314,7 @@ pub async fn initialize_and_start_controllers<'a>(
         api_service.nmxc_client_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health.clone(),
+        carbide_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1324,7 +1341,7 @@ pub async fn initialize_and_start_controllers<'a>(
             dpa_info,
             meter.clone(),
             carbide_config.dpa_config.clone().unwrap_or_default(),
-            carbide_config.host_health.clone(),
+            carbide_config.host_health,
             work_lock_manager_handle.clone(),
         )
         .start(join_set, cancel_token.clone())?;

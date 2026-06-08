@@ -86,7 +86,7 @@ pub(crate) async fn update_power_option(
             LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: false,
-                host_health_config: api.runtime_config.host_health.clone(),
+                host_health_config: api.runtime_config.host_health,
             },
         )
         .await?

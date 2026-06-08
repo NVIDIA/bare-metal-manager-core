@@ -45,6 +45,7 @@ fn services(env: &crate::tests::common::api_fixtures::TestEnv) -> PowerShelfStat
         db_pool: env.pool.clone(),
         rms_client: env.rms_sim.as_rms_client(),
         credential_manager: Arc::new(TestCredentialManager::default()),
+        per_object_metrics_registry: env.per_object_metrics_registry(),
     }
 }
 

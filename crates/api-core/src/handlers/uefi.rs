@@ -71,7 +71,7 @@ pub(crate) async fn clear_host_uefi_password(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: api.runtime_config.host_health.clone(),
+            host_health_config: api.runtime_config.host_health,
         },
     )
     .await?
@@ -165,7 +165,7 @@ pub(crate) async fn set_host_uefi_password(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: api.runtime_config.host_health.clone(),
+            host_health_config: api.runtime_config.host_health,
         },
     )
     .await?

@@ -160,7 +160,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: env.config.host_health.clone(),
+            host_health_config: env.config.host_health,
         },
     )
     .await?;

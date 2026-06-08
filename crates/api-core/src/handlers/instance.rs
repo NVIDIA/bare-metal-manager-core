@@ -146,8 +146,7 @@ pub(crate) async fn allocate(
     log_tenant_organization_id(request.config.tenant.tenant_organization_id.as_str());
 
     // Row-locking on Machine records happens in allocate_instance
-    let mh_snapshot =
-        allocate_instance(api, request, api.runtime_config.host_health.clone()).await?;
+    let mh_snapshot = allocate_instance(api, request, api.runtime_config.host_health).await?;
 
     Ok(Response::new(snapshot_to_instance(mh_snapshot)?))
 }
@@ -189,15 +188,12 @@ pub(crate) async fn batch_allocate(
     }
 
     // Call batch allocation logic
-    let snapshots = crate::instance::batch_allocate_instances(
-        api,
-        requests,
-        api.runtime_config.host_health.clone(),
-    )
-    .await
-    .inspect_err(|e| {
-        tracing::error!(error = %e, "Batch instance allocation failed");
-    })?;
+    let snapshots =
+        crate::instance::batch_allocate_instances(api, requests, api.runtime_config.host_health)
+            .await
+            .inspect_err(|e| {
+                tracing::error!(error = %e, "Batch instance allocation failed");
+            })?;
 
     // Convert all snapshots to Instance responses
     let instances = snapshots
@@ -256,7 +252,7 @@ pub(crate) async fn find_by_ids(
     let snapshots = db::managed_host::load_by_instance_ids(
         &mut txn,
         instance_ids.as_ref(),
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?;
     let mut instances = Vec::with_capacity(snapshots.len());
@@ -281,7 +277,7 @@ pub(crate) async fn find_by_machine_id(
     let mh_snapshot = match db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await
     {
@@ -704,7 +700,7 @@ pub(crate) async fn release(
         ensure_instance_release_not_blocked_by_prevent_instance_deletion(
             &mut txn,
             &instance.machine_id,
-            api.runtime_config.host_health.clone(),
+            api.runtime_config.host_health,
         )
         .await?;
     }
@@ -827,7 +823,7 @@ pub(crate) async fn invoke_power(
         let snapshot = db::managed_host::load_by_instance_ids(
             &mut txn,
             &[*instance_id],
-            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
         )
         .await?
         .pop()
@@ -853,7 +849,7 @@ pub(crate) async fn invoke_power(
         let snapshot = db::managed_host::load_snapshot(
             &mut txn,
             machine_id,
-            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
         )
         .await?
         .ok_or(CarbideError::NotFoundError {
@@ -1095,7 +1091,7 @@ pub(crate) async fn update_operating_system(
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
     .ok_or(CarbideError::NotFoundError {
@@ -1167,7 +1163,7 @@ pub(crate) async fn update_instance_config(
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
     .ok_or(CarbideError::NotFoundError {
@@ -1330,7 +1326,7 @@ pub(crate) async fn update_instance_config(
     let mh_snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
     .ok_or(CarbideError::NotFoundError {

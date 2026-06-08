@@ -77,7 +77,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let snapshot = db::managed_host::load_snapshot(
         &mut txn,
         &dpu_machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health.clone()),
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
     )
     .await?
     .ok_or(CarbideError::NotFoundError {
@@ -1093,7 +1093,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         LoadSnapshotOptions {
             include_history: false,
             include_instance_data: false,
-            host_health_config: api.runtime_config.host_health.clone(),
+            host_health_config: api.runtime_config.host_health,
         },
     )
     .await?

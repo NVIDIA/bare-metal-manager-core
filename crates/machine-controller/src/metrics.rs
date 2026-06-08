@@ -63,10 +63,6 @@ pub struct MachineMetrics {
     pub last_machine_validation_list: HashMap<(String, String), i32>,
     /// Machine ID if this host has a scout heartbeat timeout
     pub host_with_scout_heartbeat_timeout: Option<String>,
-    /// Health alert classifications (as strings) for which a per-machine metric
-    /// should be emitted for this host. Populated only for classifications that
-    /// the site config opts into via `per_machine_metrics_for_classifications`.
-    pub per_machine_alert_classifications: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -94,10 +90,6 @@ pub struct MachineStateControllerIterationMetrics {
     pub hosts_with_bios_password_set: usize,
     pub last_machine_validation_list: HashMap<(String, String), i32>,
     pub hosts_with_scout_heartbeat_timeout: HashSet<String>,
-    /// Per-machine unhealthy classification counts, keyed by
-    /// `(machine_id, classification, in_use)`. Only populated for
-    /// classifications opted into via `per_machine_metrics_for_classifications`.
-    pub unhealthy_by_host_and_classification: HashMap<(String, String, IsInUseByTenant), usize>,
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Default)]
@@ -284,11 +276,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
         // `carbide_alerts_suppressed_count` before the metric was renamed to
         // `carbide_hosts_alerts_suppressed_count`.
         // Will be remvoed in future
-        //
-        // This metric is also superseded by
-        // `carbide_hosts_unhealthy_by_host_and_classification_count`, which can
-        // emit the equivalent `{classification="SuppressExternalAlerting",machine_id}`
-        // series when configured via `host_health.per_machine_metrics_for_classifications`.
         register_alerts_suppressed_gauge(
             "carbide_alerts_suppressed_count",
             "machine_id",
@@ -296,34 +283,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
             shared_metrics.clone(),
             |m| &m.health.alerts_suppressed_by_object_id,
         );
-
-        // Opt-in per-machine health metric. Only emits series for hosts that
-        // carry a classification configured via
-        // `host_health.per_machine_metrics_for_classifications`, bounding the
-        // additional metric cardinality this introduces.
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_hosts_unhealthy_by_host_and_classification_count")
-                .with_description(
-                    "Per-machine indication that a host is marked with a certain classification due to being unhealthy. Only emitted for classifications configured via host_health.per_machine_metrics_for_classifications.",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for ((machine_id, classification, in_use), count) in
-                            &metrics.unhealthy_by_host_and_classification
-                        {
-                            let mut labels = vec![
-                                KeyValue::new("machine_id", machine_id.clone()),
-                                KeyValue::new("classification", classification.clone()),
-                            ];
-                            labels.extend(in_use.key_values());
-                            observer.observe(*count as u64, &[attrs, &labels].concat());
-                        }
-                    })
-                })
-                .build()
-        };
 
         {
             let metrics = shared_metrics.clone();
@@ -568,17 +527,6 @@ impl MetricsEmitter for MachineMetricsEmitter {
             .health
             .merge(is_assigned, &object_metrics.health);
 
-        for classification in &object_metrics.per_machine_alert_classifications {
-            *iteration_metrics
-                .unhealthy_by_host_and_classification
-                .entry((
-                    object_metrics.health.object_id.clone(),
-                    classification.clone(),
-                    is_assigned,
-                ))
-                .or_default() += 1;
-        }
-
         iteration_metrics.gpus_total += object_metrics.num_gpus;
         if object_metrics.is_usable_as_instance {
             iteration_metrics.hosts_usable += 1;
@@ -722,7 +670,6 @@ mod tests {
                 sku: None,
                 sku_device_type: None,
                 host_with_scout_heartbeat_timeout: None,
-                per_machine_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -781,7 +728,6 @@ mod tests {
                 sku: Some("SkuA".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
                 host_with_scout_heartbeat_timeout: Some("machine_b".to_string()),
-                per_machine_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -816,7 +762,6 @@ mod tests {
                 sku: Some("SkuA".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
                 host_with_scout_heartbeat_timeout: None,
-                per_machine_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 num_gpus: 1,
@@ -861,7 +806,6 @@ mod tests {
                 sku: Some("SkuB".to_string()),
                 sku_device_type: Some("DeviceTypeA".to_string()),
                 host_with_scout_heartbeat_timeout: Some("machine_d".to_string()),
-                per_machine_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 num_gpus: 2,
@@ -930,7 +874,6 @@ mod tests {
                 sku: Some("SkuC".to_string()),
                 sku_device_type: Some("DeviceTypeC".to_string()),
                 host_with_scout_heartbeat_timeout: None,
-                per_machine_alert_classifications: HashSet::new(),
             },
             MachineMetrics {
                 num_gpus: 3,
@@ -988,7 +931,6 @@ mod tests {
                 sku: Some("SkuC".to_string()),
                 sku_device_type: Some("DeviceTypeC".to_string()),
                 host_with_scout_heartbeat_timeout: Some("machine_f".to_string()),
-                per_machine_alert_classifications: HashSet::new(),
             },
         ];
 
@@ -1195,79 +1137,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn merge_per_machine_classification_metrics() {
-        let object_metrics = vec![
-            // In-use host carrying two opted-in classifications.
-            MachineMetrics {
-                in_use_by_tenant: Some("tenant-a".parse().unwrap()),
-                health: HealthObjectMetrics {
-                    object_id: "machine-a".to_string(),
-                    ..Default::default()
-                },
-                per_machine_alert_classifications: [
-                    "Hardware".to_string(),
-                    "PreventAllocations".to_string(),
-                ]
-                .into_iter()
-                .collect(),
-                ..Default::default()
-            },
-            // Not-in-use host carrying one opted-in classification.
-            MachineMetrics {
-                in_use_by_tenant: None,
-                health: HealthObjectMetrics {
-                    object_id: "machine-b".to_string(),
-                    ..Default::default()
-                },
-                per_machine_alert_classifications: ["Hardware".to_string()].into_iter().collect(),
-                ..Default::default()
-            },
-            // Host with no opted-in classifications must not emit a per-machine series.
-            MachineMetrics {
-                in_use_by_tenant: None,
-                health: HealthObjectMetrics {
-                    object_id: "machine-c".to_string(),
-                    ..Default::default()
-                },
-                per_machine_alert_classifications: HashSet::new(),
-                ..Default::default()
-            },
-        ];
-
-        let mut iteration_metrics = MachineStateControllerIterationMetrics::default();
-        for om in &object_metrics {
-            MachineMetricsEmitter::merge_object_handling_metrics(&mut iteration_metrics, om);
-        }
-
-        assert_eq!(
-            iteration_metrics.unhealthy_by_host_and_classification,
-            HashMap::from_iter([
-                (
-                    (
-                        "machine-a".to_string(),
-                        "Hardware".to_string(),
-                        IsInUseByTenant(true)
-                    ),
-                    1
-                ),
-                (
-                    (
-                        "machine-a".to_string(),
-                        "PreventAllocations".to_string(),
-                        IsInUseByTenant(true)
-                    ),
-                    1
-                ),
-                (
-                    (
-                        "machine-b".to_string(),
-                        "Hardware".to_string(),
-                        IsInUseByTenant(false)
-                    ),
-                    1
-                ),
-            ])
-        );
-    }
 }
