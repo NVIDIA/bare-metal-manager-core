@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -186,8 +187,27 @@ func TestNewAPITask_Report(t *testing.T) {
 		assert.Nil(t, result.Report, "Report must default to nil so the JSON field is omitted")
 	})
 
-	t.Run("WithReport populates from non-empty proto report", func(t *testing.T) {
-		body := `{"version":1,"stages":[{"name":"reset","status":"Succeeded"}]}`
+	t.Run("WithReport decodes a v1 payload into the typed struct with camelCase keys", func(t *testing.T) {
+		body := `{
+			"version": 1,
+			"stages": [
+				{
+					"number": 1,
+					"status": "completed",
+					"started_at": "2026-06-08T18:00:00Z",
+					"finished_at": "2026-06-08T18:00:42Z",
+					"steps": [
+						{
+							"component_type": "Compute",
+							"status": "completed",
+							"total_components": 4,
+							"started_at": "2026-06-08T18:00:00Z",
+							"finished_at": "2026-06-08T18:00:42Z"
+						}
+					]
+				}
+			]
+		}`
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-2"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
@@ -196,11 +216,30 @@ func TestNewAPITask_Report(t *testing.T) {
 
 		result := NewAPITask(task, WithReport())
 
-		assert.NotNil(t, result.Report)
-		assert.JSONEq(t, body, string(*result.Report))
+		require.NotNil(t, result.Report)
+		assert.Equal(t, 1, result.Report.Version)
+		require.Len(t, result.Report.Stages, 1)
+		assert.Equal(t, 1, result.Report.Stages[0].Number)
+		assert.Equal(t, APITaskReportV1StatusCompleted, result.Report.Stages[0].Status)
+		require.Len(t, result.Report.Stages[0].Steps, 1)
+		assert.Equal(t, "Compute", result.Report.Stages[0].Steps[0].ComponentType)
+		assert.Equal(t, 4, result.Report.Stages[0].Steps[0].TotalComponents)
+		assert.Equal(t, "2026-06-08T18:00:00Z", result.Report.Stages[0].Steps[0].StartedAt)
+
+		// Round-trip through json.Marshal to verify camelCase keys land on the wire.
+		out, err := json.Marshal(result.Report)
+		require.NoError(t, err)
+		var wire map[string]any
+		require.NoError(t, json.Unmarshal(out, &wire))
+		stages := wire["stages"].([]any)
+		step := stages[0].(map[string]any)["steps"].([]any)[0].(map[string]any)
+		assert.Contains(t, step, "componentType", "must use camelCase on the wire, not component_type")
+		assert.Contains(t, step, "totalComponents")
+		assert.Contains(t, step, "startedAt")
+		assert.NotContains(t, step, "component_type")
 	})
 
-	t.Run("WithReport on empty proto report still yields nil", func(t *testing.T) {
+	t.Run("WithReport on empty proto report yields nil", func(t *testing.T) {
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-3"},
 			Status: flowv1.TaskStatus_TASK_STATUS_PENDING,
@@ -209,6 +248,30 @@ func TestNewAPITask_Report(t *testing.T) {
 		result := NewAPITask(task, WithReport())
 
 		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
+	})
+
+	t.Run("WithReport on malformed JSON yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-4"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{`,
+		}
+
+		result := NewAPITask(task, WithReport())
+
+		assert.Nil(t, result.Report, "Malformed report must not surface as a partial struct")
+	})
+
+	t.Run("WithReport on non-v1 payload yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-5"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":2,"stages":[]}`,
+		}
+
+		result := NewAPITask(task, WithReport())
+
+		assert.Nil(t, result.Report, "v2+ payload must not be exposed behind the v1 contract")
 	})
 }
 
@@ -222,15 +285,15 @@ func TestBuildAPITaskOptions(t *testing.T) {
 		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s", IncludeReport: true})
 		require.Len(t, opts, 1)
 
-		// The option must surface APITask.Report when the proto report is non-empty.
+		// The option must decode Task.report when the proto report is non-empty.
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-built"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
-			Report: `{"version":1}`,
+			Report: `{"version":1,"stages":[]}`,
 		}
 		got := NewAPITask(task, opts...)
 		require.NotNil(t, got.Report)
-		assert.JSONEq(t, `{"version":1}`, string(*got.Report))
+		assert.Equal(t, 1, got.Report.Version)
 	})
 }
 

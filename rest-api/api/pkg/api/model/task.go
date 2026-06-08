@@ -36,7 +36,147 @@ type APITask struct {
 	Finished    *time.Time       `json:"finished"`
 	Created     time.Time        `json:"created"`
 	Updated     time.Time        `json:"updated"`
-	Report      *json.RawMessage `json:"report,omitempty"`
+	Report      *APITaskReportV1 `json:"report,omitempty"`
+}
+
+// APITaskReportV1Status enumerates per-stage and per-step execution
+// states surfaced in a v1 task report. Values are lowercase to match
+// Flow's wire format.
+type APITaskReportV1Status string
+
+const (
+	APITaskReportV1StatusPending   APITaskReportV1Status = "pending"
+	APITaskReportV1StatusRunning   APITaskReportV1Status = "running"
+	APITaskReportV1StatusCompleted APITaskReportV1Status = "completed"
+	APITaskReportV1StatusFailed    APITaskReportV1Status = "failed"
+	APITaskReportV1StatusSkipped   APITaskReportV1Status = "skipped"
+)
+
+// APITaskReportV1 is the typed v1 task execution report exposed on
+// APITask.Report. The Version field always equals 1 within this
+// type; a future schema iteration ships as APITaskReportV2 alongside a
+// parallel response field, leaving v1 consumers untouched.
+type APITaskReportV1 struct {
+	Version int                    `json:"version"`
+	Stages  []APITaskReportV1Stage `json:"stages"`
+	// Error is the top-level failure summary: the message from the
+	// first stage that fails in this report. Not overwritten by later
+	// failures so a single canonical task-level error survives.
+	Error string `json:"error,omitempty"`
+}
+
+// APITaskReportV1Stage captures the execution state of one rule stage.
+// Number is the canonical key for joining a stage record back to its
+// rule entry.
+type APITaskReportV1Stage struct {
+	Number     int                   `json:"number"`
+	Status     APITaskReportV1Status `json:"status"`
+	Steps      []APITaskReportV1Step `json:"steps"`
+	StartedAt  string                `json:"startedAt,omitempty"`
+	FinishedAt string                `json:"finishedAt,omitempty"`
+	Error      string                `json:"error,omitempty"`
+}
+
+// APITaskReportV1Step captures the execution state of one rule
+// SequenceStep. Pairs 1:1 with the rule's ordered steps within the
+// containing stage and shares its index.
+type APITaskReportV1Step struct {
+	// ComponentType identifies which component class this step targets,
+	// e.g. "Compute", "NVLSwitch", "PowerShelf".
+	ComponentType string                `json:"componentType"`
+	Status        APITaskReportV1Status `json:"status"`
+	// TotalComponents is the count of components of ComponentType this
+	// step targets. Carried in the report because the API task
+	// representation does not surface the per-type component map.
+	TotalComponents int `json:"totalComponents,omitempty"`
+	// CompletedComponents and FailedComponents are reserved for a
+	// future best-effort activity contract that reports per-component
+	// outcomes. The current fail-fast contract surfaces only
+	// stage-level success or failure; both fields are omitted today.
+	CompletedComponents int    `json:"completedComponents,omitempty"`
+	FailedComponents    int    `json:"failedComponents,omitempty"`
+	StartedAt           string `json:"startedAt,omitempty"`
+	FinishedAt          string `json:"finishedAt,omitempty"`
+	// Error carries the failure summary when Status == failed.
+	// Truncated to 512 bytes on the Flow side.
+	Error string `json:"error,omitempty"`
+}
+
+// flowTaskReportV1 mirrors the wire shape Flow writes into Task.report
+// (snake_case JSON keys). Used solely as an unmarshal target so the
+// REST-facing APITaskReportV1 can keep camelCase keys per the rest of
+// the API surface. Kept private; clients consume APITaskReportV1.
+type flowTaskReportV1 struct {
+	Version int                     `json:"version"`
+	Stages  []flowTaskReportV1Stage `json:"stages"`
+	Error   string                  `json:"error,omitempty"`
+}
+
+type flowTaskReportV1Stage struct {
+	Number     int                    `json:"number"`
+	Status     APITaskReportV1Status  `json:"status"`
+	Steps      []flowTaskReportV1Step `json:"steps"`
+	StartedAt  string                 `json:"started_at,omitempty"`
+	FinishedAt string                 `json:"finished_at,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+}
+
+type flowTaskReportV1Step struct {
+	ComponentType       string                `json:"component_type"`
+	Status              APITaskReportV1Status `json:"status"`
+	TotalComponents     int                   `json:"total_components,omitempty"`
+	CompletedComponents int                   `json:"completed_components,omitempty"`
+	FailedComponents    int                   `json:"failed_components,omitempty"`
+	StartedAt           string                `json:"started_at,omitempty"`
+	FinishedAt          string                `json:"finished_at,omitempty"`
+	Error               string                `json:"error,omitempty"`
+}
+
+// parseTaskReportV1 decodes the JSON Flow writes into Task.report and
+// translates it into the REST-facing APITaskReportV1 (snake_case ->
+// camelCase). Returns nil for empty input. Returns nil if the payload
+// fails to parse or carries a version other than 1: omitting the field
+// is preferable to surfacing a stale/wrong shape behind a v1 contract.
+func parseTaskReportV1(raw string) *APITaskReportV1 {
+	if raw == "" {
+		return nil
+	}
+	var src flowTaskReportV1
+	if err := json.Unmarshal([]byte(raw), &src); err != nil {
+		return nil
+	}
+	if src.Version != 1 {
+		return nil
+	}
+	out := &APITaskReportV1{
+		Version: src.Version,
+		Error:   src.Error,
+		Stages:  make([]APITaskReportV1Stage, 0, len(src.Stages)),
+	}
+	for _, s := range src.Stages {
+		dstStage := APITaskReportV1Stage{
+			Number:     s.Number,
+			Status:     s.Status,
+			StartedAt:  s.StartedAt,
+			FinishedAt: s.FinishedAt,
+			Error:      s.Error,
+			Steps:      make([]APITaskReportV1Step, 0, len(s.Steps)),
+		}
+		for _, p := range s.Steps {
+			dstStage.Steps = append(dstStage.Steps, APITaskReportV1Step{
+				ComponentType:       p.ComponentType,
+				Status:              p.Status,
+				TotalComponents:     p.TotalComponents,
+				CompletedComponents: p.CompletedComponents,
+				FailedComponents:    p.FailedComponents,
+				StartedAt:           p.StartedAt,
+				FinishedAt:          p.FinishedAt,
+				Error:               p.Error,
+			})
+		}
+		out.Stages = append(out.Stages, dstStage)
+	}
+	return out
 }
 
 // APITaskOption configures optional fields populated on an APITask.
@@ -48,9 +188,10 @@ type apiTaskOptions struct {
 	withReport bool
 }
 
-// WithReport populates APITask.Report from Task.report when the proto
-// field is non-empty. Without this option, Report is left nil and is
-// omitted from the JSON response.
+// WithReport populates APITask.Report by decoding Task.report as
+// APITaskReportV1. Without this option, Report is left nil and is
+// omitted from the JSON response. A malformed or non-v1 payload also
+// yields nil so the response never carries an off-contract shape.
 func WithReport() APITaskOption {
 	return func(o *apiTaskOptions) { o.withReport = true }
 }
@@ -92,10 +233,7 @@ func (t *APITask) FromProto(task *flowv1.Task, opts ...APITaskOption) {
 	t.Created = task.GetCreatedAt().AsTime().UTC()
 	t.Updated = task.GetUpdatedAt().AsTime().UTC()
 	if o.withReport {
-		if r := task.GetReport(); r != "" {
-			raw := json.RawMessage(r)
-			t.Report = &raw
-		}
+		t.Report = parseTaskReportV1(task.GetReport())
 	}
 }
 
