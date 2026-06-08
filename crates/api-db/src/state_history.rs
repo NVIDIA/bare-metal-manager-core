@@ -58,6 +58,7 @@ impl From<DbStateHistoryRecord> for StateHistoryRecord {
 pub enum StateHistoryTableId {
     Machine,
     NetworkSegment,
+    VpcPrefix,
     DpaInterface,
     IbPartition,
     PowerShelf,
@@ -70,6 +71,7 @@ impl StateHistoryTableId {
         match self {
             StateHistoryTableId::Machine => "machine_state_history",
             StateHistoryTableId::NetworkSegment => "network_segment_state_history",
+            StateHistoryTableId::VpcPrefix => "vpc_prefix_state_history",
             StateHistoryTableId::DpaInterface => "dpa_interface_state_history",
             StateHistoryTableId::IbPartition => "ib_partition_state_history",
             StateHistoryTableId::PowerShelf => "power_shelf_state_history",
@@ -82,6 +84,7 @@ impl StateHistoryTableId {
         match self {
             StateHistoryTableId::Machine => "machine_id",
             StateHistoryTableId::NetworkSegment => "segment_id",
+            StateHistoryTableId::VpcPrefix => "vpc_prefix_id",
             StateHistoryTableId::DpaInterface => "interface_id",
             StateHistoryTableId::IbPartition => "partition_id",
             StateHistoryTableId::PowerShelf => "power_shelf_id",
@@ -93,6 +96,7 @@ impl StateHistoryTableId {
     fn object_id_sql_type(self) -> &'static str {
         match self {
             StateHistoryTableId::NetworkSegment
+            | StateHistoryTableId::VpcPrefix
             | StateHistoryTableId::DpaInterface
             | StateHistoryTableId::IbPartition => "uuid",
             StateHistoryTableId::Machine

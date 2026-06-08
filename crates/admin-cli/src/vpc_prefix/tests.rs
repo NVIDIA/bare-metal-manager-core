@@ -58,6 +58,21 @@ fn parse_show_no_args() {
             assert!(args.vpc_id.is_none());
             assert!(args.contains.is_none());
             assert!(args.contained_by.is_none());
+            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Exclude));
+        }
+        _ => panic!("expected Show variant"),
+    }
+}
+
+// parse_show_with_deleted ensures show parses deleted filtering.
+#[test]
+fn parse_show_with_deleted() {
+    let cmd = Cmd::try_parse_from(["vpc-prefix", "show", "--deleted", "only"])
+        .expect("should parse show with deleted filter");
+
+    match cmd {
+        Cmd::Show(args) => {
+            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Only));
         }
         _ => panic!("expected Show variant"),
     }

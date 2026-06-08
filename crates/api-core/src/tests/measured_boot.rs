@@ -87,6 +87,7 @@ pub mod tests {
                 machine_interface_id: Some(host_machine_interface_id),
                 discovery_data: Some(DiscoveryData::Info(discovery_info)),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 
@@ -151,6 +152,7 @@ pub mod tests {
                 machine_interface_id: Some(host_machine_interface_id),
                 discovery_data: Some(DiscoveryData::Info(discovery_info)),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 

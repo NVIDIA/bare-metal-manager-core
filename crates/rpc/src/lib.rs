@@ -49,10 +49,10 @@ pub use crate::protos::forge::{
     InstanceInfinibandStatus, InstanceInterfaceConfig, InstanceInterfaceStatus,
     InstanceInterfaceStatusObservation, InstanceList, InstanceNetworkConfig, InstanceNetworkStatus,
     InstanceNvLinkStatus, InstanceReleaseRequest, InstanceStatus, InstanceTenantStatus,
-    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
-    MachineInterface, MachineList, Metadata, NetworkSegment, NetworkSegmentList, NvLinkPartition,
-    NvLinkPartitionList, NvLinkPartitionQuery, ResourcePoolType, SyncState, TenantConfig,
-    TenantState, forge_agent_control_response,
+    InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo,
+    MachineDiscoveryReporter, MachineEvent, MachineInterface, MachineList, Metadata,
+    NetworkSegment, NetworkSegmentList, NvLinkPartition, NvLinkPartitionList, NvLinkPartitionQuery,
+    ResourcePoolType, SyncState, TenantConfig, TenantState, forge_agent_control_response,
 };
 pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,

@@ -411,6 +411,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
         .type_attribute(
+            "forge.VpcPrefixStateHistoriesRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.VpcPrefixConfig",
             "#[derive(serde::Serialize)]",
         )

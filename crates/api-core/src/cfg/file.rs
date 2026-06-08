@@ -276,6 +276,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub network_segment_state_controller: NetworkSegmentStateControllerConfig,
 
+    /// VpcPrefixStateController related configuration parameter
+    #[serde(default)]
+    pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
+
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
@@ -1428,6 +1432,43 @@ impl Default for NetworkSegmentStateControllerConfig {
     }
 }
 
+/// VpcPrefixStateController related config.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct VpcPrefixStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+    /// The time for which VPC prefixes must have 0 referencing network prefixes,
+    /// before they are actually released.
+    /// This should be set to a duration long enough that ensures no pending
+    /// RPC calls might still use the VPC prefix to avoid race conditions.
+    #[serde(
+        default = "VpcPrefixStateControllerConfig::vpc_prefix_drain_time_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub vpc_prefix_drain_time: chrono::Duration,
+}
+
+impl VpcPrefixStateControllerConfig {
+    /// Returns the default VPC prefix drain time.
+    pub fn vpc_prefix_drain_time_default() -> Duration {
+        // Match the network segment drain default for hierarchical cleanup.
+        Duration::minutes(5)
+    }
+}
+
+impl Default for VpcPrefixStateControllerConfig {
+    /// Builds the default VPC prefix state controller configuration.
+    fn default() -> Self {
+        // Use framework defaults plus the VPC prefix drain grace period.
+        Self {
+            controller: StateControllerConfig::default(),
+            vpc_prefix_drain_time: Self::vpc_prefix_drain_time_default(),
+        }
+    }
+}
+
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct IbPartitionStateControllerConfig {
@@ -2523,6 +2564,10 @@ mod tests {
             NetworkSegmentStateControllerConfig::default()
         );
         assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig::default()
+        );
+        assert_eq!(
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig::default()
         );
@@ -2655,6 +2700,21 @@ mod tests {
                     iteration_time: std::time::Duration::from_secs(18 * 60),
                     max_object_handling_time: std::time::Duration::from_secs(188),
                     max_concurrency: 1888,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(46),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(19 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(199),
+                    max_concurrency: 1999,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
                     metric_emission_interval: std::time::Duration::from_secs(60),
@@ -2842,6 +2902,21 @@ mod tests {
                     iteration_time: std::time::Duration::from_secs(8 * 60),
                     max_object_handling_time: std::time::Duration::from_secs(88),
                     max_concurrency: 888,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(43),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(6 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(66),
+                    max_concurrency: 666,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
                     metric_emission_interval: std::time::Duration::from_secs(60),
@@ -3153,6 +3228,21 @@ mod tests {
                     iteration_time: std::time::Duration::from_secs(18 * 60),
                     max_object_handling_time: std::time::Duration::from_secs(188),
                     max_concurrency: 1888,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(46),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(19 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(199),
+                    max_concurrency: 1999,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
                     metric_emission_interval: std::time::Duration::from_secs(60),

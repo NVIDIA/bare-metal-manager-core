@@ -145,6 +145,7 @@ impl ApiClient {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(rpc::DiscoveryData::Info(machine_discovery_info)),
             create_machine: true,
+            ..Default::default()
         };
 
         let out = self

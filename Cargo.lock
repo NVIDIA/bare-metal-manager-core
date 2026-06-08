@@ -1240,6 +1240,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
+ "carbide-vpc-prefix-controller",
  "casbin",
  "chrono",
  "clap",
@@ -2839,6 +2840,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-explorer",
+ "bmc-vendor",
+ "carbide-api-core",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
@@ -2846,7 +2849,9 @@ dependencies = [
  "carbide-ipmi",
  "carbide-network",
  "carbide-redfish",
+ "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-harness",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2867,6 +2872,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic",
  "tracing",
  "version-compare 0.2.1",
 ]
@@ -3030,6 +3036,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-test-harness"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-macros",
+ "carbide-network-segment-controller",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "ctor",
+ "ipnetwork",
+ "sqlx",
+ "state-controller",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "uuid",
+]
+
+[[package]]
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
@@ -3078,6 +3107,22 @@ dependencies = [
 [[package]]
 name = "carbide-version"
 version = "0.0.0"
+
+[[package]]
+name = "carbide-vpc-prefix-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
 
 [[package]]
 name = "cargo_metadata"
@@ -6481,11 +6526,12 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.4#dd2152ac5642c5256b893e396647e159003d0071"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.7#e463ca91e6e995a162e15f1b1ba7cf90869eb40a"
 dependencies = [
  "chrono",
  "clap",
  "log",
+ "mac_address",
  "regex",
  "reqwest 0.12.28",
  "serde",

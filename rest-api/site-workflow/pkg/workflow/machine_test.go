@@ -170,36 +170,36 @@ func (s *MachineWorkflowTestSuite) Test_UpdateMachineMetadata_ActivityFails() {
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func (s *MachineWorkflowTestSuite) Test_CreateMachineHealthReportOverride_Success() {
+func (s *MachineWorkflowTestSuite) Test_CreateMachineHealthReport_Success() {
 	var machineManager mActivity.ManageMachine
-	req := &cwssaws.InsertHealthReportOverrideRequest{
+	req := &cwssaws.InsertMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: uuid.New().String()},
-		Override: &cwssaws.HealthReportOverride{
+		HealthReportEntry: &cwssaws.HealthReportEntry{
 			Report: &cwssaws.HealthReport{
 				Source: "request-online-repair",
 				Alerts: []*cwssaws.HealthProbeAlert{
 					{Id: "OnLineRepair", Message: `{"details":"d","issue_category":"OTHER","summary":"s"}`},
 				},
 			},
-			Mode: cwssaws.OverrideMode_Merge,
+			Mode: cwssaws.HealthReportApplyMode_Merge,
 		},
 	}
-	s.env.RegisterActivity(machineManager.CreateMachineHealthReportOverrideOnSite)
-	s.env.OnActivity(machineManager.CreateMachineHealthReportOverrideOnSite, mock.Anything, mock.Anything).Return(nil)
-	s.env.ExecuteWorkflow(CreateMachineHealthReportOverride, req)
+	s.env.RegisterActivity(machineManager.CreateMachineHealthReportOnSite)
+	s.env.OnActivity(machineManager.CreateMachineHealthReportOnSite, mock.Anything, mock.Anything).Return(nil)
+	s.env.ExecuteWorkflow(CreateMachineHealthReport, req)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }
 
-func (s *MachineWorkflowTestSuite) Test_DeleteMachineHealthReportOverride_Success() {
+func (s *MachineWorkflowTestSuite) Test_DeleteMachineHealthReport_Success() {
 	var machineManager mActivity.ManageMachine
-	req := &cwssaws.RemoveHealthReportOverrideRequest{
+	req := &cwssaws.RemoveMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: uuid.New().String()},
 		Source:    "request-online-repair",
 	}
-	s.env.RegisterActivity(machineManager.DeleteMachineHealthReportOverrideOnSite)
-	s.env.OnActivity(machineManager.DeleteMachineHealthReportOverrideOnSite, mock.Anything, mock.Anything).Return(nil)
-	s.env.ExecuteWorkflow(DeleteMachineHealthReportOverride, req)
+	s.env.RegisterActivity(machineManager.DeleteMachineHealthReportOnSite)
+	s.env.OnActivity(machineManager.DeleteMachineHealthReportOnSite, mock.Anything, mock.Anything).Return(nil)
+	s.env.ExecuteWorkflow(DeleteMachineHealthReport, req)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }

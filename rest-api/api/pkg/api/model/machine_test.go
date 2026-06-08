@@ -27,64 +27,6 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 			Id:    &cwssaws.MachineId{Id: mID},
 			State: "Ready",
 			DiscoveryInfo: &cwssaws.DiscoveryInfo{
-				Cpus: []*cwssaws.Cpu{
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "1571.080",
-						Number:    0,
-						Core:      0,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "1571.080",
-						Number:    1,
-						Core:      0,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3371.751",
-						Number:    2,
-						Core:      0,
-						Socket:    1,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3017.142",
-						Number:    3,
-						Core:      0,
-						Socket:    1,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3507.275",
-						Number:    4,
-						Core:      1,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3255.853",
-						Number:    5,
-						Core:      1,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3530.777",
-						Number:    6,
-						Core:      1,
-						Socket:    1,
-					},
-				},
 				NetworkInterfaces: []*cwssaws.NetworkInterface{
 					{
 						PciProperties: &cwssaws.PciDeviceProperties{
@@ -804,7 +746,7 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToInsertHealthReportProto(t *testing.T) {
 	type fields struct {
 		HealthIssue *APIMachineHealthIssue
 	}
@@ -844,7 +786,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			mur := APIMachineUpdateRequest{
 				HealthIssue: tt.fields.HealthIssue,
 			}
-			got, err := mur.ToInsertHealthReportOverrideProto(tt.machineID)
+			got, err := mur.ToInsertHealthReportRequestProto(tt.machineID)
 			require.Equal(t, tt.wantErr, err != nil, "error: %v", err)
 			if tt.wantErr {
 				return
@@ -852,13 +794,13 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			require.NotNil(t, got)
 			require.NotNil(t, got.MachineId)
 			assert.Equal(t, tt.machineID, got.MachineId.Id)
-			require.NotNil(t, got.Override)
-			assert.Equal(t, cwssaws.OverrideMode_Merge, got.Override.Mode)
-			require.NotNil(t, got.Override.Report)
-			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.Override.Report.Source)
+			require.NotNil(t, got.HealthReportEntry)
+			assert.Equal(t, cwssaws.HealthReportApplyMode_Merge, got.HealthReportEntry.Mode)
+			require.NotNil(t, got.HealthReportEntry.Report)
+			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.HealthReportEntry.Report.Source)
 
-			require.Len(t, got.Override.Report.Alerts, 1)
-			alert := got.Override.Report.Alerts[0]
+			require.Len(t, got.HealthReportEntry.Report.Alerts, 1)
+			alert := got.HealthReportEntry.Report.Alerts[0]
 			assert.Equal(t, MachineHealthAlertIDOnlineRepair, alert.Id)
 			require.NotNil(t, alert.Target)
 			assert.Equal(t, MachineTenantReportedIssueAlertID, *alert.Target)
@@ -886,7 +828,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToRemoveHealthReportProto(t *testing.T) {
 	tests := []struct {
 		name       string
 		machineID  string
@@ -906,7 +848,7 @@ func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mur := APIMachineUpdateRequest{}
-			got, err := mur.ToRemoveHealthReportOverrideProto(tt.machineID)
+			got, err := mur.ToRemoveHealthReportRequestProto(tt.machineID)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.NotNil(t, got.MachineId)

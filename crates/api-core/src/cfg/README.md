@@ -49,6 +49,7 @@ applicable.
 | `tpm_required` | `bool` | `true` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | Network segment state controller timing. |
+| `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | DPA interface state controller timing. |
 | `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | Rack state controller timing. |
@@ -169,7 +170,7 @@ applicable.
 
 ### `StateControllerConfig`
 
-Shared by all `*StateControllerConfig` structs (machine, network segment, IB
+Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, IB
 partition, DPA interface, rack, power shelf, switch, SPDM).
 
 | Field | Type | Default | Description |
@@ -204,6 +205,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `network_segment_drain_time` | `Duration` | `5m` | Time a network segment must have 0 allocated IPs before release. |
+
+### `VpcPrefixStateControllerConfig`
+
+Extends `StateControllerConfig` with:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `vpc_prefix_drain_time` | `Duration` | `5m` | Time a VPC prefix must have 0 referencing network prefixes before release. |
 
 ### `FirmwareGlobal`
 

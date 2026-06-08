@@ -1393,7 +1393,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Instance must be in Ready state to enter online repair (current state: %s)", inst.Status), nil)
 				}
 
-				insReq, perr := apiRequest.ToInsertHealthReportOverrideProto(machine.ID)
+				insReq, perr := apiRequest.ToInsertHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build online repair request", nil)
@@ -1438,7 +1438,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				wfCtx, wfCancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 				defer wfCancel()
 
-				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "CreateMachineHealthReportOverride", insReq)
+				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "CreateMachineHealthReport", insReq)
 				if wferr != nil {
 					logger.Error().Err(wferr).Msg("failed to start Temporal workflow for applying online repair health override")
 					return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to start applying online repair health override workflow on Site: %s", wferr), nil)
@@ -1452,7 +1452,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 						logger.Error().Err(wferr).Msg("failed to apply online repair health override, timeout occurred executing workflow on Site.")
 						timeoutCause := wferr // explicit capture; defensive against future refactors
 						timeoutResp = func() error {
-							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "CreateMachineHealthReportOverride")
+							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "CreateMachineHealthReport")
 						}
 						return cutil.NewAPIError(http.StatusInternalServerError, "Applying online repair health override workflow timed out", nil)
 					}
@@ -1505,7 +1505,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair exit", nil)
 				}
 
-				rmReq, perr := apiRequest.ToRemoveHealthReportOverrideProto(machine.ID)
+				rmReq, perr := apiRequest.ToRemoveHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build remove online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build remove online repair request", nil)
@@ -1520,29 +1520,29 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				wfCtx, wfCancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 				defer wfCancel()
 
-				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "DeleteMachineHealthReportOverride", rmReq)
+				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "DeleteMachineHealthReport", rmReq)
 				if wferr != nil {
-					logger.Error().Err(wferr).Msg("failed to start Temporal workflow to clear online repair health override")
+					logger.Error().Err(wferr).Msg("failed to start Temporal workflow to clear online repair health report")
 					return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to start clear online repair workflow on Site: %s", wferr), nil)
 				}
 				wid := we.GetID()
-				logger.Info().Str("Workflow ID", wid).Msg("executed synchronous DeleteMachineHealthReportOverride workflow")
+				logger.Info().Str("Workflow ID", wid).Msg("executed synchronous DeleteMachineHealthReport workflow")
 				wferr = we.Get(wfCtx, nil)
 				if wferr != nil {
 					var timeoutErr *tp.TimeoutError
 					if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil || ctx.Err() != nil {
-						logger.Error().Err(wferr).Msg("failed to clear online repair health override, timeout occurred executing workflow on Site.")
+						logger.Error().Err(wferr).Msg("failed to clear online repair health report, timeout occurred executing workflow on Site.")
 						timeoutCause := wferr // explicit capture; defensive against future refactors
 						timeoutResp = func() error {
-							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "DeleteMachineHealthReportOverride")
+							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "DeleteMachineHealthReport")
 						}
 						return cutil.NewAPIError(http.StatusInternalServerError, "Clear online repair workflow timed out", nil)
 					}
 					code, werr := common.UnwrapWorkflowError(wferr)
-					logger.Error().Err(werr).Msg("clear online repair health override workflow failed")
+					logger.Error().Err(werr).Msg("clear online repair health report workflow failed")
 					return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute clear online repair workflow on Site: %s", werr), nil)
 				}
-				logger.Info().Str("Workflow ID", wid).Msg("completed synchronous DeleteMachineHealthReportOverride workflow")
+				logger.Info().Str("Workflow ID", wid).Msg("completed synchronous DeleteMachineHealthReport workflow")
 			}
 
 			return nil

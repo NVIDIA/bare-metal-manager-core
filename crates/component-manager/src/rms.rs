@@ -62,6 +62,7 @@ enum RmsTrackedFirmwareJob {
 const RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE: &str = "prod";
 const RMS_SWITCH_SYSTEM_IMAGE_SOFTWARE_TYPE: &str = "prod";
 const RMS_FIRMWARE_OBJECT_HARDWARE_TYPE: &str = "any";
+const RMS_NOAUTH_ACCESS_TOKEN: &str = "NOAUTH";
 
 pub struct RmsBackend {
     client: Arc<dyn RmsApi>,
@@ -742,6 +743,13 @@ fn summarize_power_batch(batch: rms::NodeBatchResponse) -> (bool, Option<String>
     (false, Some(error))
 }
 
+fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
+    access_token
+        .filter(|token| !token.trim().is_empty())
+        .unwrap_or(RMS_NOAUTH_ACCESS_TOKEN)
+        .to_string()
+}
+
 fn apply_firmware_object_from_json_request(
     device: rms::NewNodeInfo,
     identity: &RmsIdentity,
@@ -750,15 +758,7 @@ fn apply_firmware_object_from_json_request(
     node_type: rms::NodeType,
     components: Vec<String>,
 ) -> Result<rms::ApplyFirmwareObjectFromJsonRequest, ComponentManagerError> {
-    let access_token = options
-        .access_token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "access_token is required for direct RMS firmware-object JSON updates".into(),
-            )
-        })?;
+    let access_token = rms_access_token_or_noauth(options.access_token.as_deref());
 
     if config_json.trim().is_empty() {
         return Err(ComponentManagerError::InvalidArgument(
@@ -776,7 +776,7 @@ fn apply_firmware_object_from_json_request(
         metadata: None,
         rack_id: identity.rack_id.clone(),
         config_json: config_json.to_owned(),
-        access_token: access_token.to_owned(),
+        access_token,
         firmware_type: RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE.to_owned(),
         hardware_type: RMS_FIRMWARE_OBJECT_HARDWARE_TYPE.to_owned(),
         nodes: Some(rms::NodeSet {
@@ -793,15 +793,7 @@ fn apply_switch_system_image_from_json_request(
     config_json: &str,
     options: &FirmwareUpdateOptions,
 ) -> Result<rms::ApplySwitchSystemImageFromJsonRequest, ComponentManagerError> {
-    let access_token = options
-        .access_token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "access_token is required for direct RMS switch system-image JSON updates".into(),
-            )
-        })?;
+    let access_token = rms_access_token_or_noauth(options.access_token.as_deref());
 
     if config_json.trim().is_empty() {
         return Err(ComponentManagerError::InvalidArgument(
@@ -813,7 +805,7 @@ fn apply_switch_system_image_from_json_request(
         metadata: None,
         rack_id: identity.rack_id.clone(),
         config_json: config_json.to_owned(),
-        access_token: access_token.to_owned(),
+        access_token,
         software_type: RMS_SWITCH_SYSTEM_IMAGE_SOFTWARE_TYPE.to_owned(),
         hardware_type: RMS_FIRMWARE_OBJECT_HARDWARE_TYPE.to_owned(),
         nodes: Some(rms::NodeSet {
@@ -1684,6 +1676,46 @@ mod tests {
             .get(&(node_type as i32))
             .expect("component filters for node type")
             .components
+    }
+
+    #[test]
+    fn direct_rms_firmware_object_json_request_defaults_missing_access_token_to_noauth() {
+        let request = apply_firmware_object_from_json_request(
+            rms::NewNodeInfo::default(),
+            &RmsIdentity {
+                node_id: "node-1".to_string(),
+                rack_id: "rack-1".to_string(),
+            },
+            r#"{"Id":"fw-json"}"#,
+            &FirmwareUpdateOptions {
+                access_token: None,
+                force_update: false,
+            },
+            rms::NodeType::Switch,
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(request.access_token, RMS_NOAUTH_ACCESS_TOKEN);
+    }
+
+    #[test]
+    fn direct_rms_switch_system_image_request_defaults_empty_access_token_to_noauth() {
+        let request = apply_switch_system_image_from_json_request(
+            rms::NewNodeInfo::default(),
+            &RmsIdentity {
+                node_id: "node-1".to_string(),
+                rack_id: "rack-1".to_string(),
+            },
+            r#"{"Id":"fw-json"}"#,
+            &FirmwareUpdateOptions {
+                access_token: Some(String::new()),
+                force_update: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(request.access_token, RMS_NOAUTH_ACCESS_TOKEN);
     }
 
     // ---- PowerShelfManager tests ----

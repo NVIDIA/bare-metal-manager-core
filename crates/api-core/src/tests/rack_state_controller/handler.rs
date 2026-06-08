@@ -558,13 +558,13 @@ async fn test_on_demand_rack_maintenance_schedules_firmware_and_nvos_scope(
 }
 
 #[crate::sqlx_test]
-async fn test_on_demand_rack_maintenance_rejects_firmware_without_access_token(
+async fn test_on_demand_rack_maintenance_defaults_missing_access_token_to_noauth(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
     let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
 
-    let err = crate::handlers::rack::on_demand_rack_maintenance(
+    crate::handlers::rack::on_demand_rack_maintenance(
         env.api.as_ref(),
         Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
             rack_id: Some(rack_id.clone()),
@@ -587,11 +587,23 @@ async fn test_on_demand_rack_maintenance_rejects_firmware_without_access_token(
             }),
         }),
     )
-    .await
-    .expect_err("firmware-upgrade should require access_token");
+    .await?;
 
-    assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert!(err.message().contains("access_token"));
+    let token_credentials = env
+        .test_credential_manager
+        .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
+            rack_id: rack_id.clone(),
+        })
+        .await
+        .expect("credential lookup should succeed")
+        .expect("access token should be stored as a credential");
+    assert_eq!(
+        token_credentials,
+        Credentials::UsernamePassword {
+            username: "access_token".to_string(),
+            password: "NOAUTH".to_string(),
+        }
+    );
 
     Ok(())
 }

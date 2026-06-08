@@ -129,9 +129,16 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .selected_profile
                 .unwrap_or(libredfish::BiosProfileType::Performance);
 
+            let boot_interface = machine_setup_args
+                .boot_interface_mac
+                .as_deref()
+                .map(|m| m.parse::<MacAddress>())
+                .transpose()
+                .map_err(|e| eyre!("invalid boot_interface_mac: {e}"))?
+                .map(libredfish::BootInterfaceRef::Mac);
             redfish
                 .machine_setup(
-                    machine_setup_args.boot_interface_mac.as_deref(),
+                    boot_interface,
                     &bios_profiles,
                     selected_profile,
                     &HashMap::default(),
@@ -139,12 +146,14 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .await?;
         }
         MachineSetupStatus(machine_setup_status_args) => {
-            println!(
-                "{}",
-                redfish
-                    .machine_setup_status(machine_setup_status_args.boot_interface_mac.as_deref())
-                    .await?
-            );
+            let boot_interface = machine_setup_status_args
+                .boot_interface_mac
+                .as_deref()
+                .map(|m| m.parse::<MacAddress>())
+                .transpose()
+                .map_err(|e| eyre!("invalid boot_interface_mac: {e}"))?
+                .map(libredfish::BootInterfaceRef::Mac);
+            println!("{}", redfish.machine_setup_status(boot_interface).await?);
         }
         SetForgePasswordPolicy => {
             redfish.set_machine_password_policy().await?;
@@ -534,10 +543,12 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 .await?;
         }
         SetBootOrderDpuFirst(args) => {
-            if let Some(job_id) = redfish
-                .set_boot_order_dpu_first(&args.boot_interface_mac)
-                .await?
-            {
+            let boot_interface = libredfish::BootInterfaceRef::Mac(
+                args.boot_interface_mac
+                    .parse::<MacAddress>()
+                    .map_err(|e| eyre!("invalid boot_interface_mac: {e}"))?,
+            );
+            if let Some(job_id) = redfish.set_boot_order_dpu_first(boot_interface).await? {
                 tracing::info!(
                     "succesfully configured BIOS job {job_id} to set {} first in the server's boot order",
                     args.boot_interface_mac
@@ -590,9 +601,12 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             }
         }
         IsBootOrderSetup(args) => {
-            let setup = redfish
-                .is_boot_order_setup(&args.boot_interface_mac)
-                .await?;
+            let boot_interface = libredfish::BootInterfaceRef::Mac(
+                args.boot_interface_mac
+                    .parse::<MacAddress>()
+                    .map_err(|e| eyre!("invalid boot_interface_mac: {e}"))?,
+            );
+            let setup = redfish.is_boot_order_setup(boot_interface).await?;
             tracing::info!(setup);
         }
     }

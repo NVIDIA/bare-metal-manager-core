@@ -1195,6 +1195,54 @@ pub async fn set_dpu_first_boot_order(
     Redirect::to(&redirect_url).into_response()
 }
 
+/// Re-applies the host's stored boot interface on demand.
+///
+/// Unlike `set_dpu_first_boot_order`, this takes no MAC from the operator: it
+/// reuses the same RPC with `boot_interface_mac: None`, which makes the backend
+/// resolve the stored `MachineBootInterface` (MAC + Redfish interface id) and
+/// set it boot-first via the same MAC-first / interface-id fallback as automated
+/// setup. It gives an operator a one-click way to restore boot setup to the last
+/// known/healthy boot interface.
+pub async fn restore_boot_interface(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(endpoint_ip): AxumPath<String>,
+) -> Response {
+    let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
+
+    let redirect_url = match state
+        .set_dpu_first_boot_order(tonic::Request::new(
+            rpc::forge::SetDpuFirstBootOrderRequest {
+                machine_id: None,
+                bmc_endpoint_request: Some(BmcEndpointRequest {
+                    ip_address: endpoint_ip.clone(),
+                    mac_address: None,
+                }),
+                boot_interface_mac: None,
+            },
+        ))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(_) => ActionStatus {
+            action: action_status::Type::RestoreBootInterface,
+            class: action_status::Class::Success,
+            message: "Boot interface restored from the last-known-good record".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "restore_boot_interface");
+            ActionStatus {
+                action: action_status::Type::RestoreBootInterface,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
+
+    Redirect::to(&redirect_url).into_response()
+}
+
 pub async fn delete_endpoint(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,

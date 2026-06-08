@@ -31,7 +31,10 @@ pub async fn create(
         .0
         .create_vpc_prefix(args)
         .await
-        .map(ShowOutput::One)?;
+        .map(|vpc_prefix| ShowOutput::One {
+            vpc_prefix,
+            history: Vec::new(),
+        })?;
 
     output
         .write_output(output_format, crate::Destination::Stdout())

@@ -17,6 +17,7 @@ import (
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/migrations"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
@@ -196,7 +197,10 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 	s.taskScheduleDispatcher = dispatcher
 	log.Info().Msg("Task schedule dispatcher started")
 
-	s.grpcServer = grpc.NewServer(certOpt)
+	s.grpcServer = grpc.NewServer(
+		certOpt,
+		grpc.ChainUnaryInterceptor(grpclog.UnaryServerInterceptor()),
+	)
 
 	log.Info().Msg("gRPC server is running")
 

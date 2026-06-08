@@ -33,8 +33,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Success() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
-		RackType: "test-create-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-001"},
 	}
 
 	// Mock CreateExpectedRackOnSite activity
@@ -55,8 +55,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Failure() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
-		RackType: "test-create-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-001"},
 	}
 
 	errMsg := "Site Controller communication error"
@@ -78,8 +78,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_CoreSuccess_Fl
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-002"},
-		RackType: "test-create-rack-profile-002",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-002"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-002"},
 	}
 
 	// Mock CreateExpectedRackOnSite activity (success)
@@ -119,8 +119,8 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Success() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
-		RackType: "test-update-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 	}
 
 	// Mock UpdateExpectedRackOnSite activity
@@ -137,8 +137,8 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Failure() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
-		RackType: "test-update-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 	}
 
 	errMsg := "Site Controller communication error"
@@ -233,8 +233,8 @@ func (rarts *ReplaceAllExpectedRacksTestSuite) Test_ReplaceAllExpectedRacks_Succ
 	request := &cwssaws.ExpectedRackList{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
-				RackType: "test-replace-rack-profile-001",
+				RackId:        &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
+				RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-001"},
 			},
 		},
 	}
@@ -255,8 +255,8 @@ func (rarts *ReplaceAllExpectedRacksTestSuite) Test_ReplaceAllExpectedRacks_Fail
 	request := &cwssaws.ExpectedRackList{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
-				RackType: "test-replace-rack-profile-001",
+				RackId:        &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
+				RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-001"},
 			},
 		},
 	}

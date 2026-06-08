@@ -22,9 +22,10 @@ use carbide_uuid::machine::{MachineId, MachineType};
 use health_report::HealthReport;
 use model::errors::{ModelError, ModelResult};
 use model::machine::{
-    DpfState, DpuInfo, DpuInitState, FailureCause, InstanceState, Machine,
-    MachineInterfaceSnapshot, MachineValidationFilter, ManagedHostState, ManagedHostStateSnapshot,
-    ReprovisionRequest, ReprovisionState, slas, state_sla,
+    DpfState, DpuInfo, DpuInfoStatusObservation, DpuInitState, DpuOsOperationalState,
+    DpuRepresentorStatus, FailureCause, InstanceState, Machine, MachineInterfaceSnapshot,
+    MachineValidationFilter, ManagedHostState, ManagedHostStateSnapshot, ReprovisionRequest,
+    ReprovisionState, slas, state_sla,
 };
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
@@ -44,11 +45,45 @@ pub mod nvlink;
 pub mod spx;
 pub mod upgrade_policy;
 
+impl From<DpuOsOperationalState> for rpc::forge::DpuOsOperationalState {
+    fn from(state: DpuOsOperationalState) -> Self {
+        Self {
+            state_detail: state.state_detail,
+        }
+    }
+}
+
+impl From<DpuRepresentorStatus> for rpc::forge::DpuRepresentorStatus {
+    fn from(status: DpuRepresentorStatus) -> Self {
+        Self {
+            name: status.name,
+            carrier_up: status.carrier_up,
+            state: status.state,
+        }
+    }
+}
+
+impl From<DpuInfoStatusObservation> for rpc::forge::DpuInfoStatusObservation {
+    fn from(observation: DpuInfoStatusObservation) -> Self {
+        Self {
+            os_operational_state: observation.os_operational_state.map(Into::into),
+            firmware_version: observation.firmware_version,
+            representors: observation
+                .representors
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            last_heartbeat: observation.last_heartbeat.map(rpc::Timestamp::from),
+        }
+    }
+}
+
 impl From<DpuInfo> for rpc::forge::DpuInfo {
     fn from(info: DpuInfo) -> Self {
         rpc::forge::DpuInfo {
             id: info.id,
             loopback_ip: info.loopback_ip,
+            observed_status: info.observed_status.map(Into::into),
         }
     }
 }
@@ -293,6 +328,7 @@ impl From<Machine> for rpc::forge::Machine {
                 slot_number: machine.slot_number,
                 tray_index: machine.tray_index,
             }),
+            last_scout_observed_version: machine.last_scout_observed_version,
         }
     }
 }
@@ -523,16 +559,65 @@ fn machine_instance_network_restrictions(
 #[cfg(test)]
 mod test {
     use crate as rpc;
-    use crate::model::machine::DpuInfo;
+    use crate::model::machine::{
+        DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
+    };
 
     #[test]
     fn dpu_info_to_rpc() {
         let info = DpuInfo {
             id: "dpu-123".to_string(),
             loopback_ip: "10.0.0.1".to_string(),
+            observed_status: Some(DpuInfoStatusObservation {
+                os_operational_state: Some(DpuOsOperationalState {
+                    state_detail: "Ready".to_string(),
+                }),
+                firmware_version: Some("24.42.1000".to_string()),
+                representors: vec![
+                    DpuRepresentorStatus {
+                        name: "pf0hpf_if".to_string(),
+                        carrier_up: Some(true),
+                        state: Some("up".to_string()),
+                    },
+                    DpuRepresentorStatus {
+                        name: "pf0vf0_if_r".to_string(),
+                        carrier_up: Some(false),
+                        state: Some("down".to_string()),
+                    },
+                ],
+                last_heartbeat: Some(chrono::Utc::now()),
+            }),
         };
+        let expected_last_heartbeat = info
+            .observed_status
+            .as_ref()
+            .and_then(|observation| observation.last_heartbeat)
+            .map(rpc::Timestamp::from);
         let rpc_info: rpc::forge::DpuInfo = info.into();
         assert_eq!(rpc_info.id, "dpu-123");
         assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
+        let observed_status = rpc_info.observed_status.as_ref().unwrap();
+        assert_eq!(
+            observed_status
+                .os_operational_state
+                .as_ref()
+                .map(|state| state.state_detail.as_str()),
+            Some("Ready")
+        );
+        assert_eq!(
+            observed_status.firmware_version.as_deref(),
+            Some("24.42.1000")
+        );
+        assert_eq!(observed_status.representors.len(), 2);
+        assert_eq!(observed_status.representors[0].name, "pf0hpf_if");
+        assert_eq!(observed_status.representors[0].carrier_up, Some(true));
+        assert_eq!(observed_status.representors[0].state.as_deref(), Some("up"));
+        assert_eq!(observed_status.representors[1].name, "pf0vf0_if_r");
+        assert_eq!(observed_status.representors[1].carrier_up, Some(false));
+        assert_eq!(
+            observed_status.representors[1].state.as_deref(),
+            Some("down")
+        );
+        assert_eq!(observed_status.last_heartbeat, expected_last_heartbeat);
     }
 }

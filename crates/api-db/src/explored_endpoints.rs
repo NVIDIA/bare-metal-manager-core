@@ -20,6 +20,7 @@ use chrono::Utc;
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
+use model::machine_boot_interface::MachineBootInterface;
 use model::site_explorer::{
     EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
     PreingestionState, TimeSyncResetPhase,
@@ -59,6 +60,8 @@ struct DbExploredEndpoint {
     pause_remediation: bool,
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     boot_interface_mac: Option<MacAddress>,
+    /// The vendor-native Redfish interface id of the boot interface
+    boot_interface_id: Option<String>,
 }
 
 impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
@@ -76,6 +79,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
         let pause_ingestion_and_poweron = row.try_get("pause_ingestion_and_poweron")?;
         let pause_remediation = row.try_get("pause_remediation")?;
         let boot_interface_mac = row.try_get("boot_interface_mac")?;
+        let boot_interface_id = row.try_get("boot_interface_id")?;
         Ok(DbExploredEndpoint {
             address: row.try_get("address")?,
             report: report.0,
@@ -90,6 +94,7 @@ impl<'r> FromRow<'r, PgRow> for DbExploredEndpoint {
             pause_ingestion_and_poweron,
             pause_remediation,
             boot_interface_mac,
+            boot_interface_id,
         })
     }
 }
@@ -110,6 +115,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
             pause_ingestion_and_poweron: endpoint.pause_ingestion_and_poweron,
             pause_remediation: endpoint.pause_remediation,
             boot_interface_mac: endpoint.boot_interface_mac,
+            boot_interface_id: endpoint.boot_interface_id,
         }
     }
 }
@@ -723,14 +729,15 @@ pub async fn set_pause_remediation(
     Ok(())
 }
 
-pub async fn set_boot_interface_mac(
+pub async fn set_boot_interface(
     address: IpAddr,
-    mac: MacAddress,
+    boot_interface: &MachineBootInterface,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE explored_endpoints SET boot_interface_mac = $1 WHERE address = $2";
+    let query = "UPDATE explored_endpoints SET boot_interface_mac = $1, boot_interface_id = $2 WHERE address = $3";
     sqlx::query(query)
-        .bind(mac)
+        .bind(boot_interface.mac_address)
+        .bind(&boot_interface.interface_id)
         .bind(address)
         .execute(txn)
         .await
