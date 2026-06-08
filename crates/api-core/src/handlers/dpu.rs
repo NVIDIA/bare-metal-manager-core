@@ -1192,7 +1192,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    "No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs.".to_string(),
+                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
                 )
                     .into());
             }
