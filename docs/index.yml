@@ -124,6 +124,8 @@ navigation:
 
     - section: Operations
       contents:
+        - page: Tenant Lifecycle Cleanup
+          path: operations/tenant-lifecycle-cleanup.md
         - page: Network Isolation
           path: manuals/network_isolation.md
         - page: Network Security Groups
