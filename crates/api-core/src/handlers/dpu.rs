@@ -1110,9 +1110,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .classifications
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
-        return Err(CarbideError::InvalidArgument(
-            "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
-        ).into());
+        return Err(CarbideError::InvalidArgument(format!(
+            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+        )).into());
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
