@@ -472,7 +472,7 @@ func persistComponentStatuses(
 		if !ok {
 			continue
 		}
-		newStatus := types.MapComponentStatus(componentType, raw)
+		newStatus := nicoapi.MapComponentStatus(componentType, raw)
 		if comp.Status != nil && comp.Status.Equal(newStatus) {
 			continue
 		}
