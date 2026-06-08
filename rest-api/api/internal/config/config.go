@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	cauth "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -242,7 +242,7 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
 	// SiteConfig default phone home url
-	c.v.SetDefault(ConfigSitePhoneHomeUrl, "http://localhost")
+	c.v.SetDefault(ConfigSitePhoneHomeUrl, "http://169.254.169.254:7777/latest/meta-data/phone_home")
 
 	// Keycloak needs to be explicitly enabled via config
 	c.v.SetDefault(ConfigKeycloakEnabled, false)

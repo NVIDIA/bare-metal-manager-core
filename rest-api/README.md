@@ -7,14 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 
 A collection of microservices that comprise the management backend for NVIDIA Infrastructure Controller (NICo), exposed as a REST API.
 
-In deployments, NVIDIA Infrastructure Controller REST requires [NVIDIA Infrastructure Controller Core](https://github.com/NVIDIA/infra-controller-core) to function.
+In deployments, NVIDIA Infrastructure Controller REST requires Core services to be available.
 
 The REST layer can be deployed in the datacenter with NVIDIA Infrastructure Controller Core, or deployed anywhere in Cloud and allow Site Agent to connect from the datacenter. Multiple NVIDIA Infrastructure Controller Cores running in different datacenters can also connect to NVIDIA Infrastructure Controller REST through respective Site Agents.
 
 View latest OpenAPI schema on [GitHub pages](https://nvidia.github.io/infra-controller-rest/).
-
-> [!IMPORTANT]
-> To ensure a unified entry point to the NVIDIA Infra Controller, the REST API repo is being merged into the [infra-controller](https://github.com/NVIDIA/infra-controller) repo under `rest-api` directory. This transition will be completed on June 2nd, 2026.
 
 ## Prerequisites
 
@@ -97,7 +94,7 @@ make kind-down           # Tear down cluster
 
 ### Option B: Bare-Metal Cluster with helm-prereqs
 
-For deploying onto a real Kubernetes cluster alongside NVIDIA Infrastructure Controller Core. Uses `helm-prereqs/setup.sh` from the [infra-controller-core](https://github.com/NVIDIA/infra-controller-core) repo, which installs the full prerequisite stack (cert-manager, Vault, external-secrets, PostgreSQL, Temporal, Keycloak) and deploys both NICo Core and NICo REST in the correct order.
+For deploying onto a real Kubernetes cluster alongside Core services. Uses [helm-prereqs/setup.sh](../helm-prereqs/setup.sh), which installs the full prerequisite stack (cert-manager, Vault, external-secrets, PostgreSQL, Temporal, Keycloak) and deploys both NICo Core and NICo REST in the correct order.
 
 ```bash
 # 1. Build and push images to your registry
@@ -115,22 +112,17 @@ export NICO_IMAGE_REGISTRY=my-registry.example.com/nico
 export NICO_CORE_IMAGE_TAG=<nico-core-tag>    # NVIDIA Infrastructure Controller Core image tag
 export NICO_REST_IMAGE_TAG=v1.0.4               # NICo REST image tag
 
-# 3. Clone infra-controller-core (if not already present as a sibling directory)
-git clone https://github.com/NVIDIA/infra-controller-core.git ../infra-controller-core
-
-# 4. Run setup from the infra-controller-core repo
-cd ../infra-controller-core/helm-prereqs
+# 4. Run setup
+cd ../helm-prereqs
 ./setup.sh -y     # or ./setup.sh for interactive prompts
 ```
-
-The setup script auto-detects this repo from the sibling path `infra-controller-rest`. Set `NICO_REPO=/path/to/this/repo` to override.
 
 To tear everything down:
 ```bash
 ./clean.sh
 ```
 
-See [infra-controller-core/helm-prereqs/README.md](https://github.com/NVIDIA/infra-controller-core/blob/main/helm-prereqs/README.md) for the full reference: PKI architecture, phase-by-phase description, site customization, secrets reference, and troubleshooting (including site-agent gRPC connectivity).
+See [helm-prereqs/README.md](../helm-prereqs/README.md) for the full reference: PKI architecture, phase-by-phase description, site customization, secrets reference, and troubleshooting (including site-agent gRPC connectivity).
 
 ### Option C: Manual / Kustomize Production Deployment
 

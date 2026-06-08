@@ -460,7 +460,7 @@ impl Display for RackMaintenanceState {
 /// disables ScaleUpFabric state on all scoped switches before
 /// `ConfigureScaleUpFabricManager` selects, persists, and configures only the
 /// primary switch. `WaitForFabricStatus` polls
-/// `BatchGetScaleUpFabricServiceStatus` and persists the per-switch
+/// `GetScaleUpFabricServicesStatus` and persists the per-switch
 /// `fabric_manager_status` before advancing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {

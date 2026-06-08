@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package dpa_rpc;
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 // This should be sent to topic dpa/command/<macaddrwithout:chars>/SetVni
 // Example for topic: dpa/command/001122334455/SetVni

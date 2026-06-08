@@ -11,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 )
 
@@ -72,7 +73,7 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 			HostId:                   &host,
 			Metadata: &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		}, &linkedMachineID)
@@ -200,7 +201,7 @@ func TestExpectedMachineSQLDAO_Create(t *testing.T) {
 					BmcMacAddress:            "00:1B:44:11:3A:B7",
 					ChassisSerialNumber:      "CHASSIS123",
 					FallbackDpuSerialNumbers: []string{"DPU001", "DPU002"},
-					BmcIpAddress:             db.GetStrPtr("192.168.1.10"),
+					BmcIpAddress:             cutil.GetPtr("192.168.1.10"),
 					Labels: map[string]string{
 						"environment": "test",
 						"location":    "datacenter1",
@@ -562,7 +563,7 @@ func TestExpectedMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -586,7 +587,7 @@ func TestExpectedMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: ExpectedMachineFilterInput{
-				SearchQuery: db.GetStrPtr("CHASSIS123"),
+				SearchQuery: cutil.GetPtr("CHASSIS123"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -602,20 +603,20 @@ func TestExpectedMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -627,7 +628,7 @@ func TestExpectedMachineSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 	}
@@ -942,7 +943,7 @@ func TestExpectedMachineSQLDAO_Update(t *testing.T) {
 			desc: "Update BMC MAC address",
 			input: ExpectedMachineUpdateInput{
 				ExpectedMachineID: emsExp[0].ID,
-				BmcMacAddress:     db.GetStrPtr("00:1B:44:11:3A:C1"),
+				BmcMacAddress:     cutil.GetPtr("00:1B:44:11:3A:C1"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -951,7 +952,7 @@ func TestExpectedMachineSQLDAO_Update(t *testing.T) {
 			desc: "Update chassis serial number",
 			input: ExpectedMachineUpdateInput{
 				ExpectedMachineID:   emsExp[1].ID,
-				ChassisSerialNumber: db.GetStrPtr("NEWCHASSIS789"),
+				ChassisSerialNumber: cutil.GetPtr("NEWCHASSIS789"),
 			},
 			expectedError: false,
 		},
@@ -978,7 +979,7 @@ func TestExpectedMachineSQLDAO_Update(t *testing.T) {
 			desc: "fail to update to duplicate MAC address in same site",
 			input: ExpectedMachineUpdateInput{
 				ExpectedMachineID: emsExp[2].ID,
-				BmcMacAddress:     db.GetStrPtr(emsExp[1].BmcMacAddress), // emsExp[1] hasn't been modified yet
+				BmcMacAddress:     cutil.GetPtr(emsExp[1].BmcMacAddress), // emsExp[1] hasn't been modified yet
 			},
 			expectedError: true,
 			errorContains: "duplicate key value",
@@ -1318,11 +1319,11 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_MacSwap(t *testing.T) {
 	results, err := emsd.UpdateMultiple(ctx, nil, []ExpectedMachineUpdateInput{
 		{
 			ExpectedMachineID: em1.ID,
-			BmcMacAddress:     db.GetStrPtr(macAddress2), // Give em1 the MAC from em2
+			BmcMacAddress:     cutil.GetPtr(macAddress2), // Give em1 the MAC from em2
 		},
 		{
 			ExpectedMachineID: em2.ID,
-			BmcMacAddress:     db.GetStrPtr(macAddress1), // Give em2 the MAC from em1
+			BmcMacAddress:     cutil.GetPtr(macAddress1), // Give em2 the MAC from em1
 		},
 	})
 
@@ -1406,8 +1407,8 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 			inputs: []ExpectedMachineUpdateInput{
 				{
 					ExpectedMachineID:   em1.ID,
-					BmcMacAddress:       db.GetStrPtr("00:1B:44:11:3A:E1"),
-					ChassisSerialNumber: db.GetStrPtr("CHASSIS-MODIFIED-001"),
+					BmcMacAddress:       cutil.GetPtr("00:1B:44:11:3A:E1"),
+					ChassisSerialNumber: cutil.GetPtr("CHASSIS-MODIFIED-001"),
 					SkuID:               &sku.ID,
 					Labels: map[string]string{
 						"updated": "true",
@@ -1415,7 +1416,7 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 				},
 				{
 					ExpectedMachineID:        em2.ID,
-					BmcMacAddress:            db.GetStrPtr("00:1B:44:11:3A:E2"),
+					BmcMacAddress:            cutil.GetPtr("00:1B:44:11:3A:E2"),
 					FallbackDpuSerialNumbers: []string{"DPU002", "DPU003"},
 				},
 				{
@@ -1442,7 +1443,7 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 			inputs: []ExpectedMachineUpdateInput{
 				{
 					ExpectedMachineID:   em1.ID,
-					ChassisSerialNumber: db.GetStrPtr("CHASSIS-SINGLE-UPDATE"),
+					ChassisSerialNumber: cutil.GetPtr("CHASSIS-SINGLE-UPDATE"),
 				},
 			},
 			expectError:   false,

@@ -9,15 +9,15 @@ import (
 	"slices"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -184,15 +184,6 @@ func (it *InstanceType) FromProto(proto *cwssaws.InstanceType) {
 			it.Description = &desc
 		}
 		it.Labels.FromProto(proto.Metadata.GetLabels())
-	}
-}
-
-// ToDeletionRequestProto builds the workflow request that asks a Site
-// to delete this InstanceType. Lives on the entity because the delete
-// handler has no API request body — the entity's ID is the only input.
-func (it *InstanceType) ToDeletionRequestProto() *cwssaws.DeleteInstanceTypeRequest {
-	return &cwssaws.DeleteInstanceTypeRequest{
-		Id: it.ID.String(),
 	}
 }
 

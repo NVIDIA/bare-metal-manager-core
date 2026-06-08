@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,8 +93,8 @@ func TestNewPaginator(t *testing.T) {
 			name: "initialize paginator negative offset, limit",
 			args: args{
 				ctx:    context.Background(),
-				offset: db.GetIntPtr(-5),
-				limit:  db.GetIntPtr(-10),
+				offset: cutil.GetPtr(-5),
+				limit:  cutil.GetPtr(-10),
 				query:  query,
 			},
 			want: &Paginator{
@@ -109,8 +110,8 @@ func TestNewPaginator(t *testing.T) {
 			args: args{
 				ctx:     context.Background(),
 				query:   query,
-				offset:  db.GetIntPtr(10),
-				limit:   db.GetIntPtr(30),
+				offset:  cutil.GetPtr(10),
+				limit:   cutil.GetPtr(30),
 				orderBy: []*OrderBy{&orderBy},
 			},
 			want: &Paginator{
@@ -126,7 +127,7 @@ func TestNewPaginator(t *testing.T) {
 			args: args{
 				ctx:   context.Background(),
 				query: query,
-				limit: db.GetIntPtr(TotalLimit),
+				limit: cutil.GetPtr(TotalLimit),
 			},
 			want: &Paginator{
 				Total:  totalCount,

@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 func TestInjectExpectation(t *testing.T) {

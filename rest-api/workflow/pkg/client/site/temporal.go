@@ -19,7 +19,7 @@ import (
 	tsdkClient "go.temporal.io/sdk/client"
 	tsdkConverter "go.temporal.io/sdk/converter"
 
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 )
 
 // ClientPool contains Temporal clients for different site agents

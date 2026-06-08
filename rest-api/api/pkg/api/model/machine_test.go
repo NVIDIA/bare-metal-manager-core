@@ -9,13 +9,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestMachine_NewAPIMachine(t *testing.T) {
@@ -26,71 +27,13 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 			Id:    &cwssaws.MachineId{Id: mID},
 			State: "Ready",
 			DiscoveryInfo: &cwssaws.DiscoveryInfo{
-				Cpus: []*cwssaws.Cpu{
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "1571.080",
-						Number:    0,
-						Core:      0,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "1571.080",
-						Number:    1,
-						Core:      0,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3371.751",
-						Number:    2,
-						Core:      0,
-						Socket:    1,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3017.142",
-						Number:    3,
-						Core:      0,
-						Socket:    1,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3507.275",
-						Number:    4,
-						Core:      1,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3255.853",
-						Number:    5,
-						Core:      1,
-						Socket:    0,
-					},
-					{
-						Vendor:    "GenuineIntel",
-						Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-						Frequency: "3530.777",
-						Number:    6,
-						Core:      1,
-						Socket:    1,
-					},
-				},
 				NetworkInterfaces: []*cwssaws.NetworkInterface{
 					{
 						PciProperties: &cwssaws.PciDeviceProperties{
 							Vendor:      "0x14e4",
 							Device:      "0x165f",
 							Path:        "/devices/pci0000:00/0000:00:1c.5/0000:04:00.0/net/eno8303",
-							Description: cdb.GetStrPtr("NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)"),
+							Description: cutil.GetPtr("NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)"),
 						},
 					},
 					{
@@ -98,7 +41,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Vendor:      "0x14e4",
 							Device:      "0x165f",
 							Path:        "/devices/pci0000:00/0000:00:1c.5/0000:04:00.1/net/eno8403",
-							Description: cdb.GetStrPtr("NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)"),
+							Description: cutil.GetPtr("NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)"),
 						},
 					},
 					{
@@ -106,7 +49,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Vendor:      "0x14e4",
 							Device:      "0x16d7",
 							Path:        "/devices/pci0000:30/0000:30:04.0/0000:31:00.0/net/eno12399np0",
-							Description: cdb.GetStrPtr("BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller"),
+							Description: cutil.GetPtr("BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller"),
 						},
 					},
 					{
@@ -114,7 +57,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Vendor:      "0x14e4",
 							Device:      "0x16d7",
 							Path:        "/devices/pci0000:30/0000:30:04.0/0000:31:00.1/net/eno12409np1",
-							Description: cdb.GetStrPtr("BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller"),
+							Description: cutil.GetPtr("BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller"),
 						},
 					},
 					{
@@ -123,7 +66,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Device:      "0xa2d6",
 							Path:        "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.0/net/enp177s0f0np0",
 							NumaNode:    1,
-							Description: cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							Description: cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
 						},
 					},
 					{
@@ -132,7 +75,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Device:      "0xa2d6",
 							Path:        "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.1/net/enp177s0f1np1",
 							NumaNode:    1,
-							Description: cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							Description: cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
 						},
 					},
 				},
@@ -203,8 +146,8 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Device:      "MT28908 Family [ConnectX-6]",
 							Path:        "/devices/pci0000:c9/0000:c9:02.0/0000:ca:00.0/infiniband/rocep202s0f0",
 							NumaNode:    1,
-							Description: cdb.GetStrPtr("MT28908 Family [ConnectX-6]"),
-							Slot:        cdb.GetStrPtr("0000:ca:00.0"),
+							Description: cutil.GetPtr("MT28908 Family [ConnectX-6]"),
+							Slot:        cutil.GetPtr("0000:ca:00.0"),
 						},
 						Guid: "1070fd0300bd43ac",
 					},
@@ -214,16 +157,16 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 							Device:      "MT28908 Family [ConnectX-6]",
 							Path:        "/devices/pci0000:c9/0000:c9:02.0/0000:ca:00.1/infiniband/rocep202s0f1",
 							NumaNode:    1,
-							Description: cdb.GetStrPtr("MT28908 Family [ConnectX-6]"),
-							Slot:        cdb.GetStrPtr("0000:ca:00.1"),
+							Description: cutil.GetPtr("MT28908 Family [ConnectX-6]"),
+							Slot:        cutil.GetPtr("0000:ca:00.1"),
 						},
 						Guid: "1070fd0300bd43ad",
 					},
 				},
 			},
 			BmcInfo: &cwssaws.BmcInfo{
-				Ip:  cdb.GetStrPtr("10.100.1.1"),
-				Mac: cdb.GetStrPtr("00-B0-D0-63-C2-26"),
+				Ip:  cutil.GetPtr("10.100.1.1"),
+				Mac: cutil.GetPtr("00-B0-D0-63-C2-26"),
 			},
 			Health: &cwssaws.HealthReport{
 				Source: "aggregate-host-health",
@@ -246,43 +189,43 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/frr/daemons"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/daemons"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/frr/frr.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/frr.conf"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/network/interfaces"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/network/interfaces"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/supervisor/conf.d/default-nico-dhcp-server.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-nico-dhcp-server.conf"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/frr/daemons"),
+						Target: cutil.GetPtr("etc/frr/daemons"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/frr/frr.conf"),
+						Target: cutil.GetPtr("etc/frr/frr.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/network/interfaces"),
+						Target: cutil.GetPtr("etc/network/interfaces"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/supervisor/conf.d/default-nico-dhcp-server.conf"),
+						Target: cutil.GetPtr("etc/supervisor/conf.d/default-nico-dhcp-server.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						Target: cutil.GetPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
 					},
 					{
 						Id:     "Ifreload",
@@ -294,15 +237,15 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("frr"),
+						Target: cutil.GetPtr("frr"),
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("nl2doca"),
+						Target: cutil.GetPtr("nl2doca"),
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("rsyslog"),
+						Target: cutil.GetPtr("rsyslog"),
 					},
 					{
 						Id:     "SupervisorctlStatus",
@@ -312,7 +255,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 				Alerts: []*cwssaws.HealthProbeAlert{
 					{
 						Id:            "HeartbeatTimeout",
-						Target:        cdb.GetStrPtr("hardware-health"),
+						Target:        cutil.GetPtr("hardware-health"),
 						InAlertSince:  nil,
 						Message:       "",
 						TenantMessage: nil,
@@ -335,20 +278,20 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 		ID:                       mID,
 		InfrastructureProviderID: uuid.New(),
 		SiteID:                   uuid.New(),
-		InstanceTypeID:           cdb.GetUUIDPtr(uuid.New()),
+		InstanceTypeID:           cutil.GetPtr(uuid.New()),
 		ControllerMachineID:      mID,
-		ControllerMachineType:    cdb.GetStrPtr("someType"),
-		HwSkuDeviceType:          cdb.GetStrPtr("someHwSkuDeviceType"),
-		Vendor:                   cdb.GetStrPtr("someVendor"),
-		ProductName:              cdb.GetStrPtr("someProductName"),
-		SerialNumber:             cdb.GetStrPtr(uuid.NewString()),
+		ControllerMachineType:    cutil.GetPtr("someType"),
+		HwSkuDeviceType:          cutil.GetPtr("someHwSkuDeviceType"),
+		Vendor:                   cutil.GetPtr("someVendor"),
+		ProductName:              cutil.GetPtr("someProductName"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		Metadata:                 &cdbm.SiteControllerMachine{Machine: machineInfo1.Machine},
 		Health:                   machineHealth,
-		DefaultMacAddress:        cdb.GetStrPtr("00:00:00:00:00:00"),
-		Hostname:                 cdb.GetStrPtr("test.com"),
+		DefaultMacAddress:        cutil.GetPtr("00:00:00:00:00:00"),
+		Hostname:                 cutil.GetPtr("test.com"),
 		IsInMaintenance:          true,
 		IsUsableByTenant:         true,
-		MaintenanceMessage:       cdb.GetStrPtr("Scheduled maintenance"),
+		MaintenanceMessage:       cutil.GetPtr("Scheduled maintenance"),
 		Labels:                   map[string]string{"test": "test"},
 		Status:                   cdbm.MachineStatusMaintenance,
 		Created:                  cdb.GetCurTime(),
@@ -358,23 +301,23 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	dbmcs := []cdbm.MachineCapability{
 		{
 			ID:             uuid.New(),
-			MachineID:      cdb.GetStrPtr(dbm.ID),
-			InstanceTypeID: cdb.GetUUIDPtr(uuid.New()),
+			MachineID:      cutil.GetPtr(dbm.ID),
+			InstanceTypeID: cutil.GetPtr(uuid.New()),
 			Type:           cdbm.MachineCapabilityTypeCPU,
 			Name:           "AMD Opteron Series x10",
-			Capacity:       cdb.GetStrPtr("3.0GHz"),
-			Count:          cdb.GetIntPtr(2),
+			Capacity:       cutil.GetPtr("3.0GHz"),
+			Count:          cutil.GetPtr(2),
 			Created:        cdb.GetCurTime(),
 			Updated:        cdb.GetCurTime(),
 		},
 		{
 			ID:             uuid.New(),
-			MachineID:      cdb.GetStrPtr(dbm.ID),
-			InstanceTypeID: cdb.GetUUIDPtr(uuid.New()),
+			MachineID:      cutil.GetPtr(dbm.ID),
+			InstanceTypeID: cutil.GetPtr(uuid.New()),
 			Type:           cdbm.MachineCapabilityTypeMemory,
 			Name:           "Corsair Vengeance LPX",
-			Capacity:       cdb.GetStrPtr("128GB"),
-			Count:          cdb.GetIntPtr(2),
+			Capacity:       cutil.GetPtr("128GB"),
+			Count:          cutil.GetPtr(2),
 			Created:        cdb.GetCurTime(),
 			Updated:        cdb.GetCurTime(),
 		},
@@ -383,12 +326,12 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 		{
 			ID:                    uuid.New(),
 			MachineID:             uuid.NewString(),
-			ControllerInterfaceID: cdb.GetUUIDPtr(uuid.New()),
-			ControllerSegmentID:   cdb.GetUUIDPtr(uuid.New()),
-			Hostname:              cdb.GetStrPtr("test.com"),
+			ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+			ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+			Hostname:              cutil.GetPtr("test.com"),
 			IsPrimary:             true,
-			SubnetID:              cdb.GetUUIDPtr(uuid.New()),
-			MacAddress:            cdb.GetStrPtr("00:00:00:00:00:00"),
+			SubnetID:              cutil.GetPtr(uuid.New()),
+			MacAddress:            cutil.GetPtr("00:00:00:00:00:00"),
 			IPAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 			Created:               cdb.GetCurTime(),
 			Updated:               cdb.GetCurTime(),
@@ -407,7 +350,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	dbm.Site = &cdbm.Site{
 		ID:                       dbm.SiteID,
 		Name:                     "test-site",
-		Description:              cdb.GetStrPtr("Test Description"),
+		Description:              cutil.GetPtr("Test Description"),
 		InfrastructureProviderID: dbm.InfrastructureProviderID,
 		Status:                   cdbm.SiteStatusRegistered,
 		Created:                  cdb.GetCurTime(),
@@ -418,8 +361,8 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	dbm.InstanceType = &cdbm.InstanceType{
 		ID:                       uuid.New(),
 		Name:                     "test",
-		DisplayName:              cdb.GetStrPtr("Test"),
-		Description:              cdb.GetStrPtr("Test Description"),
+		DisplayName:              cutil.GetPtr("Test"),
+		Description:              cutil.GetPtr("Test Description"),
 		InfrastructureProviderID: dbm.InfrastructureProviderID,
 		SiteID:                   &dbm.Site.ID,
 		Status:                   cdbm.InstanceTypeStatusReady,
@@ -532,17 +475,17 @@ func TestMachine_NewAPIMachineSummary(t *testing.T) {
 		ID:                       mID,
 		InfrastructureProviderID: uuid.New(),
 		SiteID:                   uuid.New(),
-		InstanceTypeID:           cdb.GetUUIDPtr(uuid.New()),
+		InstanceTypeID:           cutil.GetPtr(uuid.New()),
 		ControllerMachineID:      mID,
-		ControllerMachineType:    cdb.GetStrPtr("someType"),
-		HwSkuDeviceType:          cdb.GetStrPtr("someHwSkuDeviceType"),
-		Vendor:                   cdb.GetStrPtr("someVendor"),
-		ProductName:              cdb.GetStrPtr("someProductName"),
-		SerialNumber:             cdb.GetStrPtr(uuid.NewString()),
+		ControllerMachineType:    cutil.GetPtr("someType"),
+		HwSkuDeviceType:          cutil.GetPtr("someHwSkuDeviceType"),
+		Vendor:                   cutil.GetPtr("someVendor"),
+		ProductName:              cutil.GetPtr("someProductName"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		Metadata:                 nil,
-		DefaultMacAddress:        cdb.GetStrPtr("00:00:00:00:00:00"),
+		DefaultMacAddress:        cutil.GetPtr("00:00:00:00:00:00"),
 		IsInMaintenance:          true,
-		MaintenanceMessage:       cdb.GetStrPtr("Scheduled maintenance"),
+		MaintenanceMessage:       cutil.GetPtr("Scheduled maintenance"),
 		Status:                   cdbm.MachineStatusMaintenance,
 		Created:                  cdb.GetCurTime(),
 		Updated:                  cdb.GetCurTime(),
@@ -578,90 +521,90 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "test valid Machine update request with Instance Type ID",
 			fields: fields{
-				InstanceTypeID: cdb.GetStrPtr(uuid.NewString()),
+				InstanceTypeID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test invalid Machine update request with Instance Type ID",
 			fields: fields{
-				InstanceTypeID: cdb.GetStrPtr("1234"),
+				InstanceTypeID: cutil.GetPtr("1234"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test valid Machine update request to clear Instance Type",
 			fields: fields{
-				ClearInstanceType: cdb.GetBoolPtr(true),
+				ClearInstanceType: cutil.GetPtr(true),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test invalid Machine update request when both parameters are set",
 			fields: fields{
-				InstanceTypeID:    cdb.GetStrPtr(uuid.NewString()),
-				ClearInstanceType: cdb.GetBoolPtr(true),
+				InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+				ClearInstanceType: cutil.GetPtr(true),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Machine update request when clearInstanceType is set to false",
 			fields: fields{
-				ClearInstanceType: cdb.GetBoolPtr(false),
+				ClearInstanceType: cutil.GetPtr(false),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test valid Machine update request with maintenance mode enabled and message",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				MaintenanceMessage: cdb.GetStrPtr("Scheduled maintenance"),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				MaintenanceMessage: cutil.GetPtr("Scheduled maintenance"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test invalid Machine update request when too many options are set",
 			fields: fields{
-				ClearInstanceType:  cdb.GetBoolPtr(true),
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				InstanceTypeID:     cdb.GetStrPtr("a_uuid"),
+				ClearInstanceType:  cutil.GetPtr(true),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				InstanceTypeID:     cutil.GetPtr("a_uuid"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Machine update request with maintenance mode enabled but no message",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
+				SetMaintenanceMode: cutil.GetPtr(true),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Machine update request with maintenance mode enabled but maintenance message is empty",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				MaintenanceMessage: cdb.GetStrPtr(""),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				MaintenanceMessage: cutil.GetPtr(""),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Machine update request with maintenance mode enabled but all whitespace message",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				MaintenanceMessage: cdb.GetStrPtr("  \t\n "),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				MaintenanceMessage: cutil.GetPtr("  \t\n "),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Machine update request with maintenance message but mode not set",
 			fields: fields{
-				MaintenanceMessage: cdb.GetStrPtr("Scheduled maintenance"),
+				MaintenanceMessage: cutil.GetPtr("Scheduled maintenance"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test valid Machine update request with maintenance mode disabled",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(false),
+				SetMaintenanceMode: cutil.GetPtr(false),
 			},
 			wantErr: false,
 		},
@@ -673,8 +616,8 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Machine update request with maintenance mode enabled but message is less than 5 char",
 			fields: fields{
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				MaintenanceMessage: cdb.GetStrPtr("aa"),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				MaintenanceMessage: cutil.GetPtr("aa"),
 			},
 			wantErr: true,
 		},
@@ -713,20 +656,20 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			name: "test valid enter online repair request",
 			fields: fields{
 				OnlineRepair: &APIMachineOnlineRepair{
-					Enabled: cdb.GetBoolPtr(true),
+					Enabled: cutil.GetPtr(true),
 					Policy: &APIMachineOnlineRepairPolicy{
-						AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(false),
+						AllowAutoInstanceDeletionOnFailure: cutil.GetPtr(false),
 					},
 					Acknowledgments: &APIMachineOnlineRepairAcknowledgments{
-						AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
-						AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
-						AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+						AcceptDataCorruptionRisk:   cutil.GetPtr(true),
+						AcceptRepairTeamAccess:     cutil.GetPtr(true),
+						AcceptInstanceDeletionRisk: cutil.GetPtr(true),
 					},
 				},
 				HealthIssue: &APIMachineHealthIssue{
 					Category: HealthIssueStorage,
-					Summary:  cdb.GetStrPtr("Disk issue"),
-					Details:  cdb.GetStrPtr("logs and ticket refs"),
+					Summary:  cutil.GetPtr("Disk issue"),
+					Details:  cutil.GetPtr("logs and ticket refs"),
 				},
 			},
 			wantErr: false,
@@ -735,7 +678,7 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			name: "test invalid enter online repair without HealthIssue (APIMachineOnlineRepair.Enabled true requires non-nil HealthIssue)",
 			fields: fields{
 				OnlineRepair: &APIMachineOnlineRepair{
-					Enabled: cdb.GetBoolPtr(true),
+					Enabled: cutil.GetPtr(true),
 				},
 				HealthIssue: nil,
 			},
@@ -745,22 +688,22 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			name: "test invalid enter online repair with maintenance also set",
 			fields: fields{
 				OnlineRepair: &APIMachineOnlineRepair{
-					Enabled: cdb.GetBoolPtr(true),
+					Enabled: cutil.GetPtr(true),
 					Policy: &APIMachineOnlineRepairPolicy{
-						AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(true),
+						AllowAutoInstanceDeletionOnFailure: cutil.GetPtr(true),
 					},
 					Acknowledgments: &APIMachineOnlineRepairAcknowledgments{
-						AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
-						AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
-						AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+						AcceptDataCorruptionRisk:   cutil.GetPtr(true),
+						AcceptRepairTeamAccess:     cutil.GetPtr(true),
+						AcceptInstanceDeletionRisk: cutil.GetPtr(true),
 					},
 				},
-				SetMaintenanceMode: cdb.GetBoolPtr(true),
-				MaintenanceMessage: cdb.GetStrPtr("needs work"),
+				SetMaintenanceMode: cutil.GetPtr(true),
+				MaintenanceMessage: cutil.GetPtr("needs work"),
 				HealthIssue: &APIMachineHealthIssue{
 					Category: HealthIssueOther,
-					Summary:  cdb.GetStrPtr("s"),
-					Details:  cdb.GetStrPtr("d"),
+					Summary:  cutil.GetPtr("s"),
+					Details:  cutil.GetPtr("d"),
 				},
 			},
 			wantErr: true,
@@ -769,7 +712,7 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			name: "test valid exit online repair request",
 			fields: fields{
 				OnlineRepair: &APIMachineOnlineRepair{
-					Enabled: cdb.GetBoolPtr(false),
+					Enabled: cutil.GetPtr(false),
 				},
 			},
 			wantErr: false,
@@ -779,8 +722,8 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				HealthIssue: &APIMachineHealthIssue{
 					Category: HealthIssueStorage,
-					Summary:  cdb.GetStrPtr("x"),
-					Details:  cdb.GetStrPtr("y"),
+					Summary:  cutil.GetPtr("x"),
+					Details:  cutil.GetPtr("y"),
 				},
 			},
 			wantErr: true,
@@ -803,7 +746,7 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToInsertHealthReportProto(t *testing.T) {
 	type fields struct {
 		HealthIssue *APIMachineHealthIssue
 	}
@@ -819,8 +762,8 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			fields: fields{
 				HealthIssue: &APIMachineHealthIssue{
 					Category: HealthIssueStorage,
-					Summary:  cdb.GetStrPtr("storage subsystem degraded"),
-					Details:  cdb.GetStrPtr("disk SMART errors in slot 2"),
+					Summary:  cutil.GetPtr("storage subsystem degraded"),
+					Details:  cutil.GetPtr("disk SMART errors in slot 2"),
 				},
 			},
 			wantErr: false,
@@ -831,8 +774,8 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			fields: fields{
 				HealthIssue: &APIMachineHealthIssue{
 					Category: HealthIssueHardware,
-					Summary:  cdb.GetStrPtr("NIC link flapping"),
-					Details:  cdb.GetStrPtr("port 1 logs attached"),
+					Summary:  cutil.GetPtr("NIC link flapping"),
+					Details:  cutil.GetPtr("port 1 logs attached"),
 				},
 			},
 			wantErr: false,
@@ -843,7 +786,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			mur := APIMachineUpdateRequest{
 				HealthIssue: tt.fields.HealthIssue,
 			}
-			got, err := mur.ToInsertHealthReportOverrideProto(tt.machineID)
+			got, err := mur.ToInsertHealthReportRequestProto(tt.machineID)
 			require.Equal(t, tt.wantErr, err != nil, "error: %v", err)
 			if tt.wantErr {
 				return
@@ -851,13 +794,13 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 			require.NotNil(t, got)
 			require.NotNil(t, got.MachineId)
 			assert.Equal(t, tt.machineID, got.MachineId.Id)
-			require.NotNil(t, got.Override)
-			assert.Equal(t, cwssaws.OverrideMode_Merge, got.Override.Mode)
-			require.NotNil(t, got.Override.Report)
-			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.Override.Report.Source)
+			require.NotNil(t, got.HealthReportEntry)
+			assert.Equal(t, cwssaws.HealthReportApplyMode_Merge, got.HealthReportEntry.Mode)
+			require.NotNil(t, got.HealthReportEntry.Report)
+			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.HealthReportEntry.Report.Source)
 
-			require.Len(t, got.Override.Report.Alerts, 1)
-			alert := got.Override.Report.Alerts[0]
+			require.Len(t, got.HealthReportEntry.Report.Alerts, 1)
+			alert := got.HealthReportEntry.Report.Alerts[0]
 			assert.Equal(t, MachineHealthAlertIDOnlineRepair, alert.Id)
 			require.NotNil(t, alert.Target)
 			assert.Equal(t, MachineTenantReportedIssueAlertID, *alert.Target)
@@ -885,7 +828,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T)
 	}
 }
 
-func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T) {
+func TestAPIMachineUpdateRequest_ToRemoveHealthReportProto(t *testing.T) {
 	tests := []struct {
 		name       string
 		machineID  string
@@ -905,7 +848,7 @@ func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mur := APIMachineUpdateRequest{}
-			got, err := mur.ToRemoveHealthReportOverrideProto(tt.machineID)
+			got, err := mur.ToRemoveHealthReportRequestProto(tt.machineID)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.NotNil(t, got.MachineId)

@@ -47,8 +47,8 @@ If any of those are not true, the task is not complete.
 3. Clone the upstream repo (shallow clone is fine; this is a build workspace, not a development checkout):
 
    ```bash
-   git clone --depth 1 https://github.com/NVIDIA/infra-controller-rest.git
-   cd infra-controller-rest
+   git clone --depth 1 https://github.com/NVIDIA/infra-controller.git
+   cd infra-controller/rest-api
    ```
 
 4. Build and install with the provided `make` target:
@@ -155,5 +155,4 @@ Once `nicocli --version` works, you may leave the cloned repo in place at `$WORK
 
 To install via your agent, paste the URL of this file as a prompt. Example phrasings:
 
-- "Install nicocli following the instructions at <https://github.com/NVIDIA/infra-controller-rest/blob/main/cli/INSTALL.md>"
-- "Follow the steps in cli/INSTALL.md from <https://github.com/NVIDIA/infra-controller-rest> to install nicocli on this machine."
+- "Install nicocli following the instructions at <https://github.com/NVIDIA/infra-controller/blob/main/rest-api/cli/INSTALL.md>"

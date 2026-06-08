@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"time"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	vpcPeeringActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpcpeering"
+	vpcPeeringActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcpeering"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // UpdateVpcPeeringInventory is a workflow called by Site Agent to update VPC Peering inventory for a Site

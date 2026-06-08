@@ -16,6 +16,7 @@
  */
 
 mod delete;
+mod force_delete;
 mod list;
 mod maintenance;
 pub mod metadata;
@@ -37,6 +38,8 @@ pub enum Cmd {
     List(list::Args),
     #[clap(about = "Delete the rack")]
     Delete(delete::Args),
+    #[clap(about = "Force delete a rack")]
+    ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
     Metadata(metadata::Args),
     #[clap(subcommand, about = "Rack profile")]

@@ -215,9 +215,9 @@ fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
         .unwrap_or_default()
 }
 
-// Allow `carbide_macros::sqlx_test` to be referred to as `#[crate::sqlx_test]` in the admin-UI
-// tests (the macro expands to `crate::tests::{MIGRATOR, sqlx_fixture_from_str}`, re-exported in
-// `tests/mod.rs`).
+// Allow `carbide_macros::sqlx_test` to be referred to as
+// `#[crate::sqlx_test]` in the admin-UI tests. These tests do not support
+// `fixtures(...)`; use explicit setup helpers instead.
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
 #[cfg(test)]
@@ -479,6 +479,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::set_dpu_first_boot_order),
             )
             .route(
+                "/explored-endpoint/{endpoint_ip}/restore-boot-interface",
+                post(explored_endpoint::restore_boot_interface),
+            )
+            .route(
                 "/explored-endpoint/{endpoint_ip}/clear-credentials",
                 post(explored_endpoint::clear_bmc_credentials),
             )
@@ -558,6 +562,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/quarantine",
                 post(machine::quarantine),
             )
+            .route("/machine/{machine_id}/sku", post(machine::sku))
             .route(
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),

@@ -140,6 +140,34 @@ spec:
               mountPath: /host/root
               mountPropagation: HostToContainer
               readOnly: true
+        - name: transceiver-exporter
+          image: "{{ .Values.transceiverExporter.image.repository }}:{{ .Values.transceiverExporter.image.tag | default .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.transceiverExporter.image.pullPolicy }}
+          args:
+            # Bind to loopback only: the collector scrapes localhost:{{ .Values.transceiverExporter.port }}
+            # from within this (hostNetwork) pod, and we don't want the exporter
+            # reachable on the host's external interfaces.
+            - -web.listen-address=127.0.0.1:{{ .Values.transceiverExporter.port }}
+            # Optic/DOM metrics only; the interface-features collector is noisy
+            # and not consumed downstream (matches the host systemd unit).
+            - -collector.interface-features.enable=false
+          {{- with .Values.transceiverExporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # Reads module EEPROM/DOM data via ethtool netlink over the host
+          # network namespace (hostNetwork), which requires CAP_NET_ADMIN.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_ADMIN
+                - NET_RAW
       volumes:
         - name: config
           configMap:

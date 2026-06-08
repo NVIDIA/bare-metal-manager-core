@@ -9,7 +9,7 @@ on:
       runner:
         description: "Runner type for the job"
         required: false
-        default: "ubuntu-latest"
+        default: "linux-amd64-cpu4"
         type: string
     outputs:
       semantic_version:

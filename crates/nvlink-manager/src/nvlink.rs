@@ -218,15 +218,28 @@ pub mod test_support {
                 })
                 .collect()
         }
+
+        fn success_server_header() -> nmxc_model::ServerHeader {
+            nmxc_model::ServerHeader {
+                return_code: nmxc_model::StReturnCode::NmxStSuccess as i32,
+                ..Default::default()
+            }
+        }
+
+        /// True when `endpoint` carries a URL from `nvlink_nmxc_endpoints` (non-empty host).
+        fn nvlink_nmxc_endpoint_is_set(endpoint: &Endpoint) -> bool {
+            endpoint.uri.host().is_some_and(|host| !host.is_empty())
+        }
     }
 
     #[::async_trait::async_trait]
     impl Nmxc for NmxcSimClient {
         async fn hello(&mut self, _gateway_id: &str) -> Result<nmxc_model::ServerHello, NmxcError> {
             Ok(nmxc_model::ServerHello {
-                server_header: Some(nmxc_model::ServerHeader {
-                    domain_uuid: "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string(),
-                    ..Default::default()
+                server_header: Some({
+                    let mut header = Self::success_server_header();
+                    header.domain_uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string();
+                    header
                 }),
                 components_ver: vec![],
                 capabilities: vec![],
@@ -243,7 +256,7 @@ pub mod test_support {
             _gateway_id: &str,
         ) -> Result<nmxc_model::DomainProperties, NmxcError> {
             Ok(nmxc_model::DomainProperties {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 max_compute_nodes: 0,
                 max_compute_nodes_per_chassis: 0,
@@ -268,7 +281,7 @@ pub mod test_support {
             _gateway_id: &str,
         ) -> Result<nmxc_model::DomainStateInfo, NmxcError> {
             Ok(nmxc_model::DomainStateInfo {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 control_plane_state: 0,
                 available_multicast_groups: 0,
@@ -283,7 +296,7 @@ pub mod test_support {
             _gateway_id: &str,
         ) -> Result<nmxc_model::FmTopologyInfo, NmxcError> {
             Ok(nmxc_model::FmTopologyInfo {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 device_topo_info: vec![],
             })
@@ -294,7 +307,7 @@ pub mod test_support {
             _req: nmxc_model::GetComputeNodeCountRequest,
         ) -> Result<GetComputeNodeCountResponse, NmxcError> {
             Ok(GetComputeNodeCountResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 num_nodes: 0,
             })
@@ -305,7 +318,7 @@ pub mod test_support {
             _req: nmxc_model::GetComputeNodeInfoListRequest,
         ) -> Result<GetComputeNodeInfoListResponse, NmxcError> {
             Ok(GetComputeNodeInfoListResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 node_info_list: vec![],
             })
@@ -316,7 +329,7 @@ pub mod test_support {
             _req: nmxc_model::GetGpuInfoListRequest,
         ) -> Result<GetGpuInfoListResponse, NmxcError> {
             Ok(GetGpuInfoListResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 gpu_info_list: vec![],
             })
@@ -327,7 +340,7 @@ pub mod test_support {
             _req: nmxc_model::GetSwitchNodeCountRequest,
         ) -> Result<GetSwitchNodeCountResponse, NmxcError> {
             Ok(GetSwitchNodeCountResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 num_nodes: 0,
             })
@@ -338,7 +351,7 @@ pub mod test_support {
             _req: nmxc_model::GetSwitchNodeInfoListRequest,
         ) -> Result<GetSwitchNodeInfoListResponse, NmxcError> {
             Ok(GetSwitchNodeInfoListResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 node_info_list: vec![],
             })
@@ -350,7 +363,7 @@ pub mod test_support {
         ) -> Result<GetPartitionCountResponse, NmxcError> {
             let n = self._partitions.lock().unwrap().len() as u32;
             Ok(GetPartitionCountResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 num_partitions: n,
             })
@@ -371,7 +384,7 @@ pub mod test_support {
                 })
                 .collect();
             Ok(GetPartitionIdListResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_list,
             })
@@ -398,7 +411,7 @@ pub mod test_support {
                         .collect()
                 };
             Ok(GetPartitionInfoListResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_info_list,
             })
@@ -430,7 +443,7 @@ pub mod test_support {
                 gpu_uids,
             });
             Ok(nmxc_model::CreatePartitionResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_id: Some(nmxc_model::PartitionId { partition_id }),
             })
@@ -446,7 +459,7 @@ pub mod test_support {
                 .unwrap()
                 .retain(|p| p.partition_id != pid);
             Ok(nmxc_model::DeletePartitionResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
             })
@@ -472,7 +485,7 @@ pub mod test_support {
                 }
             }
             Ok(nmxc_model::UpdatePartitionResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
             })
@@ -495,7 +508,7 @@ pub mod test_support {
                 .ok_or_else(|| NmxcError::invalid_response("partition not found"))?;
             partition.gpu_uids.retain(|u| !remove.contains(u));
             Ok(nmxc_model::UpdatePartitionResponse {
-                server_header: None,
+                server_header: Some(Self::success_server_header()),
                 context: None,
                 partition_id: Some(nmxc_model::PartitionId { partition_id: pid }),
             })
@@ -504,13 +517,15 @@ pub mod test_support {
 
     #[::async_trait::async_trait]
     impl NmxcPool for NmxcSimClient {
-        async fn create_client(&self, _endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
+        async fn create_client(&self, endpoint: Endpoint) -> Result<Box<dyn Nmxc>, NmxcError> {
             if let Some(pool) = &self._grpc_pool {
-                let ep = self
-                    ._simulator_endpoint
-                    .as_ref()
-                    .expect("simulator mode must set _simulator_endpoint")
-                    .clone();
+                let ep = if Self::nvlink_nmxc_endpoint_is_set(&endpoint) {
+                    endpoint
+                } else {
+                    self._simulator_endpoint
+                        .clone()
+                        .expect("simulator mode must set _simulator_endpoint")
+                };
                 return pool.create_client(ep).await;
             }
             Ok(Box::new(NmxcSimClient {

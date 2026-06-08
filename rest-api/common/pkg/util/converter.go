@@ -32,3 +32,10 @@ func Uint32PtrToIntPtr(u *uint32) *int {
 	i := int(*u) //nolint:gosec // bounded by uint32 range; safe on 64-bit targets.
 	return &i
 }
+
+// GetPtr returns a pointer to a copy of v. Generic helper that replaces
+// the per-type `GetStrPtr` / `GetIntPtr` / `GetBoolPtr` / `GetUUIDPtr` /
+// `GetTimePtr` helpers that previously lived in `db/pkg/db`.
+func GetPtr[T any](v T) *T {
+	return &v
+}

@@ -10,9 +10,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/migrations"
 )
 
 var (

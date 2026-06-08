@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
 
 // RunInEnvironment provides a strongly-typed indicator for the environment

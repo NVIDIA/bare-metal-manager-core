@@ -38,15 +38,17 @@ use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::{
-    MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
+    DpuFabricInterfaceStatusObservation, MachineNetworkStatusObservation, ManagedHostNetworkConfig,
+    ManagedHostQuarantineState,
 };
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineValidationContext,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
+    FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineValidationContext, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -689,6 +691,21 @@ pub async fn update_scout_contact_time(
     Ok(())
 }
 
+pub async fn update_last_scout_observed_version(
+    machine_id: &MachineId,
+    scout_version: &str,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET last_scout_observed_version=$2 WHERE id=$1 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(scout_version)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
 pub async fn find_host_by_dpu_machine_id(
     txn: &mut PgConnection,
     dpu_machine_id: &MachineId,
@@ -731,6 +748,25 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         .fetch_all(conn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Return the [`ManagedHostState`] for a machine given its id without returning the whole snapshot.
+pub async fn lookup_managed_host_state(
+    conn: impl DbReader<'_>,
+    machine_id: MachineId,
+) -> DatabaseResult<Option<ManagedHostState>> {
+    let query = "SELECT controller_state FROM machines WHERE id = $1";
+
+    let Some(json): Option<sqlx::types::Json<ManagedHostState>> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(json.0))
 }
 
 /// Returns the `use_admin_network` flag from the host that owns the
@@ -1973,31 +2009,95 @@ pub async fn update_failure_details_by_machine_id(
     Ok(())
 }
 
-/// Find a list of dpu information
+/// Find a list of DPU operational information.
 ///
-/// Returns: `Vec<DpuInfo>` - A list of DPU information of DPU id and loopback Ip addresses
+/// Returns: `Vec<DpuInfo>` - A list of DPU information with loopback and operational state.
 ///
 /// Arguments
 ///
 /// * `txn` - A reference to currently open database transaction
-pub async fn find_dpu_ids_and_loopback_ips(
-    txn: &mut PgConnection,
-) -> Result<Vec<DpuInfo>, DatabaseError> {
-    // Get all DPU IP addresses except the requester DPU machine
-    let query = "
-        SELECT id, network_config->>'loopback_ip' AS loopback_ip
-        FROM machines
-        WHERE network_config->>'loopback_ip' IS NOT NULL";
+pub async fn find_dpu_infos(txn: &mut PgConnection) -> Result<Vec<DpuInfo>, DatabaseError> {
+    type DpuInfoRow = (
+        String,
+        String,
+        sqlx::types::Json<ManagedHostState>,
+        sqlx::types::Json<Option<MachineNetworkStatusObservation>>,
+        Option<String>,
+    );
 
-    let dpu_infos: Vec<DpuInfo> = sqlx::query_as(query)
+    // Pull the DPU rows with the JSON fields needed to shape the response.
+    let query = r#"
+        SELECT
+            m.id,
+            m.network_config->>'loopback_ip' AS loopback_ip,
+            m.controller_state,
+            COALESCE(m.network_status_observation, 'null'::jsonb) AS network_status_observation,
+            mt.topology->'discovery_data'->'Info'->'dpu_info'->>'firmware_version' AS firmware_version
+        FROM machines m
+        LEFT JOIN machine_topologies mt ON mt.machine_id = m.id
+        WHERE m.network_config->>'loopback_ip' IS NOT NULL
+        ORDER BY m.id"#;
+
+    let dpu_rows: Vec<DpuInfoRow> = sqlx::query_as(query)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?
-        .into_iter()
-        .map(|(id, loopback_ip)| DpuInfo { id, loopback_ip })
-        .collect();
+        .map_err(|e| DatabaseError::query(query, e))?;
 
-    Ok(dpu_infos)
+    // TODO: Replace this heuristic once the agent reports interface roles explicitly.
+    let is_representor = |interface_name: &str| interface_name.starts_with("pf");
+
+    let representor_statuses = |interfaces: &[DpuFabricInterfaceStatusObservation]| {
+        let mut representors: Vec<_> = interfaces
+            .iter()
+            .filter(|interface| is_representor(&interface.interface_name))
+            .map(|interface| DpuRepresentorStatus {
+                name: interface.interface_name.clone(),
+                carrier_up: interface
+                    .link_data
+                    .as_ref()
+                    .and_then(|link| link.carrier_up),
+                state: interface
+                    .link_data
+                    .as_ref()
+                    .and_then(|link| link.state.clone()),
+            })
+            .collect();
+
+        representors.sort_by(|left, right| left.name.cmp(&right.name));
+        representors
+    };
+
+    // Shape each DB row into the public DPU info model.
+    dpu_rows
+        .into_iter()
+        .map(
+            |(id, loopback_ip, controller_state, network_status_observation, firmware_version)| {
+                let dpu_id = MachineId::from_str(&id).map_err(|e| {
+                    DatabaseError::internal(format!("Invalid DPU machine ID {id}: {e}"))
+                })?;
+                let network_status_observation = network_status_observation.0;
+                let representors = network_status_observation
+                    .as_ref()
+                    .map(|observation| representor_statuses(&observation.fabric_interfaces))
+                    .unwrap_or_default();
+
+                Ok(DpuInfo {
+                    id,
+                    loopback_ip,
+                    observed_status: Some(DpuInfoStatusObservation {
+                        os_operational_state: Some(DpuOsOperationalState {
+                            state_detail: controller_state.0.dpu_state_string(&dpu_id),
+                        }),
+                        firmware_version,
+                        representors,
+                        last_heartbeat: network_status_observation
+                            .as_ref()
+                            .map(|observation| observation.observed_at),
+                    }),
+                })
+            },
+        )
+        .collect()
 }
 
 /// Allocate a value from the loopback IP resource pool.

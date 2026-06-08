@@ -13,19 +13,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -144,31 +144,31 @@ func TestAllocationHandler_Create(t *testing.T) {
 
 	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
 
-	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
 
-	it2 := common.TestBuildInstanceType(t, dbSession, "testIT2", cdb.GetUUIDPtr(uuid.New()), site2, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "testIT2", cutil.GetPtr(uuid.New()), site2, map[string]string{
 		"name":        "test-instance-type-2",
 		"description": "Test Instance Type 2 Description",
 	}, ipu)
 
-	it3 := common.TestBuildInstanceType(t, dbSession, "testIT3", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it3 := common.TestBuildInstanceType(t, dbSession, "testIT3", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-3",
 		"description": "Test Instance Type 3 Description",
 	}, ipu)
 
-	it4 := common.TestBuildInstanceType(t, dbSession, "testIT4", cdb.GetUUIDPtr(uuid.New()), site2, map[string]string{
+	it4 := common.TestBuildInstanceType(t, dbSession, "testIT4", cutil.GetPtr(uuid.New()), site2, map[string]string{
 		"name":        "test-instance-type-4",
 		"description": "Test Instance Type 4 Description",
 	}, ipu)
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 7; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
-		mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc2)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
@@ -198,48 +198,48 @@ func TestAllocationHandler_Create(t *testing.T) {
 
 	acGoodIPBFG := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipbFG.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 16}
 
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	errBodyITMachinesUnavailable, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok2", Description: cdb.GetStrPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITHigh}})
+	errBodyITMachinesUnavailable, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok2", Description: cutil.GetPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITHigh}})
 	assert.Nil(t, err)
-	okBodyITForDifferentTenant, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok3", Description: cdb.GetStrPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyITForDifferentTenant, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok3", Description: cutil.GetPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	errBodyIPBNameClash, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
+	errBodyIPBNameClash, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
 	assert.Nil(t, err)
-	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okIpb", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
+	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okIpb", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
 	assert.Nil(t, err)
 
-	okBodyIPBFG, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okIpbFG", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBFG}})
+	okBodyIPBFG, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okIpbFG", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBFG}})
 	assert.Nil(t, err)
 
 	errBodyDoesntValidate, err := json.Marshal(struct{ Name string }{Name: "test"})
 	assert.Nil(t, err)
-	errBodyBadSiteID, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok6", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: uuid.New().String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	errBodyBadSiteID, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok6", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: uuid.New().String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	errBodyBadSiteIP, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok7", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	errBodyBadSiteIP, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok7", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	errBodyBadTenantID, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok8", Description: cdb.GetStrPtr(""), TenantID: uuid.New().String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
-	assert.Nil(t, err)
-
-	errBodyBadITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok9", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeDoesNotExist}})
-	assert.Nil(t, err)
-	okBodyRepeatedITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-repeated", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
-	assert.Nil(t, err)
-	errBodyBadIPInIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok10", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeProviderMismatch}})
-	assert.Nil(t, err)
-	errBodyBadSiteInIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok11", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeSiteMismatch}})
-	assert.Nil(t, err)
-	errBodyBadIPBInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok12", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockDoesNotExist}})
-	assert.Nil(t, err)
-	errBodyBadIPInIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok13", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockProviderMismatch}})
-	assert.Nil(t, err)
-	errBodyBadSiteInIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok14", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockSiteMismatch}})
+	errBodyBadTenantID, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok8", Description: cutil.GetPtr(""), TenantID: uuid.New().String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
 
-	errAllocationConstraintHasBlockSizeLargerThanParent, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1-ipb-error", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBBlockSizeLargerThanParent}})
+	errBodyBadITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok9", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeDoesNotExist}})
+	assert.Nil(t, err)
+	okBodyRepeatedITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-repeated", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	assert.Nil(t, err)
+	errBodyBadIPInIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok10", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeProviderMismatch}})
+	assert.Nil(t, err)
+	errBodyBadSiteInIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok11", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeSiteMismatch}})
+	assert.Nil(t, err)
+	errBodyBadIPBInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok12", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockDoesNotExist}})
+	assert.Nil(t, err)
+	errBodyBadIPInIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok13", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockProviderMismatch}})
+	assert.Nil(t, err)
+	errBodyBadSiteInIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok14", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockSiteMismatch}})
 	assert.Nil(t, err)
 
-	errBodyIpamFail, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok15", Description: cdb.GetStrPtr(""), TenantID: tenant2.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockProviderMismatch}})
+	errAllocationConstraintHasBlockSizeLargerThanParent, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1-ipb-error", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBBlockSizeLargerThanParent}})
+	assert.Nil(t, err)
+
+	errBodyIpamFail, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok15", Description: cutil.GetPtr(""), TenantID: tenant2.ID.String(), SiteID: site2.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockProviderMismatch}})
 	assert.Nil(t, err)
 
 	parentPref, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipb1.Prefix, ipb1.PrefixLength, ipb1.RoutingType, ipb1.InfrastructureProviderID.String(), ipb1.SiteID.String())
@@ -760,19 +760,19 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			resourceTypeIDs = append(resourceTypeIDs, itTmp.ID.String())
 			// build some machines, and map the machines to the instancetypes
 			for j := 1; j <= 2; j++ {
-				mc := testInstanceBuildMachine(t, dbSession, ip.ID, site1.ID, cdb.GetBoolPtr(false), nil)
+				mc := testInstanceBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(false), nil)
 				assert.NotNil(t, mc)
 				mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, itTmp)
 				assert.NotNil(t, mcinst1)
 			}
 			acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: itTmp.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 1}
-			okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("allocation-%02d", i), Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site1.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+			okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("allocation-%02d", i), Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site1.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 			assert.Nil(t, err)
 
 			al = testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg1, string(okBodyIT))
 			assert.NotNil(t, al)
 		} else {
-			okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("allocation-%02d", i), Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site1.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
+			okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("allocation-%02d", i), Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site1.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
 			assert.Nil(t, err)
 
 			al = testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg1, string(okBodyIPB))
@@ -781,7 +781,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 
 		alID := uuid.MustParse(al.ID)
 		almap[al.Name] = al
-		common.TestBuildStatusDetail(t, dbSession, alID.String(), cdbm.AllocationStatusRegistered, cdb.GetStrPtr("Allocation is now registered"))
+		common.TestBuildStatusDetail(t, dbSession, alID.String(), cdbm.AllocationStatusRegistered, cutil.GetPtr("Allocation is now registered"))
 	}
 
 	// Org with both Provider and Tenant roles: same org acts as its own infrastructure provider and tenant
@@ -796,16 +796,16 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 	for i := 0; i < orgAllocCount; i++ {
 		itTmp := testMachineBuildInstanceType(t, dbSession, orgProvider, orgSite, fmt.Sprintf("test-org-instance-type-%02d", i))
 		for j := 1; j <= 2; j++ {
-			mc := testInstanceBuildMachine(t, dbSession, orgProvider.ID, orgSite.ID, cdb.GetBoolPtr(false), nil)
+			mc := testInstanceBuildMachine(t, dbSession, orgProvider.ID, orgSite.ID, cutil.GetPtr(false), nil)
 			mcinst := testInstanceBuildMachineInstanceType(t, dbSession, mc, itTmp)
 			assert.NotNil(t, mcinst)
 		}
 		acOrg := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: itTmp.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 1}
-		orgBody, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("org-allocation-%02d", i), Description: cdb.GetStrPtr(""), TenantID: orgTenant.ID.String(), SiteID: orgSite.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acOrg}})
+		orgBody, err := json.Marshal(model.APIAllocationCreateRequest{Name: fmt.Sprintf("org-allocation-%02d", i), Description: cutil.GetPtr(""), TenantID: orgTenant.ID.String(), SiteID: orgSite.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acOrg}})
 		assert.Nil(t, err)
 		orgAl := testCreateAllocation(t, dbSession, ipamStorage, orgUser, orgName, string(orgBody))
 		assert.NotNil(t, orgAl)
-		common.TestBuildStatusDetail(t, dbSession, orgAl.ID, cdbm.AllocationStatusRegistered, cdb.GetStrPtr("Allocation is now registered"))
+		common.TestBuildStatusDetail(t, dbSession, orgAl.ID, cdbm.AllocationStatusRegistered, cutil.GetPtr("Allocation is now registered"))
 	}
 
 	// OTEL Spanner configuration
@@ -900,7 +900,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "error when user does not have the necessary role",
 			reqOrgName:                    ipOrg1,
 			user:                          nru,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusForbidden,
 		},
@@ -908,7 +908,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when infrastructure provider id is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			queryIncludeRelations1:        nil,
 			queryIncludeRelations2:        nil,
 			queryIncludeRelations3:        nil,
@@ -921,7 +921,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success case when user has Provider viewer role",
 			reqOrgName:                    ipOrg1,
 			user:                          ipuv,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			queryIncludeRelations1:        nil,
 			queryIncludeRelations2:        nil,
 			queryIncludeRelations3:        nil,
@@ -955,7 +955,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when both infrastructure id and tenant id are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			queryTenantIDs:                []string{tenant1.ID.String()},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
@@ -966,7 +966,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when infrastructure id and site id are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
@@ -977,7 +977,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when infrastructure id, tenant id and site id are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			queryTenantIDs:                []string{tenant1.ID.String()},
 			querySiteIDs:                  []string{site1.ID.String()},
 			expectedErr:                   false,
@@ -989,12 +989,12 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                              "success when infrastructure provider relation is specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
 			queryIncludeRelations2:            nil,
 			queryIncludeRelations3:            nil,
 			expectedErr:                       false,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       paginator.DefaultLimit,
 			expectedTotal:                     &totalCount,
@@ -1003,13 +1003,13 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                              "success when infrastructure and tenant relations are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
 			queryTenantIDs:                    []string{tenant1.ID.String()},
 			querySiteIDs:                      []string{site1.ID.String()},
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.TenantRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedTenantOrg:                 cdb.GetStrPtr(tenant1.Org),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.TenantRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedTenantOrg:                 cutil.GetPtr(tenant1.Org),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       paginator.DefaultLimit,
@@ -1019,12 +1019,12 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                              "success when infrastructure and site relations are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                      []string{site1.ID.String()},
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations3:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site1.Name),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations3:            cutil.GetPtr(cdbm.SiteRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedSiteName:                  cutil.GetPtr(site1.Name),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       paginator.DefaultLimit,
@@ -1034,7 +1034,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when no results are returned",
 			reqOrgName:                    ipOrg2,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip2.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip2.ID.String()),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   0,
@@ -1044,11 +1044,11 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when pagination params are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("NAME_DESC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("NAME_DESC"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1059,11 +1059,11 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "failure when invalid pagination params are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("TEST_ASC"),
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
@@ -1072,9 +1072,9 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when name search query is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			querySearch:                   cdb.GetStrPtr("allocation-"),
+			querySearch:                   cutil.GetPtr("allocation-"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   paginator.DefaultLimit,
@@ -1084,21 +1084,21 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when unexisted name search query are specified return none",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			querySearch:                   cdb.GetStrPtr("test-"),
+			querySearch:                   cutil.GetPtr("test-"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   0,
-			expectedTotal:                 db.GetIntPtr(0),
+			expectedTotal:                 cutil.GetPtr(0),
 		},
 		{
 			name:                          "success when combination name and status search query are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			querySearch:                   cdb.GetStrPtr("allocation Registered"),
+			querySearch:                   cutil.GetPtr("allocation Registered"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   paginator.DefaultLimit,
@@ -1108,43 +1108,43 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when instance type as a resource type search query are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypes:            []string{cdbm.AllocationResourceTypeInstanceType},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   15,
-			expectedTotal:                 cdb.GetIntPtr(15),
+			expectedTotal:                 cutil.GetPtr(15),
 		},
 		{
 			name:                          "success when ipblock as a resource type search query are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypes:            []string{cdbm.AllocationResourceTypeIPBlock},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   15,
-			expectedTotal:                 cdb.GetIntPtr(15),
+			expectedTotal:                 cutil.GetPtr(15),
 		},
 		{
 			name:                          "error when given resource type search query are specified not exists",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypes:            []string{"NotExisted"},
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
-			expectedTotal:                 cdb.GetIntPtr(0),
+			expectedTotal:                 cutil.GetPtr(0),
 		},
 		{
 			name:                          "success when AllocationStatusRegistered status is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryStatuses:                 []string{cdbm.AllocationStatusRegistered},
 			expectedErr:                   false,
@@ -1156,97 +1156,97 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "error when BadStatus status is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryStatuses:                 []string{"BadStatus"},
 			expectedErr:                   true,
 			expectedStatus:                http.StatusBadRequest,
 			expectedCnt:                   0,
-			expectedTotal:                 cdb.GetIntPtr(0),
+			expectedTotal:                 cutil.GetPtr(0),
 		},
 		{
 			name:                          "success when multiple resource types are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypes:            []string{cdbm.AllocationResourceTypeIPBlock, cdbm.AllocationResourceTypeInstanceType},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   20,
-			expectedTotal:                 cdb.GetIntPtr(30),
+			expectedTotal:                 cutil.GetPtr(30),
 		},
 		{
 			name:                          "success when single resource type id is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypeIDs:          []string{resourceTypeIDs[0]},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   1,
-			expectedTotal:                 cdb.GetIntPtr(1),
+			expectedTotal:                 cutil.GetPtr(1),
 		},
 		{
 			name:                          "success when multiple resource type ids are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryResourceTypeIDs:          resourceTypeIDs[0:2],
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   2,
-			expectedTotal:                 cdb.GetIntPtr(2),
+			expectedTotal:                 cutil.GetPtr(2),
 		},
 		{
 			name:                          "success when single constraint type is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryConstraintTypes:          []string{cdbm.AllocationConstraintTypeReserved},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   20,
-			expectedTotal:                 cdb.GetIntPtr(30),
+			expectedTotal:                 cutil.GetPtr(30),
 		},
 		{
 			name:                          "success when multiple constraint types are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryConstraintTypes:          []string{cdbm.AllocationConstraintTypeReserved, cdbm.AllocationConstraintTypeOnDemand},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   20,
-			expectedTotal:                 cdb.GetIntPtr(30),
+			expectedTotal:                 cutil.GetPtr(30),
 		},
 		{
 			name:                          "success when single constraint value is specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryConstraintValues:         []string{"1"},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   15,
-			expectedTotal:                 cdb.GetIntPtr(15),
+			expectedTotal:                 cutil.GetPtr(15),
 		},
 		{
 			name:                          "success when multiple constraint values are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryConstraintValues:         []string{"1", "0"},
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   15,
-			expectedTotal:                 cdb.GetIntPtr(15),
+			expectedTotal:                 cutil.GetPtr(15),
 		},
 		{
 			name:           "success when multiple tenant ids are specified",
@@ -1273,7 +1273,7 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when multiple statuses are specified",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
 			queryStatuses:                 []string{cdbm.AllocationStatusRegistered, cdbm.AllocationStatusPending},
 			expectedErr:                   false,
@@ -1285,12 +1285,12 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when sort by site name",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("SITE_NAME_ASC"),
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.SiteRelationName),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("SITE_NAME_ASC"),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1301,12 +1301,12 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when sort by org display name",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("TENANT_ORG_DISPLAY_NAME_ASC"),
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.TenantRelationName),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("TENANT_ORG_DISPLAY_NAME_ASC"),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1317,11 +1317,11 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when sort by instance type name",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("INSTANCE_TYPE_NAME_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("INSTANCE_TYPE_NAME_ASC"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1332,11 +1332,11 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when sort by ip block name",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("IP_BLOCK_NAME_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("IP_BLOCK_NAME_ASC"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1347,11 +1347,11 @@ func TestAllocationHandler_GetAll(t *testing.T) {
 			name:                          "success when sort by constraint value",
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			querySiteIDs:                  []string{site1.ID.String()},
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CONSTRAINT_VALUE_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CONSTRAINT_VALUE_ASC"),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			expectedCnt:                   10,
@@ -1554,7 +1554,7 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 5; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
@@ -1563,9 +1563,9 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 	acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 5}
 	acGoodIPB := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
+	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
 	assert.Nil(t, err)
 
 	parentPref, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipb1.Prefix, ipb1.PrefixLength, ipb1.RoutingType, ipb1.InfrastructureProviderID.String(), ipb1.SiteID.String())
@@ -1649,7 +1649,7 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
 			aID:                           aIT.ID,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 		},
@@ -1658,7 +1658,7 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:     tnOrg1,
 			user:           tnu,
 			aID:            uuid.New().String(),
-			queryTenantID:  cdb.GetStrPtr(tenant1.ID.String()),
+			queryTenantID:  cutil.GetPtr(tenant1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -1667,7 +1667,7 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:     tnOrg1,
 			user:           tnu,
 			aID:            aIT.ID,
-			queryTenantID:  cdb.GetStrPtr(tenant1.ID.String()),
+			queryTenantID:  cutil.GetPtr(tenant1.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 		},
@@ -1676,8 +1676,8 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipu,
 			aID:                           aIT.ID,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
-			queryTenantID:                 cdb.GetStrPtr(tenant1.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
+			queryTenantID:                 cutil.GetPtr(tenant1.ID.String()),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			verifyChildSpanner:            true,
@@ -1687,7 +1687,7 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:                    ipOrg1,
 			user:                          ipuv,
 			aID:                           aIT.ID,
-			queryInfrastructureProviderID: cdb.GetStrPtr(ip.ID.String()),
+			queryInfrastructureProviderID: cutil.GetPtr(ip.ID.String()),
 			expectedErr:                   false,
 			expectedStatus:                http.StatusOK,
 			verifyChildSpanner:            true,
@@ -1697,44 +1697,44 @@ func TestAllocationHandler_GetByID(t *testing.T) {
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
 			aID:                               aIT.ID,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
-			queryTenantID:                     cdb.GetStrPtr(tenant1.ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
+			queryTenantID:                     cutil.GetPtr(tenant1.ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.TenantRelationName),
 			queryIncludeRelations3:            nil,
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedTenantOrg:                 cdb.GetStrPtr(tenant1.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedTenantOrg:                 cutil.GetPtr(tenant1.Org),
 		},
 		{
 			name:                              "success when infrastructure tenant and site relations are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
 			aID:                               aIT.ID,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
-			queryTenantID:                     cdb.GetStrPtr(tenant1.ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.TenantRelationName),
-			queryIncludeRelations3:            cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
+			queryTenantID:                     cutil.GetPtr(tenant1.ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeRelations3:            cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedTenantOrg:                 cdb.GetStrPtr(tenant1.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site.Name),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedTenantOrg:                 cutil.GetPtr(tenant1.Org),
+			expectedSiteName:                  cutil.GetPtr(site.Name),
 		},
 		{
 			name:                              "success when infrastructure site relations are specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
 			aID:                               aIT.ID,
-			queryInfrastructureProviderID:     cdb.GetStrPtr(ip.ID.String()),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations3:            cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryInfrastructureProviderID:     cutil.GetPtr(ip.ID.String()),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations3:            cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site.Name),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedSiteName:                  cutil.GetPtr(site.Name),
 		},
 	}
 	for _, tc := range tests {
@@ -1867,7 +1867,7 @@ func TestAllocationHandler_Update(t *testing.T) {
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 4; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
@@ -1885,11 +1885,11 @@ func TestAllocationHandler_Update(t *testing.T) {
 	acGoodIT2 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it2.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 2}
 	acGoodIPB1 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 28}
 
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	okBodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation-2", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
+	okBodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation-2", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
 	assert.Nil(t, err)
-	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation-3", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB1}})
+	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "test-allocation-3", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB1}})
 	assert.Nil(t, err)
 
 	aIT := testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg1, string(okBodyIT))
@@ -1898,19 +1898,19 @@ func TestAllocationHandler_Update(t *testing.T) {
 	aIPB := testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg1, string(okBodyIPB))
 	assert.NotNil(t, aIPB)
 
-	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyNameUniqueness, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("test-allocation-2")})
+	errBodyNameUniqueness, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("test-allocation-2")})
 	assert.Nil(t, err)
 
-	okBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("UpdatedName1")})
+	okBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("UpdatedName1")})
 	assert.Nil(t, err)
-	okBody2, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("UpdatedName2"), Description: cdb.GetStrPtr("UpdatedDesc2")})
+	okBody2, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("UpdatedName2"), Description: cutil.GetPtr("UpdatedDesc2")})
 	assert.Nil(t, err)
-	okBody3, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("test-allocation")})
+	okBody3, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("test-allocation")})
 	assert.Nil(t, err)
-	okBody4, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("test-updated-allocation-3")})
+	okBody4, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("test-updated-allocation-3")})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -2064,7 +2064,7 @@ func TestAllocationHandler_Update(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedName:   "UpdatedName2",
-			expectedDesc:   cdb.GetStrPtr("UpdatedDesc2"),
+			expectedDesc:   cutil.GetPtr("UpdatedDesc2"),
 			tmc:            tmc1,
 		},
 		{
@@ -2190,13 +2190,13 @@ func TestAllocationHandler_Delete(t *testing.T) {
 	cfg := common.GetTestConfig()
 	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
 
-	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 5; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
@@ -2217,17 +2217,17 @@ func TestAllocationHandler_Delete(t *testing.T) {
 
 	acGoodIPBFG := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipbFG.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 16}
 
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	okBodyRepeatedITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-repeated", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyRepeatedITInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-repeated", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
-	okBodySmallIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-small", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITSmall}})
+	okBodySmallIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok-small", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITSmall}})
 	assert.Nil(t, err)
-	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
+	okBodyIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB}})
 	assert.Nil(t, err)
-	okBodyIPBFG, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipbfg", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBFG}})
+	okBodyIPBFG, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipbfg", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBFG}})
 	assert.Nil(t, err)
-	okBodyIPBVpcPrefix, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipbvpcprefix", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBVpcPrefix}})
+	okBodyIPBVpcPrefix, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipbvpcprefix", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPBVpcPrefix}})
 	assert.Nil(t, err)
 
 	parentPref, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipb1.Prefix, ipb1.PrefixLength, ipb1.RoutingType, ipb1.InfrastructureProviderID.String(), ipb1.SiteID.String())
@@ -2266,7 +2266,7 @@ func TestAllocationHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
@@ -2281,7 +2281,7 @@ func TestAllocationHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
@@ -2296,7 +2296,7 @@ func TestAllocationHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
@@ -2311,7 +2311,7 @@ func TestAllocationHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
@@ -2676,7 +2676,7 @@ func TestInstanceTypeAllocationForMultipleTenants(t *testing.T) {
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 10; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
@@ -2685,10 +2685,10 @@ func TestInstanceTypeAllocationForMultipleTenants(t *testing.T) {
 	acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 6}
 	acGoodIT2 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 4}
 
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
 
-	okBodyITForDifferentTenant, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
+	okBodyITForDifferentTenant, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
 	assert.Nil(t, err)
 
 	// Mock Temporal Site Client pool

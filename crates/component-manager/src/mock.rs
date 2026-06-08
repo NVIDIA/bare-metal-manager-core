@@ -12,11 +12,13 @@ use crate::compute_tray_manager::{
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfFirmwareVersions, PowerShelfManager,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfPowerStateResult,
 };
+use crate::types::FirmwareUpdateOptions;
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;
@@ -47,6 +49,7 @@ impl NvSwitchManager for MockNvSwitchManager {
         endpoints: &[SwitchEndpoint],
         _bundle_version: &str,
         _components: &[NvSwitchComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -75,6 +78,21 @@ impl NvSwitchManager for MockNvSwitchManager {
 
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         Ok(vec!["mock-1.0.0".into(), "mock-2.0.0".into()])
+    }
+
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| SwitchSlotAndTrayResult {
+                bmc_mac: ep.bmc_mac,
+                slot_number: None,
+                tray_index: None,
+                error: None,
+            })
+            .collect())
     }
 }
 
@@ -107,6 +125,7 @@ impl PowerShelfManager for MockPowerShelfManager {
         endpoints: &[PowerShelfEndpoint],
         _target_version: &str,
         _components: &[PowerShelfComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -146,6 +165,20 @@ impl PowerShelfManager for MockPowerShelfManager {
             })
             .collect())
     }
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| PowerShelfPowerStateResult {
+                pmc_mac: ep.pmc_mac,
+                power_state: None,
+                error: None,
+            })
+            .collect())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -181,6 +214,7 @@ impl ComputeTrayManager for MockComputeTrayManager {
         endpoints: &[ComputeTrayEndpoint],
         _target_version: &str,
         _components: &[ComputeTrayComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()

@@ -12,25 +12,24 @@ import (
 	"testing"
 	"time"
 
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/google/uuid"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -123,7 +122,7 @@ func testMachineBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session
 	ip := &cdbm.InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: cdb.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         org,
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -135,13 +134,13 @@ func testMachineBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrast
 	st := &cdbm.Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		Status:                      status,
 		CreatedBy:                   uuid.New(),
 	}
@@ -165,9 +164,9 @@ func testMachineBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID stri
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData:     OrgData,
 	})
 	assert.Nil(t, err)
@@ -189,7 +188,7 @@ func testMachineBuildMachine(t *testing.T, dbSession *cdb.Session, ip uuid.UUID,
 		MaintenanceMessage:       maintenanceMessage,
 		IsNetworkDegraded:        isNetworkDegraded,
 		NetworkHealthMessage:     networkHealthMessage,
-		DefaultMacAddress:        cdb.GetStrPtr("00:1B:44:11:3A:B7"),
+		DefaultMacAddress:        cutil.GetPtr("00:1B:44:11:3A:B7"),
 	}
 
 	if status != nil {
@@ -222,12 +221,12 @@ func testMachineBuildMachineInterface(t *testing.T, dbSession *cdb.Session, mID 
 	mi := &cdbm.MachineInterface{
 		ID:                    uuid.New(),
 		MachineID:             mID,
-		ControllerInterfaceID: cdb.GetUUIDPtr(uuid.New()),
-		ControllerSegmentID:   cdb.GetUUIDPtr(uuid.New()),
-		Hostname:              cdb.GetStrPtr("test.com"),
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		Hostname:              cutil.GetPtr("test.com"),
 		IsPrimary:             true,
 		SubnetID:              nil,
-		MacAddress:            cdb.GetStrPtr("00:00:00:00:00:00"),
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:00"),
 		IPAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 		Created:               cdb.GetCurTime(),
 		Updated:               cdb.GetCurTime(),
@@ -285,52 +284,52 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	site4 := testMachineBuildSite(t, dbSession, ip2, "test-site-4", cdbm.SiteStatusRegistered)
 	user := testMachineBuildUser(t, dbSession, "test-machine-user", []string{ipOrg2}, []string{"admin"})
 
-	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cdb.GetStrPtr("mcType"), false, nil, false, nil, nil)
+	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcType"), false, nil, false, nil, nil)
 	assert.NotNil(t, m)
-	testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, cdb.GetStrPtr("mcType"), false, nil, false, nil, nil)
+	testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, cutil.GetPtr("mcType"), false, nil, false, nil, nil)
 	setupMDAO := cdbm.NewMachineDAO(dbSession)
-	_, err := setupMDAO.Update(context.Background(), nil, cdbm.MachineUpdateInput{MachineID: m2.ID, IsUsableByTenant: cdb.GetBoolPtr(true)})
+	_, err := setupMDAO.Update(context.Background(), nil, cdbm.MachineUpdateInput{MachineID: m2.ID, IsUsableByTenant: cutil.GetPtr(true)})
 	assert.Nil(t, err)
-	testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	m3 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusError))
-	testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
-	m4 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusError))
-	testMachineBuildStatusDetail(t, dbSession, m4.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
-	m5 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, true, cdb.GetStrPtr("Test maintenance message"), true, cdb.GetStrPtr("Test network error message"), nil)
-	m6 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m7 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusInUse))
-	m8 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m9 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m10 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m11 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m12 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m13 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m14 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m15 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
+	testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	m3 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusError))
+	testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
+	m4 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusError))
+	testMachineBuildStatusDetail(t, dbSession, m4.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
+	m5 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, true, cutil.GetPtr("Test maintenance message"), true, cutil.GetPtr("Test network error message"), nil)
+	m6 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m7 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusInUse))
+	m8 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m9 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m10 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m11 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m12 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m13 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m14 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m15 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
 
 	instanceTypeOriginal := cdbm.TestBuildInstanceType(t, dbSession, "machine-instance-type-original", ip2, site, user)
 	instanceTypeUpdated := cdbm.TestBuildInstanceType(t, dbSession, "machine-instance-type-updated", ip2, site, user)
 	instanceTypeUnchanged := cdbm.TestBuildInstanceType(t, dbSession, "machine-instance-type-unchanged", ip2, site, user)
 
-	m16 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeOriginal.ID, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m17 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeOriginal.ID, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
-	m18 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeUnchanged.ID, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusReady))
+	m16 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeOriginal.ID, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m17 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeOriginal.ID, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
+	m18 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, &instanceTypeUnchanged.ID, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusReady))
 
 	// Add capability entry to test update of existing capabilities
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
-	mc1 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz", nil, cdb.GetIntPtr(1))
+	mc1 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz", nil, cutil.GetPtr(1))
 	assert.NotNil(t, mc1)
-	mc2 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeNetwork, "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)", nil, cdb.GetIntPtr(1))
+	mc2 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeNetwork, "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)", nil, cutil.GetPtr(1))
 	assert.NotNil(t, mc2)
-	mc3 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetIntPtr(1))
+	mc3 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cutil.GetPtr(1))
 	assert.NotNil(t, mc3)
 	// Add capability entry to test removal of stale capabilities
-	mc4 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-6]", nil, cdb.GetIntPtr(2))
+	mc4 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeNetwork, "MT28908 Family [ConnectX-6]", nil, cutil.GetPtr(2))
 	assert.NotNil(t, mc4)
 	// Add capability entry to test resetting of inactive devices
-	mc14 := testMachineBuildMachineCapability(t, dbSession, &m14.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT2910 Family [ConnectX-7]", nil, cdb.GetIntPtr(2))
+	mc14 := testMachineBuildMachineCapability(t, dbSession, &m14.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT2910 Family [ConnectX-7]", nil, cutil.GetPtr(2))
 	_, err = mcDAO.Update(context.Background(), nil, cdbm.MachineCapabilityUpdateInput{
 		ID:              mc14.ID,
 		InactiveDevices: []int{1, 2},
@@ -378,7 +377,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			Id:              &cwssaws.MachineId{Id: m.ControllerMachineID},
 			State:           controllerMachineStatePrefixReady,
 			Interfaces:      []*cwssaws.MachineInterface{newMachineInterface1},
-			HwSkuDeviceType: cdb.GetStrPtr("CPU_HwSkuDeviceType"),
+			HwSkuDeviceType: cutil.GetPtr("CPU_HwSkuDeviceType"),
 			DiscoveryInfo: &cwssaws.DiscoveryInfo{
 				DmiData: &cwssaws.DmiData{
 					BoardName:     "7Z23CTOLWW",
@@ -396,11 +395,11 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Labels: []*cwssaws.Label{
 					{
 						Key:   "test-label",
-						Value: cdb.GetStrPtr("test-value"),
+						Value: cutil.GetPtr("test-value"),
 					},
 					{
 						Key:   "test-label-2",
-						Value: cdb.GetStrPtr("test-value-2"),
+						Value: cutil.GetPtr("test-value-2"),
 					},
 					{
 						Key:   "test-label-3",
@@ -412,7 +411,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Cpu: []*cwssaws.MachineCapabilityAttributesCpu{{
 					Name:    "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
 					Count:   2,
-					Vendor:  cdb.GetStrPtr("GenuineIntel"),
+					Vendor:  cutil.GetPtr("GenuineIntel"),
 					Cores:   util.GetUint32Ptr(3),
 					Threads: util.GetUint32Ptr(6),
 				}},
@@ -420,17 +419,17 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					{
 						Name:   "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)",
 						Count:  2,
-						Vendor: cdb.GetStrPtr("0x165f"),
+						Vendor: cutil.GetPtr("0x165f"),
 					},
 					{
 						Name:   "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller",
 						Count:  2,
-						Vendor: cdb.GetStrPtr("0x14e4"),
+						Vendor: cutil.GetPtr("0x14e4"),
 					},
 					{
 						Name:       "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
 						Count:      2,
-						Vendor:     cdb.GetStrPtr("0x15b3"),
+						Vendor:     cutil.GetPtr("0x15b3"),
 						DeviceType: cwssaws.MachineCapabilityDeviceType(cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU).Enum(),
 					},
 				},
@@ -451,14 +450,14 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Gpu: []*cwssaws.MachineCapabilityAttributesGpu{
 					{
 						Name:      "NVIDIA H100 PCIe",
-						Frequency: cdb.GetStrPtr("1755 MHz"),
-						Capacity:  cdb.GetStrPtr("81559 MiB"),
+						Frequency: cutil.GetPtr("1755 MHz"),
+						Capacity:  cutil.GetPtr("81559 MiB"),
 						Count:     1,
 					},
 					{
 						Name:       "NVIDIA GB200",
-						Frequency:  cdb.GetStrPtr("1755 MHz"),
-						Capacity:   cdb.GetStrPtr("81559 MiB"),
+						Frequency:  cutil.GetPtr("1755 MHz"),
+						Capacity:   cutil.GetPtr("81559 MiB"),
 						Count:      4,
 						DeviceType: cwssaws.MachineCapabilityDeviceType(cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK).Enum(),
 					},
@@ -466,7 +465,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Memory: []*cwssaws.MachineCapabilityAttributesMemory{
 					{
 						Name:     "DDR4",
-						Capacity: cdb.GetStrPtr(fmt.Sprintf("%d", memSize)),
+						Capacity: cutil.GetPtr(fmt.Sprintf("%d", memSize)),
 						Count:    8,
 					},
 					{
@@ -478,7 +477,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Infiniband: []*cwssaws.MachineCapabilityAttributesInfiniband{
 					{
 						Name:            "MT28908 Family [ConnectX-6]",
-						Vendor:          cdb.GetStrPtr(""),
+						Vendor:          cutil.GetPtr(""),
 						Count:           2,
 						InactiveDevices: []uint32{2, 4},
 					},
@@ -545,7 +544,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			MaintenanceStartTime: &timestamppb.Timestamp{
 				Seconds: refTime.Unix(),
 			},
-			MaintenanceReference: cdb.GetStrPtr("Test maintenance message"),
+			MaintenanceReference: cutil.GetPtr("Test maintenance message"),
 		},
 	}
 
@@ -617,43 +616,43 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/frr/daemons"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/daemons"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/frr/frr.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/frr.conf"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/network/interfaces"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/network/interfaces"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
 					},
 					{
 						Id:     "FileExists",
-						Target: cdb.GetStrPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/frr/daemons"),
+						Target: cutil.GetPtr("etc/frr/daemons"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/frr/frr.conf"),
+						Target: cutil.GetPtr("etc/frr/frr.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/network/interfaces"),
+						Target: cutil.GetPtr("etc/network/interfaces"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
+						Target: cutil.GetPtr("etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
 					},
 					{
 						Id:     "FileIsValid",
-						Target: cdb.GetStrPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						Target: cutil.GetPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
 					},
 					{
 						Id:     "Ifreload",
@@ -665,15 +664,15 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("frr"),
+						Target: cutil.GetPtr("frr"),
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("nl2doca"),
+						Target: cutil.GetPtr("nl2doca"),
 					},
 					{
 						Id:     "ServiceRunning",
-						Target: cdb.GetStrPtr("rsyslog"),
+						Target: cutil.GetPtr("rsyslog"),
 					},
 					{
 						Id:     "SupervisorctlStatus",
@@ -683,7 +682,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Alerts: []*cwssaws.HealthProbeAlert{
 					{
 						Id:            "HeartbeatTimeout",
-						Target:        cdb.GetStrPtr("hardware-health"),
+						Target:        cutil.GetPtr("hardware-health"),
 						InAlertSince:  nil,
 						Message:       "",
 						TenantMessage: nil,
@@ -725,7 +724,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				Infiniband: []*cwssaws.MachineCapabilityAttributesInfiniband{
 					{
 						Name:            "MT2910 Family [ConnectX-7]",
-						Vendor:          cdb.GetStrPtr(""),
+						Vendor:          cutil.GetPtr(""),
 						Count:           2,
 						InactiveDevices: []uint32{},
 					},
@@ -749,7 +748,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			State:          controllerMachineStatePrefixReady,
 			Interfaces:     []*cwssaws.MachineInterface{},
 			DiscoveryInfo:  nil,
-			InstanceTypeId: cdb.GetStrPtr(instanceTypeUpdated.ID.String()),
+			InstanceTypeId: cutil.GetPtr(instanceTypeUpdated.ID.String()),
 		},
 	}
 
@@ -768,7 +767,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			State:          controllerMachineStatePrefixReady,
 			Interfaces:     []*cwssaws.MachineInterface{},
 			DiscoveryInfo:  nil,
-			InstanceTypeId: cdb.GetStrPtr(instanceTypeUnchanged.ID.String()),
+			InstanceTypeId: cutil.GetPtr(instanceTypeUnchanged.ID.String()),
 		},
 	}
 
@@ -779,7 +778,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			State:          controllerMachineStatePrefixReady,
 			Interfaces:     []*cwssaws.MachineInterface{},
 			DiscoveryInfo:  nil,
-			InstanceTypeId: cdb.GetStrPtr(instanceTypeOriginal.ID.String()),
+			InstanceTypeId: cutil.GetPtr(instanceTypeOriginal.ID.String()),
 		},
 	}
 
@@ -801,7 +800,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	// Generate data for 34 machines reported from Site Agent while Cloud has 38 machines
 	pagedInvIds := []string{}
 	for i := 0; i < 38; i++ {
-		m := testMachineBuildMachine(t, dbSession, ip.ID, site3.ID, nil, nil, false, nil, false, nil, cdb.GetStrPtr(cdbm.MachineStatusInitializing))
+		m := testMachineBuildMachine(t, dbSession, ip.ID, site3.ID, nil, nil, false, nil, false, nil, cutil.GetPtr(cdbm.MachineStatusInitializing))
 		pagedInvIds = append(pagedInvIds, m.ControllerMachineID)
 	}
 
@@ -817,7 +816,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 
 	// Set updated for all machines earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2))
+	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
 	assert.NoError(t, err)
 
 	type fields struct {
@@ -886,7 +885,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				updatedInstanceTypeMachineID:   &m16.ControllerMachineID,
 				clearedInstanceTypeMachineID:   &m17.ControllerMachineID,
 				unchangedInstanceTypeMachineID: &m18.ControllerMachineID,
-				isDPUCountReported:             cdb.GetBoolPtr(true),
+				isDPUCountReported:             cutil.GetPtr(true),
 				desiredMachineStates: map[string]string{
 					m7.ControllerMachineID:  cdbm.MachineStatusInitializing,
 					m8.ControllerMachineID:  cdbm.MachineStatusError,
@@ -991,7 +990,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				desiredMachineStates: map[string]string{
 					m11.ControllerMachineID: cdbm.MachineStatusError,
 				},
-				isHealthReported: cdb.GetBoolPtr(true),
+				isHealthReported: cutil.GetPtr(true),
 				resetMachineUpdatedTimeBeforeInventoryTime: true, // Previous tests will have updated the machine in this one.  We'll push it into the past again so that the inventory update is allowed.
 			},
 			wantErr: false,
@@ -1006,7 +1005,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 			if tt.args.resetMachineUpdatedTimeBeforeInventoryTime {
 				// Set updated for all machines earlier than the inventory receipt interval
-				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2))
+				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
 				assert.NoError(t, err)
 			}
 
@@ -1243,7 +1242,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.NotNil(t, newMachine.InstanceTypeID)
 				assert.Equal(t, instanceTypeOriginal.ID, *newMachine.InstanceTypeID)
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.newWithInstanceTypeMachineID, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.newWithInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, instanceTypeOriginal.ID, machineInstanceTypes[0].InstanceTypeID)
@@ -1256,7 +1255,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					assert.Equal(t, instanceTypeUpdated.ID, *updatedMachine.InstanceTypeID)
 				}
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.updatedInstanceTypeMachineID, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.updatedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, instanceTypeUpdated.ID, machineInstanceTypes[0].InstanceTypeID)
@@ -1268,7 +1267,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.Nil(t, serr)
 				assert.Nil(t, clearedMachine.InstanceTypeID)
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.clearedInstanceTypeMachineID, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.clearedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 				assert.Nil(t, serr)
 				assert.Equal(t, 0, total)
 				assert.Empty(t, machineInstanceTypes)
@@ -1281,7 +1280,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					assert.Equal(t, instanceTypeUnchanged.ID, *unchangedMachine.InstanceTypeID)
 				}
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.unchangedInstanceTypeMachineID, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.unchangedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, m18MachineInstanceType.ID, machineInstanceTypes[0].ID)
@@ -1289,7 +1288,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			}
 
 			if tt.args.updatedCapabilitiesMachineID != nil {
-				mcs, _, serr := mcDAO.GetAll(tt.args.ctx, nil, []string{*tt.args.updatedCapabilitiesMachineID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+				mcs, _, serr := mcDAO.GetAll(tt.args.ctx, nil, []string{*tt.args.updatedCapabilitiesMachineID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 				assert.Nil(t, serr)
 
 				for _, mc := range mcs {
@@ -1452,7 +1451,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 					MaintenanceStartTime: &timestamppb.Timestamp{
 						Seconds: time.Now().Add(-time.Hour * 2).Unix(),
 					},
-					MaintenanceReference: cdb.GetStrPtr("test reason for maintenance"),
+					MaintenanceReference: cutil.GetPtr("test reason for maintenance"),
 				},
 			},
 			wantStatus:             cdbm.MachineStatusMaintenance,
@@ -1496,7 +1495,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 						Alerts: []*cwssaws.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
-								Target:  cdb.GetStrPtr(MachineDPUFirmwareUpdateAlertTarget),
+								Target:  cutil.GetPtr(MachineDPUFirmwareUpdateAlertTarget),
 								Message: "AutomaticDpuFirmwareUpdate//",
 								Classifications: []string{
 									MachinePreventAllocations,
@@ -1519,7 +1518,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 						Alerts: []*cwssaws.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
-								Target:  cdb.GetStrPtr(MachineDPUFirmwareUpdateAlertTarget),
+								Target:  cutil.GetPtr(MachineDPUFirmwareUpdateAlertTarget),
 								Message: "ManualDpuFirmwareUpdate//",
 								Classifications: []string{
 									MachinePreventAllocations,
@@ -1542,7 +1541,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 						Alerts: []*cwssaws.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
-								Target:  cdb.GetStrPtr("HostFirmware"),
+								Target:  cutil.GetPtr("HostFirmware"),
 								Message: "HostFirmwareUpdate//",
 								Classifications: []string{
 									MachinePreventAllocations,
@@ -1596,7 +1595,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 						Alerts: []*cwssaws.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
-								Target: cdb.GetStrPtr("Degraded"),
+								Target: cutil.GetPtr("Degraded"),
 							},
 						},
 					},
@@ -1620,7 +1619,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 							},
 							{
 								Id:     "Maintenance",
-								Target: cdb.GetStrPtr("Degraded"),
+								Target: cutil.GetPtr("Degraded"),
 							},
 						},
 					},
@@ -1638,7 +1637,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 						Alerts: []*cwssaws.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
-								Target: cdb.GetStrPtr("Degraded"),
+								Target: cutil.GetPtr("Degraded"),
 							},
 						},
 					},

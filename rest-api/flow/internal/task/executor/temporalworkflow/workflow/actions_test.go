@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
 // TestExtractOverrideAssignmentCheck covers every branch of the

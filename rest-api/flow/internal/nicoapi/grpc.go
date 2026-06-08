@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,7 +58,11 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(nicoURL, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := grpc.NewClient(
+		nicoURL,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}

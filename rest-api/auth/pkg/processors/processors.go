@@ -4,9 +4,9 @@
 package processors
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	commonConfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	commonConfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	temporalClient "go.temporal.io/sdk/client"
 )
 

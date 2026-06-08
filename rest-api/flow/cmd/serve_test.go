@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // TestApplyComputeImplementationOverride covers the env-var fallback

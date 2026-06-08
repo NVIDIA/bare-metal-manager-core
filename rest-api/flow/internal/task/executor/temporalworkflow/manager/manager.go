@@ -14,16 +14,16 @@ import (
 	"go.temporal.io/sdk/worker"
 	temporalworkflow "go.temporal.io/sdk/workflow"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/clients/temporal"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/capabilityrequirements"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/activity"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/workflow"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/capabilityrequirements"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/workflow"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 const (

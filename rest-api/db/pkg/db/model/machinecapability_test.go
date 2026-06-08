@@ -10,16 +10,67 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+func TestMachineCapability_Equal(t *testing.T) {
+	makeCap := func() *MachineCapability {
+		return &MachineCapability{
+			Type:             MachineCapabilityTypeCPU,
+			Name:             "cap-1",
+			Cores:            cutil.GetPtr(8),
+			Threads:          cutil.GetPtr(16),
+			Count:            cutil.GetPtr(1),
+			Vendor:           cutil.GetPtr("Intel"),
+			Capacity:         cutil.GetPtr("64GB"),
+			Frequency:        cutil.GetPtr("3.0GHz"),
+			HardwareRevision: cutil.GetPtr("rev-1"),
+			InactiveDevices:  []int{1, 2},
+			Index:            0,
+		}
+	}
+
+	t.Run("nil equals nil", func(t *testing.T) {
+		var a, b *MachineCapability
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil does not equal non-nil", func(t *testing.T) {
+		var a *MachineCapability
+		b := makeCap()
+		assert.False(t, a.Equal(b))
+		assert.False(t, b.Equal(a))
+	})
+	t.Run("identical caps are equal", func(t *testing.T) {
+		assert.True(t, makeCap().Equal(makeCap()))
+	})
+	t.Run("differing Name returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Name = "cap-2"
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing pointer field returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Cores = cutil.GetPtr(4)
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing InactiveDevices slice returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.InactiveDevices = []int{1, 3}
+		assert.False(t, a.Equal(b))
+	})
+}
 
 func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
@@ -51,11 +102,11 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID:   nil,
 					Type:             MachineCapabilityTypeCPU,
 					Name:             "AMD Opteron Series x10",
-					Frequency:        db.GetStrPtr("3.0 Ghz"),
-					Count:            db.GetIntPtr(2),
-					Cores:            db.GetIntPtr(128),
-					Threads:          db.GetIntPtr(256),
-					HardwareRevision: db.GetStrPtr("v.12345"),
+					Frequency:        cutil.GetPtr("3.0 Ghz"),
+					Count:            cutil.GetPtr(2),
+					Cores:            cutil.GetPtr(128),
+					Threads:          cutil.GetPtr(256),
+					HardwareRevision: cutil.GetPtr("v.12345"),
 					Index:            5,
 					Info: map[string]interface{}{
 						"Version": "2.0",
@@ -73,9 +124,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: &ins.ID,
 					Type:           MachineCapabilityTypeMemory,
 					Name:           "Corsair Vengeance LPX",
-					Frequency:      db.GetStrPtr("3200 Mhz"),
-					Capacity:       db.GetStrPtr("128GB"),
-					Count:          db.GetIntPtr(4),
+					Frequency:      cutil.GetPtr("3200 Mhz"),
+					Capacity:       cutil.GetPtr("128GB"),
+					Count:          cutil.GetPtr(4),
 				},
 			},
 			expectError: false,
@@ -88,9 +139,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: &ins.ID,
 					Type:           MachineCapabilityTypeNetwork,
 					Name:           "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
-					Capacity:       db.GetStrPtr("100GB"),
-					Count:          db.GetIntPtr(2),
-					DeviceType:     (*MachineCapabilityDeviceType)(db.GetStrPtr("DPU")),
+					Capacity:       cutil.GetPtr("100GB"),
+					Count:          cutil.GetPtr(2),
+					DeviceType:     (*MachineCapabilityDeviceType)(cutil.GetPtr("DPU")),
 				},
 			},
 			expectError: false,
@@ -103,8 +154,8 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID:  nil,
 					Type:            MachineCapabilityTypeInfiniBand,
 					Name:            "MT28908 Family [ConnectX-6]",
-					Vendor:          db.GetStrPtr("Mellanox Technologies"),
-					Count:           db.GetIntPtr(2),
+					Vendor:          cutil.GetPtr("Mellanox Technologies"),
+					Count:           cutil.GetPtr(2),
 					InactiveDevices: []int{2, 4},
 				},
 			},
@@ -118,9 +169,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: nil,
 					Type:           MachineCapabilityTypeMemory,
 					Name:           "Corsair Vengeance LPX",
-					Frequency:      db.GetStrPtr("3200 Mhz"),
-					Capacity:       db.GetStrPtr("128GB"),
-					Count:          db.GetIntPtr(4),
+					Frequency:      cutil.GetPtr("3200 Mhz"),
+					Capacity:       cutil.GetPtr("128GB"),
+					Count:          cutil.GetPtr(4),
 					Info: map[string]interface{}{
 						"DDR": "v4",
 					},
@@ -136,8 +187,8 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: nil,
 					Type:           "",
 					Name:           "AMD Opteron Series x10",
-					Frequency:      db.GetStrPtr("3.0 Ghz"),
-					Count:          db.GetIntPtr(2),
+					Frequency:      cutil.GetPtr("3.0 Ghz"),
+					Count:          cutil.GetPtr(2),
 				},
 			},
 			expectError: true,
@@ -150,8 +201,8 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: nil,
 					Type:           "Mystery",
 					Name:           "AMD Opteron Series x10",
-					Frequency:      db.GetStrPtr("3.0 Ghz"),
-					Count:          db.GetIntPtr(2),
+					Frequency:      cutil.GetPtr("3.0 Ghz"),
+					Count:          cutil.GetPtr(2),
 				},
 			},
 			expectError: true,
@@ -215,8 +266,8 @@ func testMachineCapabilitySQLDAOCreateSlice(ctx context.Context, t *testing.T, d
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeCPU,
 			Name:           "AMD Opteron Series x10",
-			Frequency:      db.GetStrPtr("3.0 Ghz"),
-			Count:          db.GetIntPtr(2),
+			Frequency:      cutil.GetPtr("3.0 Ghz"),
+			Count:          cutil.GetPtr(2),
 			Info: map[string]interface{}{
 				"Version": "2.0",
 			},
@@ -226,42 +277,42 @@ func testMachineCapabilitySQLDAOCreateSlice(ctx context.Context, t *testing.T, d
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeCPU,
 			Name:           "Corsair Vengeance LPX DDR4",
-			Frequency:      db.GetStrPtr("3200 Mhz"),
-			Capacity:       db.GetStrPtr("32 GB"),
-			Count:          db.GetIntPtr(2),
+			Frequency:      cutil.GetPtr("3200 Mhz"),
+			Capacity:       cutil.GetPtr("32 GB"),
+			Count:          cutil.GetPtr(2),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeStorage,
 			Name:           "Dell Ent NVMe CM6 RI 1.92TB",
-			Capacity:       db.GetStrPtr("1.92TB"),
-			Count:          db.GetIntPtr(4),
+			Capacity:       cutil.GetPtr("1.92TB"),
+			Count:          cutil.GetPtr(4),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeStorage,
 			Name:           "Dell Ent NVMe CM6 RI 1.92TB",
-			Capacity:       db.GetStrPtr("1.92TB"),
-			Count:          db.GetIntPtr(4),
+			Capacity:       cutil.GetPtr("1.92TB"),
+			Count:          cutil.GetPtr(4),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeNetwork,
 			Name:           "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
-			Capacity:       db.GetStrPtr("100GB"),
-			Count:          db.GetIntPtr(2),
-			DeviceType:     (*MachineCapabilityDeviceType)(db.GetStrPtr("")),
+			Capacity:       cutil.GetPtr("100GB"),
+			Count:          cutil.GetPtr(2),
+			DeviceType:     (*MachineCapabilityDeviceType)(cutil.GetPtr("")),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeInfiniBand,
 			Name:           "MT28908 Family [ConnectX-6]",
-			Vendor:         db.GetStrPtr("Mellanox Technologies"),
-			Count:          db.GetIntPtr(2),
+			Vendor:         cutil.GetPtr("Mellanox Technologies"),
+			Count:          cutil.GetPtr(2),
 		},
 	}
 
@@ -381,13 +432,13 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 	itCapCount := 0
 
 	ip, site, it := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: db.GetStrPtr("3.2 GHz"), Count: db.GetIntPtr(2)})
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeMemory, Name: "Test Capability", Capacity: db.GetStrPtr("32GB"), Count: db.GetIntPtr(4)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: cutil.GetPtr("3.2 GHz"), Count: cutil.GetPtr(2)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeMemory, Name: "Test Capability", Capacity: cutil.GetPtr("32GB"), Count: cutil.GetPtr(4)})
 	itCapCount += 2
 
 	user := TestBuildUser(t, dbSession, "test-user", "test-org", []string{"test-role"})
 	it2 := TestBuildInstanceType(t, dbSession, "lg.x86", ip, site, user)
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it2.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: db.GetStrPtr("4 GHz"), Count: db.GetIntPtr(1)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it2.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: cutil.GetPtr("4 GHz"), Count: cutil.GetPtr(1)})
 	itCapCount++
 
 	ms := []Machine{}
@@ -413,7 +464,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			var vendor *string
 			var deviceType *MachineCapabilityDeviceType
 			if capType == MachineCapabilityTypeInfiniBand {
-				vendor = db.GetStrPtr("Test Vendor")
+				vendor = cutil.GetPtr("Test Vendor")
 			}
 			if i == 0 && capType == MachineCapabilityTypeNetwork {
 				dt := MachineCapabilityDeviceTypeDPU
@@ -428,10 +479,10 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			mc, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{
 				MachineID: &m.ID, Type: capType,
 				Name:            "Test Capability",
-				Frequency:       db.GetStrPtr("3 GHz"),
-				Capacity:        db.GetStrPtr("12 TB"),
+				Frequency:       cutil.GetPtr("3 GHz"),
+				Capacity:        cutil.GetPtr("12 TB"),
 				Vendor:          vendor,
-				Count:           db.GetIntPtr(1),
+				Count:           cutil.GetPtr(1),
 				DeviceType:      deviceType,
 				InactiveDevices: inactiveDevices,
 			})
@@ -568,7 +619,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Capacity filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            db.GetStrPtr(string(mcs[1].Type)),
+			Type:            cutil.GetPtr(string(mcs[1].Type)),
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        mcs[1].Capacity,
@@ -581,7 +632,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Frequency filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            db.GetStrPtr(string(mcs[1].Type)),
+			Type:            cutil.GetPtr(string(mcs[1].Type)),
 			Name:            nil,
 			Frequency:       mcs[1].Frequency,
 			Vendor:          nil,
@@ -599,7 +650,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			Frequency:       nil,
 			Capacity:        nil,
 			Vendor:          nil,
-			Count:           db.GetIntPtr(1),
+			Count:           cutil.GetPtr(1),
 			expectedCount:   totalMachineCount,
 		},
 		{
@@ -610,7 +661,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        nil,
-			Vendor:          db.GetStrPtr("Test Vendor"),
+			Vendor:          cutil.GetPtr("Test Vendor"),
 			Count:           nil,
 			DeviceType:      nil,
 			expectedCount:   totalMachineCount,
@@ -625,7 +676,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			Capacity:        nil,
 			Vendor:          nil,
 			Count:           nil,
-			DeviceType:      db.GetStrPtr("DPU"),
+			DeviceType:      cutil.GetPtr("DPU"),
 			expectedCount:   1,
 		},
 		{
@@ -638,8 +689,8 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
 			Type:            nil,
-			offset:          db.GetIntPtr(0),
-			limit:           db.GetIntPtr(5),
+			offset:          cutil.GetPtr(0),
+			limit:           cutil.GetPtr(5),
 			expectedCount:   5,
 			expectedTotal:   &totalCount,
 		},
@@ -648,7 +699,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
 			Type:            nil,
-			offset:          db.GetIntPtr(5),
+			offset:          cutil.GetPtr(5),
 			expectedCount:   paginator.DefaultLimit,
 			expectedTotal:   &totalCount,
 		},
@@ -737,10 +788,10 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 				InstanceTypeID:  &it.ID,
 				Type:            capType,
 				Name:            "Test Capability",
-				Frequency:       db.GetStrPtr("3 GHz"),
-				Capacity:        db.GetStrPtr("12 TB"),
-				Vendor:          db.GetStrPtr("Test Vendor"),
-				Count:           db.GetIntPtr(1),
+				Frequency:       cutil.GetPtr("3 GHz"),
+				Capacity:        cutil.GetPtr("12 TB"),
+				Vendor:          cutil.GetPtr("Test Vendor"),
+				Count:           cutil.GetPtr(1),
 				DeviceType:      deviceType,
 				InactiveDevices: inactiveDevices,
 			})
@@ -840,7 +891,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Name filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr(string(mcs[0].Type)),
+			Type:           cutil.GetPtr(string(mcs[0].Type)),
 			Name:           &mcs[0].Name,
 			Frequency:      nil,
 			Capacity:       nil,
@@ -853,7 +904,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Capacity filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr(string(mcs[1].Type)),
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       mcs[1].Capacity,
@@ -866,7 +917,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Frequency filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr(string(mcs[1].Type)),
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      mcs[1].Frequency,
 			Vendor:         nil,
@@ -879,7 +930,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Count filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr(string(mcs[1].Type)),
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
@@ -896,7 +947,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
-			Vendor:         db.GetStrPtr("Test Vendor"),
+			Vendor:         cutil.GetPtr("Test Vendor"),
 			Count:          nil,
 			DeviceType:     nil,
 			expectedCount:  len(MachineCapabilityTypeChoiceMap) + 1,
@@ -911,7 +962,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			Capacity:       nil,
 			Vendor:         nil,
 			Count:          nil,
-			DeviceType:     db.GetStrPtr("DPU"),
+			DeviceType:     cutil.GetPtr("DPU"),
 			expectedCount:  1,
 		},
 		{
@@ -922,7 +973,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, total, err := mcd.GetAllDistinct(ctx, nil, tc.MachineIDs, tc.InstanceTypeID, tc.Type, tc.Name, tc.Frequency, tc.Capacity, tc.Vendor, tc.Count, tc.DeviceType, tc.InactiveDevices, nil, db.GetIntPtr(paginator.TotalLimit), nil)
+			got, total, err := mcd.GetAllDistinct(ctx, nil, tc.MachineIDs, tc.InstanceTypeID, tc.Type, tc.Name, tc.Frequency, tc.Capacity, tc.Vendor, tc.Count, tc.DeviceType, tc.InactiveDevices, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedCount, len(got))
 
@@ -1016,15 +1067,15 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			mc:               &mcsExp[2],
 			MachineID:        nil,
 			InstanceTypeID:   nil,
-			Type:             db.Ptr(MachineCapabilityTypeMemory),
-			Name:             db.GetStrPtr(name),
-			Frequency:        db.GetStrPtr(frequency),
-			Capacity:         db.GetStrPtr(capacity),
-			Count:            db.GetIntPtr(count),
-			Cores:            db.GetIntPtr(128),
-			Threads:          db.GetIntPtr(256),
-			HardwareRevision: db.GetStrPtr("v.12345"),
-			Index:            db.GetIntPtr(1000),
+			Type:             cutil.GetPtr(MachineCapabilityTypeMemory),
+			Name:             cutil.GetPtr(name),
+			Frequency:        cutil.GetPtr(frequency),
+			Capacity:         cutil.GetPtr(capacity),
+			Count:            cutil.GetPtr(count),
+			Cores:            cutil.GetPtr(128),
+			Threads:          cutil.GetPtr(256),
+			HardwareRevision: cutil.GetPtr("v.12345"),
+			Index:            cutil.GetPtr(1000),
 			InactiveDevices:  []int{2, 4},
 			expectedError:    false,
 		},
@@ -1038,7 +1089,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
-			Vendor:         db.GetStrPtr("Test Vendor"),
+			Vendor:         cutil.GetPtr("Test Vendor"),
 			Count:          nil,
 			expectedError:  false,
 		},
@@ -1053,7 +1104,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			Frequency:      nil,
 			Capacity:       nil,
 			Vendor:         nil,
-			DeviceType:     db.Ptr(MachineCapabilityDeviceType(deviceType)),
+			DeviceType:     cutil.GetPtr(MachineCapabilityDeviceType(deviceType)),
 			Count:          nil,
 			expectedError:  false,
 		},
@@ -1063,7 +1114,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			mc:             &mcsExp[2],
 			MachineID:      nil,
 			InstanceTypeID: nil,
-			Type:           db.Ptr(MachineCapabilityType("invalid-type")),
+			Type:           cutil.GetPtr(MachineCapabilityType("invalid-type")),
 			Name:           &name,
 			Frequency:      &frequency,
 			Capacity:       &capacity,
@@ -1413,7 +1464,7 @@ func TestMachineCapability_GetStrInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetStrPtr("bar"),
+			want: cutil.GetPtr("bar"),
 		},
 		{
 			name: "test non-existent key returns nil",
@@ -1468,7 +1519,7 @@ func TestMachineCapability_GetIntInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetIntPtr(5),
+			want: cutil.GetPtr(5),
 		},
 		{
 			name: "test existing key from info populated in struct returns int value",
@@ -1480,7 +1531,7 @@ func TestMachineCapability_GetIntInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetIntPtr(5),
+			want: cutil.GetPtr(5),
 		},
 		{
 			name: "test non-existent key returns nil",

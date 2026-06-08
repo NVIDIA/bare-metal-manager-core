@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	cwsv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -25,7 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
 	"os"
 
@@ -36,10 +36,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -110,7 +109,7 @@ func testSubnetSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testSubnetSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -122,14 +121,14 @@ func testSubnetBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastr
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test Site"),
-		Description:                 cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                 cutil.GetPtr("Test Site"),
+		Description:                 cutil.GetPtr("Test Site Description"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		IsSerialConsoleEnabled:      false,
 		Status:                      cdbm.SiteStatusPending,
@@ -144,7 +143,7 @@ func testSubnetBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastr
 func testSubnetBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -157,9 +156,9 @@ func testSubnetBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID strin
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -180,7 +179,7 @@ func testVPCSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -199,12 +198,12 @@ func testSubnetBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *c
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cdb.GetStrPtr("Test VPC"),
+		Description:               cutil.GetPtr("Test VPC"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
-		NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer),
+		NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
 		ControllerVpcID:           ct,
 		Labels:                    lb,
 		Status:                    cdbm.VpcStatusPending,
@@ -237,7 +236,7 @@ func testSubnetBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, te
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, cdbm.SubnetCreateInput{
 		Name:                       name,
-		Description:                cdb.GetStrPtr("Test Subnet"),
+		Description:                cutil.GetPtr("Test Subnet"),
 		Org:                        tenant.Org,
 		SiteID:                     vpc.SiteID,
 		VpcID:                      vpc.ID,
@@ -319,7 +318,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Subnet 1 receives updates from Site Controller, namely status update
-	subnet1 := testSubnetBuildSubnet(t, dbSession, "test-subnet-1", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, cdb.GetStrPtr("192.0.1.0"), cdb.GetStrPtr("192.0.1.0"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
+	subnet1 := testSubnetBuildSubnet(t, dbSession, "test-subnet-1", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, cutil.GetPtr("192.0.1.0"), cutil.GetPtr("192.0.1.0"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
 
 	// Subnet 2 & FG is in Deleting state and gets deleted when no longer present in Site Controller inventory
 	sbPrefix, err := ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipb, 24)
@@ -328,7 +327,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	assert.NoError(t, err)
 	ipv4Gateway, err := ipam.GetFirstIPFromCidr(sbPrefix.Cidr)
 	assert.NoError(t, err)
-	subnet2 := testSubnetBuildSubnet(t, dbSession, "test-subnet-2", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 24, cdbm.SubnetStatusDeleting, tnu)
+	subnet2 := testSubnetBuildSubnet(t, dbSession, "test-subnet-2", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 24, cdbm.SubnetStatusDeleting, tnu)
 	subnet2.IPv4Block = ipb
 
 	// Full Grant subnet deletion
@@ -340,13 +339,13 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	assert.NoError(t, err)
 	_, err = ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipbFG, 24)
 	assert.NoError(t, err)
-	subnetFG := testSubnetBuildSubnet(t, dbSession, "test-subnet-FG", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, &ipv4PrefixFG, &ipv4GatewayFG, cdb.GetUUIDPtr(ipbFG.ID), 24, cdbm.SubnetStatusDeleting, tnu)
+	subnetFG := testSubnetBuildSubnet(t, dbSession, "test-subnet-FG", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4PrefixFG, &ipv4GatewayFG, cutil.GetPtr(ipbFG.ID), 24, cdbm.SubnetStatusDeleting, tnu)
 	subnetFG.IPv4Block = ipbFG
 
 	// Subnet 3 is missing from Site Controller inventory but was not requested by user to be deleted, hence gets missing flag set
-	subnet3 := testSubnetBuildSubnet(t, dbSession, "test-subnet-3", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, cdb.GetStrPtr("192.0.1.8"), cdb.GetStrPtr("192.0.1.8"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
+	subnet3 := testSubnetBuildSubnet(t, dbSession, "test-subnet-3", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, cutil.GetPtr("192.0.1.8"), cutil.GetPtr("192.0.1.8"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), subnet3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet3.ID.String())
 	assert.NoError(t, err)
 
 	sbPrefix, err = ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipb, 26)
@@ -360,10 +359,10 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	subnet4 := testSubnetBuildSubnet(t, dbSession, "test-subnet-4", tn, vpc, nil, nil, &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusProvisioning, tnu)
 
 	// Subnet 5 is reported as Ready in Controller inventory but is being deleted, so does not get updated
-	subnet5 := testSubnetBuildSubnet(t, dbSession, "test-subnet-5", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusDeleting, tnu)
+	subnet5 := testSubnetBuildSubnet(t, dbSession, "test-subnet-5", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusDeleting, tnu)
 
 	// Subnet 6 was previously missing but is reported as Ready in Controller inventory
-	subnet6 := testSubnetBuildSubnet(t, dbSession, "test-subnet-6", tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusError, tnu)
+	subnet6 := testSubnetBuildSubnet(t, dbSession, "test-subnet-6", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusError, tnu)
 
 	// Subnet 7 is in Deleting state and has no controller ID, gets deleted on inventory update
 	sbPrefix7, err := ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipb, 24)
@@ -382,7 +381,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	subnet9 := testSubnetBuildSubnet(t, dbSession, "test-subnet-9", tn, vpc, nil, nil, &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusDeleting, tnu)
 
 	subnetDAO := cdbm.NewSubnetDAO(dbSession)
-	_, err = subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet6.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+	_, err = subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet6.ID, IsMissingOnSite: cutil.GetPtr(true)})
 	assert.NoError(t, err)
 
 	// Build Subnet inventory that is paginated
@@ -390,9 +389,9 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	pagedSubnets := []*cdbm.Subnet{}
 	pagedInvIds := []string{}
 	for i := 0; i < 38; i++ {
-		subnet := testSubnetBuildSubnet(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), tn, vpc, nil, cdb.GetUUIDPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusProvisioning, tnu)
+		subnet := testSubnetBuildSubnet(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusProvisioning, tnu)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), subnet.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet.ID.String())
 		assert.NoError(t, err)
 		pagedSubnets = append(pagedSubnets, subnet)
 		pagedInvIds = append(pagedInvIds, subnet.ControllerNetworkSegmentID.String())

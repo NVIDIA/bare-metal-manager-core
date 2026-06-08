@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 func TestConfigDecoderDecodeYAML(t *testing.T) {

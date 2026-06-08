@@ -17,26 +17,26 @@ import (
 	temporalClient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	wfutil "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	wfutil "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -222,7 +222,7 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 
 		// create the status detail record
 		ssd, derr = sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending),
-			cdb.GetStrPtr("received NVLink Logical Partition creation request, pending"))
+			cutil.GetPtr("received NVLink Logical Partition creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for NVLink Logical Partition", nil)
@@ -536,7 +536,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	nvlifcMap := map[uuid.UUID][]cdbm.NVLinkInterface{}
 	if includeInterfaces {
 		nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(gaibph.dbSession)
-		dbnvlifcs, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+		dbnvlifcs, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving NVLinkInterfaces from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Interfaces for NVLink Logical Partitions, DB error", nil)
@@ -551,7 +551,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	vpcMap := map[uuid.UUID][]cdbm.Vpc{}
 	if includeVpcs {
 		vpcDAO := cdbm.NewVpcDAO(gaibph.dbSession)
-		dbvpc, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+		dbvpc, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving VPCs from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPCs for NVLink Logical Partitions, DB error", nil)
@@ -955,7 +955,7 @@ func (uibph UpdateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 
 	// get status details for the response
 	sdDAO := cdbm.NewStatusDetailDAO(uibph.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, nvllp.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, nvllp.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Status Details for NVLink Logical Partition from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for NVLink Logical Partition", nil)
@@ -1213,7 +1213,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(dibph.dbSession)
 	nvInterfaces, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{
 		NVLinkLogicalPartitionIDs: []uuid.UUID{nvllpID},
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving NVLink Interfaces from DB for NVLink Logical Partition")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Interfaces for NVLink Logical Partition", nil)
@@ -1264,7 +1264,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 
 		// Create status detail
 		ssd, derr := sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(deletingStatus),
-			cdb.GetStrPtr("Received request for deletion, pending processing"))
+			cutil.GetPtr("Received request for deletion, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for NVLink Logical Partition deletion", nil)

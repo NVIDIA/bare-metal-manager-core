@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -24,16 +24,15 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
 	"os"
 
 	"go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"go.temporal.io/sdk/testsuite"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -92,7 +91,7 @@ func testNetworkSecurityGroupSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testNetworkSecurityGroupSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -104,14 +103,14 @@ func testNetworkSecurityGroupBuildSite(t *testing.T, dbSession *cdb.Session, ip 
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test Site"),
-		Description:                 cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                 cutil.GetPtr("Test Site"),
+		Description:                 cutil.GetPtr("Test Site Description"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		IsSerialConsoleEnabled:      false,
 		Status:                      cdbm.SiteStatusPending,
@@ -126,7 +125,7 @@ func testNetworkSecurityGroupBuildSite(t *testing.T, dbSession *cdb.Session, ip 
 func testNetworkSecurityGroupBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -139,9 +138,9 @@ func testNetworkSecurityGroupBuildUser(t *testing.T, dbSession *cdb.Session, sta
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -160,7 +159,7 @@ func testNetworkSecurityGroupBuildUser(t *testing.T, dbSession *cdb.Session, sta
 func testNetworkSecurityGroupBuildNetworkSecurityGroup(t *testing.T, dbSession *cdb.Session, name string, st *cdbm.Site, tn *cdbm.Tenant, user *cdbm.User, status string) *cdbm.NetworkSecurityGroup {
 	networkSecurityGroupDAO := cdbm.NewNetworkSecurityGroupDAO(dbSession)
 
-	networkSecurityGroup, err := networkSecurityGroupDAO.Create(context.Background(), nil, cdbm.NetworkSecurityGroupCreateInput{Name: name, Description: cdb.GetStrPtr("description"), TenantID: tn.ID, SiteID: st.ID, Status: status, CreatedByID: user.ID})
+	networkSecurityGroup, err := networkSecurityGroupDAO.Create(context.Background(), nil, cdbm.NetworkSecurityGroupCreateInput{Name: name, Description: cutil.GetPtr("description"), TenantID: tn.ID, SiteID: st.ID, Status: status, CreatedByID: user.ID})
 	assert.Nil(t, err)
 
 	return networkSecurityGroup
@@ -201,17 +200,17 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 
 	networkSecurityGroup5 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-5", st, tn, tnu, cdbm.NetworkSecurityGroupStatusError)
 
-	_, err := dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), networkSecurityGroup5.ID)
+	_, err := dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup5.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup6 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-6", st, tn, tnu, cdbm.NetworkSecurityGroupStatusError)
 
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), networkSecurityGroup6.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup6.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup7 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-7", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), networkSecurityGroup7.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup7.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup8 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-8", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
@@ -222,11 +221,11 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 
 	networkSecurityGroup11 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-11", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), networkSecurityGroup11.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), networkSecurityGroup11.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroupDAO := cdbm.NewNetworkSecurityGroupDAO(dbSession)
-	networkSecurityGroup8, err = networkSecurityGroupDAO.Update(ctx, nil, cdbm.NetworkSecurityGroupUpdateInput{NetworkSecurityGroupID: networkSecurityGroup8.ID, Status: cdb.GetStrPtr(cdbm.NetworkSecurityGroupStatusError)})
+	networkSecurityGroup8, err = networkSecurityGroupDAO.Update(ctx, nil, cdbm.NetworkSecurityGroupUpdateInput{NetworkSecurityGroupID: networkSecurityGroup8.ID, Status: cutil.GetPtr(cdbm.NetworkSecurityGroupStatusError)})
 	assert.NoError(t, err)
 
 	// Build NetworkSecurityGroup inventory that is paginated
@@ -237,7 +236,7 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 	for i := 0; i < 38; i++ {
 		networkSecurityGroup := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, fmt.Sprintf("test-networkSecurityGroup-paged-%d", i), st3, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), networkSecurityGroup.ID)
+		_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup.ID)
 		assert.NoError(t, err)
 		pagedNetworkSecurityGroups = append(pagedNetworkSecurityGroups, networkSecurityGroup)
 		pagedInvIds = append(pagedInvIds, networkSecurityGroup.ID)

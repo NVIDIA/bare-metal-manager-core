@@ -93,7 +93,7 @@ use crate::tests::common::api_fixtures::{
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::common::rpc_builder::{
-    InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
+    InstanceAllocationRequest, InstanceConfig, InstanceConfigExt, VpcCreationRequest,
 };
 
 pub async fn find_instances_by_label(
@@ -2498,6 +2498,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
         }))
         .await
         .unwrap()
@@ -2520,6 +2521,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
         }))
         .await
         .unwrap()
@@ -2703,6 +2705,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .api
         .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
         }))
         .await
         .unwrap()

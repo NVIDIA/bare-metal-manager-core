@@ -14,14 +14,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dbmodel "github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskschedule "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/taskschedule"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/deviceinfo"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 // ─── enum converters ─────────────────────────────────────────────────────────

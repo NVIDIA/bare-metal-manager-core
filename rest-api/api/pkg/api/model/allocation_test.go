@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -51,57 +51,57 @@ func TestAPIAllocationCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "error when name is not specified",
-			obj:       APIAllocationCreateRequest{Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "errors when name is invalid",
-			obj:       APIAllocationCreateRequest{Name: "a", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "a", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr(""), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr(""), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: false,
 		},
 		{
 			desc:      "error when tenantID is not specified",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "error when tenantID is invalid",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: "some", SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: "some", SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "error when siteID is not specified",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "error when siteID is invalid",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: "some", AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: "some", AllocationConstraints: testAllocationConstraints},
 			expectErr: true,
 		},
 		{
 			desc:      "error when allocation constraints are not specified",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String()},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String()},
 			expectErr: true,
 		},
 		{
 			desc:      "error when allocation constraints are more than 1",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraintsMultiple},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraintsMultiple},
 			expectErr: true,
 		},
 		{
 			desc:      "error when allocation constraints are 1 but invalid",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraintsInvalid},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraintsInvalid},
 			expectErr: true,
 		},
 		{
 			desc:      "ok with valid values, with description",
-			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cdb.GetStrPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
+			obj:       APIAllocationCreateRequest{Name: "abcd", Description: cutil.GetPtr("some"), TenantID: uuid.New().String(), SiteID: uuid.New().String(), AllocationConstraints: testAllocationConstraints},
 			expectErr: false,
 		},
 		{
@@ -126,32 +126,32 @@ func TestAPIAllocationUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when name is not specified",
-			obj:       APIAllocationUpdateRequest{Description: cdb.GetStrPtr("some")},
+			obj:       APIAllocationUpdateRequest{Description: cutil.GetPtr("some")},
 			expectErr: false,
 		},
 		{
 			desc:      "errors when name is invalid",
-			obj:       APIAllocationUpdateRequest{Name: cdb.GetStrPtr("a"), Description: cdb.GetStrPtr("some")},
+			obj:       APIAllocationUpdateRequest{Name: cutil.GetPtr("a"), Description: cutil.GetPtr("some")},
 			expectErr: true,
 		},
 		{
 			desc:      "errors when name is invalid with empty",
-			obj:       APIAllocationUpdateRequest{Name: cdb.GetStrPtr(""), Description: cdb.GetStrPtr("some")},
+			obj:       APIAllocationUpdateRequest{Name: cutil.GetPtr(""), Description: cutil.GetPtr("some")},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APIAllocationUpdateRequest{Name: cdb.GetStrPtr("abcd"), Description: cdb.GetStrPtr("")},
+			obj:       APIAllocationUpdateRequest{Name: cutil.GetPtr("abcd"), Description: cutil.GetPtr("")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when name and description are specified",
-			obj:       APIAllocationUpdateRequest{Name: cdb.GetStrPtr("abcd"), Description: cdb.GetStrPtr("some")},
+			obj:       APIAllocationUpdateRequest{Name: cutil.GetPtr("abcd"), Description: cutil.GetPtr("some")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when description is not specified",
-			obj:       APIAllocationUpdateRequest{Name: cdb.GetStrPtr("abcd")},
+			obj:       APIAllocationUpdateRequest{Name: cutil.GetPtr("abcd")},
 			expectErr: false,
 		},
 	}
@@ -215,7 +215,7 @@ func TestAPIAllocation_New(t *testing.T) {
 		SiteID:                   &dba.SiteID,
 		InfrastructureProviderID: dba.InfrastructureProviderID,
 		Name:                     "Test",
-		Description:              cdb.GetStrPtr("test"),
+		Description:              cutil.GetPtr("test"),
 	}
 
 	apia := NewAPIAllocation(dba, dbsds, []cdbm.AllocationConstraint{dbac1, dbac2}, dbacsInstanceTypeMap, nil)

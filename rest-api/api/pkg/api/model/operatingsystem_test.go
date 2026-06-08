@@ -10,14 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdmu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
@@ -28,47 +29,47 @@ func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "error when Name is not provided",
-			obj:       APIOperatingSystemCreateRequest{Description: cdb.GetStrPtr("ab"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Description: cutil.GetPtr("ab"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIOperatingSystemCreateRequest{Name: "a", Description: cdb.GetStrPtr("ab"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "a", Description: cutil.GetPtr("ab"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: false,
 		},
 		{
 			desc:      "error when InfrastructID is not nil",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: cdb.GetStrPtr(uuid.New().String()), TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: cutil.GetPtr(uuid.New().String()), TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IpxeScript is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr(""), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr(""), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
 		},
 		{
 			desc:      "error when ImageURL is invalid",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("imagenet/iso"), UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("imagenet/iso"), UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when ImageSHA is invalid",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("tttt"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("tttt"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when only ImageURL is specified not other image attribute",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://image.net/iso")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://image.net/iso")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when only ImageURL is specified but not site ID",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://image.net/iso")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://image.net/iso")},
 			expectErr: true,
 		},
 		{
@@ -78,107 +79,107 @@ func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "error when ImageDisk is invalid",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageDisk: cdb.GetStrPtr("tttt/"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageDisk: cutil.GetPtr("tttt/"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when ImageURL not specified but ImageAuthType is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageAuthType: cdb.GetStrPtr(""), UserData: nil, AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageAuthType: cutil.GetPtr(""), UserData: nil, AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when ImageAuthToken is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageAuthToken: cdb.GetStrPtr(""), UserData: nil, AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageAuthToken: cutil.GetPtr(""), UserData: nil, AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when both RootFsID and RootFsLabel are populated",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), RootFsLabel: cdb.GetStrPtr("test-label"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), RootFsLabel: cutil.GetPtr("test-label"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL not specified but RootFsID is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), RootFsID: cdb.GetStrPtr(""), UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), RootFsID: cutil.GetPtr(""), UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL not specified but RootFsLabel is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), RootFsLabel: cdb.GetStrPtr(""), UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), RootFsLabel: cutil.GetPtr(""), UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but no imageAuthType",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthToken: cdb.GetStrPtr("rsa")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthToken: cutil.GetPtr("rsa")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but imageAuthType is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthToken: cdb.GetStrPtr("rsa"), ImageAuthType: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthToken: cutil.GetPtr("rsa"), ImageAuthType: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthType are specified but no imageAuthToken",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthType: cdb.GetStrPtr("Bearer")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthType: cutil.GetPtr("Bearer")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthType are specified but imageAuthToken is empty",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthType: cdb.GetStrPtr("Bearer"), ImageAuthToken: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthType: cutil.GetPtr("Bearer"), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but imageAuthType is invalid",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthType: cdb.GetStrPtr("VAPID"), ImageAuthToken: cdb.GetStrPtr("rsa")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthType: cutil.GetPtr("VAPID"), ImageAuthToken: cutil.GetPtr("rsa")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IpxeScript and ImageURL both specified",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), ImageURL: cutil.GetPtr("http://iso.net/iso"), UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IpxeScript and SiteID both specified",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), SiteIDs: []string{uuid.NewString()}, UserData: cdb.GetStrPtr("ud"), AllowOverride: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), SiteIDs: []string{uuid.NewString()}, UserData: cutil.GetPtr("ud"), AllowOverride: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IpxeScript specified but enableBlockStorage is true",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: true, EnableBlockStorage: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: true, EnableBlockStorage: true},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL is specified but neither rootFsLabel nor rootFsID is",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cdb.GetStrPtr("http://image.net/iso")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://image.net/iso")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL is specified but multiple sites specified",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString(), uuid.NewString()}, ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString(), uuid.NewString()}, ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
 		},
 		{
 			desc:      "error when enableBlockStorage is true",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false, EnableBlockStorage: true},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false, EnableBlockStorage: true},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when all fields are speced",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr("ud"), IsCloudInit: true, AllowOverride: false, EnableBlockStorage: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false, EnableBlockStorage: false},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when only required valid ipxe fields present",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cdb.GetStrPtr(uuid.New().String()), IpxeScript: cdb.GetStrPtr("ipxe"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), IsCloudInit: true, AllowOverride: false},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when only required valid image fields present",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString()}, ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString()}, ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when empty strings specified for optional image fields",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cdb.GetStrPtr(uuid.New().String()), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString()}, ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false, ImageDisk: cdb.GetStrPtr(""), ImageAuthType: cdb.GetStrPtr(""), ImageAuthToken: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", TenantID: cutil.GetPtr(uuid.New().String()), ImageURL: cutil.GetPtr("http://iso.net/iso"), SiteIDs: []string{uuid.NewString()}, ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), IsCloudInit: true, AllowOverride: false, ImageDisk: cutil.GetPtr(""), ImageAuthType: cutil.GetPtr(""), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: false,
 		},
 	}
@@ -197,9 +198,9 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 	existingImageBasedOS := &cdbm.OperatingSystem{
 		ID:        uuid.New(),
 		Name:      "ab",
-		ImageURL:  cdb.GetStrPtr("https://oldimagepath.iso"),
-		ImageSHA:  cdb.GetStrPtr("tttt"),
-		RootFsID:  cdb.GetStrPtr("fsID"),
+		ImageURL:  cutil.GetPtr("https://oldimagepath.iso"),
+		ImageSHA:  cutil.GetPtr("tttt"),
+		RootFsID:  cutil.GetPtr("fsID"),
 		Status:    cdbm.OperatingSystemStatusPending,
 		Type:      cdbm.OperatingSystemTypeImage,
 		CreatedBy: uuid.New(),
@@ -208,7 +209,7 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 	existingIpxeBasedOS := &cdbm.OperatingSystem{
 		ID:         uuid.New(),
 		Name:       "ab",
-		IpxeScript: cdb.GetStrPtr("original ipxe"),
+		IpxeScript: cutil.GetPtr("original ipxe"),
 		Status:     cdbm.OperatingSystemStatusPending,
 		Type:       cdbm.OperatingSystemTypeIPXE,
 		CreatedBy:  uuid.New(),
@@ -217,9 +218,9 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 	existingImageBasedOSWithFSLabel := &cdbm.OperatingSystem{
 		ID:          uuid.New(),
 		Name:        "abc",
-		ImageURL:    cdb.GetStrPtr("https://oldimagepath.iso"),
-		ImageSHA:    cdb.GetStrPtr("tttt"),
-		RootFsLabel: cdb.GetStrPtr("10886660c5b2746ff48224646c5094ebcf88c889"),
+		ImageURL:    cutil.GetPtr("https://oldimagepath.iso"),
+		ImageSHA:    cutil.GetPtr("tttt"),
+		RootFsLabel: cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"),
 		Status:      cdbm.OperatingSystemStatusPending,
 		Type:        cdbm.OperatingSystemTypeImage,
 		CreatedBy:   uuid.New(),
@@ -232,111 +233,111 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when Name is not provided",
-			obj:       APIOperatingSystemUpdateRequest{Description: cdb.GetStrPtr("ab")},
+			obj:       APIOperatingSystemUpdateRequest{Description: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when Description is not provided",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("ab")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when Name is provided but is empty",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr(""), Description: cdb.GetStrPtr("ab")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr(""), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("a"), Description: cdb.GetStrPtr("ab")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("a"), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL is not valid",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("imagenet")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("imagenet")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthType are specified but no imageAuthToken",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthType: cdb.GetStrPtr("Bearer")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthType: cutil.GetPtr("Bearer")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthType are specified but imageAuthToken is empty",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthType: cdb.GetStrPtr("Bearer"), ImageAuthToken: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthType: cutil.GetPtr("Bearer"), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but no imageAuthType",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthToken: cdb.GetStrPtr("rsa")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthToken: cutil.GetPtr("rsa")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but imageAuthType is invalid",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthToken: cdb.GetStrPtr("rsa"), ImageAuthType: cdb.GetStrPtr("VAPID")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthToken: cutil.GetPtr("rsa"), ImageAuthType: cutil.GetPtr("VAPID")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and imageAuthToken are specified but imageAuthType is empty",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), ImageAuthToken: cdb.GetStrPtr("rsa"), ImageAuthType: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), ImageAuthToken: cutil.GetPtr("rsa"), ImageAuthType: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when imageURL and ipxeScript both specified",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://image.net/iso"), IpxeScript: cdb.GetStrPtr("ipxe")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://image.net/iso"), IpxeScript: cutil.GetPtr("ipxe")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when both RootFsID and RootFsLabel are populated",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), RootFsLabel: cdb.GetStrPtr("test-label")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), RootFsLabel: cutil.GetPtr("test-label")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when os created with rootFsID but request to update rootFsLabel",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsLabel: cdb.GetStrPtr("test-label")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsLabel: cutil.GetPtr("test-label")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when os created with rootFsID and try to clear it without specifying rootFsLabel",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:       "error when os created with rootFsLabel but request to update rootFsID",
-			obj:        APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e")},
+			obj:        APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e")},
 			existingOS: existingImageBasedOSWithFSLabel,
 			expectErr:  true,
 		},
 		{
 			desc:       "error when os created with rootFsLabel and try to clear it without specifying rootFsID",
-			obj:        APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsLabel: cdb.GetStrPtr("")},
+			obj:        APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsLabel: cutil.GetPtr("")},
 			existingOS: existingImageBasedOSWithFSLabel,
 			expectErr:  true,
 		},
 		{
 			desc:       "error when ipxeScript is empty",
-			obj:        APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("abc"), IpxeScript: cdb.GetStrPtr("")},
+			obj:        APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("abc"), IpxeScript: cutil.GetPtr("")},
 			existingOS: existingIpxeBasedOS,
 			expectErr:  true,
 		},
 		{
 			desc:      "ok when description is not valid with empty",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("ab"), Description: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab"), Description: cutil.GetPtr("")},
 			expectErr: false,
 		},
 		{
 			desc:       "ok when all valid fields for ipxe are provided",
-			obj:        APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("ab"), Description: cdb.GetStrPtr("test"), IpxeScript: cdb.GetStrPtr("ipxe"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), IsCloudInit: cdb.GetBoolPtr(false), AllowOverride: cdb.GetBoolPtr(true)},
+			obj:        APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab"), Description: cutil.GetPtr("test"), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: cutil.GetPtr(false), AllowOverride: cutil.GetPtr(true)},
 			existingOS: existingIpxeBasedOS,
 			expectErr:  false,
 		},
 		{
 			desc:      "ok when all valid image fields provided",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("ab"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when optional image fields are empty",
-			obj:       APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("ab"), ImageURL: cdb.GetStrPtr("http://iso.net/iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cdb.GetStrPtr(""), ImageAuthType: cdb.GetStrPtr(""), ImageAuthToken: cdb.GetStrPtr("")},
+			obj:       APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("ab"), ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cutil.GetPtr(""), ImageAuthType: cutil.GetPtr(""), ImageAuthToken: cutil.GetPtr("")},
 			expectErr: false,
 		},
 	}
@@ -378,105 +379,105 @@ func TestAPIOperatingSystemCreateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome enabled create request when userData is nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Operating System PhoneHome enabled create request when userData is empty",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr(""),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr(""),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome enabled create request when userData is invalid",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("test"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("test"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      true,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome enabled create request when userData is valid YAML but invalid cloud-config",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("#test"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("#test"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      true,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome enabled create request when userData is valid YAML and valid cloud-config but comments only",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("#cloud-config"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("#cloud-config"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      true,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome disabled create request when userData is invalid",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("test"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("test"),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr:      false,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome nil create request when userData is invalid",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("test"),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("test"),
 				PhoneHomeEnabled:  nil,
 			},
 			wantErr:      false,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
 			name: "test valid Instance PhoneHome enabled create request when userData is valid",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				TenantID:          db.GetStrPtr(uuid.NewString()),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr(util.TestCommonCloudInit),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr(util.TestCommonCloudInit),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
-			phoneHomeUrl: cdb.GetStrPtr("http://localhost/local"),
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 	}
 	for _, tt := range tests {
@@ -524,8 +525,8 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingPhoneHomeEnabledOS := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(cdmu.TestCommonPhoneHomeCloudInit),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(cdmu.TestCommonPhoneHomeCloudInit),
 		PhoneHomeEnabled: true,
 		Status:           cdbm.OperatingSystemStatusReady,
 		Type:             cdbm.OperatingSystemTypeIPXE,
@@ -535,7 +536,7 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingPhoneHomeEnabledOSUserdataNil := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
 		UserData:         nil,
 		PhoneHomeEnabled: true,
 		Status:           cdbm.OperatingSystemStatusReady,
@@ -546,8 +547,8 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingPhoneHomeDisabledOS := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(cdmu.TestCommonCloudInit),
 		PhoneHomeEnabled: false,
 		Status:           cdbm.OperatingSystemStatusReady,
 		Type:             cdbm.OperatingSystemTypeIPXE,
@@ -557,7 +558,7 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingPhoneHomeDisabledOSNilUserData := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
 		UserData:         nil,
 		PhoneHomeEnabled: false,
 		Status:           cdbm.OperatingSystemStatusReady,
@@ -568,8 +569,8 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingOSWithPhoneHomeOnlyUserData := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(util.TestCommonPhoneHomeOnlyCloudInit),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(util.TestCommonPhoneHomeOnlyCloudInit),
 		PhoneHomeEnabled: false,
 		Status:           cdbm.OperatingSystemStatusReady,
 		Type:             cdbm.OperatingSystemTypeIPXE,
@@ -579,8 +580,8 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 	existingOSWithXMLUserData := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(util.TestCommonXMLUserData),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(util.TestCommonXMLUserData),
 		PhoneHomeEnabled: false,
 		Status:           cdbm.OperatingSystemStatusReady,
 		Type:             cdbm.OperatingSystemTypeIPXE,
@@ -599,10 +600,10 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome disabled update request when userData is nil and existing OS has enabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingPhoneHomeEnabledOS.ID.String()),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeEnabledOS.ID.String()),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -612,10 +613,10 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid PhoneHome enabled, request userData is nil, existing OS userdata is nil, and existing OS has phonehome enabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingPhoneHomeEnabledOS.ID.String()),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeEnabledOS.ID.String()),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -625,10 +626,10 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome enabled update request when userData is nil and existing OS has disabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingPhoneHomeDisabledOS.ID.String()),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeDisabledOS.ID.String()),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -638,10 +639,10 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome enabled update request when userData is empty and existing OS has disabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingPhoneHomeDisabledOS.ID.String()),
-				UserData:          cdb.GetStrPtr(""),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeDisabledOS.ID.String()),
+				UserData:          cutil.GetPtr(""),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -651,10 +652,10 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome enabled update request when userData is present and existing OS has disabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingPhoneHomeDisabledOSNilUserData.ID.String()),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeDisabledOSNilUserData.ID.String()),
 				UserData:          &cdmu.TestCommonCloudInit,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -664,9 +665,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test valid Operating System PhoneHome disabled update request when userData is present with only phone home section",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingOSWithPhoneHomeOnlyUserData.ID.String()),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingOSWithPhoneHomeOnlyUserData.ID.String()),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
@@ -676,9 +677,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "test invalid Operating System PhoneHome enabled update request when userData is XML",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: db.GetStrPtr(existingOSWithXMLUserData.ID.String()),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingOSWithXMLUserData.ID.String()),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr:      true,
 			phoneHomeUrl: "http://localhost/local",
@@ -688,8 +689,8 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe request arbitrary user-data, OS phone-home disabled, request phonehome nil",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr("random:\narbitrary\n"),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr("random:\narbitrary\n"),
 				PhoneHomeEnabled: nil,
 			},
 			phoneHomeUrl: "http://localhost/local",
@@ -700,9 +701,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe request arbitrary user-data, OS phone-home disabled, request phonehome enabled",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr("random:\narbitrary\n"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr("random:\narbitrary\n"),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			existingOS: existingPhoneHomeDisabledOSNilUserData,
 			wantErr:    true,
@@ -711,9 +712,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "fail ipxe request invalid user-data, OS phone-home disabled, request phonehome enabled",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr("random:\narbitrary\n"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr("random:\narbitrary\n"),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			existingOS: existingPhoneHomeDisabledOSNilUserData,
 			wantErr:    true,
@@ -722,9 +723,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe request invalid user-data, OS phone-home disabled, request phonehome disabled",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr("random:\narbitrary\n"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(false),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr("random:\narbitrary\n"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
 			},
 			phoneHomeUrl: "http://localhost/local",
 			existingOS:   existingPhoneHomeDisabledOSNilUserData,
@@ -734,9 +735,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe request invalid user-data, OS phone-home disabled, request phonehome enabled, OS user-data nil, request user-data empty",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr(""),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr(""),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			existingOS: existingPhoneHomeDisabledOSNilUserData,
 			wantErr:    false,
@@ -745,9 +746,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe, request valid user-data, OS phone-home disabled, request phonehome disabled, OS user-data nil, request user-data has phone-home only",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr(cdmu.TestCommonPhoneHomeSegment),
-				PhoneHomeEnabled: cdb.GetBoolPtr(false),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr(cdmu.TestCommonPhoneHomeSegment),
+				PhoneHomeEnabled: cutil.GetPtr(false),
 			},
 			phoneHomeUrl: "http://localhost",
 			existingOS:   existingPhoneHomeDisabledOSNilUserData,
@@ -757,9 +758,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe, request valid user-data, OS phone-home disabled, request phonehome disabled, OS user-data nil, request user-data has phone-home multiple times",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr(cdmu.TestCommonPhoneHomeSegment + cdmu.TestCommonPhoneHomeSegment + cdmu.TestCommonPhoneHomeSegment),
-				PhoneHomeEnabled: cdb.GetBoolPtr(false),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr(cdmu.TestCommonPhoneHomeSegment + cdmu.TestCommonPhoneHomeSegment + cdmu.TestCommonPhoneHomeSegment),
+				PhoneHomeEnabled: cutil.GetPtr(false),
 			},
 			phoneHomeUrl: "http://localhost",
 			existingOS:   existingPhoneHomeDisabledOSNilUserData,
@@ -769,9 +770,9 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			name: "success ipxe, request valid user-data, OS phone-home disabled, request phonehome enabled, OS user-data nil, request user-data has phone-home already",
 			fields: fields{
 				Name:             "test-name",
-				Description:      cdb.GetStrPtr("test"),
-				UserData:         cdb.GetStrPtr(cdmu.TestCommonCloudInit + "\n" + cdmu.TestCommonPhoneHomeOnlyCloudInit),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Description:      cutil.GetPtr("test"),
+				UserData:         cutil.GetPtr(cdmu.TestCommonCloudInit + "\n" + cdmu.TestCommonPhoneHomeOnlyCloudInit),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			phoneHomeUrl:             "http://localhost",
 			existingOS:               existingPhoneHomeDisabledOSNilUserData,
@@ -830,12 +831,12 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 	dbOS := &cdbm.OperatingSystem{
 		ID:                       uuid.New(),
 		Name:                     "test",
-		Description:              cdb.GetStrPtr("test"),
+		Description:              cutil.GetPtr("test"),
 		Org:                      "test",
-		InfrastructureProviderID: cdb.GetUUIDPtr(uuid.New()),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
-		IpxeScript:               cdb.GetStrPtr("ipxe"),
-		UserData:                 cdb.GetStrPtr("ud"),
+		InfrastructureProviderID: cutil.GetPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
+		IpxeScript:               cutil.GetPtr("ipxe"),
+		UserData:                 cutil.GetPtr("ud"),
 		IsCloudInit:              true,
 		AllowOverride:            false,
 		Status:                   cdbm.OperatingSystemStatusPending,
@@ -852,7 +853,7 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 		},
 	}
 	dbossa := []cdbm.OperatingSystemSiteAssociation{
-		{ID: uuid.New(), OperatingSystemID: dbOS.ID, SiteID: uuid.New(), Version: cdb.GetStrPtr("1233"), Status: cdbm.OperatingSystemSiteAssociationStatusSyncing},
+		{ID: uuid.New(), OperatingSystemID: dbOS.ID, SiteID: uuid.New(), Version: cutil.GetPtr("1233"), Status: cdbm.OperatingSystemSiteAssociationStatusSyncing},
 	}
 	sttsmap := map[uuid.UUID]*cdbm.TenantSite{
 		dbossa[0].SiteID: {
@@ -888,4 +889,79 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 			assert.Equal(t, *tc.dbObj.Description, *got.Description)
 		})
 	}
+}
+
+func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	url := "https://image"
+	sha := "deadbeef"
+	rootFsID := "fs-1"
+	os := &cdbm.OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu",
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		RootFsID:           &rootFsID,
+		EnableBlockStorage: false,
+	}
+	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
+		req := APIOperatingSystemCreateRequest{}
+		got := req.ToProto(os, "org-1")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Name)
+		assert.Equal(t, "ubuntu", *got.Name)
+		assert.Equal(t, "org-1", got.TenantOrganizationId)
+		assert.Equal(t, "https://image", got.SourceUrl)
+		assert.Equal(t, "deadbeef", got.Digest)
+		require.NotNil(t, got.RootfsId)
+		assert.Equal(t, "fs-1", *got.RootfsId)
+	})
+	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
+		ctrlID := uuid.New()
+		osWithCtrl := &cdbm.OperatingSystem{
+			ID:                          id,
+			ControllerOperatingSystemID: &ctrlID,
+			Name:                        "ubuntu",
+			ImageURL:                    &url,
+			ImageSHA:                    &sha,
+			RootFsID:                    &rootFsID,
+		}
+		req := APIOperatingSystemCreateRequest{}
+		got := req.ToProto(osWithCtrl, "org-1")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, ctrlID.String(), got.Id.Value)
+	})
+}
+
+func TestAPIOperatingSystemUpdateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	url := "https://image-new"
+	sha := "cafebabe"
+	rootFsLabel := "lbl"
+	uos := &cdbm.OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu-22",
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		RootFsLabel:        &rootFsLabel,
+		EnableBlockStorage: true,
+	}
+	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
+		req := APIOperatingSystemUpdateRequest{}
+		got := req.ToProto(uos, "org-2")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Name)
+		assert.Equal(t, "ubuntu-22", *got.Name)
+		assert.Equal(t, "org-2", got.TenantOrganizationId)
+		assert.Equal(t, "https://image-new", got.SourceUrl)
+		assert.Equal(t, "cafebabe", got.Digest)
+		assert.True(t, got.CreateVolume)
+		require.NotNil(t, got.RootfsLabel)
+		assert.Equal(t, "lbl", *got.RootfsLabel)
+	})
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/NVIDIA/infra-controller-rest/sdk/simple"
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/simple"
 )
 
 func main() {

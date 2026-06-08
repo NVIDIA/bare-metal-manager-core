@@ -5,10 +5,11 @@ package nvos
 
 import (
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // DefaultNVOSPort is the default SSH port.

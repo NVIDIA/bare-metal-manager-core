@@ -16,12 +16,12 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/internal/certs"
-	pb "github.com/NVIDIA/infra-controller-rest/nvswitch-manager/internal/proto/v1"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db/migrations"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db/postgres"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/firmwaremanager"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/nvswitchmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/internal/certs"
+	pb "github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/internal/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db/postgres"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/firmwaremanager"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/nvswitchmanager"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

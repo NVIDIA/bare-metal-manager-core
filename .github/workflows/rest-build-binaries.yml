@@ -10,7 +10,7 @@ on:
         runner:
           description: 'Runner type for the build job'
           required: false
-          default: 'ubuntu-latest'
+          default: 'linux-amd64-cpu4'
           type: string
         upload_artifact:
           description: 'Whether to upload artifacts'

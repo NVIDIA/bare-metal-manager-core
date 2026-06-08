@@ -17,7 +17,7 @@
 #
 # Fork PRs: do not run on untrusted head (copy-pr-bot FAQ). Same-repo PRs run
 # on pull_request. After /ok-to-test, copy-pr-bot pushes pull-request/<n>;
-# we run on that push like Carbide CI (see ci.yaml).
+# we run on that push like NICo Core CI (see ci.yaml).
 
 name: Fern docs (check)
 

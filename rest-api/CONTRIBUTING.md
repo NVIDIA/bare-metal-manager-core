@@ -105,11 +105,11 @@ All pull requests are automatically checked for DCO compliance via DCO bot. Pull
 
 ## Fork and Setup
 
-Developers must first fork the upstream [NVIDIA Infrastructure Controller REST repository](https://github.com/NVIDIA/infra-controller-rest).
+Developers must first fork the upstream [NVIDIA Infrastructure Controller REST repository](https://github.com/NVIDIA/infra-controller/rest-api).
 
 ### 1. Fork the Repository
 
-1. Navigate to the [NVIDIA Infrastructure Controller REST repository](https://github.com/NVIDIA/infra-controller-rest) on GitHub.
+1. Navigate to the [NVIDIA Infrastructure Controller REST repository](https://github.com/NVIDIA/infra-controller/rest-api) on GitHub.
 2. Click the **Fork** button in the upper right corner.
 3. Select your GitHub account as the destination.
 
@@ -125,7 +125,7 @@ cd infra-controller-rest
 Add the original repository as an upstream remote to keep your fork in sync:
 
 ```bash
-git remote add upstream https://github.com/NVIDIA/infra-controller-rest.git
+git remote add upstream https://github.com/NVIDIA/infra-controller/rest-api.git
 git remote -v  # Verify remotes
 ```
 

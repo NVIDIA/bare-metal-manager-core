@@ -58,20 +58,10 @@ fn resolve_firmware_upgrade_source(
         }
     });
 
-    if args.sot_json_file.is_some() && access_token.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "--access-token is required with --sot-json-file".to_string(),
-        ));
-    }
     if requires_firmware_object_json && firmware_version.trim().is_empty() {
         return Err(CarbideCliError::GenericError(
             "--activities firmware-upgrade/nvos-update requires SOT JSON from --sot-json-file or --firmware-version"
                 .to_string(),
-        ));
-    }
-    if requires_firmware_object_json && access_token.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "--activities firmware-upgrade/nvos-update requires --access-token".to_string(),
         ));
     }
     if !requires_firmware_object_json && args.sot_json_file.is_some() {
@@ -89,7 +79,7 @@ fn resolve_firmware_upgrade_source(
             "--access-token requires --activities firmware-upgrade or nvos-update".to_string(),
         ));
     }
-    if access_token.is_some() && args.firmware_version.is_some() {
+    if requires_firmware_object_json && args.firmware_version.is_some() {
         serde_json::from_str::<serde_json::Value>(&firmware_version)?;
     }
 
@@ -189,16 +179,31 @@ mod tests {
     }
 
     #[test]
-    fn firmware_upgrade_requires_access_token() {
+    fn firmware_upgrade_allows_missing_access_token() {
         let args = MaintenanceOptions {
             activities: Some(vec!["firmware-upgrade".to_string()]),
             firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
             ..options()
         };
 
-        let err = resolve_firmware_upgrade_source(&args).unwrap_err();
+        let (firmware_version, access_token) = resolve_firmware_upgrade_source(&args).unwrap();
 
-        assert!(err.to_string().contains("requires --access-token"));
+        assert_eq!(firmware_version, r#"{"Id":"fw"}"#);
+        assert_eq!(access_token, None);
+    }
+
+    #[test]
+    fn firmware_upgrade_treats_empty_access_token_as_missing() {
+        let args = MaintenanceOptions {
+            activities: Some(vec!["firmware-upgrade".to_string()]),
+            firmware_version: Some(r#"{"Id":"fw"}"#.to_string()),
+            access_token: Some(String::new()),
+            ..options()
+        };
+
+        let (_, access_token) = resolve_firmware_upgrade_source(&args).unwrap();
+
+        assert_eq!(access_token, None);
     }
 
     #[test]

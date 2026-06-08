@@ -6,7 +6,7 @@ package model
 import (
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )

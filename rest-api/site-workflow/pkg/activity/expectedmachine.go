@@ -17,10 +17,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cclient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedMachineInventory is an activity wrapper for Expected Machine inventory collection and publishing

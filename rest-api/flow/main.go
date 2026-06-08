@@ -3,7 +3,7 @@
 
 package main
 
-import "github.com/NVIDIA/infra-controller-rest/flow/cmd"
+import "github.com/NVIDIA/infra-controller/rest-api/flow/cmd"
 
 func main() {
 	cmd.Execute()

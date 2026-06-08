@@ -10,7 +10,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // Config represents the configuration needed to connect to a database.

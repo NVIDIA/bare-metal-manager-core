@@ -16,9 +16,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/internal/certs"
-	pb "github.com/NVIDIA/infra-controller-rest/powershelf-manager/internal/proto/v1"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/powershelfmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/internal/certs"
+	pb "github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/internal/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/powershelfmanager"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

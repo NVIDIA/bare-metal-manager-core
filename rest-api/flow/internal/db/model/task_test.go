@@ -13,8 +13,8 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
 // newOfflineBun returns a bun DB wired to the postgres dialect with no

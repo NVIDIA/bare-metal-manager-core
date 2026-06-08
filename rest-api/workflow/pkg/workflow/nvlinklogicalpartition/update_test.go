@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	nvlinklogicalpartitionActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/nvlinklogicalpartition"
+	nvlinklogicalpartitionActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/nvlinklogicalpartition"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type UpdateNVLinkLogicalPartitionTestSuite struct {

@@ -135,7 +135,7 @@ pub fn invalid_metadata_testcases(
             ).to_string(),
         ),
         (
-            // Maximum of 10 labels
+            // Maximum of 16 labels
             rpc::forge::Metadata {
                 name: "aa".to_string(),
                 description: "".to_string(),
@@ -182,9 +182,33 @@ pub fn invalid_metadata_testcases(
                 rpc::forge::Label {
                     key: "key11".to_string(),
                     value: None,
+                },
+                rpc::forge::Label {
+                    key: "key12".to_string(),
+                    value: None,
+                },
+                rpc::forge::Label {
+                    key: "key13".to_string(),
+                    value: None,
+                },
+                rpc::forge::Label {
+                    key: "key14".to_string(),
+                    value: None,
+                },
+                rpc::forge::Label {
+                    key: "key15".to_string(),
+                    value: None,
+                },
+                rpc::forge::Label {
+                    key: "key16".to_string(),
+                    value: None,
+                },
+                rpc::forge::Label {
+                    key: "key17".to_string(),
+                    value: None,
                 },],
             },
-            "Invalid value: Cannot have more than 10 labels".to_string()
+            "Invalid value: Cannot have more than 16 labels".to_string()
         ),
     ].to_vec();
 

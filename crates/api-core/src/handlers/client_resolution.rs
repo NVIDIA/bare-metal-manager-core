@@ -21,7 +21,7 @@ use std::net::IpAddr;
 use ::rpc::forge as rpc;
 use db;
 use model::instance::snapshot::InstanceSnapshot;
-use model::machine::MachineInterfaceSnapshot;
+use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -30,40 +30,66 @@ use crate::api::Api;
 /// What `resolve_client_ip` returned. Either the IP belongs directly
 /// to a `machine_interface` (admin / host case), or it belongs to a
 /// tenant-allocated `instance_address` (instance case).
-#[allow(clippy::large_enum_variant)]
 enum ResolvedClient {
-    Interface(MachineInterfaceSnapshot),
-    Instance(InstanceSnapshot),
+    MachineInterface(Box<MachineInterfaceSnapshot>),
+    Instance(Box<InstanceSnapshot>),
 }
 
-/// This is a shared two-table lookup that both cloud-init and pxe boot
-/// flows use for resolving a client IP . Check `machine_interface_addresses`
-/// first (the common admin path), then fall back to `instance_address`.
+impl From<InstanceSnapshot> for ResolvedClient {
+    fn from(snapshot: InstanceSnapshot) -> Self {
+        ResolvedClient::Instance(Box::new(snapshot))
+    }
+}
+
+impl From<MachineInterfaceSnapshot> for ResolvedClient {
+    fn from(snapshot: MachineInterfaceSnapshot) -> Self {
+        ResolvedClient::MachineInterface(Box::new(snapshot))
+    }
+}
+
+enum PreferredLookup {
+    MachineInterface,
+    Instance,
+}
+
+/// Resolve a client IP to a ResolvedClient.
+///
+/// - `preferred_lookup`:  Use [`PreferredLookup::MachineInterface`] to prefer returning a
+///   `ResolvedClient::MachineInterface` if it's found, falling back on a `ResolvedClient::Instance`
+///   if not. Use [`PreferredLookup::Instance`] to do the reverse, returning a
+///   `ResolvedClient::Instance` first and a `ResolvedClient::MachineInterface` otherwise.
 async fn resolve_client_ip(
     conn: &mut PgConnection,
     client_ip: IpAddr,
+    preferred_lookup: PreferredLookup,
 ) -> Result<ResolvedClient, CarbideError> {
-    if let Some(iface) = db::machine_interface::find_by_ip(&mut *conn, client_ip).await? {
-        return Ok(ResolvedClient::Interface(iface));
+    match preferred_lookup {
+        PreferredLookup::MachineInterface => {
+            if let Some(iface) = db::machine_interface::find_by_ip(&mut *conn, client_ip).await? {
+                return Ok(ResolvedClient::MachineInterface(Box::new(iface)));
+            }
+            Ok(db::instance::find_by_address(&mut *conn, client_ip)
+                .await?
+                .map(ResolvedClient::from)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "Client",
+                    id: client_ip.to_string(),
+                })?)
+        }
+        PreferredLookup::Instance => {
+            if let Some(instance) = db::instance::find_by_address(&mut *conn, client_ip).await? {
+                return Ok(ResolvedClient::Instance(Box::new(instance)));
+            }
+
+            db::machine_interface::find_by_ip(&mut *conn, client_ip)
+                .await?
+                .map(ResolvedClient::from)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "Client",
+                    id: client_ip.to_string(),
+                })
+        }
     }
-
-    let instance_address = db::instance_address::find_by_address(&mut *conn, client_ip)
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "Client",
-            id: client_ip.to_string(),
-        })?;
-
-    let instance = db::instance::find_by_id(&mut *conn, instance_address.instance_id)
-        .await?
-        .ok_or_else(|| {
-            CarbideError::internal(format!(
-                "instance_address {client_ip} references missing instance {}",
-                instance_address.instance_id,
-            ))
-        })?;
-
-    Ok(ResolvedClient::Instance(instance))
 }
 
 /// Resolve a client IP to the host's `machine_interface` for PXE-script
@@ -74,8 +100,8 @@ pub(crate) async fn resolve_machine_interface(
     conn: &mut PgConnection,
     client_ip: IpAddr,
 ) -> Result<MachineInterfaceSnapshot, CarbideError> {
-    match resolve_client_ip(conn, client_ip).await? {
-        ResolvedClient::Interface(iface) => Ok(iface),
+    match resolve_client_ip(conn, client_ip, PreferredLookup::MachineInterface).await? {
+        ResolvedClient::MachineInterface(iface) => Ok(*iface),
         ResolvedClient::Instance(instance) => {
             let interfaces_by_machine =
                 db::machine_interface::find_by_machine_ids(&mut *conn, &[instance.machine_id])
@@ -123,7 +149,37 @@ pub(crate) async fn resolve_cloud_init_instructions(
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
 
-    match resolve_client_ip(conn, client_ip).await? {
+    let resolved_ip = {
+        let mut resolved = resolve_client_ip(conn, client_ip, PreferredLookup::Instance).await?;
+
+        // Is this an instance IP? If so, we use its cloud-init config *only* if it's Assigned/Ready.
+        if let ResolvedClient::Instance(instance) = &resolved
+            && let Some(managed_host_state) =
+                db::machine::lookup_managed_host_state(&mut *conn, instance.machine_id).await?
+        {
+            let is_assigned_and_ready = matches!(
+                managed_host_state,
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::Ready | InstanceState::WaitingForRebootToReady,
+                }
+            );
+
+            if !is_assigned_and_ready {
+                tracing::info!(
+                    instance_id=%instance.id,
+                    machine_id=%instance.machine_id,
+                    state=%managed_host_state,
+                    "cloud-init instructions: machine is not Assigned/Ready, using discovery cloud-init"
+                );
+                let machine_interface = resolve_machine_interface(&mut *conn, client_ip).await?;
+                resolved = ResolvedClient::MachineInterface(Box::new(machine_interface));
+            }
+        }
+
+        resolved
+    };
+
+    match resolved_ip {
         ResolvedClient::Instance(instance) => Ok(rpc::CloudInitInstructions {
             custom_cloud_init: instance.config.os.user_data,
             discovery_instructions: None,
@@ -135,7 +191,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
             api_url_override: None,
             pxe_url_override: None,
         }),
-        ResolvedClient::Interface(machine_interface) => {
+        ResolvedClient::MachineInterface(machine_interface) => {
             let domain_id = machine_interface.domain_id.ok_or_else(|| {
                 CarbideError::internal(format!(
                     "Machine Interface did not have an associated domain {}",
@@ -200,7 +256,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
             Ok(rpc::CloudInitInstructions {
                 custom_cloud_init,
                 discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
-                    machine_interface: Some(machine_interface.into()),
+                    machine_interface: Some((*machine_interface).into()),
                     domain: Some(rpc::PxeDomain {
                         domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
                     }),

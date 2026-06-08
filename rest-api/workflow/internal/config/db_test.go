@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 )
 
 func TestNewDBConfig(t *testing.T) {

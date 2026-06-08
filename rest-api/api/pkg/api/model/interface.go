@@ -12,8 +12,8 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APIInterfaceCreateRequest is the data structure to capture user request to create a new Interface
@@ -253,7 +253,7 @@ func NewAPIInterface(dbis *cdbm.Interface) *APIInterface {
 	}
 
 	if dbis.SubnetID != nil {
-		apiInterface.SubnetID = cdb.GetStrPtr(dbis.SubnetID.String())
+		apiInterface.SubnetID = cutil.GetPtr(dbis.SubnetID.String())
 	}
 
 	if dbis.Subnet != nil {
@@ -261,7 +261,7 @@ func NewAPIInterface(dbis *cdbm.Interface) *APIInterface {
 	}
 
 	if dbis.VpcPrefixID != nil {
-		apiInterface.VpcPrefixID = cdb.GetStrPtr(dbis.VpcPrefixID.String())
+		apiInterface.VpcPrefixID = cutil.GetPtr(dbis.VpcPrefixID.String())
 	}
 
 	if dbis.VpcPrefix != nil {

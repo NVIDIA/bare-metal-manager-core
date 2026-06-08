@@ -4,162 +4,13 @@
 package db
 
 import (
-	"reflect"
 	"testing"
-	"time"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestGetStrPtr(t *testing.T) {
-	type args struct {
-		s string
-	}
-
-	input := "test"
-
-	tests := []struct {
-		name string
-		args args
-		want *string
-	}{
-		{
-			name: "get pointer for string",
-			args: args{
-				s: input,
-			},
-			want: &input,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GetStrPtr(tt.args.s)
-
-			if *got != *tt.want {
-				t.Errorf("GetStrPtr() = %v, want %v", *got, *tt.want)
-			}
-		})
-	}
-}
-
-func TestGetTimePtr(t *testing.T) {
-	type args struct {
-		t time.Time
-	}
-
-	input := GetCurTime()
-
-	tests := []struct {
-		name string
-		args args
-		want *time.Time
-	}{
-		{
-			name: "get pointer for time",
-			args: args{
-				t: input,
-			},
-			want: &input,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GetTimePtr(tt.args.t)
-
-			if *got != *tt.want {
-				t.Errorf("GetTimePtr() = %v, want %v", *got, *tt.want)
-			}
-		})
-	}
-}
-
-func TestGetUUIDPtr(t *testing.T) {
-	type args struct {
-		u uuid.UUID
-	}
-
-	input := uuid.New()
-
-	tests := []struct {
-		name string
-		args args
-		want *uuid.UUID
-	}{
-		{
-			name: "get pointer for UUID",
-			args: args{
-				u: input,
-			},
-			want: &input,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := GetUUIDPtr(tt.args.u); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetUUIDPtr() = %v, want %v", *got, *tt.want)
-			}
-		})
-	}
-}
-
-func TestGetBoolPtr(t *testing.T) {
-	type args struct {
-		b bool
-	}
-
-	input := true
-
-	tests := []struct {
-		name string
-		args args
-		want *bool
-	}{
-		{
-			name: "get pointer for bool",
-			args: args{
-				b: input,
-			},
-			want: &input,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := GetBoolPtr(tt.args.b); *got != *tt.want {
-				t.Errorf("GetBoolPtr() = %v, want %v", *got, *tt.want)
-			}
-		})
-	}
-}
-
-func TestGetIntPtr(t *testing.T) {
-	type args struct {
-		i int
-	}
-
-	input := 10
-
-	tests := []struct {
-		name string
-		args args
-		want *int
-	}{
-		{
-			name: "get pointer for int",
-			args: args{
-				i: input,
-			},
-			want: &input,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := GetIntPtr(tt.args.i); *got != *tt.want {
-				t.Errorf("GetIntPtr() = %v, want %v", *got, *tt.want)
-			}
-		})
-	}
-}
 
 func TestIsStrInSlice(t *testing.T) {
 	type args struct {
@@ -370,51 +221,51 @@ func TestNormalizeSearchQuery(t *testing.T) {
 		},
 		{
 			name:   "blank",
-			input:  GetStrPtr("   "),
+			input:  cutil.GetPtr("   "),
 			wantOK: false,
 		},
 		{
 			name:        "valid multi word",
-			input:       GetStrPtr(" foo bar "),
+			input:       cutil.GetPtr(" foo bar "),
 			wantQuery:   "foo bar",
-			wantTsQuery: GetStrPtr("foo | bar"),
+			wantTsQuery: cutil.GetPtr("foo | bar"),
 			wantOK:      true,
 		},
 		{
 			name:        "valid explicit OR operator",
-			input:       GetStrPtr("foo | bar"),
+			input:       cutil.GetPtr("foo | bar"),
 			wantQuery:   "foo | bar",
-			wantTsQuery: GetStrPtr("foo | bar"),
+			wantTsQuery: cutil.GetPtr("foo | bar"),
 			wantOK:      true,
 		},
 		{
 			name:   "standalone operator",
-			input:  GetStrPtr("|"),
+			input:  cutil.GetPtr("|"),
 			wantOK: false,
 		},
 		{
 			name:   "leading operator",
-			input:  GetStrPtr("| foo"),
+			input:  cutil.GetPtr("| foo"),
 			wantOK: false,
 		},
 		{
 			name:   "trailing operator",
-			input:  GetStrPtr("foo |"),
+			input:  cutil.GetPtr("foo |"),
 			wantOK: false,
 		},
 		{
 			name:   "consecutive operators",
-			input:  GetStrPtr("foo | |"),
+			input:  cutil.GetPtr("foo | |"),
 			wantOK: false,
 		},
 		{
 			name:   "unsupported NOT operator",
-			input:  GetStrPtr("foo ! bar"),
+			input:  cutil.GetPtr("foo ! bar"),
 			wantOK: false,
 		},
 		{
 			name:   "embedded operator",
-			input:  GetStrPtr("foo|bar"),
+			input:  cutil.GetPtr("foo|bar"),
 			wantOK: false,
 		},
 	}

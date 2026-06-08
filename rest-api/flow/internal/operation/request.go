@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // Wrapper wraps the operation type and its serialized information.

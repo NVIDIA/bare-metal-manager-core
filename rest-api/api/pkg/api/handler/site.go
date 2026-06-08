@@ -24,19 +24,19 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	csm "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/sitemgr"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	siteWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/site"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	siteWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/site"
 )
 
 const (
@@ -193,8 +193,8 @@ func (csh CreateSiteHandler) Handle(c echo.Context) error {
 		st = createdSite
 
 		// Create status detail
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, st.ID.String(), *cdb.GetStrPtr(cdbm.SiteStatusPending),
-			cdb.GetStrPtr("received site creation request, pending pairing"))
+		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, st.ID.String(), *cutil.GetPtr(cdbm.SiteStatusPending),
+			cutil.GetPtr("received site creation request, pending pairing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 		}
@@ -374,7 +374,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 
 	if !isAssociated && tenant != nil {
 		// Check if Tenant is associated with Site
-		tss, _, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		tss, _, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Warn().Err(err).Msg("error retrieving TenantSite records from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to determine Tenant's access to Site, DB error", nil)
@@ -412,8 +412,8 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 
 		// Switch Site status only if it is currently not Registered
 		if es.Status != cdbm.SiteStatusRegistered {
-			status = cdb.GetStrPtr(cdbm.SiteStatusPending)
-			statusMessage = cdb.GetStrPtr("Registration token renewed, pending pairing")
+			status = cutil.GetPtr(cdbm.SiteStatusPending)
+			statusMessage = cutil.GetPtr("Registration token renewed, pending pairing")
 		}
 	}
 
@@ -455,7 +455,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 			// Native Networking is being disabled
 			// Check if there are VPCs that have virtualization type set to FNN
 			vpcDAO := cdbm.NewVpcDAO(ush.dbSession)
-			_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{es.ID}, NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcFNN)}, cdbp.PageInput{}, nil)
+			_, vpcCount, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{es.ID}, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN)}, cdbp.PageInput{}, nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving VPCs for Site from DB")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPCs for Site, unable to determine if Native Networking can be disabled", nil)
@@ -528,7 +528,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 
 		// Get status details (inside the tx for read-your-writes consistency
 		// with the StatusDetail created above)
-		details, _, derr := sdDAO.GetAllByEntityID(ctx, tx, siteID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		details, _, derr := sdDAO.GetAllByEntityID(ctx, tx, siteID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Site from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Site", nil)
@@ -637,7 +637,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 	if !isAssociated && tenant != nil {
 		tsDAO := cdbm.NewTenantSiteDAO(gsh.dbSession)
 
-		tss, tsCount, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{stID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		tss, tsCount, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{stID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving TenantSite from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant/Site association to determine access to Site, DB error", nil)
@@ -655,7 +655,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 					InfrastructureProviderID: &st.InfrastructureProviderID,
 					TenantIDs:                []uuid.UUID{tenant.ID},
 					Statuses:                 []string{cdbm.TenantAccountStatusReady},
-				}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
 					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts to determine access to Site, DB error", nil)
@@ -868,7 +868,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 
 	if provider != nil {
 		// Retrieve Sites from Provider perspective
-		sites, _, serr := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{provider.ID}}, paginator.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		sites, _, serr := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{provider.ID}}, paginator.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving all Sites by param from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Sites", nil)
@@ -881,7 +881,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 	if tenant != nil {
 		// Get Sites from Tenant perspective
 		tsDAO := cdbm.NewTenantSiteDAO(gash.dbSession)
-		tss, _, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		tss, _, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving Tenant Site associations from DB by Tenant ID")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site associated with Tenant", nil)
@@ -899,7 +899,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 			tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
 				TenantIDs: []uuid.UUID{tenant.ID},
 				Statuses:  []string{cdbm.TenantAccountStatusReady},
-			}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts", nil)
@@ -911,7 +911,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 					providerIDs = append(providerIDs, ta.InfrastructureProviderID)
 				}
 
-				providerSites, _, serr := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{InfrastructureProviderIDs: providerIDs}, paginator.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+				providerSites, _, serr := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{InfrastructureProviderIDs: providerIDs}, paginator.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error retrieving Sites for Providers from Tenant Accounts")
 					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Sites for one or more Providers", nil)
@@ -1213,7 +1213,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 	if !isAssociated && tenant != nil {
 		tsDAO := cdbm.NewTenantSiteDAO(gssdh.dbSession)
 
-		_, tsCount, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{stID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		_, tsCount, serr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{stID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving TenantSite from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant/Site association to determine access to Site, DB error", nil)
@@ -1230,7 +1230,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 					InfrastructureProviderID: &st.InfrastructureProviderID,
 					TenantIDs:                []uuid.UUID{tenant.ID},
 					Statuses:                 []string{cdbm.TenantAccountStatusReady},
-				}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
 					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Accounts to determine access to Site, DB error", nil)

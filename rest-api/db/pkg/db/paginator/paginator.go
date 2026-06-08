@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/uptrace/bun"
 )
 

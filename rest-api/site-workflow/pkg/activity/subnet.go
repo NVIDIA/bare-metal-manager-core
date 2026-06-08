@@ -14,9 +14,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageSubnet is an activity wrapper for Subnet management tasks that allows injecting DB access

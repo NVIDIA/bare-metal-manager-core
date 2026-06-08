@@ -8,13 +8,174 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestSSHKeyGroupSiteAssociation_ToKeysetIdentifierProto(t *testing.T) {
+	groupID := uuid.New()
+	skgsa := &SSHKeyGroupSiteAssociation{
+		SSHKeyGroupID: groupID,
+		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+	}
+	got := skgsa.ToKeysetIdentifierProto()
+	require.NotNil(t, got)
+	assert.Equal(t, groupID.String(), got.KeysetId)
+	assert.Equal(t, "org-1", got.OrganizationId)
+}
+
+func TestSSHKeyGroupSiteAssociation_ToKeysetIdentifierProto_NoSSHKeyGroup(t *testing.T) {
+	groupID := uuid.New()
+	skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID}
+	got := skgsa.ToKeysetIdentifierProto()
+	require.NotNil(t, got)
+	assert.Equal(t, groupID.String(), got.KeysetId)
+	assert.Equal(t, "", got.OrganizationId)
+}
+
+func TestSSHKeyGroupSiteAssociation_ToProto(t *testing.T) {
+	groupID := uuid.New()
+
+	t.Run("populates identifier, content, and version", func(t *testing.T) {
+		version := "v1"
+		skgsa := &SSHKeyGroupSiteAssociation{
+			SSHKeyGroupID: groupID,
+			SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+			Version:       &version,
+		}
+		content := &cwssaws.TenantKeysetContent{
+			PublicKeys: []*cwssaws.TenantPublicKey{{PublicKey: "ssh-rsa abc"}},
+		}
+		got := skgsa.ToProto(content)
+		require.NotNil(t, got)
+		require.NotNil(t, got.KeysetIdentifier)
+		assert.Equal(t, groupID.String(), got.KeysetIdentifier.KeysetId)
+		assert.Equal(t, "org-1", got.KeysetIdentifier.OrganizationId)
+		assert.Equal(t, content, got.KeysetContent)
+		assert.Equal(t, "v1", got.Version)
+	})
+
+	t.Run("nil version yields empty wire version", func(t *testing.T) {
+		skgsa := &SSHKeyGroupSiteAssociation{
+			SSHKeyGroupID: groupID,
+			SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+		}
+		got := skgsa.ToProto(nil)
+		require.NotNil(t, got)
+		assert.Equal(t, "", got.Version)
+		assert.Nil(t, got.KeysetContent)
+	})
+}
+
+func TestSSHKeyGroupSiteAssociation_FromProto(t *testing.T) {
+	groupID := uuid.New()
+
+	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
+		version := "preserved"
+		skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID, Version: &version}
+		skgsa.FromProto(nil)
+		assert.Equal(t, groupID, skgsa.SSHKeyGroupID)
+		require.NotNil(t, skgsa.Version)
+		assert.Equal(t, "preserved", *skgsa.Version)
+	})
+
+	t.Run("invalid keyset id leaves SSHKeyGroupID unchanged", func(t *testing.T) {
+		skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID}
+		skgsa.FromProto(&cwssaws.TenantKeyset{
+			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: "not-a-uuid"},
+			Version:          "v1",
+		})
+		assert.Equal(t, groupID, skgsa.SSHKeyGroupID)
+		require.NotNil(t, skgsa.Version)
+		assert.Equal(t, "v1", *skgsa.Version)
+	})
+
+	t.Run("populates SSHKeyGroupID and Version from proto", func(t *testing.T) {
+		newID := uuid.New()
+		skgsa := &SSHKeyGroupSiteAssociation{}
+		skgsa.FromProto(&cwssaws.TenantKeyset{
+			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: newID.String()},
+			Version:          "v2",
+		})
+		assert.Equal(t, newID, skgsa.SSHKeyGroupID)
+		require.NotNil(t, skgsa.Version)
+		assert.Equal(t, "v2", *skgsa.Version)
+	})
+
+	t.Run("empty proto version clears Version", func(t *testing.T) {
+		stale := "stale"
+		skgsa := &SSHKeyGroupSiteAssociation{Version: &stale}
+		skgsa.FromProto(&cwssaws.TenantKeyset{
+			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: groupID.String()},
+			Version:          "",
+		})
+		assert.Nil(t, skgsa.Version)
+	})
+
+	t.Run("nil KeysetIdentifier leaves SSHKeyGroupID unchanged", func(t *testing.T) {
+		skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID}
+		skgsa.FromProto(&cwssaws.TenantKeyset{Version: "v1"})
+		assert.Equal(t, groupID, skgsa.SSHKeyGroupID)
+		require.NotNil(t, skgsa.Version)
+		assert.Equal(t, "v1", *skgsa.Version)
+	})
+}
+
+func TestSSHKeyGroupSiteAssociation_ToCreateRequestProto(t *testing.T) {
+	groupID := uuid.New()
+	version := "v1"
+	skgsa := &SSHKeyGroupSiteAssociation{
+		SSHKeyGroupID: groupID,
+		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+		Version:       &version,
+	}
+	content := &cwssaws.TenantKeysetContent{}
+	got := skgsa.ToCreateRequestProto(content)
+	require.NotNil(t, got)
+	require.NotNil(t, got.KeysetIdentifier)
+	assert.Equal(t, groupID.String(), got.KeysetIdentifier.KeysetId)
+	assert.Equal(t, "v1", got.Version)
+	assert.Equal(t, content, got.KeysetContent)
+}
+
+func TestSSHKeyGroupSiteAssociation_ToUpdateRequestProto(t *testing.T) {
+	groupID := uuid.New()
+	version := "v2"
+	skgsa := &SSHKeyGroupSiteAssociation{
+		SSHKeyGroupID: groupID,
+		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+		Version:       &version,
+	}
+	content := &cwssaws.TenantKeysetContent{}
+	got := skgsa.ToUpdateRequestProto(content)
+	require.NotNil(t, got)
+	require.NotNil(t, got.KeysetIdentifier)
+	assert.Equal(t, groupID.String(), got.KeysetIdentifier.KeysetId)
+	assert.Equal(t, "org-1", got.KeysetIdentifier.OrganizationId)
+	assert.Equal(t, "v2", got.Version)
+	assert.Equal(t, content, got.KeysetContent)
+}
+
+func TestSSHKeyGroupSiteAssociation_ToDeletionRequestProto(t *testing.T) {
+	groupID := uuid.New()
+	skgsa := &SSHKeyGroupSiteAssociation{
+		SSHKeyGroupID: groupID,
+		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
+	}
+	got := skgsa.ToDeletionRequestProto()
+	require.NotNil(t, got)
+	require.NotNil(t, got.KeysetIdentifier)
+	assert.Equal(t, groupID.String(), got.KeysetIdentifier.KeysetId)
+	assert.Equal(t, "org-1", got.KeysetIdentifier.OrganizationId)
+}
 
 // reset the tables needed for SSHKeyGroupSiteAssociation tests
 func testSSHKeyGroupSiteAssociationSetupSchema(t *testing.T, dbSession *db.Session) {
@@ -31,12 +192,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_CreateFromParams(t *testing.T) {
 	testSSHKeyGroupSiteAssociationSetupSchema(t, dbSession)
 
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	skgsd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
 
@@ -53,7 +214,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_CreateFromParams(t *testing.T) {
 			desc: "create one",
 			skgas: []SSHKeyGroupSiteAssociation{
 				{
-					SSHKeyGroupID: sshKeyGroup1.ID, SiteID: site.ID, Version: db.GetStrPtr("1224"), Status: SSHKeyGroupSiteAssociationStatusSyncing, CreatedBy: user.ID,
+					SSHKeyGroupID: sshKeyGroup1.ID, SiteID: site.ID, Version: cutil.GetPtr("1224"), Status: SSHKeyGroupSiteAssociationStatusSyncing, CreatedBy: user.ID,
 				},
 			},
 			expectError:        false,
@@ -97,12 +258,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetByID(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
 	skasd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	skga1, err := skasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
 	assert.Nil(t, err)
@@ -169,7 +330,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
@@ -182,7 +343,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 			nil,
 			SSHKeyGroupCreateInput{
 				Name:        fmt.Sprintf("test-%d", i),
-				Description: db.GetStrPtr(fmt.Sprintf("test-%d", i)),
+				Description: cutil.GetPtr(fmt.Sprintf("test-%d", i)),
 				TenantOrg:   "testorg",
 				TenantID:    tenant.ID,
 				Status:      SSHKeyGroupStatusSyncing,
@@ -247,7 +408,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with status filters and relations returns objects",
 			includeRelations: []string{SSHKeyGroupRelationName},
-			paramStatus:      db.GetStrPtr(SSHKeyGroupSiteAssociationStatusSyncing),
+			paramStatus:      cutil.GetPtr(SSHKeyGroupSiteAssociationStatusSyncing),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -261,7 +422,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with site filters and relations returns objects",
 			includeRelations: []string{SSHKeyGroupRelationName},
-			paramSiteID:      db.GetUUIDPtr(site.ID),
+			paramSiteID:      cutil.GetPtr(site.ID),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -275,8 +436,8 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
-			paramOffset:      db.GetIntPtr(10),
-			paramLimit:       db.GetIntPtr(10),
+			paramOffset:      cutil.GetPtr(10),
+			paramLimit:       cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -298,7 +459,7 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GetAll(t *testing.T) {
 			desc:             "case when filter by controller keyset version no objects are returned",
 			includeRelations: []string{},
 			expectError:      false,
-			paramVersion:     db.GetStrPtr("1234"),
+			paramVersion:     cutil.GetPtr("1234"),
 			expectTotal:      0,
 			expectCnt:        0,
 		},
@@ -339,11 +500,11 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GenerateAndUpdateVersion(t *testing.T)
 	tnOrg := "test-tenant-org-1"
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", ipOrg1, ipu.ID)
 	assert.NotNil(t, ip)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe1@test.com"), db.GetStrPtr("John1"), db.GetStrPtr("Doe2"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe1@test.com"), cutil.GetPtr("John1"), cutil.GetPtr("Doe2"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	assert.NotNil(t, tn)
 
@@ -351,20 +512,20 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_GenerateAndUpdateVersion(t *testing.T)
 	site2 := testBuildSite(t, dbSession, nil, ip.ID, "test-site-2", "Test Site-2", ip.Org, ipu.ID)
 
 	// Build SSHKeyGroup
-	skg := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("testdesc"), tnOrg, tn.ID, nil, SSHKeyGroupStatusSyncing, tnu.ID)
+	skg := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("testdesc"), tnOrg, tn.ID, nil, SSHKeyGroupStatusSyncing, tnu.ID)
 
 	// Build SSHKeyGroupSiteAssociation
-	skga1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site1.ID, db.GetStrPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skga1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site1.ID, cutil.GetPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skga1)
 
-	skga2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site2.ID, db.GetStrPtr("test-version"), SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
+	skga2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site2.ID, cutil.GetPtr("test-version"), SSHKeyGroupSiteAssociationStatusDeleting, tnu.ID)
 	assert.NotNil(t, skga2)
 
 	// Build SSHKey
-	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn.ID, "testpublickey", db.GetStrPtr("test"), nil, tn.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn.ID, "testpublickey", cutil.GetPtr("test"), nil, tn.ID)
 	assert.NotNil(t, sk1)
 
-	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn.ID, "testpublickey", db.GetStrPtr("test"), nil, tn.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn.ID, "testpublickey", cutil.GetPtr("test"), nil, tn.ID)
 	assert.NotNil(t, sk2)
 
 	// Build SSHKeyAssociation
@@ -413,14 +574,14 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
 	skgasd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	skga1, err := skgasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
 	assert.Nil(t, err)
@@ -449,16 +610,16 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 		{
 			desc:               "can update all fields",
 			id:                 skga1.ID,
-			paramSSHKeyGroupID: db.GetUUIDPtr(sshKeyGroup2.ID),
-			paramVersion:       db.GetStrPtr("1234"),
-			paramSiteID:        db.GetUUIDPtr(site2.ID),
-			paramStatus:        db.GetStrPtr(SSHKeyGroupSiteAssociationStatusError),
+			paramSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
+			paramVersion:       cutil.GetPtr("1234"),
+			paramSiteID:        cutil.GetPtr(site2.ID),
+			paramStatus:        cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
 
-			expectedSSHKeyGroupID: db.GetUUIDPtr(sshKeyGroup2.ID),
-			expectedVersion:       db.GetStrPtr("1234"),
-			expectedSiteID:        db.GetUUIDPtr(site2.ID),
-			expectedStatus:        db.GetStrPtr(SSHKeyGroupSiteAssociationStatusError),
-			IsMissingOnSite:       db.GetBoolPtr(true),
+			expectedSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
+			expectedVersion:       cutil.GetPtr("1234"),
+			expectedSiteID:        cutil.GetPtr(site2.ID),
+			expectedStatus:        cutil.GetPtr(SSHKeyGroupSiteAssociationStatusError),
+			IsMissingOnSite:       cutil.GetPtr(true),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -496,12 +657,12 @@ func TestSSHKeyGroupSiteAssociationSQLDAO_DeleteByID(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupSiteAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 
 	skgasd := NewSSHKeyGroupSiteAssociationDAO(dbSession)
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	skga1, err := skgasd.CreateFromParams(ctx, nil, sshKeyGroup1.ID, site.ID, nil, SSHKeyGroupSiteAssociationStatusSyncing, user.ID)
 	assert.Nil(t, err)

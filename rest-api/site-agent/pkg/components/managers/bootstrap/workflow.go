@@ -4,8 +4,9 @@
 package bootstrap
 
 import (
-	"go.temporal.io/sdk/temporal"
 	"time"
+
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/workflow"

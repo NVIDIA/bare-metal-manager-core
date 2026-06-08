@@ -6,8 +6,8 @@ package model
 import (
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +81,7 @@ func TestNewAPITray(t *testing.T) {
 					{
 						Type:       flowv1.BMCType_BMC_TYPE_HOST,
 						MacAddress: "00:11:22:33:44:55",
-						IpAddress:  cdb.GetStrPtr("192.168.1.100"),
+						IpAddress:  cutil.GetPtr("192.168.1.100"),
 					},
 				},
 				RackId: &flowv1.UUID{Id: "rack-id-789"},

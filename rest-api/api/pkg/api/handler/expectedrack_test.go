@@ -11,14 +11,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/util/labels"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util/labels"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -124,7 +125,7 @@ func TestCreateExpectedRackHandler_Handle(t *testing.T) {
 	// Create a user record for FK in ExpectedRack.CreatedBy
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -157,7 +158,7 @@ func TestCreateExpectedRackHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -196,8 +197,8 @@ func TestCreateExpectedRackHandler_Handle(t *testing.T) {
 				SiteID:        site.ID.String(),
 				RackID:        "test-rack-002",
 				RackProfileID: "profile-002",
-				Name:          cdb.GetStrPtr("Rack 2"),
-				Description:   cdb.GetStrPtr("Second test rack"),
+				Name:          cutil.GetPtr("Rack 2"),
+				Description:   cutil.GetPtr("Second test rack"),
 				Labels: map[string]string{
 					labels.RackLabelChassisManufacturer: "Acme",
 					labels.RackLabelChassisSerialNumber: "SN-12345",
@@ -404,7 +405,7 @@ func TestGetAllExpectedRackHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -455,7 +456,7 @@ func TestGetAllExpectedRackHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -636,7 +637,7 @@ func TestGetExpectedRackHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -678,7 +679,7 @@ func TestGetExpectedRackHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -815,7 +816,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -879,7 +880,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -903,7 +904,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "successful update of rack_profile_id",
 			id:   testER.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				RackProfileID: cdb.GetStrPtr("profile-updated-001"),
+				RackProfileID: cutil.GetPtr("profile-updated-001"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -916,8 +917,8 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "successful update of name, description, and labels",
 			id:   testER2.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				Name:        cdb.GetStrPtr("Updated Rack"),
-				Description: cdb.GetStrPtr("Updated description"),
+				Name:        cutil.GetPtr("Updated Rack"),
+				Description: cutil.GetPtr("Updated description"),
 				Labels: map[string]string{
 					labels.RackLabelChassisManufacturer: "Acme-Updated",
 					labels.RackLabelLocationRegion:      "us-central",
@@ -934,7 +935,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "successful update of rack_id (operator-supplied identifier)",
 			id:   testER3.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				RackID: cdb.GetStrPtr("update-rack-003-renamed"),
+				RackID: cutil.GetPtr("update-rack-003-renamed"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -948,7 +949,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			id:   testER3.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
 				// testER's RackID is already taken in this site
-				RackID: cdb.GetStrPtr("update-rack-001"),
+				RackID: cutil.GetPtr("update-rack-001"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -961,8 +962,8 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "body ID mismatch with URL should return 400",
 			id:   testER.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				ID:            cdb.GetStrPtr(uuid.New().String()),
-				RackProfileID: cdb.GetStrPtr("profile-should-not-update"),
+				ID:            cutil.GetPtr(uuid.New().String()),
+				RackProfileID: cutil.GetPtr("profile-should-not-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -975,8 +976,8 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "body ID is not a UUID should return 400",
 			id:   testER.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				ID:            cdb.GetStrPtr("not-a-uuid"),
-				RackProfileID: cdb.GetStrPtr("profile-should-not-update"),
+				ID:            cutil.GetPtr("not-a-uuid"),
+				RackProfileID: cutil.GetPtr("profile-should-not-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -989,7 +990,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "invalid path id (not a UUID) should return 400",
 			id:   "not-a-uuid",
 			requestBody: model.APIExpectedRackUpdateRequest{
-				RackProfileID: cdb.GetStrPtr("profile-should-not-update"),
+				RackProfileID: cutil.GetPtr("profile-should-not-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1002,7 +1003,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "cannot update on unmanaged site",
 			id:   unmanagedER.ID.String(),
 			requestBody: model.APIExpectedRackUpdateRequest{
-				RackProfileID: cdb.GetStrPtr("profile-should-not-update"),
+				RackProfileID: cutil.GetPtr("profile-should-not-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1015,7 +1016,7 @@ func TestUpdateExpectedRackHandler_Handle(t *testing.T) {
 			name: "rack not found",
 			id:   "12345678-1234-1234-1234-123456789099",
 			requestBody: model.APIExpectedRackUpdateRequest{
-				RackProfileID: cdb.GetStrPtr("profile-should-not-update"),
+				RackProfileID: cutil.GetPtr("profile-should-not-update"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -1088,7 +1089,7 @@ func TestDeleteExpectedRackHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -1129,7 +1130,7 @@ func TestDeleteExpectedRackHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -1250,7 +1251,7 @@ func TestReplaceAllExpectedRacksHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -1268,7 +1269,7 @@ func TestReplaceAllExpectedRacksHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -1492,7 +1493,7 @@ func TestDeleteAllExpectedRacksHandler_Handle(t *testing.T) {
 	// Create a user record for FK
 	dbUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test-user"),
+		StarfleetID: cutil.GetPtr("test-user"),
 	}
 	_, err = dbSession.DB.NewInsert().Model(dbUser).Exec(ctx)
 	assert.Nil(t, err)
@@ -1523,7 +1524,7 @@ func TestDeleteAllExpectedRacksHandler_Handle(t *testing.T) {
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
 			ID:          dbUser.ID,
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,

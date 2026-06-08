@@ -6,7 +6,7 @@ Once you have NVIDIA Infra Controller (NICo) up and running, you can begin inges
 
 Ensure you have the following prerequisites met before ingesting machines:
 
-1. You have the `nico-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
+1. You have the `nico-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version. You can also download it from the cluster; see next section for details.
 
 2. You can access the NICo site using the `nico-admin-cli`.
 
@@ -20,6 +20,78 @@ Ensure you have the following prerequisites met before ingesting machines:
     - The chassis serial number 
     - The host BMC username (typically this is the factory default username)
     - The host BMC password (typically this is the factory default password)
+
+## Get client key and certificate needed for nico-admin-cli
+These can be generated from site vault. Follow these steps to generate them.NICO_LB_IP
+### Prerequisites
+
+1. Check `additional_issuer_cns` (one-time per cluster)
+```
+kubectl  get configmap -n nico-system nico-api-config-files -o yaml |  grep -i "additional_issuer_cns"
+```
+Expected: `additional_issuer_cns = ["site-root"]`
+
+If it's empty, edit the configmap and set it, then restart:
+
+```bash
+kubectl -n nico-system edit configmap nico-api-config-files
+# under [auth.trust]: additional_issuer_cns = ["site-root"]
+
+kubectl rollout restart deployment/nico-api -n nico-system
+```
+
+2. Get the CLI binary - You can skip this step you already have nico-admin-cli binary.
+```bash
+POD=$(kubectl -n nico-system get pods -l app.kubernetes.io/name=nico-api -o jsonpath='{.items[0].metadata.name}')
+kubectl -n nico-system cp   "${POD}:/opt/carbide/nico-admin-cli"   /usr/local/bin/nico-admin-cli
+chmod +x /usr/local/bin/nico-admin-cli
+# verify that it is working 
+nico-admin-cli
+```
+
+3. Issue a client cert from Vault
+```bash
+VAULT_TOKEN=$(kubectl -n vault get secret vaultroottoken -o jsonpath='{.data.token}' | base64 -d)
+kubectl -n vault exec vault-0 -- env VAULT_SKIP_VERIFY=true VAULT_TOKEN="$VAULT_TOKEN" \
+  vault write -format=json nicoca/issue/nico-cluster \
+  common_name="<FQDN for nico-api-endpoint>" \
+  ttl=720h > /tmp/issued.json
+```
+
+Replace `<FQDN for nico-api-endpoint>` appropriately which usually is `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`
+
+4. Extract PEM files
+```bash
+cat /tmp/issued.json | jq -r '.data.private_key' > /path/to/client.key
+cat /tmp/issued.json | jq -r '.data.certificate' > /path/to/client.crt
+cat /tmp/issued.json | jq -r '.data.issuing_ca' >  /path/to/ca.crt
+```
+
+You can run admin cli commands as
+```bash
+nico-admin-cli https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path /path/to/ca.crt --client-cert-path /path/to/client.crt  --client-key-path /path/to/client.key <command> ...
+```
+Alternatively to shorten the command line you can create a file named `carbide_api_cli.json` in folder `$HOME/.config` and add the following content:
+```json
+{
+  "carbide_api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
+  "forge_root_ca_path": "/path/to/ca.crt",
+  "client_cert_path": "/path/to/client.crt",
+  "client_key_path": "/path/to/client.key"
+}
+
+```
+5. Add `/etc/hosts` entry
+
+If you have trouble resolving `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>` you have to map it to the LoadBalancer IP:
+
+```bash
+NICO_LB_IP=$(kubectl -n nico-system get svc nico-api-external \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+grep -q "api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" /etc/hosts || \
+  echo "$NICO_LB_IP api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" | sudo tee -a /etc/hosts
+```
 
 ## Update Site 
 

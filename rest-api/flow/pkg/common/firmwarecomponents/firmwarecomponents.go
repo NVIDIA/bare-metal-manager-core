@@ -26,7 +26,7 @@ import (
 	"sort"
 	"strings"
 
-	nicopb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	nicopb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 )
 
 // === NICo (Core) per-tray enums. ==========================================

@@ -17,16 +17,16 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	common "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ~~~~~ GetAll Instance NVLinkInterface Handler ~~~~~ //
@@ -214,7 +214,7 @@ func (gaish GetAllNVLinkInterfaceHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				SiteIDs:   siteIDs,
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			[]string{cdbm.SiteRelationName},
 		)
 
@@ -265,7 +265,7 @@ func (gaish GetAllNVLinkInterfaceHandler) Handle(c echo.Context) error {
 		instanceIDs = goset.NewSet(instanceIDs...).ToSlice()
 
 		instanceDAO := cdbm.NewInstanceDAO(gaish.dbSession)
-		instances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{InstanceIDs: instanceIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		instances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{InstanceIDs: instanceIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving Instances from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to retrieve Instances specified in %s, DB error", lo.Ternary(instanceIDFromPath, "request", "query")), nil)
@@ -310,7 +310,7 @@ func (gaish GetAllNVLinkInterfaceHandler) Handle(c echo.Context) error {
 		nvlinkLogicalPartitionIDs = goset.NewSet(nvlinkLogicalPartitionIDs...).ToSlice()
 
 		nvllpDAO := cdbm.NewNVLinkLogicalPartitionDAO(gaish.dbSession)
-		nvllps, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{NVLinkLogicalPartitionIDs: nvlinkLogicalPartitionIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		nvllps, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{NVLinkLogicalPartitionIDs: nvlinkLogicalPartitionIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving NVLink Logical Partitions from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Logical Partitions specified in query, DB error", nil)

@@ -124,22 +124,19 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 /// This ends up blowing up the test executable size tremendously, and causes link times to be very
 /// long, even on incremental builds.
 ///
-/// Using our own test wrapper macro fixes this by declaring fixtures in one static place, and referencing
-/// them on every invocation instead. This is not possible for sqlx to do
-/// natively, since every sqlx::test macro has to stand on its own and not assume any constants
-/// are defined anywhere.
-///
-/// Also, this wrapper uses sqlx_testing library that creates database for all tests from the template
-/// database (initialized using migrations) which is much more faster than migrate database on each
-/// unit test start.
+/// This wrapper delegates database setup to `sqlx_testing::TestFn::run_test`, which creates test
+/// databases from a migrated template database. That avoids re-running migrations for every test.
 ///
 /// # Specifying fixtures
 ///
-/// - Fixtures are specified with `#[carbide_macros::sqlx_test(fixtures("fixture1", ...))]` (or
-///   wherever `crate::tests::sqlx_fixture_from_str` loads them.)
-/// - All fixtures are relative to api/src/tests/fixtures.
+/// - Fixtures are specified with `#[carbide_macros::sqlx_test(fixtures("fixture1", ...))]`.
+/// - For each fixture name, the macro emits a call to `crate::tests::sqlx_fixture_from_str`.
+/// - Crates using fixture arguments must therefore define or re-export
+///   `crate::tests::sqlx_fixture_from_str`.
 ///
-/// This does not support other options from sqlx::test, e.g. `path`, `scripts(...)`, etc.
+/// Tests that do not specify fixtures do not need any `crate::tests` helper items.
+///
+/// This does not support other options from `sqlx::test`, e.g. `path`, `scripts(...)`, etc.
 ///
 /// # Creating new fixtures
 ///
@@ -148,9 +145,11 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 ///
 /// # How does it work?
 ///
-/// By setting up a sqlx test to run migrations and fixtures the same way `sqlx::test` does, but by
-/// hardcoding calls to our own migrator and fixtures, which can be made static and thus not
-/// duplicated. It will expand to the following:
+/// The macro wraps the async test body in a synchronous `#[test]`, builds a
+/// `::sqlx::testing::TestArgs`, attaches any requested fixtures, and then delegates to
+/// `sqlx_testing::TestFn::run_test`.
+///
+/// With fixtures, it expands roughly to:
 ///
 /// ```ignore
 /// // before:
@@ -162,34 +161,15 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 /// fn the_test() {
 ///     async fn the_test(pool: sqlx::PgPool) { /* test is "pasted" here */ }
 ///     let mut args = ::sqlx::testing::TestArgs::new("carbide::tests::the_test");
-///     // NOTE: crate::tests::MIGRATOR must exist!
-///     args.migrator(&crate::tests::MIGRATOR);
 ///     args.fixtures(
-///         Box::leak(
-///             Box::new(
-///                 <[_]>::into_vec(
-///                     #[rustc_box]
-///                     ::alloc::boxed::Box::new([
-///                         // NOTE: crate::tests::sqlx_fixture_from_str must exist!
-///                         crate::tests::sqlx_fixture_from_str("create_domain"),
-///                     ]),
-///                 ),
-///             ),
-///         ),
+///         Box::leak(Box::new(vec![
+///             crate::tests::sqlx_fixture_from_str("my_fixture"),
+///         ])),
 ///     );
 ///     let f: fn(_) -> _ = the_test;
-///     ::sqlx::testing::TestFn::run_test(f, args)
-///    }
+///     sqlx_testing::TestFn::run_test(f, args)
 /// }
 /// ```
-///
-/// That is, it will hardcode calls to `crate::tests::sqlx_fixture_from_str` and
-/// `crate::tests::MIGRATOR`. So this macro will only work of those are defined in your crate. The
-/// reason for this is that it can allow defining a single static call to `sqlx::migrate!()` (which
-/// dumps your entire migrations folder as string literals), and a single instance of
-/// `include_str!("fixture.sql")` per fixture, and referencing them repeatedly, rather than dumping
-/// string literals for each on every single test. This reduces the size of our test executable by
-/// 90%.
 #[proc_macro_attribute]
 pub fn sqlx_test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::ItemFn);

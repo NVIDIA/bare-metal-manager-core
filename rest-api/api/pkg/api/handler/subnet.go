@@ -14,7 +14,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cip "github.com/NVIDIA/infra-controller-rest/ipam"
+	cip "github.com/NVIDIA/infra-controller/rest-api/ipam"
 
 	"go.opentelemetry.io/otel/attribute"
 	temporalClient "go.temporal.io/sdk/client"
@@ -23,21 +23,21 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 const DefaultReservedIPCount = 2
@@ -270,15 +270,15 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 		// Update the controller ID for the subnet.
 		// We need this to match the subnet ID.  This was previously handled
 		// by the async cloud workflow after successful creation on site.
-		subnet, derr = sDAO.Update(ctx, tx, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: cdb.GetUUIDPtr(subnet.ID)})
+		subnet, derr = sDAO.Update(ctx, tx, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: cutil.GetPtr(subnet.ID)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("unable to update Subnet record controllerNetworkSegmentId")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed updating new subnet record", nil)
 		}
 
 		// create the status detail record
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), *cdb.GetStrPtr(cdbm.SubnetStatusPending),
-			cdb.GetStrPtr("received subnet creation request, pending"))
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, subnet.ID.String(), *cutil.GetPtr(cdbm.SubnetStatusPending),
+			cutil.GetPtr("received subnet creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Subnet", nil)
@@ -295,32 +295,7 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		var subnetMTU *int32 = nil
-		if subnet.MTU != nil {
-			mtu := int32(*subnet.MTU)
-			subnetMTU = &mtu
-		}
-
-		var subnetDomainID *cwssaws.DomainId
-		if subnet.DomainID != nil {
-			subnetDomainID = &cwssaws.DomainId{Value: subnet.DomainID.String()}
-		}
-		prefixes := []*cwssaws.NetworkPrefix{
-			{
-				Gateway:      subnet.IPv4Gateway,
-				ReserveFirst: DefaultReservedIPCount,
-				Prefix:       fmt.Sprintf("%s/%d", *subnet.IPv4Prefix, subnet.PrefixLength),
-			},
-		}
-
-		createSubnetRequest := &cwssaws.NetworkSegmentCreationRequest{
-			Id:          &cwssaws.NetworkSegmentId{Value: common.GetSiteNetworkSegmentID(subnet).String()},
-			Name:        subnet.Name,
-			SubdomainId: subnetDomainID,
-			VpcId:       &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
-			Mtu:         subnetMTU,
-			Prefixes:    prefixes,
-		}
+		createSubnetRequest := apiRequest.ToProto(subnet, vpc, DefaultReservedIPCount)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "subnet-create-" + subnet.ID.String(),
@@ -919,7 +894,7 @@ func (ush UpdateSubnetHandler) Handle(c echo.Context) error {
 	// get status details for the response — best-effort, the PATCH has already
 	// committed so a transient read failure here must not surface as 500.
 	sdDAO := cdbm.NewStatusDetailDAO(ush.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error retrieving Status Details for subnet after update commit")
 		ssds = nil
@@ -1046,7 +1021,7 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 
 	pageInput := paginator.PageInput{
 		Offset:  nil,
-		Limit:   cdb.GetIntPtr(0),
+		Limit:   cutil.GetPtr(0),
 		OrderBy: nil,
 	}
 
@@ -1103,7 +1078,7 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 
 		// Prepare the delete/release request workflow object
 		deleteSubnetRequest := &cwssaws.NetworkSegmentDeletionRequest{
-			Id: &cwssaws.NetworkSegmentId{Value: common.GetSiteNetworkSegmentID(subnet).String()},
+			Id: &cwssaws.NetworkSegmentId{Value: subnet.GetSiteID().String()},
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

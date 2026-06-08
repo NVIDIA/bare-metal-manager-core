@@ -1227,7 +1227,6 @@ dependencies = [
  "carbide-nvlink-manager",
  "carbide-power-shelf-controller",
  "carbide-preingestion-manager",
- "carbide-prost-builder",
  "carbide-rack",
  "carbide-rack-controller",
  "carbide-redfish",
@@ -1242,6 +1241,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
+ "carbide-vpc-prefix-controller",
  "casbin",
  "chrono",
  "clap",
@@ -2494,6 +2494,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
+ "component-manager",
  "config-version",
  "eyre",
  "librms",
@@ -2590,7 +2591,6 @@ dependencies = [
  "mac_address",
  "mqttea",
  "opentelemetry",
- "serde",
  "serde_json",
  "sqlx",
  "state-controller",
@@ -2665,6 +2665,7 @@ dependencies = [
  "carbide-libmlx-model",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-prost-builder",
  "carbide-secrets",
  "carbide-tls",
  "carbide-utils",
@@ -2840,6 +2841,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-explorer",
+ "bmc-vendor",
+ "carbide-api-core",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
@@ -2847,7 +2850,9 @@ dependencies = [
  "carbide-ipmi",
  "carbide-network",
  "carbide-redfish",
+ "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-harness",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2868,6 +2873,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic",
  "tracing",
  "version-compare 0.2.1",
 ]
@@ -3009,12 +3015,11 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-metrics",
  "carbide-secrets",
- "carbide-site-explorer",
  "carbide-utils",
  "carbide-uuid",
+ "component-manager",
  "config-version",
  "eyre",
- "librms",
  "mac_address",
  "opentelemetry",
  "sqlx",
@@ -3029,6 +3034,29 @@ dependencies = [
  "eyre",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "carbide-test-harness"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-macros",
+ "carbide-network-segment-controller",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "ctor",
+ "ipnetwork",
+ "sqlx",
+ "state-controller",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "uuid",
 ]
 
 [[package]]
@@ -3080,6 +3108,22 @@ dependencies = [
 [[package]]
 name = "carbide-version"
 version = "0.0.0"
+
+[[package]]
+name = "carbide-vpc-prefix-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
 
 [[package]]
 name = "cargo_metadata"
@@ -6483,11 +6527,12 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.4#dd2152ac5642c5256b893e396647e159003d0071"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.8#a1b98328b67394eb38fc8088273e0f84c1432ffd"
 dependencies = [
  "chrono",
  "clap",
  "log",
+ "mac_address",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -6511,8 +6556,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.13"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+version = "0.0.12"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7459,6 +7504,7 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+ "glob",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -9632,22 +9678,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sbom"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "itertools 0.14.0",
- "lazy_static",
- "regex",
- "serde",
- "serde_json",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "scc"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10757,12 +10787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
-
-[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11434,7 +11458,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
 dependencies = [
  "async-trait",
  "heck",
@@ -11574,19 +11598,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-appender"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
-dependencies = [
- "crossbeam-channel",
- "symlink",
- "thiserror 2.0.18",
- "time",
- "tracing-subscriber",
 ]
 
 [[package]]

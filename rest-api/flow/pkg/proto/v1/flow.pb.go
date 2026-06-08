@@ -10,14 +10,15 @@
 package v1
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -8444,7 +8445,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x15AssociateRuleWithRack\x12 .v1.AssociateRuleWithRackRequest\x1a\x16.google.protobuf.Empty\x12W\n" +
 	"\x18DisassociateRuleFromRack\x12#.v1.DisassociateRuleFromRackRequest\x1a\x16.google.protobuf.Empty\x12_\n" +
 	"\x16GetRackRuleAssociation\x12!.v1.GetRackRuleAssociationRequest\x1a\".v1.GetRackRuleAssociationResponse\x12e\n" +
-	"\x18ListRackRuleAssociations\x12#.v1.ListRackRuleAssociationsRequest\x1a$.v1.ListRackRuleAssociationsResponseB;Z9github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1b\x06proto3"
+	"\x18ListRackRuleAssociations\x12#.v1.ListRackRuleAssociationsRequest\x1a$.v1.ListRackRuleAssociationsResponseB;Z9github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1b\x06proto3"
 
 var (
 	file_flow_proto_rawDescOnce sync.Once

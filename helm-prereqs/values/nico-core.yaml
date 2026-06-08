@@ -219,6 +219,36 @@ nico-dhcp:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "10.180.126.160"  # EXAMPLE - DHCP VIP (internal pool)
 
+  ## DHCP hook libraries' advertised IPs.
+  ##
+  ## Kea's libdhcp hook writes these IPs into the DHCP response that DPUs
+  ## and bare-metal hosts receive on boot. They MUST be reachable on the
+  ## PXE / management network the DPU comes up on, and they MUST match
+  ## the externalService VIPs assigned to nico-dns / nico-ntp / nico-pxe
+  ## above.
+  ##
+  ## Leaving the chart defaults (127.0.0.1) causes the symptoms reported
+  ## against helm-deployed sites — DPU pre-ingestion fails with clock
+  ## divergence (no NTP) and the DPU agent cannot reach the API endpoint
+  ## (no DNS).
+  ##
+  ## Cross-check: each value below should equal the corresponding
+  ## externalService loadBalancerIPs annotation in this file.
+  ##
+  ## DUAL-DEPLOYMENT NOTE (PR #2062): if the NICo API is installed under
+  ## the legacy `carbide-api` name on this site, ALSO set
+  ## `nico-dhcp.apiServiceName: carbide-api` (uncomment the line below)
+  ## so the kea hook generates the right `nico-api-url` for DPUs. Without
+  ## this, the hook advertises https://nico-api.<ns>.svc.cluster.local
+  ## which will NXDOMAIN against a carbide-api-only deployment.
+  # apiServiceName: carbide-api
+  config:
+    kea:
+      hookParameters:
+        nameservers: "10.180.126.180"                      # EXAMPLE — must match nico-dns instance-0 VIP
+        ntpServer: "10.180.126.165,10.180.126.166,10.180.126.167"  # EXAMPLE — must match nico-ntp per-pod VIPs (comma-separated)
+        provisioningServer: "10.180.126.162"               # EXAMPLE — must match nico-pxe VIP
+
 nico-dns:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
@@ -250,6 +280,15 @@ nico-ssh-console-rs:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "10.180.126.164"  # EXAMPLE - SSH console VIP (internal pool)
 
+## ---------------------------------------------------------------------------
+## nico-ntp - chrony NTP servers
+##
+## Deploys a 3-replica chrony StatefulSet plus per-pod LoadBalancer Services.
+## Each replica gets a stable MetalLB VIP that DPUs and bare-metal hosts sync
+## against (advertised to them via nico-dhcp.config.kea.hookParameters.ntpServer
+## above). Enabled by default — DPU pre-ingestion fails on clock divergence,
+## so the chart deploys NTP unless you disable it here.
+## ---------------------------------------------------------------------------
 nico-ntp:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart

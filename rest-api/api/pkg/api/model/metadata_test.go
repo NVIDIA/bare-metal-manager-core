@@ -6,7 +6,7 @@ package model
 import (
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/metadata"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/metadata"
 	"github.com/stretchr/testify/assert"
 )
 

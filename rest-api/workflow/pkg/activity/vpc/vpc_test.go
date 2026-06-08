@@ -10,15 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
-	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -27,7 +26,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
 	"os"
 
@@ -36,10 +35,9 @@ import (
 
 	"go.temporal.io/sdk/testsuite"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -98,7 +96,7 @@ func testVPCSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func testVPCSiteBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, nil, user)
 	assert.Nil(t, err)
 
 	return ip
@@ -110,14 +108,14 @@ func testVPCBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test Site"),
-		Description:                 cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                 cutil.GetPtr("Test Site"),
+		Description:                 cutil.GetPtr("Test Site Description"),
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		IsSerialConsoleEnabled:      false,
 		Status:                      cdbm.SiteStatusPending,
@@ -132,7 +130,7 @@ func testVPCBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 func testVPCBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -145,9 +143,9 @@ func testVPCBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, 
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -168,7 +166,7 @@ func testVPCSiteBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -187,7 +185,7 @@ func testVPCBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cdb.GetStrPtr("Test VPC"),
+		Description:               cutil.GetPtr("Test VPC"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
@@ -229,41 +227,41 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	st2 := testVPCBuildSite(t, dbSession, ip, "test-site-2", ipu)
 	st3 := testVPCBuildSite(t, dbSession, ip, "test-site-3", ipu)
 
-	vpc1 := testVPCBuildVPC(t, dbSession, "test-vpc-1", ip, tn, st, cdb.GetStrPtr(""), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusProvisioning)
+	vpc1 := testVPCBuildVPC(t, dbSession, "test-vpc-1", ip, tn, st, cutil.GetPtr(""), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusProvisioning)
 
-	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusProvisioning)
+	vpc2 := testVPCBuildVPC(t, dbSession, "test-vpc-2", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusProvisioning)
 
-	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
+	vpc3 := testVPCBuildVPC(t, dbSession, "test-vpc-3", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
 
-	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-4", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
+	vpc4 := testVPCBuildVPC(t, dbSession, "test-vpc-4", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
 
-	vpc5 := testVPCBuildVPC(t, dbSession, "test-vpc-5", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
+	vpc5 := testVPCBuildVPC(t, dbSession, "test-vpc-5", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusDeleting)
 
-	vpc6 := testVPCBuildVPC(t, dbSession, "test-vpc-6", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusDeleting)
+	vpc6 := testVPCBuildVPC(t, dbSession, "test-vpc-6", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusDeleting)
 
-	vpc7 := testVPCBuildVPC(t, dbSession, "test-vpc-7", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc7 := testVPCBuildVPC(t, dbSession, "test-vpc-7", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err := dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), vpc7.ID.String())
+	_, err := dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), vpc7.ID.String())
 	assert.NoError(t, err)
 
-	vpc8 := testVPCBuildVPC(t, dbSession, "test-vpc-8", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc8 := testVPCBuildVPC(t, dbSession, "test-vpc-8", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 
-	vpc9 := testVPCBuildVPC(t, dbSession, "test-vpc-9", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusProvisioning)
+	vpc9 := testVPCBuildVPC(t, dbSession, "test-vpc-9", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusProvisioning)
 
-	vpc10 := testVPCBuildVPC(t, dbSession, "test-vpc-10", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusDeleting)
+	vpc10 := testVPCBuildVPC(t, dbSession, "test-vpc-10", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, nil, tnu, cdbm.VpcStatusDeleting)
 
-	vpc11 := testVPCBuildVPC(t, dbSession, "test-vpc-11", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc11 := testVPCBuildVPC(t, dbSession, "test-vpc-11", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), vpc11.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), vpc11.ID.String())
 	assert.NoError(t, err)
 
 	vpcDAO := cdbm.NewVpcDAO(dbSession)
-	vpc8, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc8.ID, Status: cdb.GetStrPtr(cdbm.VpcStatusError), IsMissingOnSite: cdb.GetBoolPtr(true)})
+	vpc8, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc8.ID, Status: cutil.GetPtr(cdbm.VpcStatusError), IsMissingOnSite: cutil.GetPtr(true)})
 	assert.NoError(t, err)
-	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc2.ID, RoutingProfile: cdb.GetStrPtr("EXTERNAL")})
+	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc2.ID, RoutingProfile: cutil.GetPtr("EXTERNAL")})
 	assert.NoError(t, err)
 
-	vpc12 := testVPCBuildVPC(t, dbSession, "test-vpc-12", ip, tn, st, nil, cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc12 := testVPCBuildVPC(t, dbSession, "test-vpc-12", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set propagation details for VPC21.
 	// We'll expect these to be cleared later.
 	vpc12.NetworkSecurityGroupPropagationDetails = &cdbm.NetworkSecurityGroupPropagationDetails{
@@ -271,7 +269,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	}
 	cwu.TestUpdateVPC(t, dbSession, vpc12)
 
-	vpc13 := testVPCBuildVPC(t, dbSession, "test-vpc-13", ip, tn, st, nil, cdb.GetUUIDPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	vpc13 := testVPCBuildVPC(t, dbSession, "test-vpc-13", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 
 	// Build VPC inventory that is paginated
 	// Generate data for 34 VPCs reported from Site Agent while Cloud has 38 VPCs
@@ -287,9 +285,9 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			}
 		}
 
-		vpc := testVPCBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), ip, tn, st3, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(uuid.New()), labels, tnu, cdbm.VpcStatusReady)
+		vpc := testVPCBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), ip, tn, st3, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), labels, tnu, cdbm.VpcStatusReady)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval*2)), vpc.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vpc.ID.String())
 		assert.NoError(t, err)
 		pagedVpcs = append(pagedVpcs, vpc)
 		pagedInvIds = append(pagedInvIds, vpc.ControllerVpcID.String())
@@ -313,7 +311,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				Labels: []*cwssaws.Label{
 					{
 						Key:   "west1",
-						Value: db.GetStrPtr("gpu1"),
+						Value: cutil.GetPtr("gpu1"),
 					},
 				},
 			}
@@ -409,7 +407,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 						&cwssaws.NetworkSecurityGroupPropagationObjectStatus{
 							Id:      vpc1.ID.String(),
 							Status:  cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
-							Details: db.GetStrPtr("nothing to see here"),
+							Details: cutil.GetPtr("nothing to see here"),
 						},
 					},
 					Vpcs: []*cwssaws.Vpc{
@@ -417,7 +415,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Id:                        &cwssaws.VpcId{Value: vpc1.ID.String()},
 							Name:                      vpc1.ID.String(),
 							NetworkVirtualizationType: &nwvt,
-							RoutingProfileType:        cdb.GetStrPtr("INTERNAL"),
+							RoutingProfileType:        cutil.GetPtr("INTERNAL"),
 						},
 						{
 							Id:   &cwssaws.VpcId{Value: vpc2.ControllerVpcID.String()},

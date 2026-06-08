@@ -15,9 +15,9 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	machineActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/machine"
+	machineActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
 )
 
 type UpdateMachineInventoryTestSuite struct {

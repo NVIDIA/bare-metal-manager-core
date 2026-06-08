@@ -13,9 +13,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	vpcPeeringActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpcpeering"
+	vpcPeeringActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcpeering"
 )
 
 type UpdateVpcPeeringTestSuite struct {

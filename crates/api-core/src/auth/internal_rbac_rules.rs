@@ -79,6 +79,10 @@ impl InternalRBACRules {
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindVpcPrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);
@@ -277,6 +281,7 @@ impl InternalRBACRules {
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AdminForceDeletePowerShelf",
@@ -658,18 +663,8 @@ impl InternalRBACRules {
         );
         x.perm("TriggerMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CancelMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm(
-            "ListAttestationsForMachineId",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
-        x.perm(
-            "GetMachineAttestationStatus",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
-        x.perm(
-            "FindMachineIdsUnderAttestation",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
+        x.perm("ListAttestationMachines", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetAttestationMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm("FindPowerShelfIds", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm(

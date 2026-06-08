@@ -36,13 +36,13 @@ The simple SDK depends on the [standard SDK](../standard), which is generated fr
 In your project's `go.mod`:
 
 ```bash
-go get github.com/NVIDIA/infra-controller-rest/sdk/simple
+go get github.com/NVIDIA/infra-controller/rest-api/sdk/simple
 ```
 
 For local development, use a `replace` directive:
 
 ```go
-replace github.com/NVIDIA/infra-controller-rest => /path/to/infra-controller-rest
+replace github.com/NVIDIA/infra-controller/rest-api => /path/to/infra-controller-rest
 ```
 
 ### Local development (kind)
@@ -74,7 +74,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/NVIDIA/infra-controller-rest/sdk/simple"
+    "github.com/NVIDIA/infra-controller/rest-api/sdk/simple"
 )
 
 func main() {
@@ -141,7 +141,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/NVIDIA/infra-controller-rest/sdk/simple"
+    "github.com/NVIDIA/infra-controller/rest-api/sdk/simple"
 )
 
 func main() {
@@ -181,7 +181,7 @@ func main() {
 
 ```go
 import (
-    "github.com/NVIDIA/infra-controller-rest/sdk/simple"
+    "github.com/NVIDIA/infra-controller/rest-api/sdk/simple"
 )
 
 client, err := simple.NewClient(simple.ClientConfig{

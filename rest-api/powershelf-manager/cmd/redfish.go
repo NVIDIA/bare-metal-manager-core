@@ -12,11 +12,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/secretstring"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/util"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/pmc"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/redfish"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretstring"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/util"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/redfish"
 )
 
 var pmcIP string

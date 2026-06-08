@@ -20,6 +20,7 @@ use ipnetwork::IpNetwork;
 use model::metadata::Metadata;
 use model::vpc_prefix::{
     DeleteVpcPrefix, NewVpcPrefix, UpdateVpcPrefix, VpcPrefix, VpcPrefixConfig, VpcPrefixStatus,
+    state_sla,
 };
 
 use crate as rpc;
@@ -136,19 +137,26 @@ impl TryFrom<rpc::forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
 
 impl From<VpcPrefixStatus> for rpc::forge::VpcPrefixStatus {
     fn from(db_status: VpcPrefixStatus) -> Self {
-        let VpcPrefixStatus {
-            total_31_segments,
-            available_31_segments,
-            total_linknet_segments,
-            available_linknet_segments,
-            ..
-        } = db_status;
+        // Lifecycle state is the JSON serialization of the controller's
+        // internal state, matching other state-controller-backed resources.
+        let lifecycle_state =
+            serde_json::to_string(&db_status.controller_state.value).unwrap_or_default();
+        let lifecycle_sla = state_sla(
+            &db_status.controller_state.value,
+            &db_status.controller_state.version,
+        );
 
         Self {
-            total_31_segments,
-            available_31_segments,
-            total_linknet_segments,
-            available_linknet_segments,
+            total_31_segments: db_status.total_31_segments,
+            available_31_segments: db_status.available_31_segments,
+            total_linknet_segments: db_status.total_linknet_segments,
+            available_linknet_segments: db_status.available_linknet_segments,
+            lifecycle: Some(rpc::forge::LifecycleStatus {
+                state: lifecycle_state,
+                version: db_status.controller_state.version.version_string(),
+                state_reason: db_status.controller_state_outcome.map(Into::into),
+                sla: Some(lifecycle_sla.into()),
+            }),
         }
     }
 }

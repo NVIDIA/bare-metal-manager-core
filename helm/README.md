@@ -10,17 +10,19 @@ The chart is designed for production environments where NICo manages the full li
 
 ## Subcharts
 
-| # | Subchart | Description |
-|---|----------|-------------|
-| 1 | **nico-api** | Core API server (gRPC + REST). Manages machines, provisioning, networking, and firmware. Requires PostgreSQL and Vault. |
-| 2 | **nico-bmc-proxy** | Authenticating proxy for connecting to BMC's over HTTPS (redfish) |
-| 2 | **nico-dhcp** | DHCP server (Kea-based) for bare metal PXE boot and network assignment. |
-| 3 | **nico-dns** | Authoritative DNS server for managed machines and VPCs. |
-| 4 | **nico-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. |
-| 5 | **nico-hardware-health** | Collects and reports hardware health metrics from managed machines. |
-| 6 | **nico-pxe** | PXE boot server (HTTP-based) for OS provisioning workflows. |
-| 7 | **nico-ssh-console-rs** | SSH console proxy for remote access to managed machine BMCs and consoles. |
-| 8 | **unbound** | Recursive DNS resolver forwarding queries for managed infrastructure. Disabled by default. |
+| #  | Subchart | Description |
+|----|----------|-------------|
+| 1  | **nico-api** | Core API server (gRPC + REST). Manages machines, provisioning, networking, and firmware. Requires PostgreSQL and Vault. |
+| 2  | **nico-bmc-proxy** | Authenticating proxy for connecting to BMCs over HTTPS (Redfish). |
+| 3  | **nico-dhcp** | Kea DHCP server for bare-metal PXE boot and IP assignment. |
+| 4  | **nico-dns** | Authoritative DNS server (StatefulSet) for managed machines and VPCs. |
+| 5  | **nico-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. Disabled by default. |
+| 6  | **nico-flow** | Workflow / Temporal-backed orchestration component. Disabled by default. |
+| 7  | **nico-hardware-health** | Collects and reports hardware health metrics from managed machines. |
+| 8  | **nico-ntp** | chrony NTP servers (3-replica StatefulSet, per-pod LoadBalancer VIPs). DPUs and bare-metal hosts sync against these per the kea DHCP `ntpServer` advertisement. |
+| 9  | **nico-pxe** | PXE boot server (HTTP-based) for OS provisioning workflows. |
+| 10 | **nico-ssh-console-rs** | SSH console proxy for remote access to managed machine BMCs and consoles. |
+| 11 | **unbound** | Recursive DNS resolver. Optional — used to serve the DPU compatibility `.forge` zone when no external DNS does. Disabled by default. |
 
 ## Prerequisites
 
@@ -84,9 +86,13 @@ nico-dhcp:
 nico-dns:
   enabled: true        # Authoritative DNS
 nico-dsx-exchange-consumer:
-  enabled: true        # DSX exchange telemetry consumer
+  enabled: false       # DSX exchange telemetry consumer (off by default)
+nico-flow:
+  enabled: false       # Temporal-backed workflow orchestrator (off by default)
 nico-hardware-health:
   enabled: true        # Hardware health monitoring
+nico-ntp:
+  enabled: true        # chrony NTP servers (required for DPU pre-ingestion)
 nico-pxe:
   enabled: true        # PXE boot server
 nico-ssh-console-rs:
@@ -145,9 +151,9 @@ nico-api:
       metallb.universe.tf/loadBalancerIPs: "10.x.x.x"
 ```
 
-Services with external LoadBalancer support: `nico-api`, `nico-dhcp`, `nico-dns`, `nico-pxe`, and `nico-ssh-console-rs`.
+Services with external LoadBalancer support: `nico-api`, `nico-dhcp`, `nico-dns`, `nico-ntp`, `nico-pxe`, and `nico-ssh-console-rs`.
 
-For StatefulSet-based services (`nico-dns`), per-pod LoadBalancer IPs can be assigned:
+For StatefulSet-based services (`nico-dns`, `nico-ntp`), per-pod LoadBalancer IPs can be assigned:
 
 ```yaml
 nico-dns:
@@ -170,6 +176,7 @@ nico-dns:
 | nico-dns | StatefulSet | 53/TCP, 53/UDP | Yes | -- |
 | nico-dsx-exchange-consumer | Deployment | 9009 | Yes | ServiceMonitor |
 | nico-hardware-health | Deployment | 9009 (`/metrics`, `/telemetry`) | Yes | ServiceMonitor; optional telemetry ServiceMonitor (sensor data, off by default) |
+| nico-ntp | StatefulSet | 123/UDP | No | -- |
 | nico-pxe | Deployment | 8080 | Yes | ServiceMonitor |
 | nico-ssh-console-rs | Deployment | 22, 9009 (metrics) | Yes | ServiceMonitor |
 | unbound | Deployment | 53 | No | ServiceMonitor |

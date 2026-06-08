@@ -56,6 +56,13 @@ pub struct Args {
         help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
     )]
     pub allow_delete_with_instance: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete machine even if DPF CRDs exist and DPF is disabled at the site level. This flag acknowledges that orphaned DPF resources may remain"
+    )]
+    pub allow_delete_with_orphaned_dpf_crds: bool,
 }
 
 impl From<&Args> for AdminForceDeleteMachineRequest {
@@ -65,6 +72,7 @@ impl From<&Args> for AdminForceDeleteMachineRequest {
             delete_interfaces: args.delete_interfaces,
             delete_bmc_interfaces: args.delete_bmc_interfaces,
             delete_bmc_credentials: args.delete_bmc_credentials,
+            allow_delete_with_orphaned_dpf_crds: args.allow_delete_with_orphaned_dpf_crds,
         }
     }
 }

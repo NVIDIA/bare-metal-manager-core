@@ -9,11 +9,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // SetupTestCerts sets up a test key and cert

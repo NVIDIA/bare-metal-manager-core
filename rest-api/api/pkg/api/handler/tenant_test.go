@@ -11,11 +11,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -23,11 +24,11 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 )
@@ -315,7 +316,7 @@ func TestGetCurrentTenantStatsHandler_Handle(t *testing.T) {
 	al := testVPCSiteBuildAllocation(t, dbSession, st, tn1, "test-allocation", ipu)
 	assert.NotNil(t, al)
 
-	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn1, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
+	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn1, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc)
 
 	domain := testSubnetBuildDomain(t, dbSession, "test.com", tnOrg1, &tnu1.ID)
@@ -335,7 +336,7 @@ func TestGetCurrentTenantStatsHandler_Handle(t *testing.T) {
 	assert.NotNil(t, parentPref1)
 
 	prefixLen := 24
-	parentIpbBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	parentIpbBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -362,7 +363,7 @@ func TestGetCurrentTenantStatsHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -371,13 +372,13 @@ func TestGetCurrentTenantStatsHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	subnet2 := testInstanceBuildSubnet(t, dbSession, "test-subnet-2", tn1, vpc1, nil, cdbm.SubnetStatusPending, tnu1)
@@ -386,7 +387,7 @@ func TestGetCurrentTenantStatsHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	instsub1 := testInstanceBuildInstanceInterface(t, dbSession, inst1.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusPending)

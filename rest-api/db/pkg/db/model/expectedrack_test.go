@@ -11,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 )
 
@@ -35,8 +36,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("nil RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   nil,
-			RackType: "type-A",
+			RackId:        nil,
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -46,8 +47,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("empty RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: ""},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: ""},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -57,13 +58,13 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("populates all proto fields", func(t *testing.T) {
 		er := &ExpectedRack{}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 			Metadata: &cwssaws.Metadata{
 				Name:        "rack-name",
 				Description: "primary rack",
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		})
@@ -78,9 +79,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("nil Metadata clears Name/Description and Labels", func(t *testing.T) {
 		er := &ExpectedRack{Name: "stale-name", Description: "stale-desc", Labels: map[string]string{"old": "val"}}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
-			Metadata: nil,
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+			Metadata:      nil,
 		})
 
 		assert.Equal(t, "rack-1", er.RackID)
@@ -97,8 +98,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 			CreatedBy: creator,
 		}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, preservedID, er.ID)
@@ -451,7 +452,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -461,7 +462,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				SiteIDs: []uuid.UUID{site.ID},
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(2),
+			expectedTotal: cutil.GetPtr(2),
 			expectedError: false,
 		},
 		{
@@ -470,7 +471,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				SiteIDs: []uuid.UUID{otherSite.ID},
 			},
 			expectedCount: 1,
-			expectedTotal: db.GetIntPtr(1),
+			expectedTotal: cutil.GetPtr(1),
 			expectedError: false,
 		},
 		{
@@ -479,7 +480,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				RackProfileIDs: []string{"profile-A"},
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(2),
+			expectedTotal: cutil.GetPtr(2),
 			expectedError: false,
 		},
 		{
@@ -488,7 +489,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				RackIDs: []string{created[0].RackID, created[2].RackID},
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(2),
+			expectedTotal: cutil.GetPtr(2),
 			expectedError: false,
 		},
 		{
@@ -505,7 +506,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				ExpectedRackIDs: []uuid.UUID{created[0].ID, created[2].ID},
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(2),
+			expectedTotal: cutil.GetPtr(2),
 			expectedError: false,
 		},
 		{
@@ -519,7 +520,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: ExpectedRackFilterInput{
-				SearchQuery: db.GetStrPtr("rack-001"),
+				SearchQuery: cutil.GetPtr("rack-001"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -530,7 +531,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 			// fixture's name to scope the match to one record.
 			desc: "GetAll with search query matching name",
 			filter: ExpectedRackFilterInput{
-				SearchQuery: db.GetStrPtr("Two"),
+				SearchQuery: cutil.GetPtr("Two"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -538,20 +539,20 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns subset",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns subset",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -563,7 +564,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -575,7 +576,7 @@ func TestExpectedRackDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 	}
@@ -646,7 +647,7 @@ func TestExpectedRackDAO_Update(t *testing.T) {
 			desc: "Update RackProfileID",
 			input: ExpectedRackUpdateInput{
 				ExpectedRackID: erExp[0].ID,
-				RackProfileID:  db.GetStrPtr("profile-Z"),
+				RackProfileID:  cutil.GetPtr("profile-Z"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -655,7 +656,7 @@ func TestExpectedRackDAO_Update(t *testing.T) {
 			desc: "Update RackID (rename)",
 			input: ExpectedRackUpdateInput{
 				ExpectedRackID: erExp[2].ID,
-				RackID:         db.GetStrPtr("rack-003-renamed"),
+				RackID:         cutil.GetPtr("rack-003-renamed"),
 			},
 			expectedError: false,
 		},
@@ -663,7 +664,7 @@ func TestExpectedRackDAO_Update(t *testing.T) {
 			desc: "Update Name",
 			input: ExpectedRackUpdateInput{
 				ExpectedRackID: erExp[1].ID,
-				Name:           db.GetStrPtr("Updated Rack Two"),
+				Name:           cutil.GetPtr("Updated Rack Two"),
 			},
 			expectedError: false,
 		},
@@ -671,7 +672,7 @@ func TestExpectedRackDAO_Update(t *testing.T) {
 			desc: "Update Description",
 			input: ExpectedRackUpdateInput{
 				ExpectedRackID: erExp[2].ID,
-				Description:    db.GetStrPtr("Updated description"),
+				Description:    cutil.GetPtr("Updated description"),
 			},
 			expectedError: false,
 		},
@@ -690,9 +691,9 @@ func TestExpectedRackDAO_Update(t *testing.T) {
 			desc: "Update multiple fields at once",
 			input: ExpectedRackUpdateInput{
 				ExpectedRackID: erExp[1].ID,
-				RackProfileID:  db.GetStrPtr("profile-X"),
-				Name:           db.GetStrPtr("Final Rack Two"),
-				Description:    db.GetStrPtr("New desc"),
+				RackProfileID:  cutil.GetPtr("profile-X"),
+				Name:           cutil.GetPtr("Final Rack Two"),
+				Description:    cutil.GetPtr("New desc"),
 				Labels: map[string]string{
 					"team": "ops",
 				},
@@ -750,7 +751,7 @@ func TestExpectedRackDAO_Update_NotFound(t *testing.T) {
 	// post-update SELECT.
 	_, err := erd.Update(ctx, nil, ExpectedRackUpdateInput{
 		ExpectedRackID: uuid.New(),
-		Name:           db.GetStrPtr("Should not exist"),
+		Name:           cutil.GetPtr("Should not exist"),
 	})
 	assert.Error(t, err)
 }

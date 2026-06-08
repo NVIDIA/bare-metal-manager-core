@@ -44,7 +44,7 @@ If you use a coding agent that has shell access, point it at [`cli/INSTALL.md`](
 
 ```text
 Install nicocli following the instructions at
-https://github.com/NVIDIA/infra-controller-rest/blob/main/cli/INSTALL.md
+https://github.com/NVIDIA/infra-controller/rest-api/blob/main/cli/INSTALL.md
 ```
 
 ### Inside the nico-rest-api container

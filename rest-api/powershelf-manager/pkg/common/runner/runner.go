@@ -4,10 +4,11 @@
 package runner
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/perfstat"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/util"
 	"sync/atomic"
 	"time"
+
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/perfstat"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/util"
 
 	log "github.com/sirupsen/logrus"
 )

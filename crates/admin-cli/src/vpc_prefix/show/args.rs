@@ -18,6 +18,7 @@
 use carbide_uuid::vpc::VpcId;
 use clap::Parser;
 use ipnet::IpNet;
+use rpc::forge::DeletedFilter;
 
 use crate::vpc_prefix::common::VpcPrefixSelector;
 
@@ -55,4 +56,8 @@ pub struct Args {
         conflicts_with_all = ["VpcPrefixSelector", "contains"],
     )]
     pub contained_by: Option<IpNet>,
+
+    /// Include soft-deleted VPC prefixes
+    #[clap(long, value_enum, default_value = "exclude")]
+    pub deleted: DeletedFilter,
 }

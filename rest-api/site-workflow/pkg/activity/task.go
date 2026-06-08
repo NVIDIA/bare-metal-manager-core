@@ -10,9 +10,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 // ManageTask is an activity wrapper for Task management via Flow

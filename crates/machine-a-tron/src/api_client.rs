@@ -145,6 +145,7 @@ impl ApiClient {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(rpc::DiscoveryData::Info(machine_discovery_info)),
             create_machine: true,
+            ..Default::default()
         };
 
         let out = self
@@ -322,6 +323,7 @@ impl ApiClient {
                 delete_interfaces: true,
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
+                allow_delete_with_orphaned_dpf_crds: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)

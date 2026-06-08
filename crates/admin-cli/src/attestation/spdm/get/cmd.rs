@@ -20,16 +20,12 @@ use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn get(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    // construct a message to carbide api and print the result
-    let attestation_status = api_client
+    let attestation = api_client
         .0
-        .get_machine_attestation_status(args.machine_id)
+        .get_attestation_machine(args.machine_id)
         .await?;
 
-    println!(
-        "Overall machine attestation status is {}",
-        attestation_status.attestation_status().as_str_name()
-    );
+    println!("{}", serde_json::to_string_pretty(&attestation)?);
 
     Ok(())
 }

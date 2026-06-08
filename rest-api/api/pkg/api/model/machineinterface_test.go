@@ -6,8 +6,8 @@ package model
 import (
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,13 +16,13 @@ func TestMachineInterface_NewAPIMachineInterface(t *testing.T) {
 	dbmi := &cdbm.MachineInterface{
 		ID:                    uuid.New(),
 		MachineID:             uuid.NewString(),
-		ControllerInterfaceID: db.GetUUIDPtr(uuid.New()),
-		ControllerSegmentID:   db.GetUUIDPtr(uuid.New()),
-		AttachedDPUMachineID:  db.GetStrPtr(uuid.NewString()),
-		Hostname:              db.GetStrPtr("test.com"),
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		AttachedDPUMachineID:  cutil.GetPtr(uuid.NewString()),
+		Hostname:              cutil.GetPtr("test.com"),
 		IsPrimary:             true,
-		SubnetID:              db.GetUUIDPtr(uuid.New()),
-		MacAddress:            db.GetStrPtr("00:00:00:00:00:00"),
+		SubnetID:              cutil.GetPtr(uuid.New()),
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:00"),
 		IPAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 	}
 	apimi := NewAPIMachineInterface(dbmi, true)

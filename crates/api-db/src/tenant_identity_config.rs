@@ -310,12 +310,30 @@ where
         .map_err(|e| DatabaseError::query("SELECT tenant_identity_config BY organization_id", e))
 }
 
+/// Machine ID used to locate the active instance when resolving tenant identity config.
+///
+/// Instances are host-scoped (`instances.machine_id` is the host). DPU agents call
+/// `SignMachineIdentity` with a DPU mTLS identity, so map DPU callers to their owning host first.
+async fn instance_machine_id_for_identity_lookup(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> DatabaseResult<MachineId> {
+    if !machine_id.machine_type().is_dpu() {
+        return Ok(*machine_id);
+    }
+    let Some(host) = crate::machine::find_host_by_dpu_machine_id(txn, machine_id).await? else {
+        return Ok(*machine_id);
+    };
+    Ok(host.id)
+}
+
 /// Resolve tenant identity config for machine-identity RPCs: one join query, then overlap GC, then
 /// reload by org PK so the row matches the post-GC database state (GC may clear a JWKS slot).
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> DatabaseResult<TenantIdentityConfig> {
+    let instance_machine_id = instance_machine_id_for_identity_lookup(txn, machine_id).await?;
     let row = sqlx::query_as::<_, TenantIdentityConfig>(
         r"
         SELECT tic.organization_id, tic.issuer, tic.default_audience, tic.allowed_audiences,
@@ -329,7 +347,7 @@ pub async fn find_by_machine_id(
         INNER JOIN instances i ON tic.organization_id = i.tenant_org
         WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true",
     )
-    .bind(machine_id)
+    .bind(instance_machine_id)
     .fetch_optional(&mut *txn)
     .await
     .map_err(|e| DatabaseError::query("SELECT tenant_identity_config BY machine_id", e))?;

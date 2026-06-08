@@ -12,15 +12,16 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -89,15 +90,15 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
 	subnets := []*cdbm.Subnet{}
 	for i := 11; i <= 35; i++ {
-		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 		assert.NotNil(t, subnet1)
 		subnets = append(subnets, subnet1)
 	}
@@ -105,7 +106,7 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnets[0].ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	ifcs := []*cdbm.Interface{}
@@ -156,7 +157,7 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:               false,
-			orderBy:               cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:               cutil.GetPtr("CREATED_ASC"),
 			expectedCount:         20,
 			expectedTotal:         25,
 			expectSubnet:          true,
@@ -178,9 +179,9 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:               false,
-			pageNumber:            cdb.GetIntPtr(1),
-			pageSize:              cdb.GetIntPtr(10),
-			orderBy:               cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:            cutil.GetPtr(1),
+			pageSize:              cutil.GetPtr(10),
+			orderBy:               cutil.GetPtr("CREATED_ASC"),
 			expectedCount:         10,
 			expectedTotal:         25,
 			expectSubnet:          true,
@@ -201,9 +202,9 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:               false,
-			pageNumber:            cdb.GetIntPtr(2),
-			pageSize:              cdb.GetIntPtr(10),
-			orderBy:               cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:            cutil.GetPtr(2),
+			pageSize:              cutil.GetPtr(10),
+			orderBy:               cutil.GetPtr("CREATED_ASC"),
 			expectedCount:         10,
 			expectedTotal:         25,
 			expectSubnet:          true,
@@ -224,9 +225,9 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusBadRequest,
 			},
 			wantErr:      false,
-			pageNumber:   cdb.GetIntPtr(2),
-			pageSize:     cdb.GetIntPtr(10),
-			orderBy:      cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:   cutil.GetPtr(2),
+			pageSize:     cutil.GetPtr(10),
+			orderBy:      cutil.GetPtr("TEST_ASC"),
 			expectSubnet: true,
 		},
 		{
@@ -305,15 +306,15 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryIncludeRelations1:    cdb.GetStrPtr(cdbm.SubnetRelationName),
-			queryIncludeRelations2:    cdb.GetStrPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1:    cutil.GetPtr(cdbm.SubnetRelationName),
+			queryIncludeRelations2:    cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:             20,
 			expectedTotal:             25,
-			orderBy:                   cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                   cutil.GetPtr("CREATED_ASC"),
 			expectSubnet:              true,
 			expectedFirstSubnetID:     subnets[0].ID.String(),
-			expectedFirstSubnetName:   cdb.GetStrPtr(subnets[0].Name),
-			expectedFirstInstanceName: cdb.GetStrPtr(inst1.Name),
+			expectedFirstSubnetName:   cutil.GetPtr(subnets[0].Name),
+			expectedFirstInstanceName: cutil.GetPtr(inst1.Name),
 			wantErr:                   false,
 		},
 		{
@@ -330,14 +331,14 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryStatus:               cdb.GetStrPtr(cdbm.InterfaceStatusProvisioning),
+			queryStatus:               cutil.GetPtr(cdbm.InterfaceStatusProvisioning),
 			expectedCount:             20,
 			expectedTotal:             25,
-			orderBy:                   cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                   cutil.GetPtr("CREATED_ASC"),
 			expectSubnet:              true,
 			expectedFirstSubnetID:     subnets[0].ID.String(),
-			expectedFirstSubnetName:   cdb.GetStrPtr(subnets[0].Name),
-			expectedFirstInstanceName: cdb.GetStrPtr(inst1.Name),
+			expectedFirstSubnetName:   cutil.GetPtr(subnets[0].Name),
+			expectedFirstInstanceName: cutil.GetPtr(inst1.Name),
 			wantErr:                   false,
 		},
 		{
@@ -354,7 +355,7 @@ func TestGetAllInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusBadRequest,
 			},
-			queryStatus:   cdb.GetStrPtr("BadStatus"),
+			queryStatus:   cutil.GetPtr("BadStatus"),
 			expectedCount: 0,
 			expectedTotal: 0,
 			wantErr:       false,

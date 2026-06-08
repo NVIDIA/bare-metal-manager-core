@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -65,7 +66,7 @@ func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	fbsd := NewFabricDAO(dbSession)
 	fb1, err := fbsd.CreateFromParams(ctx, nil, "IFabricTest1", ip.Org, site.ID, ip.ID, "Ready")
@@ -121,7 +122,7 @@ func TestFabricSQLDAO_GetByID(t *testing.T) {
 	defer dbSession.Close()
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	fbsd := NewFabricDAO(dbSession)
@@ -205,7 +206,7 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 	defer dbSession.Close()
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	fbsd := NewFabricDAO(dbSession)
 	fbs := []*Fabric{}
@@ -255,7 +256,7 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with site filters and relations returns objects",
 			includeRelations: []string{SiteRelationName},
-			paramSiteID:      db.GetUUIDPtr(site.ID),
+			paramSiteID:      cutil.GetPtr(site.ID),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -269,7 +270,7 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with ip filters and relations returns objects",
 			includeRelations: []string{InfrastructureProviderRelationName},
-			paramIpID:        db.GetUUIDPtr(ip.ID),
+			paramIpID:        cutil.GetPtr(ip.ID),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -283,8 +284,8 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
-			paramOffset:      db.GetIntPtr(10),
-			paramLimit:       db.GetIntPtr(10),
+			paramOffset:      cutil.GetPtr(10),
+			paramLimit:       cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -297,8 +298,8 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with search query returns objects",
 			includeRelations: []string{InfrastructureProviderRelationName},
-			paramIpID:        db.GetUUIDPtr(ip.ID),
-			paramSearchQuery: db.GetStrPtr("test-10"),
+			paramIpID:        cutil.GetPtr(ip.ID),
+			paramSearchQuery: cutil.GetPtr("test-10"),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -353,9 +354,9 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip1 := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test1", "testorg1", user.ID)
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
 	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
-	ip2 := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test2", "testorg2", user.ID)
+	ip2 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test2", "testorg2", user.ID)
 	site2 := TestBuildSite(t, dbSession, ip2, "test2", user)
 	fbsd := NewFabricDAO(dbSession)
 
@@ -389,12 +390,12 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 			desc:        "can update all fields",
 			id:          fb1.ID,
 			paramSiteID: site1.ID,
-			paramIpID:   db.GetUUIDPtr(ip2.ID),
-			paramStatus: db.GetStrPtr(FabricStatusError),
+			paramIpID:   cutil.GetPtr(ip2.ID),
+			paramStatus: cutil.GetPtr(FabricStatusError),
 
-			expectedSiteID: db.GetUUIDPtr(site2.ID),
-			expectedIpID:   db.GetUUIDPtr(ip2.ID),
-			expectedStatus: db.GetStrPtr(FabricStatusError),
+			expectedSiteID: cutil.GetPtr(site2.ID),
+			expectedIpID:   cutil.GetPtr(ip2.ID),
+			expectedStatus: cutil.GetPtr(FabricStatusError),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -408,7 +409,7 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := fbsd.UpdateFromParams(ctx, nil, tc.id, tc.paramSiteID, tc.paramIpID, tc.paramStatus, db.GetBoolPtr(true))
+			got, err := fbsd.UpdateFromParams(ctx, nil, tc.id, tc.paramSiteID, tc.paramIpID, tc.paramStatus, cutil.GetPtr(true))
 			assert.Equal(t, tc.expectError, err != nil)
 			if err == nil {
 				assert.Equal(t, tc.id, got.ID)
@@ -432,7 +433,7 @@ func TestFabricSQLDAO_DeleteByID(t *testing.T) {
 	defer dbSession.Close()
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip1 := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test1", "testorg1", user.ID)
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
 	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
 	fbsd := NewFabricDAO(dbSession)
 
@@ -490,11 +491,11 @@ func TestFabricSQLDAO_DeleteAll(t *testing.T) {
 	testFabricSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
 
-	ip1 := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test1", "testorg1", user.ID)
+	ip1 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test1", "testorg1", user.ID)
 
 	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
 
-	ip2 := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test2", "testorg2", user.ID)
+	ip2 := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test2", "testorg2", user.ID)
 
 	site2 := TestBuildSite(t, dbSession, ip2, "test2", user)
 
@@ -533,14 +534,14 @@ func TestFabricSQLDAO_DeleteAll(t *testing.T) {
 		{
 			desc:               "can delete by ids",
 			ids:                []string{fb1.ID, fb2.ID},
-			siteID:             db.GetUUIDPtr(site1.ID),
+			siteID:             cutil.GetPtr(site1.ID),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
 		{
 			desc:               "can delete by site id",
 			ids:                nil,
-			siteID:             db.GetUUIDPtr(site2.ID),
+			siteID:             cutil.GetPtr(site2.ID),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},

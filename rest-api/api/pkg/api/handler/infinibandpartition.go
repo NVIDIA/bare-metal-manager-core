@@ -20,19 +20,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -227,7 +227,7 @@ func (cibph CreateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 
 		// create the status detail record
 		newSSD, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(cdbm.InfiniBandPartitionStatusPending),
-			cdb.GetStrPtr("received InfiniBand Partition creation request, pending"))
+			cutil.GetPtr("received InfiniBand Partition creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for InfiniBand Partition", nil)
@@ -865,7 +865,7 @@ func (uibph UpdateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update InfiniBand Partition workflow")
 
 		// get status details for the response
-		curSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uipb.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		curSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uipb.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for InfiniBand Partition from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for InfiniBand Partition", nil)
@@ -997,7 +997,7 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 	ibiDAO := cdbm.NewInfiniBandInterfaceDAO(dibph.dbSession)
 	ibInterfaces, _, err := ibiDAO.GetAll(ctx, nil, cdbm.InfiniBandInterfaceFilterInput{
 		InfiniBandPartitionIDs: []uuid.UUID{ibpID},
-	}, paginator.PageInput{Limit: cdb.GetIntPtr(paginator.TotalLimit)}, nil)
+	}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving InfiniBand Interfaces from DB for InfiniBand Partition")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve InfiniBand Interfaces for InfiniBand Partition", nil)
@@ -1046,7 +1046,7 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 
 		// Create status detail
 		if _, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(deletingStatus),
-			cdb.GetStrPtr("Received request for deletion, pending processing")); derr != nil {
+			cutil.GetPtr("Received request for deletion, pending processing")); derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for InfiniBand Partition deletion", nil)
 		}

@@ -14,9 +14,9 @@ import (
 
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	iActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
+	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
 type UpdateInstanceTestSuite struct {
@@ -55,9 +55,9 @@ func (s *UpdateInstanceTestSuite) Test_UpdateInstance_Success() {
 			},
 		},
 		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.OperatingSystem{
+			Os: &cwssaws.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.OperatingSystem_Ipxe{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &cwssaws.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
@@ -98,9 +98,9 @@ func (s *UpdateInstanceTestSuite) Test_UpdateInstance_Failure() {
 			},
 		},
 		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.OperatingSystem{
+			Os: &cwssaws.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.OperatingSystem_Ipxe{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &cwssaws.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
@@ -162,9 +162,9 @@ func (s *CreateInstanceV2TestSuite) Test_CreateInstanceV2_Success() {
 			},
 		},
 		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.OperatingSystem{
+			Os: &cwssaws.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.OperatingSystem_Ipxe{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &cwssaws.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
@@ -205,9 +205,9 @@ func (s *CreateInstanceV2TestSuite) Test_CreateInstanceV2_Failure() {
 			},
 		},
 		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.OperatingSystem{
+			Os: &cwssaws.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.OperatingSystem_Ipxe{
+				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &cwssaws.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
@@ -275,9 +275,9 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Success() {
 					},
 				},
 				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.OperatingSystem{
+					Os: &cwssaws.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.OperatingSystem_Ipxe{
+						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 							Ipxe: &cwssaws.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},
@@ -299,9 +299,9 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Success() {
 					},
 				},
 				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.OperatingSystem{
+					Os: &cwssaws.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.OperatingSystem_Ipxe{
+						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 							Ipxe: &cwssaws.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},
@@ -348,9 +348,9 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Failure() {
 					},
 				},
 				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.OperatingSystem{
+					Os: &cwssaws.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.OperatingSystem_Ipxe{
+						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 							Ipxe: &cwssaws.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},

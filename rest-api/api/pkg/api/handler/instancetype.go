@@ -22,22 +22,22 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwma "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/machine"
-	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cwma "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -217,8 +217,8 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 
 		// Create a status detail record for Instance Type
 		var serr error
-		ssd, serr = sdDAO.CreateFromParams(ctx, tx, it.ID.String(), *cdb.GetStrPtr(cdbm.InstanceTypeStatusReady),
-			cdb.GetStrPtr("Instance type is ready for use"))
+		ssd, serr = sdDAO.CreateFromParams(ctx, tx, it.ID.String(), *cutil.GetPtr(cdbm.InstanceTypeStatusReady),
+			cutil.GetPtr("Instance type is ready for use"))
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Instance Type", nil)
@@ -229,7 +229,7 @@ func (cith CreateInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 
 		// Get Machine capabilities for the Instance Type
-		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Machine capabilities for Instance Type")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine capabilities for Instance Type", nil)
@@ -512,7 +512,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 				Status:                   status,
 				SearchQuery:              searchQuery,
 			}
-			providerInstanceTypes, _, err := itDAO.GetAll(ctx, nil, providerFilter, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			providerInstanceTypes, _, err := itDAO.GetAll(ctx, nil, providerFilter, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving Instance Types from Provider perspective")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instance Types, DB error", nil)
@@ -531,7 +531,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 		if stID == nil {
 			tss, _, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
 				TenantIDs: []uuid.UUID{tenant.ID},
-			}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving Tenant Site association from DB")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Site association", nil)
@@ -567,7 +567,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 			if excludeUnallocated {
 				tenantFilter.TenantIDs = []uuid.UUID{tenant.ID}
 			}
-			tenantInstanceTypes, _, err := itDAO.GetAll(ctx, nil, tenantFilter, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			tenantInstanceTypes, _, err := itDAO.GetAll(ctx, nil, tenantFilter, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving Instance Types from Tenant perspective")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Instance Types, DB error", nil)
@@ -617,7 +617,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 		itIDs = append(itIDs, it.ID)
 	}
 
-	mcs, _, serr := mcDAO.GetAll(ctx, nil, nil, itIDs, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	mcs, _, serr := mcDAO.GetAll(ctx, nil, nil, itIDs, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if serr != nil {
 		logger.Error().Err(serr).Msg("error retrieving Machine Capabilities for Instance Type from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine Capabilities for Instance Type", nil)
@@ -636,7 +636,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 			}
 		}
 		if len(mitIDs) > 0 {
-			mit, _, err = mitDAO.GetAll(ctx, nil, nil, mitIDs, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			mit, _, err = mitDAO.GetAll(ctx, nil, nil, mitIDs, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving Machine assignments for Instance Type")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve  Machine assignments for Instance Type", nil)
@@ -824,7 +824,7 @@ func (gith GetInstanceTypeHandler) Handle(c echo.Context) error {
 
 	// Get Machine capabilities for the Instance Type
 	mcDAO := cdbm.NewMachineCapabilityDAO(gith.dbSession)
-	mcs, _, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	mcs, _, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machine capabilities for Instance Type")
 		// rollback transaction
@@ -836,7 +836,7 @@ func (gith GetInstanceTypeHandler) Handle(c echo.Context) error {
 	if includeMachineAssignment {
 		// Check if Machine/InstanceType association already exists
 		mitDAO := cdbm.NewMachineInstanceTypeDAO(gith.dbSession)
-		mit, _, err = mitDAO.GetAll(ctx, nil, nil, []uuid.UUID{it.ID}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		mit, _, err = mitDAO.GetAll(ctx, nil, nil, []uuid.UUID{it.ID}, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving Machine assignments for Instance Type")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve  Machine assignments for Instance Type", nil)
@@ -1030,7 +1030,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 			// take a lock on the new Instance Type it's attaching to, so an attach
 			// can still slip in between this check and our updates — see the lock
 			// comment above for the complementary fix.
-			_, total, derr := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InstanceTypeIDs: []uuid.UUID{it.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+			_, total, derr := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InstanceTypeIDs: []uuid.UUID{it.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Machines for Instance Type from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machines for Instance Type", nil)
@@ -1044,7 +1044,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 			// If we got here, then we're allowed to update the capabilities.
 
 			// Get Machine capabilities for the Instance Type because we'll need to compare.
-			existingMcs, _, derr := mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+			existingMcs, _, derr := mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Machine capabilities for Instance Type")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine capabilities for Instance Type", nil)
@@ -1066,7 +1066,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 				existingCap := existingMacCapMap[capKey]
 				// The incoming requested capability doesn't exist at all currently,
 				// so it's brand new.
-				if existingCap != nil && cwu.MachineCapabilitiesEqual(existingCap, &cdbm.MachineCapability{
+				if existingCap != nil && existingCap.Equal(&cdbm.MachineCapability{
 					Type:             reqMacCap.Type,
 					Name:             reqMacCap.Name,
 					Frequency:        reqMacCap.Frequency,
@@ -1145,7 +1145,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 
 		// Get the most up-to-date capabilities for the instance type
-		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		mcs, _, derr = mcDAO.GetAll(ctx, tx, nil, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Machine capabilities for Instance Type")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine capabilities for Instance Type", nil)
@@ -1155,7 +1155,7 @@ func (uith UpdateInstanceTypeHandler) Handle(c echo.Context) error {
 
 		// Get Instance Type status details
 		var serr error
-		ssds, _, serr = sdDAO.GetAllByEntityID(ctx, tx, it.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		ssds, _, serr = sdDAO.GetAllByEntityID(ctx, tx, it.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving Status Details for Instance Type from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve status history for Instance Type", nil)
@@ -1432,7 +1432,7 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 		//
 		// Get the machines for instance type
 		mDAO := cdbm.NewMachineDAO(dith.dbSession)
-		mcs, _, derr := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InstanceTypeIDs: []uuid.UUID{it.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		mcs, _, derr := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InstanceTypeIDs: []uuid.UUID{it.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Machines for Instance Type from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machines for Instance Type", nil)
@@ -1461,7 +1461,9 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteInstanceTypeRequest := it.ToDeletionRequestProto()
+		deleteInstanceTypeRequest := &cwssaws.DeleteInstanceTypeRequest{
+			Id: it.ID.String(),
+		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-type-delete-" + it.ID.String(),

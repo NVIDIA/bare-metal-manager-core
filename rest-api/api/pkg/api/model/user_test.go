@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 )
 
@@ -20,10 +20,10 @@ func TestNewAPIUserFromDBUser(t *testing.T) {
 
 	u := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test123"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
+		StarfleetID: cutil.GetPtr("test123"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
 		Created:     time.Now(),
 		Updated:     time.Now(),
 	}

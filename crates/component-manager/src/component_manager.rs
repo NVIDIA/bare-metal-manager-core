@@ -12,6 +12,7 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::NvSwitchManager;
 use crate::power_shelf_manager::PowerShelfManager;
+use crate::rms::RmsSwitchSystemImageStatusApi;
 
 /// Holds the configured backend implementations for each component type.
 #[derive(Debug, Clone)]
@@ -64,6 +65,7 @@ impl ComponentManager {
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
     rms_client: Option<Arc<dyn RmsApi>>,
+    rms_switch_system_image_client: Option<Arc<dyn RmsSwitchSystemImageStatusApi>>,
     db: Option<PgPool>,
     redfish_pool: Option<Arc<dyn RedfishClientPool>>,
 ) -> Result<ComponentManager, ComponentManagerError> {
@@ -90,7 +92,11 @@ pub async fn build_component_manager(
                     "nv_switch_backend is 'rms' but database pool is not configured".into(),
                 )
             })?;
-            Arc::new(crate::rms::RmsBackend::new(client, db))
+            Arc::new(crate::rms::RmsBackend::new(
+                client,
+                rms_switch_system_image_client.clone(),
+                db,
+            ))
         }
         "mock" => Arc::new(crate::mock::MockNvSwitchManager),
         other => {
@@ -124,7 +130,11 @@ pub async fn build_component_manager(
                     "power_shelf_backend is 'rms' but database pool is not configured".into(),
                 )
             })?;
-            Arc::new(crate::rms::RmsBackend::new(client, db))
+            Arc::new(crate::rms::RmsBackend::new(
+                client,
+                rms_switch_system_image_client.clone(),
+                db,
+            ))
         }
         "mock" => Arc::new(crate::mock::MockPowerShelfManager),
         other => {
@@ -178,7 +188,7 @@ mod tests {
             compute_tray_backend: Backend::Mock,
             ..Default::default()
         };
-        let cm = build_component_manager(&config, None, None, None)
+        let cm = build_component_manager(&config, None, None, None, None)
             .await
             .unwrap();
         assert_eq!(cm.nv_switch.name(), "mock-nsm");
@@ -194,7 +204,7 @@ mod tests {
             compute_tray_backend: Backend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None)
+        let err = build_component_manager(&config, None, None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -210,7 +220,7 @@ mod tests {
             compute_tray_backend: Backend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None)
+        let err = build_component_manager(&config, None, None, None, None)
             .await
             .unwrap_err();
         assert!(
@@ -226,7 +236,7 @@ mod tests {
             compute_tray_backend: Backend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None)
+        let err = build_component_manager(&config, None, None, None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
@@ -240,7 +250,7 @@ mod tests {
             compute_tray_backend: Backend::Mock,
             ..Default::default()
         };
-        let err = build_component_manager(&config, None, None, None)
+        let err = build_component_manager(&config, None, None, None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));

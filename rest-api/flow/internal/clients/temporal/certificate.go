@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"path/filepath"
 
-	pkgcerts "github.com/NVIDIA/infra-controller-rest/flow/pkg/certs"
+	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
 const (

@@ -10,11 +10,12 @@ import (
 	"net/netip"
 	"strings"
 
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/uptrace/bun"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 var (
@@ -166,7 +167,7 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 			tx,
 			cdbm.IPBlockUpdateInput{
 				IPBlockID: parentIPBlock.ID,
-				FullGrant: cdb.GetBoolPtr(true),
+				FullGrant: cutil.GetPtr(true),
 			},
 		)
 		if err != nil {
@@ -205,7 +206,7 @@ func DeleteChildIpamEntryFromCidr(ctx context.Context, tx *cdb.Tx, dbSession *cd
 			tx,
 			cdbm.IPBlockUpdateInput{
 				IPBlockID: parentIPBlock.ID,
-				FullGrant: cdb.GetBoolPtr(false),
+				FullGrant: cutil.GetPtr(false),
 			},
 		)
 

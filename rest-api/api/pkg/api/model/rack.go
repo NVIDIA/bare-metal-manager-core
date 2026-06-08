@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/url"
 
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 // ProtoToAPIBMCTypeName maps protobuf BMCType to API-friendly names.

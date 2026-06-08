@@ -48,6 +48,7 @@ use crate::errors::CarbideCliError;
 "sku_id",
 "bmc_ip_address",
 "dpu_mode",
+"dpf_enabled",
 ])))]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -195,10 +196,11 @@ impl Args {
             && self.fallback_dpu_serial_numbers.is_none()
             && self.sku_id.is_none()
             && self.rack_id.is_none()
+            && self.dpf_enabled.is_none()
             && self.bmc_ip_address.is_none()
             && self.dpu_mode.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or dpf-enabled".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

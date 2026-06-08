@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

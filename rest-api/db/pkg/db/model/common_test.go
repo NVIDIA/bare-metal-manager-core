@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestLabels_FromProto(t *testing.T) {
@@ -31,16 +31,16 @@ func TestLabels_FromProto(t *testing.T) {
 		{
 			name: "single label with value",
 			protoLabels: []*cwssaws.Label{
-				{Key: "environment", Value: db.GetStrPtr("production")},
+				{Key: "environment", Value: cutil.GetPtr("production")},
 			},
 			want: Labels{"environment": "production"},
 		},
 		{
 			name: "multiple labels",
 			protoLabels: []*cwssaws.Label{
-				{Key: "environment", Value: db.GetStrPtr("production")},
-				{Key: "rack", Value: db.GetStrPtr("rack-1")},
-				{Key: "datacenter", Value: db.GetStrPtr("dc1")},
+				{Key: "environment", Value: cutil.GetPtr("production")},
+				{Key: "rack", Value: cutil.GetPtr("rack-1")},
+				{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 			},
 			want: Labels{
 				"environment": "production",
@@ -58,8 +58,8 @@ func TestLabels_FromProto(t *testing.T) {
 		{
 			name: "label with empty key is skipped",
 			protoLabels: []*cwssaws.Label{
-				{Key: "", Value: db.GetStrPtr("value")},
-				{Key: "valid", Value: db.GetStrPtr("data")},
+				{Key: "", Value: cutil.GetPtr("value")},
+				{Key: "valid", Value: cutil.GetPtr("data")},
 			},
 			want: Labels{"valid": "data"},
 		},
@@ -67,7 +67,7 @@ func TestLabels_FromProto(t *testing.T) {
 			name: "nil label entry is skipped",
 			protoLabels: []*cwssaws.Label{
 				nil,
-				{Key: "valid", Value: db.GetStrPtr("data")},
+				{Key: "valid", Value: cutil.GetPtr("data")},
 			},
 			want: Labels{"valid": "data"},
 		},
@@ -95,8 +95,8 @@ func TestLabels_FromProto_OverwritesExistingReceiver(t *testing.T) {
 	t.Run("populated input replaces existing entries", func(t *testing.T) {
 		l := Labels{"stale": "value", "kept-key": "old"}
 		l.FromProto([]*cwssaws.Label{
-			{Key: "kept-key", Value: db.GetStrPtr("new")},
-			{Key: "fresh", Value: db.GetStrPtr("data")},
+			{Key: "kept-key", Value: cutil.GetPtr("new")},
+			{Key: "fresh", Value: cutil.GetPtr("data")},
 		})
 		assert.Equal(t, Labels{"kept-key": "new", "fresh": "data"}, l)
 	})

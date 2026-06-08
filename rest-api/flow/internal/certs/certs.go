@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	pkgcerts "github.com/NVIDIA/infra-controller-rest/flow/pkg/certs"
+	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
 // Default certificate directory and file names for the Kubernetes SPIFFE

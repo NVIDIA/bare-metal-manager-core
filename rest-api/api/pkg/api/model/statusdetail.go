@@ -6,7 +6,7 @@ package model
 import (
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APIStatusDetail captures API representation of a status detail DB object

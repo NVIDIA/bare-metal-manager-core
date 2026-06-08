@@ -88,7 +88,7 @@ const file_dpu_machine_proto_rawDesc = "" +
 	"\n" +
 	"DpuMachine\x12(\n" +
 	"\amachine\x18\x01 \x01(\v2\x0e.forge.MachineR\amachine\x12U\n" +
-	"\x12dpu_network_config\x18\x02 \x01(\v2'.forge.ManagedHostNetworkConfigResponseR\x10dpuNetworkConfigB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\x12dpu_network_config\x18\x02 \x01(\v2'.forge.ManagedHostNetworkConfigResponseR\x10dpuNetworkConfigBCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_dpu_machine_proto_rawDescOnce sync.Once

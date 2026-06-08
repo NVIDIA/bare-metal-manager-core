@@ -14,12 +14,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -28,17 +29,17 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 
 	"go.temporal.io/api/enums/v1"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 )
 
 func testMachineInitDB(t *testing.T) *cdb.Session {
@@ -67,12 +68,12 @@ func testMachineBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrast
 		Name:                        name,
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
-		SerialConsoleHostname:       cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:       cutil.GetPtr("TestSshHostname"),
 		Status:                      status,
 		CreatedBy:                   uuid.New(),
 	}
@@ -100,9 +101,9 @@ func testMachineBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID stri
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData:     OrgData,
 		},
 	)
@@ -122,7 +123,7 @@ func testMachineBuildMachine(t *testing.T, dbSession *cdb.Session, ip uuid.UUID,
 		ControllerMachineID:      mid,
 		ControllerMachineType:    controllerMachineType,
 		Metadata:                 nil,
-		DefaultMacAddress:        cdb.GetStrPtr("00:1B:44:11:3A:B7"),
+		DefaultMacAddress:        cutil.GetPtr("00:1B:44:11:3A:B7"),
 		IsAssigned:               isAssigned,
 		IsMissingOnSite:          isMissingOnSite,
 		Status:                   status,
@@ -153,12 +154,12 @@ func testMachineBuildMachineInterface(t *testing.T, dbSession *cdb.Session, mID 
 	mi := &cdbm.MachineInterface{
 		ID:                    uuid.New(),
 		MachineID:             mID,
-		ControllerInterfaceID: cdb.GetUUIDPtr(uuid.New()),
-		ControllerSegmentID:   cdb.GetUUIDPtr(uuid.New()),
-		Hostname:              cdb.GetStrPtr("test.com"),
+		ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+		ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+		Hostname:              cutil.GetPtr("test.com"),
 		IsPrimary:             true,
 		SubnetID:              nil,
-		MacAddress:            cdb.GetStrPtr("00:00:00:00:00:00"),
+		MacAddress:            cutil.GetPtr("00:00:00:00:00:00"),
 		IPAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 		Created:               cdb.GetCurTime(),
 		Updated:               cdb.GetCurTime(),
@@ -222,8 +223,8 @@ func testMachineBuildInstanceType(t *testing.T, dbSession *cdb.Session, ip *cdbm
 		ID:                       uuid.New(),
 		Name:                     name,
 		InfrastructureProviderID: ip.ID,
-		InfinityResourceTypeID:   cdb.GetUUIDPtr(uuid.New()),
-		SiteID:                   cdb.GetUUIDPtr(site.ID),
+		InfinityResourceTypeID:   cutil.GetPtr(uuid.New()),
+		SiteID:                   cutil.GetPtr(site.ID),
 		Status:                   cdbm.InstanceTypeStatusPending,
 	}
 	_, err := dbSession.DB.NewInsert().Model(instanceType).Exec(context.Background())
@@ -317,23 +318,23 @@ func TestMachineHandler_Get(t *testing.T) {
 	ist2 := testMachineBuildInstanceType(t, dbSession, ip, site2, "instance-type-2")
 	ist3 := testMachineBuildInstanceType(t, dbSession, ip, site3, "instance-type-3")
 
-	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
-	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, cdb.GetUUIDPtr(ist2.ID), nil, false, false, cdbm.MachineStatusInUse)
-	m3 := testMachineBuildMachine(t, dbSession, ip3.ID, site3.ID, cdb.GetUUIDPtr(ist3.ID), nil, true, false, cdbm.MachineStatusInitializing)
-	m4 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(ist.ID), nil, true, false, cdbm.MachineStatusInitializing)
+	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, cutil.GetPtr(ist2.ID), nil, false, false, cdbm.MachineStatusInUse)
+	m3 := testMachineBuildMachine(t, dbSession, ip3.ID, site3.ID, cutil.GetPtr(ist3.ID), nil, true, false, cdbm.MachineStatusInitializing)
+	m4 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, true, false, cdbm.MachineStatusInitializing)
 	mo3 := testMachineBuildMachine(t, dbSession, ip3.ID, siteo3.ID, nil, nil, true, false, cdbm.MachineStatusInitializing)
 
 	// Mangle the machine metadata to make sure we can still deal with it gracefully.
 	dbSession.DB.Exec(fmt.Sprintf(`update machine set metadata='{"random_junk": "is_it_cake?"}' where id='%s'`, m4.ID))
 
-	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 	assert.NotNil(t, mc11)
-	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cdb.GetStrPtr("16GB DDR4"), cdb.GetIntPtr(4))
+	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cutil.GetPtr("16GB DDR4"), cutil.GetPtr(4))
 	assert.NotNil(t, mc12)
 	mi1 := testMachineBuildMachineInterface(t, dbSession, m.ID)
 	assert.NotNil(t, mi1)
 
-	mc21 := testMachineBuildMachineCapability(t, dbSession, &m2.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+	mc21 := testMachineBuildMachineCapability(t, dbSession, &m2.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 	assert.NotNil(t, mc21)
 	mi2 := testMachineBuildMachineInterface(t, dbSession, m2.ID)
 	assert.NotNil(t, mi2)
@@ -360,10 +361,10 @@ func TestMachineHandler_Get(t *testing.T) {
 			InstanceTypeID:           &ist.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &m.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			OperatingSystemID:        cutil.GetPtr(os.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu.ID,
@@ -386,10 +387,10 @@ func TestMachineHandler_Get(t *testing.T) {
 			InstanceTypeID:           &ist2.ID,
 			VpcID:                    vpc2.ID,
 			MachineID:                &m2.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os2.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			OperatingSystemID:        cutil.GetPtr(os2.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu.ID,
@@ -573,9 +574,9 @@ func TestMachineHandler_Get(t *testing.T) {
 			expectedSdCnt:                     1,
 			expectedMiCnt:                     1,
 			expectedMcCnt:                     2,
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.SiteRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
 		},
 	}
 	for _, tc := range tests {
@@ -705,11 +706,11 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	_ = testMachineUpdateTenantCapability(t, dbSession, tenant2)
 	_ = common.TestBuildTenantAccount(t, dbSession, ipt2, &tenant2.ID, tnOrg2, cdbm.TenantAccountStatusReady, tnu2)
 
-	it1 := common.TestBuildInstanceType(t, dbSession, "test-instance-1", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it1 := common.TestBuildInstanceType(t, dbSession, "test-instance-1", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
-	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-2", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-2", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-2",
 		"description": "Test Instance Type 2 Description",
 	}, ipu)
@@ -746,17 +747,17 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			status = cdbm.MachineStatusReady
 		}
 
-		m := testMachineBuildMachine(t, dbSession, ipID, siteID, itID, cdb.GetStrPtr(fmt.Sprintf("controller-machine-type-%02d", i)), isAssigned, false, status)
+		m := testMachineBuildMachine(t, dbSession, ipID, siteID, itID, cutil.GetPtr(fmt.Sprintf("controller-machine-type-%02d", i)), isAssigned, false, status)
 
-		mc1 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+		mc1 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 		assert.NotNil(t, mc1)
-		mc2 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cdb.GetStrPtr("16GB DDR4"), cdb.GetIntPtr(4))
+		mc2 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cutil.GetPtr("16GB DDR4"), cutil.GetPtr(4))
 		assert.NotNil(t, mc2)
 		mi1 := testMachineBuildMachineInterface(t, dbSession, m.ID)
 		assert.NotNil(t, mi1)
 
-		common.TestBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-		common.TestBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusReady, cdb.GetStrPtr("Machine is ready for assignment"))
+		common.TestBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+		common.TestBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusReady, cutil.GetPtr("Machine is ready for assignment"))
 
 		// Create MachineInstanceType
 		if i%2 == 0 {
@@ -779,9 +780,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 					VpcID:                    vpc.ID,
 					MachineID:                &m.ID,
 					OperatingSystemID:        &os.ID,
-					IpxeScript:               cdb.GetStrPtr("ipxe"),
+					IpxeScript:               cutil.GetPtr("ipxe"),
 					AlwaysBootWithCustomIpxe: true,
-					UserData:                 cdb.GetStrPtr("test-user-data"),
+					UserData:                 cutil.GetPtr("test-user-data"),
 					Labels:                   map[string]string{},
 					Status:                   cdbm.InstanceStatusPending,
 					CreatedBy:                tnu.ID,
@@ -818,23 +819,23 @@ func TestMachineHandler_GetAll(t *testing.T) {
 
 	m31 := testMachineBuildMachine(t, dbSession, ip4.ID, site3.ID, nil, nil, false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m31)
-	common.TestBuildStatusDetail(t, dbSession, m31.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	common.TestBuildStatusDetail(t, dbSession, m31.ID, cdbm.MachineStatusReady, cdb.GetStrPtr("Machine is ready for assignment"))
+	common.TestBuildStatusDetail(t, dbSession, m31.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	common.TestBuildStatusDetail(t, dbSession, m31.ID, cdbm.MachineStatusReady, cutil.GetPtr("Machine is ready for assignment"))
 
 	m32 := testMachineBuildMachine(t, dbSession, ip4.ID, site3.ID, nil, nil, false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m32)
-	common.TestBuildStatusDetail(t, dbSession, m32.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	common.TestBuildStatusDetail(t, dbSession, m32.ID, cdbm.MachineStatusReady, cdb.GetStrPtr("Machine is ready for assignment"))
+	common.TestBuildStatusDetail(t, dbSession, m32.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	common.TestBuildStatusDetail(t, dbSession, m32.ID, cdbm.MachineStatusReady, cutil.GetPtr("Machine is ready for assignment"))
 
 	m33 := testMachineBuildMachine(t, dbSession, ip4.ID, site3.ID, nil, nil, false, true, cdbm.MachineStatusError)
 	assert.NotNil(t, m33)
-	common.TestBuildStatusDetail(t, dbSession, m33.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	common.TestBuildStatusDetail(t, dbSession, m33.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
+	common.TestBuildStatusDetail(t, dbSession, m33.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	common.TestBuildStatusDetail(t, dbSession, m33.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
 
 	m34 := testMachineBuildMachine(t, dbSession, ip4.ID, site3.ID, nil, nil, false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m34)
-	common.TestBuildStatusDetail(t, dbSession, m34.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is being initialized"))
-	common.TestBuildStatusDetail(t, dbSession, m34.ID, cdbm.MachineStatusReady, cdb.GetStrPtr("Machine is ready for assignment"))
+	common.TestBuildStatusDetail(t, dbSession, m34.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is being initialized"))
+	common.TestBuildStatusDetail(t, dbSession, m34.ID, cdbm.MachineStatusReady, cutil.GetPtr("Machine is ready for assignment"))
 
 	ins31, err := isd.Create(
 		context.Background(), nil,
@@ -847,9 +848,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			VpcID:                    vpc4.ID,
 			MachineID:                &m31.ID,
 			OperatingSystemID:        &os4.ID,
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu4.ID,
@@ -869,9 +870,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			VpcID:                    vpc4.ID,
 			MachineID:                &m32.ID,
 			OperatingSystemID:        &os4.ID,
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu4.ID,
@@ -892,9 +893,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			VpcID:                    vpc4.ID,
 			MachineID:                &m34.ID,
 			OperatingSystemID:        &os5.ID,
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu5.ID,
@@ -980,7 +981,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:           "error when Site ID specified in query is an invalid UUID",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr("bad#uuid$str"),
+			querySiteID:    cutil.GetPtr("bad#uuid$str"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -988,7 +989,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:           "error when non-existent Site ID is specified in query",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(uuid.New().String()),
+			querySiteID:    cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -1004,7 +1005,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:           "error when Site's Provider does not match org's Provider",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site2.ID.String()),
+			querySiteID:    cutil.GetPtr(site2.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -1012,50 +1013,50 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:               "success case when Site ID specified in query",
 			reqOrgName:         ipOrg1,
 			user:               ipu,
-			querySiteID:        cdb.GetStrPtr(site.ID.String()),
+			querySiteID:        cutil.GetPtr(site.ID.String()),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        totalCount / 2,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectInstance:     true,
-			expectedTenant:     cdb.GetStrPtr(tenant.ID.String()),
+			expectedTenant:     cutil.GetPtr(tenant.ID.String()),
 			verifyChildSpanner: true,
 		},
 		{
 			name:               "failure case when user missing org role",
 			reqOrgName:         ipOrg1,
 			user:               ipunone,
-			querySiteID:        cdb.GetStrPtr(site.ID.String()),
+			querySiteID:        cutil.GetPtr(site.ID.String()),
 			expectedErr:        true,
 			expectedStatus:     http.StatusForbidden,
 			expectedCnt:        totalCount / 2,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectInstance:     true,
-			expectedTenant:     cdb.GetStrPtr(tenant.ID.String()),
+			expectedTenant:     cutil.GetPtr(tenant.ID.String()),
 			verifyChildSpanner: true,
 		},
 		{
 			name:               "success case when user has Provider viewer role",
 			reqOrgName:         ipOrg1,
 			user:               ipuv,
-			querySiteID:        cdb.GetStrPtr(site.ID.String()),
+			querySiteID:        cutil.GetPtr(site.ID.String()),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        totalCount / 2,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectInstance:     true,
-			expectedTenant:     cdb.GetStrPtr(tenant.ID.String()),
+			expectedTenant:     cutil.GetPtr(tenant.ID.String()),
 			verifyChildSpanner: true,
 		},
 		{
 			name:               "success case when Tenant has TargetedInstanceCreation capability and filters by Site ID",
 			reqOrgName:         tnOrg2,
 			user:               tnu2,
-			querySiteID:        cdb.GetStrPtr(siteT2.ID.String()),
+			querySiteID:        cutil.GetPtr(siteT2.ID.String()),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        0,
-			expectedTotal:      cdb.GetIntPtr(0),
+			expectedTotal:      cutil.GetPtr(0),
 			expectInstance:     false,
 			verifyChildSpanner: true,
 		},
@@ -1066,7 +1067,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
-			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:           "empty result when Tenant has TargetedInstanceCreation capability but no Tenant Account",
@@ -1075,7 +1076,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:                "success case when Instance Type ID specified in query",
@@ -1085,7 +1086,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
 			expectedCnt:         10,
-			expectedTotal:       cdb.GetIntPtr(10),
+			expectedTotal:       cutil.GetPtr(10),
 		},
 		{
 			name:                "success case when multiple Instance Type IDs specified in query",
@@ -1095,73 +1096,73 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
 			expectedCnt:         totalCount / 2,
-			expectedTotal:       cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:       cutil.GetPtr(totalCount / 2),
 		},
 
 		{
 			name:                 "success case when hasInstanceType is true in query",
 			reqOrgName:           ipOrg1,
 			user:                 ipu,
-			queryHasInstanceType: cdb.GetBoolPtr(true),
+			queryHasInstanceType: cutil.GetPtr(true),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          totalCount / 2,
-			expectedTotal:        cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:        cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:                 "success case when hasInstanceType is true and Site ID is specified in query",
 			reqOrgName:           ipOrg1,
 			user:                 ipu,
-			querySiteID:          cdb.GetStrPtr(site.ID.String()),
-			queryHasInstanceType: cdb.GetBoolPtr(true),
+			querySiteID:          cutil.GetPtr(site.ID.String()),
+			queryHasInstanceType: cutil.GetPtr(true),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          totalCount / 2,
-			expectedTotal:        cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:        cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:                 "success case when hasInstanceType is false in query",
 			reqOrgName:           ipOrg2,
 			user:                 ipu,
-			queryHasInstanceType: cdb.GetBoolPtr(false),
+			queryHasInstanceType: cutil.GetPtr(false),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          totalCount / 2,
-			expectedTotal:        cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:        cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:                 "success case when hasInstanceType is set to false and Site ID is specified in query",
 			reqOrgName:           ipOrg2,
 			user:                 ipu,
-			querySiteID:          cdb.GetStrPtr(site2.ID.String()),
-			queryHasInstanceType: cdb.GetBoolPtr(false),
+			querySiteID:          cutil.GetPtr(site2.ID.String()),
+			queryHasInstanceType: cutil.GetPtr(false),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          totalCount / 2,
-			expectedTotal:        cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:        cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:               "success when pagination params are specified",
 			reqOrgName:         ipOrg1,
 			user:               ipu,
-			querySiteID:        cdb.GetStrPtr(site.ID.String()),
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("CREATED_DESC"),
+			querySiteID:        cutil.GetPtr(site.ID.String()),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("CREATED_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry: &ms[28],
 		},
 		{
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -1170,93 +1171,93 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:                              "success when include relation with site",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
-			querySiteID:                       cdb.GetStrPtr(site.ID.String()),
+			querySiteID:                       cutil.GetPtr(site.ID.String()),
 			queryInstanceTypeID:               []string{it1.ID.String()},
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       10,
-			expectedTotal:                     cdb.GetIntPtr(10),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			queryIncludeRelations3:            cdb.GetStrPtr(cdbm.InstanceTypeRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site.Name),
-			expectedInstanceTypeName:          cdb.GetStrPtr(it1.Name),
+			expectedTotal:                     cutil.GetPtr(10),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.SiteRelationName),
+			queryIncludeRelations3:            cutil.GetPtr(cdbm.InstanceTypeRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedSiteName:                  cutil.GetPtr(site.Name),
+			expectedInstanceTypeName:          cutil.GetPtr(it1.Name),
 		},
 		{
 			name:           "success when MachineStatusInitializing status is specified",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			queryStatus:    []string{cdbm.MachineStatusInitializing},
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    10,
-			expectedTotal:  cdb.GetIntPtr(10),
+			expectedTotal:  cutil.GetPtr(10),
 		},
 		{
 			name:           "success when multiple statuses are specified",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			queryStatus:    []string{cdbm.MachineStatusInitializing, cdbm.MachineStatusReady},
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    15,
-			expectedTotal:  cdb.GetIntPtr(15),
+			expectedTotal:  cutil.GetPtr(15),
 		},
 		{
 			name:           "success when MachineStatusReady status is specified query search",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySearch:    cdb.GetStrPtr(cdbm.MachineStatusReady),
+			querySearch:    cutil.GetPtr(cdbm.MachineStatusReady),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    5,
-			expectedTotal:  cdb.GetIntPtr(5),
+			expectedTotal:  cutil.GetPtr(5),
 		},
 		{
 			name:           "success when Machine id is specified query search",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySearch:    cdb.GetStrPtr(ms[0].ID),
+			querySearch:    cutil.GetPtr(ms[0].ID),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    1,
-			expectedTotal:  cdb.GetIntPtr(1),
+			expectedTotal:  cutil.GetPtr(1),
 		},
 		{
 			name:           "success when BadStatus status is specified",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			queryStatus:    []string{"BadStatus"},
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when machine id is specified in query",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			queryID:        []string{ms[0].ID},
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    1,
-			expectedTotal:  cdb.GetIntPtr(1),
+			expectedTotal:  cutil.GetPtr(1),
 		},
 		{
 			name:           "success when multiple machine id's specified in query",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			queryID:        []string{ms[0].ID, ms[2].ID},
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 		},
 		{
 			name:                "success when valid capability type is specified in query",
@@ -1271,8 +1272,8 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:                "failure when invalid capability type params are specified",
 			reqOrgName:          ipOrg1,
 			user:                ipu,
-			querySiteID:         cdb.GetStrPtr(site.ID.String()),
-			queryCapabilityType: cdb.GetStrPtr("ETHERNET"),
+			querySiteID:         cutil.GetPtr(site.ID.String()),
+			queryCapabilityType: cutil.GetPtr("ETHERNET"),
 			expectedErr:         true,
 			expectedStatus:      http.StatusBadRequest,
 			expectedCnt:         0,
@@ -1299,11 +1300,11 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:                     "success case when Site ID specified in query in case of targeted instance",
 			reqOrgName:               ipOrg4,
 			user:                     ipu,
-			querySiteID:              cdb.GetStrPtr(site3.ID.String()),
+			querySiteID:              cutil.GetPtr(site3.ID.String()),
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedCnt:              4,
-			expectedTotal:            cdb.GetIntPtr(4),
+			expectedTotal:            cutil.GetPtr(4),
 			expectInstance:           false,
 			expectedTargetedInstance: true,
 			verifyChildSpanner:       true,
@@ -1316,9 +1317,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedCnt:              2,
-			expectedTotal:            cdb.GetIntPtr(2),
+			expectedTotal:            cutil.GetPtr(2),
 			expectedTargetedInstance: true,
-			expectedTenant:           cdb.GetStrPtr(tenant4.ID.String()),
+			expectedTenant:           cutil.GetPtr(tenant4.ID.String()),
 		},
 		{
 			name:                     "success case when multiple Tenant ID's specified in query",
@@ -1328,9 +1329,9 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedCnt:              3,
-			expectedTotal:            cdb.GetIntPtr(3),
+			expectedTotal:            cutil.GetPtr(3),
 			expectedTargetedInstance: true,
-			expectedTenant:           cdb.GetStrPtr(tenant4.ID.String()),
+			expectedTenant:           cutil.GetPtr(tenant4.ID.String()),
 		},
 		{
 			name:           "returns nothing when tenant has no associated instance",
@@ -1340,7 +1341,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "failure case when invalid Tenant ID specified in query",
@@ -1364,30 +1365,30 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:             "success case when hasInstance is true in query",
 			reqOrgName:       ipOrg1,
 			user:             ipu,
-			querySiteID:      cdb.GetStrPtr(site.ID.String()),
-			queryHasInstance: cdb.GetBoolPtr(true),
+			querySiteID:      cutil.GetPtr(site.ID.String()),
+			queryHasInstance: cutil.GetPtr(true),
 			expectedErr:      false,
 			expectedStatus:   http.StatusOK,
 			expectedCnt:      totalCount / 2,
-			expectedTotal:    cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:    cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:             "success case when hasInstance is false in query",
 			reqOrgName:       ipOrg2,
 			user:             ipu,
-			querySiteID:      cdb.GetStrPtr(site2.ID.String()),
-			queryHasInstance: cdb.GetBoolPtr(false),
+			querySiteID:      cutil.GetPtr(site2.ID.String()),
+			queryHasInstance: cutil.GetPtr(false),
 			expectedErr:      false,
 			expectedStatus:   http.StatusOK,
 			expectedCnt:      totalCount / 2,
-			expectedTotal:    cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:    cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:             "failure case when hasInstance is true but user is not a privileged Tenant",
 			reqOrgName:       tnOrg1,
 			user:             tnu,
-			querySiteID:      cdb.GetStrPtr(site.ID.String()),
-			queryHasInstance: cdb.GetBoolPtr(true),
+			querySiteID:      cutil.GetPtr(site.ID.String()),
+			queryHasInstance: cutil.GetPtr(true),
 			expectedErr:      true,
 			expectedStatus:   http.StatusForbidden,
 		},
@@ -1395,7 +1396,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:             "failure case when hasInstance is specified in query but siteId is not specified",
 			reqOrgName:       ipOrg1,
 			user:             ipu,
-			queryHasInstance: cdb.GetBoolPtr(true),
+			queryHasInstance: cutil.GetPtr(true),
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
 		},
@@ -1403,8 +1404,8 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:             "failure case when hasInstance is false but tenantId is specified",
 			reqOrgName:       ipOrg1,
 			user:             ipu,
-			querySiteID:      cdb.GetStrPtr(site.ID.String()),
-			queryHasInstance: cdb.GetBoolPtr(false),
+			querySiteID:      cutil.GetPtr(site.ID.String()),
+			queryHasInstance: cutil.GetPtr(false),
 			queryTenantID:    []string{tenant.ID.String()},
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
@@ -1413,23 +1414,23 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:                 "success case when isMissingOnSite is true in query",
 			reqOrgName:           ipOrg4,
 			user:                 ipu,
-			querySiteID:          cdb.GetStrPtr(site3.ID.String()),
-			queryIsMissingOnSite: cdb.GetBoolPtr(true),
+			querySiteID:          cutil.GetPtr(site3.ID.String()),
+			queryIsMissingOnSite: cutil.GetPtr(true),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          1,
-			expectedTotal:        cdb.GetIntPtr(1),
+			expectedTotal:        cutil.GetPtr(1),
 		},
 		{
 			name:                 "success case when isMissingOnSite is false in query",
 			reqOrgName:           ipOrg1,
 			user:                 ipu,
-			querySiteID:          cdb.GetStrPtr(site.ID.String()),
-			queryIsMissingOnSite: cdb.GetBoolPtr(false),
+			querySiteID:          cutil.GetPtr(site.ID.String()),
+			queryIsMissingOnSite: cutil.GetPtr(false),
 			expectedErr:          false,
 			expectedStatus:       http.StatusOK,
 			expectedCnt:          totalCount / 2,
-			expectedTotal:        cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:        cutil.GetPtr(totalCount / 2),
 		},
 	}
 	for _, tc := range tests {
@@ -1638,48 +1639,48 @@ func TestMachineHandler_Update(t *testing.T) {
 	instanceType3 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType3")
 	instanceType4 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType4")
 	instanceType5 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType4")
-	icap1 := common.TestCommonBuildMachineCapability(t, dbSession, nil, &instanceType5.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0Hz"), cdb.GetStrPtr("32GB"), nil, cdb.GetIntPtr(4), nil, nil)
+	icap1 := common.TestCommonBuildMachineCapability(t, dbSession, nil, &instanceType5.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0Hz"), cutil.GetPtr("32GB"), nil, cutil.GetPtr(4), nil, nil)
 	assert.NotNil(t, icap1)
 
-	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType1.ID), cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType1.ID), cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 
-	m1 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m1 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType2.ID), cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m1)
 
-	m2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType3.ID), cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType3.ID), cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m2)
 
-	m3 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType3.ID), cdb.GetStrPtr("mcType"), false, true, cdbm.MachineStatusError)
+	m3 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType3.ID), cutil.GetPtr("mcType"), false, true, cdbm.MachineStatusError)
 	assert.NotNil(t, m3)
 
-	m4 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType4.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	m4 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType4.ID), cutil.GetPtr("mcType"), true, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m4)
 
-	m5 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType4.ID), cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusError)
+	m5 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType4.ID), cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusError)
 	assert.NotNil(t, m5)
 
-	m6 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReset)
+	m6 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType2.ID), cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReset)
 	assert.NotNil(t, m6)
 
-	m7 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m7 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m7)
 
-	m8 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType4.ID, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m8 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType4.ID, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m8)
 
-	m9 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType4.ID, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m9 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType4.ID, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m9)
 
-	m10 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusReady)
+	m10 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m10)
 
-	m11 := testMachineBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusMaintenance)
+	m11 := testMachineBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusMaintenance)
 	assert.NotNil(t, m11)
 
-	m12 := testMachineBuildMachine(t, dbSession, ip.ID, site3.ID, nil, cdb.GetStrPtr("mcType"), false, false, cdbm.MachineStatusMaintenance)
+	m12 := testMachineBuildMachine(t, dbSession, ip.ID, site3.ID, nil, cutil.GetPtr("mcType"), false, false, cdbm.MachineStatusMaintenance)
 	assert.NotNil(t, m12)
 
-	mcap1 := common.TestCommonBuildMachineCapability(t, dbSession, &m9.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), nil, nil)
+	mcap1 := common.TestCommonBuildMachineCapability(t, dbSession, &m9.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), nil, nil)
 	assert.NotNil(t, mcap1)
 
 	// build an instance
@@ -1705,11 +1706,11 @@ func TestMachineHandler_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType4.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &m4.ID,
-			Hostname:                 cdb.GetStrPtr("test.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -1717,7 +1718,7 @@ func TestMachineHandler_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	mOnlineRepairReady := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	mOnlineRepairReady := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType2.ID), cutil.GetPtr("mcType"), true, false, cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairReady, instanceType2)
 	iOnlineRepairReady, err := isd.Create(
 		context.Background(), nil,
@@ -1729,21 +1730,21 @@ func TestMachineHandler_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType2.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &mOnlineRepairReady.ID,
-			Hostname:                 cdb.GetStrPtr("or-ready.example.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("or-ready.example.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	require.NoError(t, err)
 
-	mOnlineRepairMissing := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, true, cdbm.MachineStatusReady)
+	mOnlineRepairMissing := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType2.ID), cutil.GetPtr("mcType"), true, true, cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairMissing, instanceType2)
 
-	mOnlineRepairPending := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	mOnlineRepairPending := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType2.ID), cutil.GetPtr("mcType"), true, false, cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairPending, instanceType2)
 	_, err = isd.Create(
 		context.Background(), nil,
@@ -1755,11 +1756,11 @@ func TestMachineHandler_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType2.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &mOnlineRepairPending.ID,
-			Hostname:                 cdb.GetStrPtr("or-pending.example.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("or-pending.example.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -1769,20 +1770,20 @@ func TestMachineHandler_Update(t *testing.T) {
 	buildOnlineRepairEnterRequest := func(allowAutoInstanceDeletion bool) *model.APIMachineUpdateRequest {
 		return &model.APIMachineUpdateRequest{
 			OnlineRepair: &model.APIMachineOnlineRepair{
-				Enabled: cdb.GetBoolPtr(true),
+				Enabled: cutil.GetPtr(true),
 				Policy: &model.APIMachineOnlineRepairPolicy{
-					AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(allowAutoInstanceDeletion),
+					AllowAutoInstanceDeletionOnFailure: cutil.GetPtr(allowAutoInstanceDeletion),
 				},
 				Acknowledgments: &model.APIMachineOnlineRepairAcknowledgments{
-					AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
-					AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
-					AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+					AcceptDataCorruptionRisk:   cutil.GetPtr(true),
+					AcceptRepairTeamAccess:     cutil.GetPtr(true),
+					AcceptInstanceDeletionRisk: cutil.GetPtr(true),
 				},
 			},
 			HealthIssue: &model.APIMachineHealthIssue{
 				Category: model.HealthIssueStorage,
-				Summary:  cdb.GetStrPtr("tenant summary"),
-				Details:  cdb.GetStrPtr("tenant details"),
+				Summary:  cutil.GetPtr("tenant summary"),
+				Details:  cutil.GetPtr("tenant details"),
 			},
 		}
 	}
@@ -1790,7 +1791,7 @@ func TestMachineHandler_Update(t *testing.T) {
 	buildOnlineRepairExitRequest := func() *model.APIMachineUpdateRequest {
 		return &model.APIMachineUpdateRequest{
 			OnlineRepair: &model.APIMachineOnlineRepair{
-				Enabled: cdb.GetBoolPtr(false),
+				Enabled: cutil.GetPtr(false),
 			},
 		}
 	}
@@ -1800,7 +1801,7 @@ func TestMachineHandler_Update(t *testing.T) {
 		_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
 			InstanceID: iOnlineRepairReady.ID,
 			InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-				Status: cdb.GetStrPtr(cdbm.InstanceStatusReady),
+				Status: cutil.GetPtr(cdbm.InstanceStatusReady),
 				Labels: map[string]string{},
 			},
 		})
@@ -1812,7 +1813,7 @@ func TestMachineHandler_Update(t *testing.T) {
 		_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
 			InstanceID: iOnlineRepairReady.ID,
 			InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-				Status: cdb.GetStrPtr(cdbm.InstanceStatusRepairing),
+				Status: cutil.GetPtr(cdbm.InstanceStatusRepairing),
 				Labels: map[string]string{model.InstanceLabelOnlineRepairAllowAutoDeletion: "false"},
 			},
 		})
@@ -1861,8 +1862,8 @@ func TestMachineHandler_Update(t *testing.T) {
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "AssociateMachinesWithInstanceType", mock.Anything).Return(wrun, nil)
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "RemoveMachineInstanceTypeAssociation", mock.Anything).Return(wrun, nil)
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "UpdateMachineMetadata", mock.Anything).Return(wrun, nil)
-	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReportOverride", mock.Anything).Return(wrun, nil)
-	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReportOverride", mock.Anything).Return(wrun, nil)
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReport", mock.Anything).Return(wrun, nil)
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReport", mock.Anything).Return(wrun, nil)
 
 	// Mock timeout error
 	wruntimeout := &tmocks.WorkflowRun{}
@@ -1874,8 +1875,8 @@ func TestMachineHandler_Update(t *testing.T) {
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "AssociateMachinesWithInstanceType", mock.Anything).Return(wruntimeout, nil)
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "RemoveMachineInstanceTypeAssociation", mock.Anything).Return(wruntimeout, nil)
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "UpdateMachineMetadata", mock.Anything).Return(wruntimeout, nil)
-	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReportOverride", mock.Anything).Return(wruntimeout, nil)
-	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReportOverride", mock.Anything).Return(wruntimeout, nil)
+	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReport", mock.Anything).Return(wruntimeout, nil)
+	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReport", mock.Anything).Return(wruntimeout, nil)
 
 	tsc1.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -1928,14 +1929,14 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType3.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType3.ID.String()),
 				},
 				reqMachine:                  m1,
 				reqInstanceType:             instanceType3,
 				reqOrg:                      ipOrg1,
 				reqUser:                     ipu,
 				respCode:                    http.StatusOK,
-				reqMachineInstanceTypeCount: cdb.GetIntPtr(1),
+				reqMachineInstanceTypeCount: cutil.GetPtr(1),
 				reqOldMachineInstanceType:   mit2,
 				reqOldInstanceType:          instanceType2,
 			},
@@ -1950,9 +1951,9 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					InstanceTypeID:     cdb.GetStrPtr(instanceType3.ID.String()),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					InstanceTypeID:     cutil.GetPtr(instanceType3.ID.String()),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m10,
 				reqOrg:     ipOrg1,
@@ -1970,9 +1971,9 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					ClearInstanceType:  cdb.GetBoolPtr(true),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					ClearInstanceType:  cutil.GetPtr(true),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m10,
 				reqOrg:     ipOrg1,
@@ -1991,8 +1992,8 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m10,
 				reqOrg:     ipOrg1,
@@ -2010,7 +2011,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(false),
+					SetMaintenanceMode: cutil.GetPtr(false),
 				},
 				reqMachine: m10,
 				reqOrg:     ipOrg1,
@@ -2028,8 +2029,8 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m4,
 				reqOrg:     ipOrg1,
@@ -2047,8 +2048,8 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m11,
 				reqOrg:     ipOrg1,
@@ -2066,7 +2067,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(false),
+					SetMaintenanceMode: cutil.GetPtr(false),
 				},
 				reqMachine: m10,
 				reqOrg:     ipOrg1,
@@ -2084,7 +2085,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType3.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType3.ID.String()),
 				},
 				reqMachine:      m6,
 				reqInstanceType: instanceType3,
@@ -2103,7 +2104,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(uuid.New().String()),
+					InstanceTypeID: cutil.GetPtr(uuid.New().String()),
 				},
 				reqMachine:      m,
 				reqInstanceType: nil,
@@ -2122,14 +2123,14 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType2.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType2.ID.String()),
 				},
 				reqMachine:                  m2,
 				reqInstanceType:             instanceType2,
 				reqOrg:                      ipOrg1,
 				reqUser:                     ipu,
 				respCode:                    http.StatusOK,
-				reqMachineInstanceTypeCount: cdb.GetIntPtr(1),
+				reqMachineInstanceTypeCount: cutil.GetPtr(1),
 			},
 		},
 		{
@@ -2142,7 +2143,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType1.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType1.ID.String()),
 				},
 				reqMachine:      m1,
 				reqInstanceType: instanceType1,
@@ -2161,7 +2162,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType2.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType2.ID.String()),
 				},
 				reqMachine:      m,
 				reqInstanceType: instanceType2,
@@ -2180,7 +2181,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine:      m,
 				reqInstanceType: instanceType2,
@@ -2199,7 +2200,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine:                m3,
 				reqOrg:                    ipOrg1,
@@ -2220,8 +2221,8 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID:    cdb.GetStrPtr(instanceType3.ID.String()),
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					InstanceTypeID:    cutil.GetPtr(instanceType3.ID.String()),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine: m3,
 				reqOrg:     ipOrg1,
@@ -2255,7 +2256,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine: m7,
 				reqOrg:     ipOrg1,
@@ -2273,7 +2274,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType3.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType3.ID.String()),
 				},
 				reqMachine: m4,
 				reqOrg:     ipOrg1,
@@ -2291,14 +2292,14 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType3.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType3.ID.String()),
 				},
 				reqMachine:                  m5,
 				reqInstanceType:             instanceType3,
 				reqOrg:                      ipOrg1,
 				reqUser:                     ipu,
 				respCode:                    http.StatusBadRequest,
-				reqMachineInstanceTypeCount: cdb.GetIntPtr(1),
+				reqMachineInstanceTypeCount: cutil.GetPtr(1),
 				reqOldMachineInstanceType:   mit2,
 				reqOldInstanceType:          instanceType2,
 			},
@@ -2313,7 +2314,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine: m8,
 				reqOrg:     ipOrg1,
@@ -2331,7 +2332,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					InstanceTypeID: cdb.GetStrPtr(instanceType5.ID.String()),
+					InstanceTypeID: cutil.GetPtr(instanceType5.ID.String()),
 				},
 				reqMachine:      m9,
 				reqInstanceType: nil,
@@ -2350,8 +2351,8 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					SetMaintenanceMode: cdb.GetBoolPtr(true),
-					MaintenanceMessage: cdb.GetStrPtr("test message"),
+					SetMaintenanceMode: cutil.GetPtr(true),
+					MaintenanceMessage: cutil.GetPtr("test message"),
 				},
 				reqMachine: m12,
 				reqOrg:     ipOrg1,
@@ -2562,7 +2563,7 @@ func TestMachineHandler_Update(t *testing.T) {
 					_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
 						InstanceID: iOnlineRepairReady.ID,
 						InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-							Status: cdb.GetStrPtr(cdbm.InstanceStatusReady),
+							Status: cutil.GetPtr(cdbm.InstanceStatusReady),
 							Labels: map[string]string{model.InstanceLabelOnlineRepairAllowAutoDeletion: "false"},
 						},
 					})
@@ -2660,7 +2661,7 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIMachineUpdateRequest{
-					ClearInstanceType: cdb.GetBoolPtr(true),
+					ClearInstanceType: cutil.GetPtr(true),
 				},
 				reqMachine: m1,
 				reqOrg:     tnOrg2,
@@ -2751,7 +2752,7 @@ func TestMachineHandler_Update(t *testing.T) {
 
 				// Check that new MachineInstanceType was created
 				if tt.args.reqInstanceType != nil {
-					emits, total, _ := mitDAO.GetAll(context.Background(), nil, cdb.GetStrPtr(tt.args.reqMachine.ID), []uuid.UUID{tt.args.reqInstanceType.ID}, nil, nil, nil, nil)
+					emits, total, _ := mitDAO.GetAll(context.Background(), nil, cutil.GetPtr(tt.args.reqMachine.ID), []uuid.UUID{tt.args.reqInstanceType.ID}, nil, nil, nil, nil)
 					if tt.args.reqMachineInstanceTypeCount != nil {
 						assert.Equal(t, total, *tt.args.reqMachineInstanceTypeCount)
 						assert.Equal(t, emits[0].InstanceTypeID.String(), tt.args.reqInstanceType.ID.String())
@@ -2857,13 +2858,13 @@ func TestMachineHandler_GetStatusDetails(t *testing.T) {
 	ist2 := testMachineBuildInstanceType(t, dbSession, ip, site2, "instance-type-2")
 	ist3 := testMachineBuildInstanceType(t, dbSession, ip, site3, "instance-type-3")
 
-	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
-	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, cdb.GetUUIDPtr(ist2.ID), nil, false, false, cdbm.MachineStatusInUse)
-	m3 := testMachineBuildMachine(t, dbSession, ip3.ID, site3.ID, cdb.GetUUIDPtr(ist3.ID), nil, true, false, cdbm.MachineStatusInitializing)
+	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, false, false, cdbm.MachineStatusInUse)
+	m2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, cutil.GetPtr(ist2.ID), nil, false, false, cdbm.MachineStatusInUse)
+	m3 := testMachineBuildMachine(t, dbSession, ip3.ID, site3.ID, cutil.GetPtr(ist3.ID), nil, true, false, cdbm.MachineStatusInitializing)
 
-	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 	assert.NotNil(t, mc11)
-	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cdb.GetStrPtr("16GB DDR4"), cdb.GetIntPtr(4))
+	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cutil.GetPtr("16GB DDR4"), cutil.GetPtr(4))
 	assert.NotNil(t, mc12)
 	mi1 := testMachineBuildMachineInterface(t, dbSession, m.ID)
 	assert.NotNil(t, mi1)
@@ -3027,32 +3028,32 @@ func TestMachineHandler_Delete(t *testing.T) {
 	// I.e., it satisfies all checks for deletion.
 	m := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, nil, false, true, cdbm.MachineStatusError)
 
-	sd := testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInUse, cdb.GetStrPtr("Machine is in use"))
+	sd := testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusInUse, cutil.GetPtr("Machine is in use"))
 	_, err := dbSession.DB.Exec("UPDATE status_detail SET created = NOW() - INTERVAL '39 HOUR', updated = NOW() - INTERVAL '39 HOUR' WHERE id = ?", sd.ID.String())
 	require.NoError(t, err)
 
 	// Make m missing on site for more than 24 hours
-	sd = testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
+	sd = testMachineBuildStatusDetail(t, dbSession, m.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
 	_, err = dbSession.DB.Exec("UPDATE status_detail SET created = NOW() - INTERVAL '38 HOUR', updated = NOW() - INTERVAL '38 HOUR' WHERE id = ?", sd.ID.String())
 	require.NoError(t, err)
 
 	// M2 is missing on site, and it'll be missing long enough, but it'll have an instance associated.
-	m2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(ist.ID), nil, false, true, cdbm.MachineStatusError)
+	m2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, false, true, cdbm.MachineStatusError)
 
 	// Make m2 missing on site for more than 24 hours
-	testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusInUse, cdb.GetStrPtr("Machine is in use"))
+	testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusInUse, cutil.GetPtr("Machine is in use"))
 
-	sd = testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
+	sd = testMachineBuildStatusDetail(t, dbSession, m2.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
 	_, err = dbSession.DB.Exec("UPDATE status_detail SET created = NOW() - INTERVAL '26 HOUR' WHERE id = ?", sd.ID.String())
 	require.NoError(t, err)
 
 	// M3 is missing on site, and it'll be missing long enough, and it won't have an instance, but it'll have an instance-type associated.
-	m3 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(ist.ID), nil, true, true, cdbm.MachineStatusError)
+	m3 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ist.ID), nil, true, true, cdbm.MachineStatusError)
 
 	// Make m3 missing on site for more than 24 hours
-	testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusInitializing, cdb.GetStrPtr("Machine is initializing"))
+	testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusInitializing, cutil.GetPtr("Machine is initializing"))
 
-	sd = testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
+	sd = testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
 	_, err = dbSession.DB.Exec("UPDATE status_detail SET created = NOW() - INTERVAL '25 HOUR' WHERE id = ?", sd.ID.String())
 	require.NoError(t, err)
 
@@ -3060,21 +3061,21 @@ func TestMachineHandler_Delete(t *testing.T) {
 	m4 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, nil, true, false, cdbm.MachineStatusError)
 
 	// Make m4 missing on site for less than 24 hours
-	sd = testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cdb.GetStrPtr("Machine is missing on Site"))
+	sd = testMachineBuildStatusDetail(t, dbSession, m3.ID, cdbm.MachineStatusError, cutil.GetPtr("Machine is missing on Site"))
 	_, err = dbSession.DB.Exec("UPDATE status_detail SET created = NOW() - INTERVAL '6 HOUR' WHERE id = ?", sd.ID.String())
 	require.NoError(t, err)
 
 	// M5 is not missing on site
 	m5 := testMachineBuildMachine(t, dbSession, ip2.ID, site.ID, nil, nil, true, false, cdbm.MachineStatusError)
 
-	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+	mc11 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 	assert.NotNil(t, mc11)
-	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cdb.GetStrPtr("16GB DDR4"), cdb.GetIntPtr(4))
+	mc12 := testMachineBuildMachineCapability(t, dbSession, &m.ID, cdbm.MachineCapabilityTypeMemory, "Corsair Venegeance LPX", cutil.GetPtr("16GB DDR4"), cutil.GetPtr(4))
 	assert.NotNil(t, mc12)
 	mi1 := testMachineBuildMachineInterface(t, dbSession, m.ID)
 	assert.NotNil(t, mi1)
 
-	mc21 := testMachineBuildMachineCapability(t, dbSession, &m2.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0GHz"), cdb.GetIntPtr(2))
+	mc21 := testMachineBuildMachineCapability(t, dbSession, &m2.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0GHz"), cutil.GetPtr(2))
 	assert.NotNil(t, mc21)
 	mi2 := testMachineBuildMachineInterface(t, dbSession, m2.ID)
 	assert.NotNil(t, mi2)
@@ -3097,10 +3098,10 @@ func TestMachineHandler_Delete(t *testing.T) {
 			InstanceTypeID:           &ist.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &m2.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			OperatingSystemID:        cutil.GetPtr(os.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("test-user-data"),
+			UserData:                 cutil.GetPtr("test-user-data"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
 			CreatedBy:                tnu.ID,
