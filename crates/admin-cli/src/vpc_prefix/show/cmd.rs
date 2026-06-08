@@ -21,8 +21,8 @@ use std::io::{Write, stdout};
 
 use ::rpc::admin_cli::output::OutputFormat;
 use prettytable::{Row, Table};
-use rpc::forge::{PrefixMatchType, VpcPrefix};
-use serde::Serialize;
+use rpc::forge::{PrefixMatchType, StateHistoryRecord, VpcPrefix};
+use serde::{Deserialize, Serialize};
 
 use super::args::Args;
 use crate::Destination;
@@ -46,19 +46,25 @@ pub async fn show(
 
 #[derive(Debug)]
 enum ShowMethod {
-    Get(VpcPrefixSelector),
+    Get {
+        selector: VpcPrefixSelector,
+        deleted: rpc::forge::DeletedFilter,
+    },
     Search(rpc::forge::VpcPrefixSearchQuery),
 }
 
 pub enum ShowOutput {
-    One(VpcPrefix),
+    One {
+        vpc_prefix: VpcPrefix,
+        history: Vec<StateHistoryRecord>,
+    },
     Many(Vec<VpcPrefix>),
 }
 
 impl ShowOutput {
     pub fn as_slice(&self) -> &[VpcPrefix] {
         match self {
-            ShowOutput::One(vpc_prefix) => std::slice::from_ref(vpc_prefix),
+            ShowOutput::One { vpc_prefix, .. } => std::slice::from_ref(vpc_prefix),
             ShowOutput::Many(vpc_prefixes) => vpc_prefixes.as_slice(),
         }
     }
@@ -67,9 +73,13 @@ impl ShowOutput {
 impl From<Args> for ShowMethod {
     fn from(show_args: Args) -> Self {
         match show_args.prefix_selector {
-            Some(selector) => ShowMethod::Get(selector),
+            Some(selector) => ShowMethod::Get {
+                selector,
+                deleted: show_args.deleted,
+            },
             None => {
                 let mut search = match_all();
+                search.deleted = show_args.deleted as i32;
                 search.vpc_id = show_args.vpc_id;
                 if let Some(prefix) = &show_args.contains {
                     search.prefix_match_type = Some(PrefixMatchType::PrefixContains as i32);
@@ -91,10 +101,26 @@ async fn fetch(
     show_method: ShowMethod,
 ) -> Result<ShowOutput, CarbideCliError> {
     match show_method {
-        ShowMethod::Get(get_one) => get_one.fetch(api_client).await.map(ShowOutput::One),
+        ShowMethod::Get { selector, deleted } => {
+            let vpc_prefix = selector.fetch(api_client, deleted).await?;
+
+            let history = match vpc_prefix.id {
+                Some(id) => api_client
+                    .get_vpc_prefix_state_history(id)
+                    .await
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            };
+
+            Ok(ShowOutput::One {
+                vpc_prefix,
+                history,
+            })
+        }
         ShowMethod::Search(query) => {
+            let deleted = query.deleted;
             let vpc_prefix_ids = search(api_client, query).await?;
-            get_by_ids(api_client, batch_size, vpc_prefix_ids.as_slice())
+            get_by_ids(api_client, batch_size, vpc_prefix_ids.as_slice(), deleted)
                 .await
                 .map(ShowOutput::Many)
         }
@@ -140,6 +166,9 @@ impl ShowOutput {
         let mut out = Vec::new();
         let table = self.make_table();
         table.print(&mut out).expect("Couldn't render ASCII table");
+        if let ShowOutput::One { history, .. } = self {
+            Self::render_state_history(history, &mut out);
+        }
         out
     }
 
@@ -173,10 +202,15 @@ impl Serialize for ShowOutput {
         S: serde::Serializer,
     {
         match self {
-            ShowOutput::One(vpc_prefix) => vpc_prefix.serialize(serializer),
+            ShowOutput::One { vpc_prefix, .. } => vpc_prefix.serialize(serializer),
             ShowOutput::Many(vpc_prefixes) => vpc_prefixes.serialize(serializer),
         }
     }
+}
+
+#[derive(Deserialize)]
+struct LifecycleState {
+    state: String,
 }
 
 impl ShowOutput {
@@ -186,6 +220,8 @@ impl ShowOutput {
             "VpcId",
             "Prefix",
             "Name",
+            "State",
+            "State Version",
             "Total Linknets",
             "Available Linknets",
         ]
@@ -208,7 +244,15 @@ impl ShowOutput {
             .as_ref()
             .map(|x| x.name.as_str())
             .unwrap_or("<no name>");
-        let mut r = vec![vpc_prefix_id, vpc_id, prefix.into(), name.into()];
+        let (state, version) = Self::lifecycle_summary(row);
+        let mut r = vec![
+            vpc_prefix_id,
+            vpc_id,
+            prefix.into(),
+            name.into(),
+            state.into(),
+            version.into(),
+        ];
 
         if let Some(status) = &row.status {
             r.push(status.total_linknet_segments.to_string().into());
@@ -219,5 +263,56 @@ impl ShowOutput {
         }
 
         r
+    }
+
+    /// Extracts a compact lifecycle state and version for table output.
+    fn lifecycle_summary(row: &'_ VpcPrefix) -> (String, String) {
+        // Prefer the structured lifecycle status exposed by new API servers.
+        let Some(lifecycle) = row
+            .status
+            .as_ref()
+            .and_then(|status| status.lifecycle.as_ref())
+        else {
+            return ("NA".to_string(), "NA".to_string());
+        };
+
+        // Collapse the JSON state into its state label when it uses the common shape.
+        let state = serde_json::from_str::<LifecycleState>(&lifecycle.state)
+            .map(|state| state.state)
+            .unwrap_or_else(|_| lifecycle.state.clone());
+
+        (state, lifecycle.version.clone())
+    }
+
+    /// Appends VPC-prefix state history to single-object ASCII output.
+    fn render_state_history(history: &[StateHistoryRecord], out: &mut Vec<u8>) {
+        // Separate the history section from the primary details table.
+        writeln!(out).expect("Couldn't render VPC prefix state-history spacer");
+        writeln!(out, "STATE HISTORY: (Latest 5 only)")
+            .expect("Couldn't render VPC prefix state-history header");
+
+        // Render an explicit empty marker so operators can distinguish no data.
+        if history.is_empty() {
+            writeln!(out, "\tEMPTY").expect("Couldn't render empty VPC prefix state-history");
+            return;
+        }
+
+        writeln!(out, "\tState          Version                      Time")
+            .expect("Couldn't render VPC prefix state-history columns");
+        writeln!(out, "\t---------------------------------------------------")
+            .expect("Couldn't render VPC prefix state-history separator");
+        for record in history.iter().rev().take(5).rev() {
+            let state = serde_json::from_str::<LifecycleState>(&record.state)
+                .map(|state| state.state)
+                .unwrap_or_else(|_| record.state.clone());
+            writeln!(
+                out,
+                "\t{:<15} {:25} {}",
+                state,
+                record.version,
+                record.time.unwrap_or_default()
+            )
+            .expect("Couldn't render VPC prefix state-history record");
+        }
     }
 }

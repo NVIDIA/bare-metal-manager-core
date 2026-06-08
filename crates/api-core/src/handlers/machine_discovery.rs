@@ -63,6 +63,7 @@ pub(crate) async fn discover_machine(
 
     let machine_discovery_info = request.into_inner();
     let interface_id = machine_discovery_info.machine_interface_id;
+    let discovery_reporter = machine_discovery_info.discovery_reporter();
 
     let discovery_data = machine_discovery_info
         .discovery_data
@@ -420,6 +421,20 @@ pub(crate) async fn discover_machine(
 
     if let Some(nvlink_info) = nvlink_info {
         db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+    }
+
+    if discovery_reporter == rpc::MachineDiscoveryReporter::Scout
+        && let Some(scout_version) = machine_discovery_info
+            .discovery_reporter_version
+            .as_deref()
+            .filter(|v| !v.is_empty())
+    {
+        db::machine::update_last_scout_observed_version(
+            &stable_machine_id,
+            scout_version,
+            &mut txn,
+        )
+        .await?;
     }
 
     txn.commit().await?;

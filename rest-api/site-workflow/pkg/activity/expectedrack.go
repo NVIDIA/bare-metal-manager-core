@@ -216,8 +216,8 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, req
 		err = errors.New("received empty create Expected Rack request")
 	} else if request.GetRackId().GetId() == "" {
 		err = errors.New("received create Expected Rack request without required rack_id field")
-	} else if request.GetRackType() == "" {
-		err = errors.New("received create Expected Rack request without required rack_type field")
+	} else if request.GetRackProfileId().GetId() == "" {
+		err = errors.New("received create Expected Rack request without required rack_profile_id field")
 	}
 
 	if err != nil {
@@ -255,8 +255,8 @@ func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, req
 		err = errors.New("received empty update Expected Rack request")
 	} else if request.GetRackId().GetId() == "" {
 		err = errors.New("received update Expected Rack request without required rack_id field")
-	} else if request.GetRackType() == "" {
-		err = errors.New("received update Expected Rack request without required rack_type field")
+	} else if request.GetRackProfileId().GetId() == "" {
+		err = errors.New("received update Expected Rack request without required rack_profile_id field")
 	}
 
 	if err != nil {
@@ -337,8 +337,8 @@ func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context
 			logger.Warn().Int("index", i).Msg(err.Error())
 			return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 		}
-		if rack.GetRackType() == "" {
-			err := errors.New("received replace Expected Rack request with entry missing rack_type field")
+		if rack.GetRackProfileId().GetId() == "" {
+			err := errors.New("received replace Expected Rack request with entry missing rack_profile_id field")
 			logger.Warn().Int("index", i).Msg(err.Error())
 			return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 		}

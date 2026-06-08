@@ -956,7 +956,7 @@ func (f *NICoServerImpl) AddExpectedRack(ctx context.Context, req *cwssaws.Expec
 	if req == nil || req.RackId == nil || req.RackId.Id == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "ID not provided for AddExpectedRack")
 	}
-	if req.RackType == "" {
+	if req.RackProfileId == nil || req.RackProfileId.Id == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "Rack Profile ID not provided for AddExpectedRack")
 	}
 	f.er[req.RackId.Id] = req
@@ -968,7 +968,7 @@ func (f *NICoServerImpl) UpdateExpectedRack(ctx context.Context, req *cwssaws.Ex
 	if req == nil || req.RackId == nil || req.RackId.Id == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "ID not provided for UpdateExpectedRack")
 	}
-	if req.RackType == "" {
+	if req.RackProfileId == nil || req.RackProfileId.Id == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "Rack Profile ID not provided for UpdateExpectedRack")
 	}
 	if _, ok := f.er[req.RackId.Id]; !ok {
@@ -1020,7 +1020,7 @@ func (f *NICoServerImpl) ReplaceAllExpectedRacks(ctx context.Context, req *cwssa
 		if er == nil || er.RackId == nil || er.RackId.Id == "" {
 			return nil, status.Errorf(codes.InvalidArgument, "ID not provided for ReplaceAllExpectedRacks")
 		}
-		if er.RackType == "" {
+		if er.RackProfileId == nil || er.RackProfileId.Id == "" {
 			return nil, status.Errorf(codes.InvalidArgument, "Rack Profile ID not provided for ReplaceAllExpectedRacks")
 		}
 	}
@@ -1059,104 +1059,6 @@ func (f *NICoServerImpl) LoadTestMachines() {
 			},
 		},
 		DiscoveryInfo: &cwssaws.DiscoveryInfo{
-			Cpus: []*cwssaws.Cpu{
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "1571.080",
-					Number:    0,
-					Core:      0,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "1571.080",
-					Number:    1,
-					Core:      0,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3371.751",
-					Number:    2,
-					Core:      0,
-					Socket:    1,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3017.142",
-					Number:    3,
-					Core:      0,
-					Socket:    1,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3507.275",
-					Number:    4,
-					Core:      1,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3255.853",
-					Number:    5,
-					Core:      1,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3530.777",
-					Number:    6,
-					Core:      1,
-					Socket:    1,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3250.777",
-					Number:    7,
-					Core:      1,
-					Socket:    1,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3250.777",
-					Number:    8,
-					Core:      2,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3250.777",
-					Number:    9,
-					Core:      2,
-					Socket:    0,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3250.777",
-					Number:    10,
-					Core:      2,
-					Socket:    1,
-				},
-				{
-					Vendor:    "GenuineIntel",
-					Model:     "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Frequency: "3250.777",
-					Number:    11,
-					Core:      2,
-					Socket:    1,
-				},
-			},
 			NetworkInterfaces: []*cwssaws.NetworkInterface{
 				{
 					PciProperties: &cwssaws.PciDeviceProperties{

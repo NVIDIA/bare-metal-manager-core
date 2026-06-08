@@ -64,6 +64,7 @@ carbide-switch-controller = { path = "../switch-controller" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-version = { path = "../version" }
+carbide-vpc-prefix-controller = { path = "../vpc-prefix-controller" }
 component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }

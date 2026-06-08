@@ -19,6 +19,7 @@ use std::net::SocketAddr;
 
 use ::rpc::forge as rpc;
 use ::rpc::model::machine::machine_id::try_parse_machine_id;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_uuid::machine::MachineId;
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
@@ -27,13 +28,33 @@ use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
-use model::site_explorer::{NicMode, PreingestionState};
+use model::site_explorer::{ExploredEndpoint, NicMode, PreingestionState};
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+
+/// Resolve how to target a host's boot interface for an admin Redfish action.
+///
+/// If the operator entered the host's stored boot MAC (or entered nothing), use
+/// the stored, fully-captured boot interface so the MAC-first / interface-id
+/// fallback applies. If the operator entered some other MAC, target exactly that
+/// MAC.
+fn resolve_admin_boot_interface_target(
+    stored: Option<&ExploredEndpoint>,
+    entered_mac: Option<MacAddress>,
+) -> Option<BootInterfaceTarget> {
+    let stored = stored.and_then(|ep| ep.boot_interface());
+    match (entered_mac, stored) {
+        (None, stored) => stored.map(BootInterfaceTarget::Pair),
+        (Some(mac), Some(boot_interface)) if boot_interface.mac_address == mac => {
+            Some(BootInterfaceTarget::Pair(boot_interface))
+        }
+        (Some(mac), _) => Some(BootInterfaceTarget::MacOnly(mac)),
+    }
+}
 
 pub(crate) async fn admin_bmc_reset(
     api: &Api,
@@ -292,12 +313,22 @@ pub(crate) async fn machine_setup(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
+    let entered_mac = req
+        .boot_interface_mac
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(|m| m.parse::<MacAddress>())
+        .transpose()
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;
+    let stored = db::explored_endpoints::find_by_ips(&api.database_connection, vec![bmc_addr.ip()])
+        .await?
+        .into_iter()
+        .next();
+    let boot_interface = resolve_admin_boot_interface_target(stored.as_ref(), entered_mac);
+
     api.endpoint_explorer
-        .machine_setup(
-            bmc_addr,
-            &machine_interface,
-            req.boot_interface_mac.as_deref(),
-        )
+        .machine_setup(bmc_addr, &machine_interface, boot_interface.as_ref())
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -335,19 +366,31 @@ pub(crate) async fn set_dpu_first_boot_order(
         endpoint_address
     );
 
-    let boot_interface_mac = req
+    let entered_mac = req
         .boot_interface_mac
-        .as_ref()
-        .filter(|mac| !mac.trim().is_empty())
-        .ok_or_else(|| {
-            CarbideError::InvalidArgument("boot_interface_mac is required".to_string())
-        })?;
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(|m| m.parse::<MacAddress>())
+        .transpose()
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
+    let stored = db::explored_endpoints::find_by_ips(&api.database_connection, vec![bmc_addr.ip()])
+        .await?
+        .into_iter()
+        .next();
+    let boot_interface = resolve_admin_boot_interface_target(stored.as_ref(), entered_mac)
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "no boot interface available: enter a MAC or explore the host first".to_string(),
+            )
+        })?;
+
     api.endpoint_explorer
-        .set_boot_order_dpu_first(bmc_addr, &machine_interface, boot_interface_mac)
+        .set_boot_order_dpu_first(bmc_addr, &machine_interface, &boot_interface)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

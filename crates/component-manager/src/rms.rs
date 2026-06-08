@@ -31,10 +31,11 @@ use tracing::instrument;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfFirmwareVersions, PowerShelfManager,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfPowerStateResult,
 };
 use crate::types::FirmwareUpdateOptions;
 
@@ -61,6 +62,7 @@ enum RmsTrackedFirmwareJob {
 const RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE: &str = "prod";
 const RMS_SWITCH_SYSTEM_IMAGE_SOFTWARE_TYPE: &str = "prod";
 const RMS_FIRMWARE_OBJECT_HARDWARE_TYPE: &str = "any";
+const RMS_NOAUTH_ACCESS_TOKEN: &str = "NOAUTH";
 
 pub struct RmsBackend {
     client: Arc<dyn RmsApi>,
@@ -565,6 +567,84 @@ impl PowerShelfManager for RmsBackend {
 
         Ok(results)
     }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|ep| ep.pmc_mac).collect();
+        let ids = resolve_power_shelf_identities(&self.db, &macs).await?;
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.pmc_mac) else {
+                results.push(PowerShelfPowerStateResult {
+                    pmc_mac: ep.pmc_mac,
+                    power_state: None,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_power_shelf_node_info(ep, identity);
+            let request = rms::GetPowerStateByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
+                ..Default::default()
+            };
+
+            match self.client.get_power_state_by_device_list(request).await {
+                Ok(response) => {
+                    let batch = response.response.clone().unwrap_or_default();
+                    if batch.status != rms::ReturnCode::Success as i32 || batch.failed_nodes != 0 {
+                        let summary = if batch.message.is_empty() {
+                            format!(
+                                "batch status {}, failed_nodes {}",
+                                batch.status, batch.failed_nodes
+                            )
+                        } else {
+                            batch.message.clone()
+                        };
+                        results.push(PowerShelfPowerStateResult {
+                            pmc_mac: ep.pmc_mac,
+                            power_state: None,
+                            error: Some(summary),
+                        });
+                        continue;
+                    }
+
+                    let node_id = identity.node_id.clone();
+                    let power_state = response
+                        .node_power_states
+                        .iter()
+                        .find(|node| node.node_id == node_id)
+                        .map(|node| node.pstate.to_lowercase());
+
+                    results.push(PowerShelfPowerStateResult {
+                        pmc_mac: ep.pmc_mac,
+                        power_state,
+                        error: None,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        pmc_mac = %ep.pmc_mac,
+                        error = %error,
+                        "RMS get power state failed for power shelf"
+                    );
+                    results.push(PowerShelfPowerStateResult {
+                        pmc_mac: ep.pmc_mac,
+                        power_state: None,
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 /// Query all firmware object IDs from RMS.
@@ -663,6 +743,13 @@ fn summarize_power_batch(batch: rms::NodeBatchResponse) -> (bool, Option<String>
     (false, Some(error))
 }
 
+fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
+    access_token
+        .filter(|token| !token.trim().is_empty())
+        .unwrap_or(RMS_NOAUTH_ACCESS_TOKEN)
+        .to_string()
+}
+
 fn apply_firmware_object_from_json_request(
     device: rms::NewNodeInfo,
     identity: &RmsIdentity,
@@ -671,15 +758,7 @@ fn apply_firmware_object_from_json_request(
     node_type: rms::NodeType,
     components: Vec<String>,
 ) -> Result<rms::ApplyFirmwareObjectFromJsonRequest, ComponentManagerError> {
-    let access_token = options
-        .access_token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "access_token is required for direct RMS firmware-object JSON updates".into(),
-            )
-        })?;
+    let access_token = rms_access_token_or_noauth(options.access_token.as_deref());
 
     if config_json.trim().is_empty() {
         return Err(ComponentManagerError::InvalidArgument(
@@ -697,7 +776,7 @@ fn apply_firmware_object_from_json_request(
         metadata: None,
         rack_id: identity.rack_id.clone(),
         config_json: config_json.to_owned(),
-        access_token: access_token.to_owned(),
+        access_token,
         firmware_type: RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE.to_owned(),
         hardware_type: RMS_FIRMWARE_OBJECT_HARDWARE_TYPE.to_owned(),
         nodes: Some(rms::NodeSet {
@@ -714,15 +793,7 @@ fn apply_switch_system_image_from_json_request(
     config_json: &str,
     options: &FirmwareUpdateOptions,
 ) -> Result<rms::ApplySwitchSystemImageFromJsonRequest, ComponentManagerError> {
-    let access_token = options
-        .access_token
-        .as_deref()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| {
-            ComponentManagerError::InvalidArgument(
-                "access_token is required for direct RMS switch system-image JSON updates".into(),
-            )
-        })?;
+    let access_token = rms_access_token_or_noauth(options.access_token.as_deref());
 
     if config_json.trim().is_empty() {
         return Err(ComponentManagerError::InvalidArgument(
@@ -734,7 +805,7 @@ fn apply_switch_system_image_from_json_request(
         metadata: None,
         rack_id: identity.rack_id.clone(),
         config_json: config_json.to_owned(),
-        access_token: access_token.to_owned(),
+        access_token,
         software_type: RMS_SWITCH_SYSTEM_IMAGE_SOFTWARE_TYPE.to_owned(),
         hardware_type: RMS_FIRMWARE_OBJECT_HARDWARE_TYPE.to_owned(),
         nodes: Some(rms::NodeSet {
@@ -1238,6 +1309,87 @@ impl NvSwitchManager for RmsBackend {
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         list_firmware_object_ids(self.client.as_ref()).await
     }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|ep| ep.bmc_mac).collect();
+        let ids = resolve_switch_identities(&self.db, &macs).await?;
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.bmc_mac) else {
+                results.push(SwitchSlotAndTrayResult {
+                    bmc_mac: ep.bmc_mac,
+                    slot_number: None,
+                    tray_index: None,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_switch_node_info(ep, identity);
+            let request = rms::GetDeviceInfoByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
+                ..Default::default()
+            };
+
+            match self.client.get_device_info_by_device_list(request).await {
+                Ok(info) => {
+                    if info.status != rms::ReturnCode::Success as i32 {
+                        let summary = if info.message.is_empty() {
+                            format!("status {}", info.status)
+                        } else {
+                            info.message.clone()
+                        };
+                        results.push(SwitchSlotAndTrayResult {
+                            bmc_mac: ep.bmc_mac,
+                            slot_number: None,
+                            tray_index: None,
+                            error: Some(summary),
+                        });
+                        continue;
+                    }
+
+                    let Some(node_device_info) = info.node_device_info.first() else {
+                        results.push(SwitchSlotAndTrayResult {
+                            bmc_mac: ep.bmc_mac,
+                            slot_number: None,
+                            tray_index: None,
+                            error: None,
+                        });
+                        continue;
+                    };
+
+                    results.push(SwitchSlotAndTrayResult {
+                        bmc_mac: ep.bmc_mac,
+                        slot_number: node_device_info.slot_number,
+                        tray_index: node_device_info.tray_index,
+                        error: None,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        bmc_mac = %ep.bmc_mac,
+                        error = %error,
+                        "RMS get slot and tray failed for switch"
+                    );
+                    results.push(SwitchSlotAndTrayResult {
+                        bmc_mac: ep.bmc_mac,
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
@@ -1524,6 +1676,46 @@ mod tests {
             .get(&(node_type as i32))
             .expect("component filters for node type")
             .components
+    }
+
+    #[test]
+    fn direct_rms_firmware_object_json_request_defaults_missing_access_token_to_noauth() {
+        let request = apply_firmware_object_from_json_request(
+            rms::NewNodeInfo::default(),
+            &RmsIdentity {
+                node_id: "node-1".to_string(),
+                rack_id: "rack-1".to_string(),
+            },
+            r#"{"Id":"fw-json"}"#,
+            &FirmwareUpdateOptions {
+                access_token: None,
+                force_update: false,
+            },
+            rms::NodeType::Switch,
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(request.access_token, RMS_NOAUTH_ACCESS_TOKEN);
+    }
+
+    #[test]
+    fn direct_rms_switch_system_image_request_defaults_empty_access_token_to_noauth() {
+        let request = apply_switch_system_image_from_json_request(
+            rms::NewNodeInfo::default(),
+            &RmsIdentity {
+                node_id: "node-1".to_string(),
+                rack_id: "rack-1".to_string(),
+            },
+            r#"{"Id":"fw-json"}"#,
+            &FirmwareUpdateOptions {
+                access_token: Some(String::new()),
+                force_update: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(request.access_token, RMS_NOAUTH_ACCESS_TOKEN);
     }
 
     // ---- PowerShelfManager tests ----

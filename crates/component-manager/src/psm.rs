@@ -10,7 +10,7 @@ use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
-    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfVendor,
+    PowerShelfFirmwareVersions, PowerShelfManager, PowerShelfPowerStateResult, PowerShelfVendor,
 };
 use crate::proto::psm;
 use crate::types::parse_mac;
@@ -377,6 +377,50 @@ impl PowerShelfManager for PsmPowerShelfBackend {
                 })
             })
             .collect()
+    }
+
+    #[instrument(skip(self), fields(backend = "psm"))]
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError> {
+        register_with_psm(&mut self.client.clone(), endpoints).await?;
+
+        let request = psm::PowershelfRequest {
+            pmc_macs: mac_strings(endpoints),
+        };
+
+        let response = self
+            .client
+            .clone()
+            .get_powershelves(request)
+            .await?
+            .into_inner();
+
+        let mut results = Vec::with_capacity(endpoints.len());
+        for ep in endpoints {
+            let Some(shelf) = response.powershelves.iter().find(|s| {
+                s.pmc
+                    .as_ref()
+                    .is_some_and(|pmc| pmc.mac_address == ep.pmc_mac.to_string())
+            }) else {
+                results.push(PowerShelfPowerStateResult {
+                    pmc_mac: ep.pmc_mac,
+                    power_state: None,
+                    error: Some("power shelf not found in PSM inventory".into()),
+                });
+                continue;
+            };
+
+            let powered_on = shelf.psus.iter().any(|psu| psu.power_state);
+            results.push(PowerShelfPowerStateResult {
+                pmc_mac: ep.pmc_mac,
+                power_state: Some(if powered_on { "on" } else { "off" }.into()),
+                error: None,
+            });
+        }
+
+        Ok(results)
     }
 }
 

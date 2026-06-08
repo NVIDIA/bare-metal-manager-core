@@ -249,6 +249,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         compute_tray_index: None,
         topology_id: None,
         revision_id: None,
+        remediation_error: None,
     })
 }
 

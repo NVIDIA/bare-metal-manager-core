@@ -44,6 +44,7 @@ use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_boot_interface::MachineBootInterface;
 use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
@@ -1001,7 +1002,10 @@ impl SiteExplorer {
         }
 
         let mut managed_hosts = Vec::new();
-        let mut boot_interface_macs: Vec<(IpAddr, MacAddress)> = Vec::new();
+        let mut boot_interfaces: Vec<(IpAddr, MachineBootInterface)> = Vec::new();
+        // Per-DPU (host PF MAC -> Redfish interface id) pairs to stamp onto their
+        // machine_interfaces rows so the primary row holds the full boot pair.
+        let mut interface_boot_ids: Vec<(MacAddress, String)> = Vec::new();
 
         for (_, ep) in explored_hosts {
             // Resolve the operator-declared DPU mode for this host once;
@@ -1206,7 +1210,26 @@ impl SiteExplorer {
                 .report
                 .fetch_host_primary_interface_mac(&dpus_explored_for_host)
             {
-                boot_interface_macs.push((ep.address, mac_address));
+                // Capture the boot interface's [stable] Redfish interface id
+                // alongside its MAC. Only persist when both resolve from the
+                // current report: if the MAC has no matching interface id in
+                // this report, keep the last-known-good stored boot interface
+                // rather than clobbering it with a partial record.
+                if let Some(interface_id) = ep.report.find_interface_id_for_mac(mac_address) {
+                    boot_interfaces.push((
+                        ep.address,
+                        MachineBootInterface {
+                            mac_address,
+                            interface_id: interface_id.to_string(),
+                        },
+                    ));
+                } else {
+                    tracing::debug!(
+                        address = %ep.address,
+                        %mac_address,
+                        "boot interface MAC has no matching Redfish interface id in the report; keeping last-known-good stored boot interface",
+                    );
+                }
 
                 let primary_dpu_position = dpus_explored_for_host
                     .iter()
@@ -1251,6 +1274,18 @@ impl SiteExplorer {
                 });
             }
 
+            // Capture each explored DPU interface's Redfish interface id onto its
+            // machine_interfaces row (matched by MAC), so the primary-flagged row
+            // holds the full boot pair (MAC + id). Last-known-good: only record
+            // when the id resolves from this report -- a wiped MAC keeps its prior id.
+            for dpu in &dpus_explored_for_host {
+                if let Some(mac) = dpu.host_pf_mac_address
+                    && let Some(interface_id) = ep.report.find_interface_id_for_mac(mac)
+                {
+                    interface_boot_ids.push((mac, interface_id.to_string()));
+                }
+            }
+
             // For NicMode hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
@@ -1293,8 +1328,14 @@ impl SiteExplorer {
         .await?;
 
         // Persist boot interface MACs for host endpoints
-        for (address, mac) in &boot_interface_macs {
-            db::explored_endpoints::set_boot_interface_mac(*address, *mac, &mut txn).await?;
+        for (address, boot_interface) in &boot_interfaces {
+            db::explored_endpoints::set_boot_interface(*address, boot_interface, &mut txn).await?;
+        }
+
+        // Stamp each DPU interface's Redfish id onto its machine_interfaces row so the
+        // primary-flagged row is the host's complete boot interface (MAC + id).
+        for (mac, interface_id) in &interface_boot_ids {
+            db::machine_interface::set_boot_interface_id(*mac, interface_id, &mut txn).await?;
         }
 
         txn.commit().await?;
@@ -1817,7 +1858,12 @@ impl SiteExplorer {
                 .endpoint_exploration_duration
                 .push(exploration_duration);
             match &result {
-                Ok(_) => metrics.endpoint_explorations_success += 1,
+                Ok(report) => {
+                    metrics.endpoint_explorations_success += 1;
+                    if let Some(e) = &report.remediation_error {
+                        redfish_error = Some(e.clone());
+                    }
+                }
                 Err(e) => {
                     *metrics
                         .endpoint_explorations_failures_by_type
@@ -3108,6 +3154,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         }
     }
 
@@ -3202,6 +3249,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         };
 
         assert_eq!(

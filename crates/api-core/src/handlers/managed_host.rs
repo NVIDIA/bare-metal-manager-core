@@ -19,8 +19,10 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge as rpc;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_boot_interface::MachineBootInterface;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -149,8 +151,7 @@ pub(crate) async fn set_primary_dpu(
         .ok_or_else(|| {
             CarbideError::internal("Primary interface disappeared during update".to_string())
         })?
-        .mac_address
-        .to_string();
+        .mac_address;
 
     txn.rollback().await?;
 
@@ -167,13 +168,18 @@ pub(crate) async fn set_primary_dpu(
         .into());
     };
 
-    // set the boot device
+    // Set the boot device. The new primary interface row already stores its
+    // Redfish interface id, so send the complete (MAC + id) pair when present,
+    // allowing for interface ID fallback (and target the MAC alone otherwise).
+    let boot_target = match new_primary_interface.boot_interface_id.clone() {
+        Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: primary_interface_mac_address,
+            interface_id,
+        }),
+        None => BootInterfaceTarget::MacOnly(primary_interface_mac_address),
+    };
     api.endpoint_explorer
-        .set_boot_order_dpu_first(
-            bmc_socket_addr,
-            &bmc_interface,
-            &primary_interface_mac_address,
-        )
+        .set_boot_order_dpu_first(bmc_socket_addr, &bmc_interface, &boot_target)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 

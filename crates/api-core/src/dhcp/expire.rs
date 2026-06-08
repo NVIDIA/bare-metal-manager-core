@@ -39,6 +39,12 @@ pub async fn expire_dhcp_lease(
         .transpose()?;
 
     let mut txn = api.txn_begin().await?;
+
+    // Look up the interface that owns this IP before deleting so we can clear
+    // its hostname afterward. The JOIN in find_by_ip requires the address row
+    // to still exist, so we must do this before the delete.
+    let interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
+
     // When the caller provides the MAC, scope the delete to the (ip, mac)
     // pair. Otherwise, just call the address-only variant, which would
     // be something we would see from an admin-cli call used for deleting
@@ -62,6 +68,18 @@ pub async fn expire_dhcp_lease(
             .await?
         }
     };
+
+    // Clear the hostname so DNS stays consistent. The next DHCP discover will
+    // re-derive the hostname from the newly allocated IP.
+    if deleted && let Some(iface) = interface {
+        db::machine_interface::sync_hostname_after_address_change(
+            &mut txn,
+            iface.id,
+            &iface.mac_address,
+        )
+        .await?;
+    }
+
     txn.commit().await?;
 
     let status = if deleted {

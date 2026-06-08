@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use ::rpc::MachineDiscoveryReporter;
 use carbide_host_support::hardware_enumeration::enumerate_hardware;
 use carbide_host_support::registration;
 use carbide_host_support::registration::RegistrationError;
@@ -80,6 +81,8 @@ pub async fn run(
             retry.clone(),
             true,
             is_dpu,
+            MachineDiscoveryReporter::Scout,
+            Some(carbide_version::v!(build_version).to_string()),
         )
         .await?;
     let machine_id = registration_data.machine_id;

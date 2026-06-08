@@ -26,6 +26,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+
 pub async fn create(
     api: &Api,
     request: Request<rpc::VpcPrefixCreationRequest>,
@@ -63,9 +64,10 @@ pub async fn create(
 
     let mut txn = api.txn_begin().await?;
 
-    let vpcs = ::db::vpc::find_by(
-        &mut txn,
+    let vpcs = ::db::vpc::find_by_with_lock(
+        txn.as_mut(),
         ObjectColumnFilter::One(::db::vpc::IdColumn, &new_prefix.vpc_id),
+        ::db::vpc::VpcRowLock::Mutation,
     )
     .await?;
     let vpc = vpcs.first().ok_or_else(|| CarbideError::NotFoundError {
@@ -164,17 +166,31 @@ pub async fn create(
         .map_err(CarbideError::from)?;
 
     let vpc_prefix = db::persist(new_prefix, expected_vpc_version, &mut txn).await?;
+    let vpc_prefix_id = vpc_prefix.id;
+    let vpc_prefix_network = vpc_prefix.config.prefix;
 
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
         ::db::network_prefix::set_vpc_prefix(
             &mut segment_prefix,
             &mut txn,
-            &vpc_prefix.id,
-            &vpc_prefix.config.prefix,
+            &vpc_prefix_id,
+            &vpc_prefix_network,
         )
         .await?;
     }
+
+    // Reload through the normal read path so create responses include computed utilization stats.
+    let vpc_prefix = db::get_by_id(
+        &mut txn,
+        ObjectColumnFilter::One(db::IdColumn, &vpc_prefix_id),
+        model::DeletedFilter::Exclude,
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| {
+        CarbideError::internal(format!("Created VPC prefix {vpc_prefix_id} was not found"))
+    })?;
 
     txn.commit().await?;
 
@@ -192,6 +208,7 @@ pub async fn search(
         name,
         prefix_match,
         prefix_match_type,
+        deleted,
     } = request.into_inner();
 
     // We don't have tenant prefixes in this version, so searching against them
@@ -229,7 +246,16 @@ pub async fn search(
 
     let mut txn = api.txn_begin().await?;
 
-    let vpc_prefix_ids = db::search(&mut txn, vpc_id, name, prefix_match).await?;
+    let vpc_prefix_ids = db::search(
+        &mut txn,
+        vpc_prefix::VpcPrefixSearch {
+            vpc_id,
+            name,
+            prefix_match,
+            deleted_filter: model::DeletedFilter::from(deleted),
+        },
+    )
+    .await?;
 
     txn.commit().await?;
 
@@ -244,7 +270,10 @@ pub async fn get(
 ) -> Result<Response<rpc::VpcPrefixList>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPrefixGetRequest { vpc_prefix_ids } = request.into_inner();
+    let rpc::VpcPrefixGetRequest {
+        vpc_prefix_ids,
+        deleted,
+    } = request.into_inner();
     if vpc_prefix_ids.len() > (api.runtime_config.max_find_by_ids as usize) {
         let msg = format!(
             "Too many VPC prefix IDs were specified (the limit is {maximum})",
@@ -258,6 +287,7 @@ pub async fn get(
     let vpc_prefixes = db::get_by_id(
         &mut txn,
         ObjectColumnFilter::List(db::IdColumn, vpc_prefix_ids.as_slice()),
+        model::DeletedFilter::from(deleted),
     )
     .await?;
 
@@ -265,6 +295,51 @@ pub async fn get(
 
     let vpc_prefixes: Vec<_> = vpc_prefixes.into_iter().map(rpc::VpcPrefix::from).collect();
     Ok(tonic::Response::new(rpc::VpcPrefixList { vpc_prefixes }))
+}
+
+/// Finds controller state-history records for VPC prefixes.
+pub async fn find_state_histories(
+    api: &Api,
+    request: Request<rpc::VpcPrefixStateHistoriesRequest>,
+) -> Result<Response<rpc::StateHistories>, Status> {
+    log_request_data(&request);
+
+    // Extract and validate the requested VPC prefix IDs before querying.
+    let vpc_prefix_ids = request.into_inner().vpc_prefix_ids;
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if vpc_prefix_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if vpc_prefix_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    // Fetch state-history rows through the generic state-history DB API.
+    let mut txn = api.txn_begin().await?;
+    let results = ::db::state_history::find_by_object_ids(
+        &mut txn,
+        ::db::state_history::StateHistoryTableId::VpcPrefix,
+        &vpc_prefix_ids,
+    )
+    .await?;
+
+    // Re-key the DB records into the generic RPC response shape.
+    let mut response = rpc::StateHistories::default();
+    for (vpc_prefix_id, records) in results {
+        response.histories.insert(
+            vpc_prefix_id,
+            rpc::StateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+    Ok(tonic::Response::new(response))
 }
 
 pub async fn update(
@@ -299,14 +374,12 @@ pub async fn delete(
 
     let mut txn = api.txn_begin().await?;
 
-    // TODO: We could probably produce some nicer errors here when trying
-    // to delete prefixes that are still being used by network segments, or
-    // whatever else might be pointing at them. For now we're just relying on
-    // the DB constraints and returning whatever error that results in.
-
+    // Load the active prefix so repeat deletes preserve current NotFound
+    // behavior unless the DB layer deliberately makes soft-delete idempotent.
     let vpc_prefixes = db::get_by_id(
         &mut txn,
         ObjectColumnFilter::One(db::IdColumn, &delete_prefix.id),
+        model::DeletedFilter::Exclude,
     )
     .await?;
     let vpc_prefix = vpc_prefixes
@@ -316,9 +389,10 @@ pub async fn delete(
             id: delete_prefix.id.to_string(),
         })?;
 
-    let vpcs = ::db::vpc::find_by(
-        &mut txn,
+    let vpcs = ::db::vpc::find_by_with_lock(
+        txn.as_mut(),
         ObjectColumnFilter::One(::db::vpc::IdColumn, &vpc_prefix.vpc_id),
+        ::db::vpc::VpcRowLock::Mutation,
     )
     .await?;
     let vpc = vpcs.first().ok_or_else(|| CarbideError::NotFoundError {
@@ -326,7 +400,21 @@ pub async fn delete(
         id: vpc_prefix.vpc_id.to_string(),
     })?;
 
-    db::delete(&delete_prefix, vpc.version, &mut txn).await?;
+    // Preserve the hard-delete-era behavior where existing network-prefix
+    // references prevent callers from requesting VPC prefix deletion.
+    let network_prefix_count =
+        db::count_network_prefixes_by_vpc_prefix_id(&mut txn, &delete_prefix.id).await?;
+    if network_prefix_count > 0 {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC prefix {id} cannot be deleted while \
+            {network_prefix_count} network prefix references still exist",
+            id = delete_prefix.id
+        ))
+        .into());
+    }
+
+    // Mark the prefix deleted and keep the existing parent VPC version bump.
+    db::mark_as_deleted(&delete_prefix, vpc.version, &mut txn).await?;
 
     txn.commit().await?;
 

@@ -20,6 +20,7 @@ use forge_secrets::credentials::CredentialKey;
 use model::rack_type::{RackHardwareType, RackProfile};
 
 pub const ANY_RACK_HARDWARE_TYPE: &str = "any";
+pub const RMS_NOAUTH_ACCESS_TOKEN: &str = "NOAUTH";
 
 pub fn hardware_type_wire_value(value: Option<&RackHardwareType>) -> String {
     value.map(|value| value.0.clone()).unwrap_or_default()
@@ -27,6 +28,13 @@ pub fn hardware_type_wire_value(value: Option<&RackHardwareType>) -> String {
 
 pub fn profile_hardware_type_wire_value(profile: &RackProfile) -> String {
     hardware_type_wire_value(profile.rack_hardware_type.as_ref())
+}
+
+pub fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
+    access_token
+        .filter(|token| !token.trim().is_empty())
+        .unwrap_or(RMS_NOAUTH_ACCESS_TOKEN)
+        .to_string()
 }
 
 pub fn rack_maintenance_access_token_key(rack_id: &RackId) -> CredentialKey {
@@ -42,5 +50,19 @@ mod tests {
     #[test]
     fn missing_rack_hardware_type_serializes_empty() {
         assert_eq!(hardware_type_wire_value(None), "");
+    }
+
+    #[test]
+    fn rms_access_token_defaults_to_noauth() {
+        assert_eq!(rms_access_token_or_noauth(None), RMS_NOAUTH_ACCESS_TOKEN);
+        assert_eq!(
+            rms_access_token_or_noauth(Some("")),
+            RMS_NOAUTH_ACCESS_TOKEN
+        );
+        assert_eq!(
+            rms_access_token_or_noauth(Some("   ")),
+            RMS_NOAUTH_ACCESS_TOKEN
+        );
+        assert_eq!(rms_access_token_or_noauth(Some("token")), "token");
     }
 }

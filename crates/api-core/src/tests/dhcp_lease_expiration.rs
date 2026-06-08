@@ -341,6 +341,83 @@ async fn test_expire_with_matching_mac_releases(
 }
 
 #[crate::sqlx_test]
+async fn test_expire_resets_hostname_and_discover_restores_it(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mac_address = "aa:bb:cc:dd:ee:0d";
+
+    // Initial discover: interface is created and an IP-derived hostname is set.
+    let response1 = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let original_ip = response1.address.clone();
+    assert!(
+        !original_ip.is_empty(),
+        "should get an IP on first discover"
+    );
+
+    // The hostname must match the IP (dots replaced with dashes for IPv4).
+    let interface_id = response1.machine_interface_id.unwrap();
+    let mut txn = env.pool.begin().await?;
+    let iface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    let expected_hostname = original_ip.replace('.', "-");
+    assert_eq!(
+        iface.hostname, expected_hostname,
+        "hostname should be derived from the allocated IP"
+    );
+    drop(txn);
+
+    // Expire the lease.
+    let expire_response = env
+        .api
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: original_ip.clone(),
+            mac_address: None,
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::Released);
+
+    // After expiry the hostname must be the dormant no-IP placeholder.
+    let mut txn = env.pool.begin().await?;
+    let iface_after_expiry = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    let expected_dormant = format!("noip-{}", mac_address.replace(':', "-"));
+    assert_eq!(
+        iface_after_expiry.hostname.to_lowercase(),
+        expected_dormant.to_lowercase(),
+        "hostname should be reset to dormant placeholder after lease expiry"
+    );
+    drop(txn);
+
+    // Re-discover: a new IP is allocated and the hostname must be updated.
+    let response2 = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let new_ip = response2.address.clone();
+    assert!(!new_ip.is_empty(), "should get an IP after re-allocation");
+
+    let mut txn = env.pool.begin().await?;
+    let iface_after_rediscover = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    let expected_new_hostname = new_ip.replace('.', "-");
+    assert_eq!(
+        iface_after_rediscover.hostname.to_lowercase(),
+        expected_new_hostname.to_lowercase(),
+        "hostname should match the newly allocated IP after rediscover"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_expire_with_mismatched_mac_is_no_op(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

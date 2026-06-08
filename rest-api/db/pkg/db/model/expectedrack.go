@@ -96,8 +96,8 @@ type ExpectedRackFilterInput struct {
 // needed.
 func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	proto := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: er.RackID},
-		RackType: er.RackProfileID,
+		RackId:        &cwssaws.RackId{Id: er.RackID},
+		RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
 		Metadata: &cwssaws.Metadata{
 			Name:        er.Name,
 			Description: er.Description,
@@ -125,7 +125,9 @@ func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
 	if proto.RackId != nil && proto.RackId.Id != "" {
 		er.RackID = proto.RackId.Id
 	}
-	er.RackProfileID = proto.RackType
+	if proto.RackProfileId != nil && proto.RackProfileId.Id != "" {
+		er.RackProfileID = proto.RackProfileId.Id
+	}
 	if proto.Metadata != nil {
 		er.Name = proto.Metadata.Name
 		er.Description = proto.Metadata.Description

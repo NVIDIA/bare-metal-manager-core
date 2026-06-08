@@ -270,14 +270,6 @@ func (vpc *Vpc) FromProto(proto *cwssaws.Vpc) {
 	}
 }
 
-// ToDeletionRequestProto builds the workflow request that asks a Site to
-// delete this VPC.
-func (vpc *Vpc) ToDeletionRequestProto() *cwssaws.VpcDeletionRequest {
-	return &cwssaws.VpcDeletionRequest{
-		Id: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
-	}
-}
-
 // VpcCreateInput input parameters for Create method
 type VpcCreateInput struct {
 	Name                                   string

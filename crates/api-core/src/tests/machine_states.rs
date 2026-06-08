@@ -2756,6 +2756,7 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: false,
+            ..Default::default()
         }))
         .await;
 
@@ -2792,6 +2793,7 @@ async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_id
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: false,
+            ..Default::default()
         }))
         .await;
 

@@ -40,8 +40,46 @@ async fn get_expected_machine_1(txn: &mut PgConnection) -> Option<ExpectedMachin
         .unwrap()
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+async fn create_fixture_expected_machines(pool: &sqlx::PgPool) {
+    let mut txn = pool.begin().await.unwrap();
+    for (bmc_mac_address, serial_number, fallback_dpu_serial_numbers) in [
+        ("0a:0b:0c:0d:0e:0f", "VVG121GG", vec![]),
+        ("1a:1b:1c:1d:1e:1f", "VVG121GH", vec![]),
+        ("2a:2b:2c:2d:2e:2f", "VVG121GI", vec![]),
+        ("3a:3b:3c:3d:3e:3f", "VVG121GJ", vec!["dpu_serial1"]),
+        (
+            "4a:4b:4c:4d:4e:4f",
+            "VVG121GK",
+            vec!["dpu_serial2", "dpu_serial3"],
+        ),
+        ("5a:5b:5c:5d:5e:5f", "VVG121GL", vec![]),
+    ] {
+        db::expected_machine::create(
+            &mut txn,
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: bmc_mac_address.parse().unwrap(),
+                data: ExpectedMachineData {
+                    bmc_username: "ADMIN".into(),
+                    bmc_password: "Pwd2023x0x0x0x0x7".into(),
+                    serial_number: serial_number.into(),
+                    fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
+                        .into_iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    }
+    txn.commit().await.unwrap();
+}
+
+#[crate::sqlx_test]
 async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()
         .await
@@ -58,8 +96,9 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()
         .await
@@ -102,8 +141,9 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()
         .await
@@ -140,8 +180,9 @@ async fn test_update_bmc_credentials(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_delete(pool: sqlx::PgPool) -> () {
+    create_fixture_expected_machines(&pool).await;
     let mut txn = pool
         .begin()
         .await
@@ -288,8 +329,9 @@ async fn test_add_expected_machine(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_delete_expected_machine(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
 
     let expected_machine_count = env
@@ -348,8 +390,9 @@ async fn test_delete_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_update_expected_machine(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
 
     let bmc_mac_address: MacAddress = "2A:2B:2C:2D:2E:2F".parse().unwrap();
@@ -361,6 +404,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             chassis_serial_number: "VVG121GI".into(),
             metadata: None,
             default_pause_ingestion_and_poweron: Some(true),
+            is_dpf_enabled: Some(false),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -370,6 +414,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
             chassis_serial_number: "VVG121GJ".into(),
             metadata: Some(Default::default()),
             default_pause_ingestion_and_poweron: Some(false),
+            is_dpf_enabled: Some(false),
             ..Default::default()
         },
         rpc::forge::ExpectedMachine {
@@ -392,6 +437,7 @@ async fn test_update_expected_machine(pool: sqlx::PgPool) {
                 ],
             }),
             default_pause_ingestion_and_poweron: None,
+            is_dpf_enabled: Some(false),
             ..Default::default()
         },
     ] {
@@ -463,8 +509,9 @@ async fn test_update_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
     let mut expected_machine_count = env
         .api
@@ -495,8 +542,9 @@ async fn test_delete_all_expected_machines(pool: sqlx::PgPool) {
     assert_eq!(expected_machine_count, 0);
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
     let expected_machine_count = env
         .api
@@ -613,8 +661,9 @@ async fn test_get_expected_machine_error(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_get_linked_expected_machines_unseen(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
     let out = env
         .api
@@ -851,10 +900,12 @@ async fn test_add_and_update_expected_machine_with_invalid_metadata(pool: sqlx::
     }
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_with_dpu_serial_numbers(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    create_fixture_expected_machines(&pool).await;
+
     let fixture_mac_address_0 = "0a:0b:0c:0d:0e:0f".parse().unwrap();
     let fixture_mac_address_3 = "3a:3b:3c:3d:3e:3f".parse().unwrap();
     let fixture_mac_address_4 = "4a:4b:4c:4d:4e:4f".parse().unwrap();
@@ -917,8 +968,10 @@ async fn test_add_expected_machine_duplicate_dpu_serials(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
+
     let env = create_test_env(pool).await;
 
     let mut ee1 = env
@@ -951,8 +1004,9 @@ async fn test_update_expected_machine_add_dpu_serial(pool: sqlx::PgPool) {
 
     assert_eq!(ee1, ee2);
 }
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
 
     let mut ee1 = env
@@ -979,8 +1033,9 @@ async fn test_update_expected_machine_add_duplicate_dpu_serial(pool: sqlx::PgPoo
     );
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[crate::sqlx_test]
 async fn test_update_expected_machine_add_sku(pool: sqlx::PgPool) {
+    create_fixture_expected_machines(&pool).await;
     let env = create_test_env(pool).await;
 
     let mut ee1 = env

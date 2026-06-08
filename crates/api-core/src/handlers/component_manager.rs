@@ -20,6 +20,7 @@ use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
 use ::rpc::forge::{self as rpc};
+use carbide_rack::firmware_object::rms_access_token_or_noauth;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -416,40 +417,24 @@ fn reject_power_shelf_firmware_object_json(access_token: &Option<String>) -> Res
     }
 }
 
-fn missing_firmware_object_json_status(target: &str) -> Status {
-    Status::invalid_argument(format!(
-        "access_token is required for {target} firmware updates routed through rack maintenance"
-    ))
-}
-
 fn require_firmware_object_json_for_rack_maintenance(
-    target: &str,
+    _target: &str,
     access_token: &Option<String>,
     target_version: &str,
 ) -> Result<String, Status> {
-    let Some(token) = access_token.clone() else {
-        return Err(missing_firmware_object_json_status(target));
-    };
-
     validate_firmware_object_json_request(target_version)?;
-    Ok(token)
+    Ok(rms_access_token_or_noauth(access_token.as_deref()))
 }
 
 fn require_firmware_object_json_for_direct_rms(
-    target: &str,
+    _target: &str,
     access_token: &Option<String>,
     target_version: &str,
     force_update: bool,
 ) -> Result<FirmwareUpdateOptions, Status> {
-    let Some(token) = access_token.clone() else {
-        return Err(Status::invalid_argument(format!(
-            "access_token is required for {target} firmware updates routed directly to RMS"
-        )));
-    };
-
     validate_firmware_object_json_request(target_version)?;
     Ok(FirmwareUpdateOptions {
-        access_token: Some(token),
+        access_token: Some(rms_access_token_or_noauth(access_token.as_deref())),
         force_update,
     })
 }
@@ -2242,11 +2227,13 @@ mod tests {
     }
 
     #[test]
-    fn rack_maintenance_firmware_update_requires_firmware_object_json() {
-        let err = missing_firmware_object_json_status("rack");
+    fn rack_maintenance_firmware_update_defaults_missing_access_token_to_noauth() {
+        let token = require_firmware_object_json_for_rack_maintenance("rack", &None, "{}").unwrap();
 
-        assert_eq!(err.code(), Code::InvalidArgument);
-        assert!(err.message().contains("access_token"));
+        assert_eq!(
+            token,
+            carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN
+        );
     }
 
     #[test]
@@ -2262,13 +2249,26 @@ mod tests {
     }
 
     #[test]
-    fn direct_rms_firmware_update_requires_access_token() {
-        let err =
-            require_firmware_object_json_for_direct_rms("switch", &None, "{}", false).unwrap_err();
+    fn rack_maintenance_firmware_update_defaults_empty_access_token_to_noauth() {
+        let token =
+            require_firmware_object_json_for_rack_maintenance("rack", &Some(String::new()), "{}")
+                .unwrap();
 
-        assert_eq!(err.code(), Code::InvalidArgument);
-        assert!(err.message().contains("access_token"));
-        assert!(err.message().contains("directly to RMS"));
+        assert_eq!(
+            token,
+            carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN
+        );
+    }
+
+    #[test]
+    fn direct_rms_firmware_update_defaults_missing_access_token_to_noauth() {
+        let options =
+            require_firmware_object_json_for_direct_rms("switch", &None, "{}", false).unwrap();
+
+        assert_eq!(
+            options.access_token.as_deref(),
+            Some(carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN)
+        );
     }
 
     #[test]

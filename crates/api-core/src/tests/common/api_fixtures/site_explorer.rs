@@ -426,6 +426,7 @@ impl<'a> MockExploredHost<'a> {
                 ),
                 create_machine: true,
                 discovery_data: Some(DiscoveryData::Info(discovery_info)),
+                ..Default::default()
             }))
             .await;
 
@@ -504,6 +505,7 @@ impl<'a> MockExploredHost<'a> {
                     discovery_data: Some(DiscoveryData::Info(
                         DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
                     )),
+                    ..Default::default()
                 }))
                 .await;
         }
@@ -594,6 +596,7 @@ impl<'a> MockExploredHost<'a> {
                     discovery_data: Some(DiscoveryData::Info(
                         DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
                     )),
+                    ..Default::default()
                 }))
                 .await;
         }
@@ -699,6 +702,7 @@ impl<'a> MockExploredHost<'a> {
                     discovery_data: Some(DiscoveryData::Info(
                         DiscoveryInfo::try_from(HardwareInfo::from(&dpu)).unwrap(),
                     )),
+                    ..Default::default()
                 }))
                 .await;
         }

@@ -144,8 +144,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 
 	for i := 0; i < 14; i++ {
 		ctrlExpectedRack := &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: pagedExpectedRacks[i].RackID},
-			RackType: pagedExpectedRacks[i].RackProfileID,
+			RackId:        &cwssaws.RackId{Id: pagedExpectedRacks[i].RackID},
+			RackProfileId: &cwssaws.RackProfileId{Id: pagedExpectedRacks[i].RackProfileID},
 			Metadata: &cwssaws.Metadata{
 				Name:        pagedExpectedRacks[i].Name,
 				Description: pagedExpectedRacks[i].Description,
@@ -163,7 +163,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		// Have entries that need updates: change RackProfileID/Name/Description
 		if i%3 == 0 {
 			if i < 10 {
-				ctrlExpectedRack.RackType = fmt.Sprintf("profile-updated-%d", i) // Changed RackProfileID
+				ctrlExpectedRack.RackProfileId = &cwssaws.RackProfileId{Id: fmt.Sprintf("profile-updated-%d", i)} // Changed RackProfileID
 				ctrlExpectedRack.Metadata.Name = fmt.Sprintf("Updated Rack %d", i)
 				ctrlExpectedRack.Metadata.Description = fmt.Sprintf("Updated Rack %d description", i)
 				expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
@@ -360,8 +360,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 					ExpectedRacks: []*cwssaws.ExpectedRack{
 						// Valid new rack with metadata + labels
 						{
-							RackId:   &cwssaws.RackId{Id: "rack-new-1"},
-							RackType: "profile-A",
+							RackId:        &cwssaws.RackId{Id: "rack-new-1"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-A"},
 							Metadata: &cwssaws.Metadata{
 								Name:        "Rack New 1",
 								Description: "freshly reported",
@@ -373,21 +373,21 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 						},
 						// Valid new rack with nil Metadata: Name/Description/Labels default to empty
 						{
-							RackId:   &cwssaws.RackId{Id: "rack-new-nil-meta"},
-							RackType: "profile-B",
-							Metadata: nil,
+							RackId:        &cwssaws.RackId{Id: "rack-new-nil-meta"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-B"},
+							Metadata:      nil,
 						},
 						// Nil entry: should be ignored
 						nil,
 						// Entry with nil RackId: should be ignored
 						{
-							RackId:   nil,
-							RackType: "profile-skip",
+							RackId:        nil,
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
 						},
 						// Entry with empty RackId.Id: should be ignored
 						{
-							RackId:   &cwssaws.RackId{Id: ""},
-							RackType: "profile-skip",
+							RackId:        &cwssaws.RackId{Id: ""},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
 						},
 					},
 					Timestamp:       timestamppb.Now(),
@@ -440,7 +440,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 					}
 				}
 				if ctrlER != nil && updated != nil {
-					assert.Equal(t, ctrlER.RackType, updated.RackProfileID,
+					assert.Equal(t, ctrlER.RackProfileId.Id, updated.RackProfileID,
 						fmt.Sprintf("ExpectedRack %v RackProfileID should have been updated", er.RackID))
 					reportedName := ""
 					reportedDescription := ""
@@ -549,8 +549,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_NoChange(t *testing.T) {
 	inventory := &cwssaws.ExpectedRackInventory{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: er.RackID},
-				RackType: er.RackProfileID,
+				RackId:        &cwssaws.RackId{Id: er.RackID},
+				RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
 				Metadata: &cwssaws.Metadata{
 					Name:        er.Name,
 					Description: er.Description,

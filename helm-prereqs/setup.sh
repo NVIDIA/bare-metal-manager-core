@@ -37,10 +37,6 @@
 #                          preloaded, or use existing imagePullSecrets.
 #   REGISTRY_PULL_USERNAME Username for generated pull secrets.
 #                          Default: $oauthtoken
-#   NICO_REST_REPO          Path to infra-controller-rest. Required only when
-#                          REST is not skipped; preflight can auto-discover or
-#                          clone it if missing. NICO_REPO is accepted as a
-#                          deprecated alias.
 #   NICO_SITE_UUID          Stable REST site UUID. Used only when REST is
 #                          deployed. Default is a dev placeholder.
 #   NICO_MANAGE_DEFAULT_STORAGE_CLASS
@@ -118,8 +114,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
-# Pre-flight checks — env vars, tools, config files, NICo REST repo
-# Exports NICO_REST_REPO if resolved. Exits 1 if user declines to continue.
+# Pre-flight checks — env vars, tools, config files. Resolves NICO_REST_DIR
+# (in-tree rest-api/). Exits 1 if user declines to continue.
 # ---------------------------------------------------------------------------
 export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW
 # shellcheck source=preflight.sh
@@ -538,13 +534,15 @@ if "${SKIP_REST}"; then
     exit 0
 fi
 
-# --- 7a. NICo REST repo (resolved and exported by preflight.sh) -------------------
-if [[ -z "${NICO_REST_REPO:-}" ]]; then
-    echo "ERROR: NICo REST repo is not set. Re-run setup.sh and choose to clone, or:"
-    echo "  export NICO_REST_REPO=/path/to/infra-controller-rest"
+# --- 7a. NICo REST source tree (in-tree at ../rest-api) --------------------------
+# preflight.sh resolves and validates rest-api/ in this repo into NICO_REST_DIR.
+# If it didn't, preflight already errored out — guard the consumer side too in
+# case someone sources setup.sh without going through preflight.
+if [[ -z "${NICO_REST_DIR:-}" ]]; then
+    echo "ERROR: NICO_REST_DIR is unset — preflight didn't resolve rest-api/. Make sure your checkout contains rest-api/helm/charts/nico-rest."
     exit 1
 fi
-echo "NICo REST repo: ${NICO_REST_REPO}"
+echo "NICo REST source: ${NICO_REST_DIR}"
 
 # Create NICo REST namespace
 kubectl create namespace nico-rest 2>/dev/null || true
@@ -556,13 +554,13 @@ if kubectl get secret ca-signing-secret -n nico-rest &>/dev/null; then
     echo "ca-signing-secret already present — skipping CA generation"
 else
     echo "Generating NICo REST CA signing secret..."
-    (cd "${NICO_REST_REPO}" && ./scripts/gen-site-ca.sh)
+    (cd "${NICO_REST_DIR}" && ./scripts/gen-site-ca.sh)
 fi
 
 # --- 7b. ClusterIssuer -------------------------------------------------------
 _SETUP_PHASE="[7b/7] NICo REST CA issuer ClusterIssuer"
 echo "=== [7b/7] NICo REST CA issuer ClusterIssuer ==="
-(cd "${NICO_REST_REPO}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
+(cd "${NICO_REST_DIR}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
 
 # --- 7c. NICo REST postgres --------------------------------------------------------
 # Simple postgres StatefulSet with all NICo databases pre-initialised:
@@ -571,7 +569,7 @@ echo "=== [7b/7] NICo REST CA issuer ClusterIssuer ==="
 # service name ("postgres") so Temporal and NICo values work without changes.
 _SETUP_PHASE="[7c/7] NICo REST postgres"
 echo "=== [7c/7] NICo REST postgres ==="
-(cd "${NICO_REST_REPO}" && kubectl apply -k deploy/kustomize/base/postgres)
+(cd "${NICO_REST_DIR}" && kubectl apply -k deploy/kustomize/base/postgres)
 kubectl rollout status statefulset/postgres -n postgres --timeout=180s
 echo "NICo REST postgres ready"
 
@@ -595,9 +593,9 @@ fi
 # --- 7e. Temporal namespace + TLS certs + db-creds --------------------------
 _SETUP_PHASE="[7e/7] Temporal TLS bootstrap"
 echo "=== [7e/7] Temporal TLS bootstrap ==="
-(cd "${NICO_REST_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
-(cd "${NICO_REST_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
-(cd "${NICO_REST_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
+(cd "${NICO_REST_DIR}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
+(cd "${NICO_REST_DIR}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
+(cd "${NICO_REST_DIR}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
 
 echo "Waiting for temporal TLS certificates to be issued..."
 kubectl wait --for=condition=Ready certificate/server-interservice-cert \
@@ -611,9 +609,9 @@ echo "Temporal TLS certs ready"
 # --- 7f. Temporal ------------------------------------------------------------
 _SETUP_PHASE="[7f/7] Temporal"
 echo "=== [7f/7] Temporal ==="
-helm upgrade --install temporal "${NICO_REST_REPO}/temporal-helm/temporal" \
+helm upgrade --install temporal "${NICO_REST_DIR}/temporal-helm/temporal" \
     --namespace temporal \
-    -f "${NICO_REST_REPO}/temporal-helm/temporal/values-kind.yaml" \
+    -f "${NICO_REST_DIR}/temporal-helm/temporal/values-kind.yaml" \
     --timeout 300s --wait
 echo "Temporal ready"
 
@@ -635,7 +633,7 @@ echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
 # --- 7g. NICo REST helm chart -------------------------------------------------
-NICO_HELM_CHART="${NICO_REST_REPO}/helm/charts/nico-rest"
+NICO_HELM_CHART="${NICO_REST_DIR}/helm/charts/nico-rest"
 NICO_REST_CMD=(
     helm upgrade --install nico-rest "${NICO_HELM_CHART}"
     --namespace nico-rest
@@ -703,7 +701,7 @@ fi
 #
 # The site-agent binary also needs DB credentials for its local elektratest DB.
 # All of this is wired via --set flags so nico-rest.yaml stays registry-agnostic.
-NICO_SITE_AGENT_CHART="${NICO_REST_REPO}/helm/charts/nico-rest-site-agent"
+NICO_SITE_AGENT_CHART="${NICO_REST_DIR}/helm/charts/nico-rest-site-agent"
 
 # Stable placeholder UUID for this site (must be a valid UUID).
 NICO_SITE_UUID="${NICO_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"

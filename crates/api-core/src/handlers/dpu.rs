@@ -795,9 +795,6 @@ pub(crate) async fn record_dpu_network_status(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    // TODO: persist this somewhere
-    let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
-
     let mut txn = api.txn_begin().await?;
 
     // Load the DPU Object. We require it to update the health report based

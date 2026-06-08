@@ -148,5 +148,6 @@ fn build_exploration_report(
         physical_slot_number: None,
         revision_id: None,
         topology_id: None,
+        remediation_error: None,
     }
 }

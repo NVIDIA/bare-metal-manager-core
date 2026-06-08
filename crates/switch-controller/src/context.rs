@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
+use component_manager::component_manager::ComponentManager;
 use forge_secrets::credentials::CredentialManager;
-use librms::RmsApi;
 use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
 
@@ -29,8 +29,7 @@ pub struct SwitchStateHandlerContextObjects {}
 #[derive(Clone)]
 pub struct SwitchStateHandlerServices {
     pub db_pool: PgPool,
-    /// Rack Manager Service client
-    pub rms_client: Option<Arc<dyn RmsApi>>,
+    pub component_manager: Option<Arc<ComponentManager>>,
     pub credential_manager: Arc<dyn CredentialManager>,
 }
 

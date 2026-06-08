@@ -77,6 +77,7 @@ pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {
         BMCVendor::Hpe => "HPE",
         BMCVendor::LenovoAMI => "Unknown",
         BMCVendor::Liteon => "Unknown",
+        BMCVendor::Delta => "Unknown",
         BMCVendor::Unknown => "Unknown",
     }
 }

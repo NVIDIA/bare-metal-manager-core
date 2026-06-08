@@ -423,7 +423,6 @@ values files.
 | `NICO_IMAGE_REGISTRY` | Image registry hosting NICo Core images | `host[/path]`, e.g. `my-registry.example.com/infra-controller` |
 | `NICO_CORE_IMAGE_TAG` | NICo Core image tag | `vX.Y.Z` or git-derived tag |
 | `NICO_REST_IMAGE_TAG` | NICo REST image tag | `vX.Y.Z` |
-| `NICO_REST_REPO` | Path to a local clone of `infra-controller-rest` | Filesystem path; auto-detected from siblings |
 | `REGISTRY_PULL_SECRET` | Raw registry API key | **Raw key string** (e.g. `nvapi-...`). Not a file path. Not a JSON dockerconfig. |
 | `REGISTRY_PULL_USERNAME` | Registry username | Defaults to `$oauthtoken` (correct for `nvcr.io`) |
 | `KUBECONFIG` | Cluster kubeconfig | Filesystem path |

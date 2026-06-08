@@ -465,6 +465,7 @@ async fn test_site_explorer_creates_managed_host(
             machine_interface_id: Some(machine_interfaces[0].id),
             discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
             create_machine: true,
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -823,6 +824,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
                 machine_interface_id: Some(oob_interfaces[i].id),
                 discovery_data: Some(DiscoveryData::Info(discovery_info.clone())),
                 create_machine: true,
+                ..Default::default()
             }))
             .await
             .unwrap()
