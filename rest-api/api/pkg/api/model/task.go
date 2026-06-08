@@ -53,6 +53,18 @@ func WithReport() APIRackTaskOption {
 	return func(o *apiRackTaskOptions) { o.withReport = true }
 }
 
+// BuildAPIRackTaskOptions translates the opt-in toggles on an
+// APIGetTasksRequest into the APIRackTaskOption slice the list-task
+// handlers pass to NewAPIRackTask. Centralized so new opt-in fields
+// only need wiring in one place rather than in each list handler.
+func BuildAPIRackTaskOptions(req APIGetTasksRequest) []APIRackTaskOption {
+	var opts []APIRackTaskOption
+	if req.WithReport {
+		opts = append(opts, WithReport())
+	}
+	return opts
+}
+
 func (t *APIRackTask) FromProto(task *flowv1.Task, opts ...APIRackTaskOption) {
 	if task == nil {
 		return

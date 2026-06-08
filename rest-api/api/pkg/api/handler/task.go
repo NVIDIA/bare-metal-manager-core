@@ -529,10 +529,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
 	}
 
-	var taskOpts []model.APIRackTaskOption
-	if apiRequest.WithReport {
-		taskOpts = append(taskOpts, model.WithReport())
-	}
+	taskOpts := model.BuildAPIRackTaskOptions(apiRequest)
 	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
 		apiTasks = append(apiTasks, model.NewAPIRackTask(t, taskOpts...))
@@ -718,10 +715,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
 	}
 
-	var taskOpts []model.APIRackTaskOption
-	if apiRequest.WithReport {
-		taskOpts = append(taskOpts, model.WithReport())
-	}
+	taskOpts := model.BuildAPIRackTaskOptions(apiRequest)
 	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
 		apiTasks = append(apiTasks, model.NewAPIRackTask(t, taskOpts...))

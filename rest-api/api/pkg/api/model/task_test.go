@@ -9,6 +9,7 @@ import (
 
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
@@ -208,6 +209,28 @@ func TestNewAPIRackTask_Report(t *testing.T) {
 		result := NewAPIRackTask(task, WithReport())
 
 		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
+	})
+}
+
+func TestBuildAPIRackTaskOptions(t *testing.T) {
+	t.Run("default request yields no options", func(t *testing.T) {
+		opts := BuildAPIRackTaskOptions(APIGetTasksRequest{SiteID: "s"})
+		assert.Empty(t, opts)
+	})
+
+	t.Run("withReport=true yields WithReport()", func(t *testing.T) {
+		opts := BuildAPIRackTaskOptions(APIGetTasksRequest{SiteID: "s", WithReport: true})
+		require.Len(t, opts, 1)
+
+		// The option must surface APIRackTask.Report when the proto report is non-empty.
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-built"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":1}`,
+		}
+		got := NewAPIRackTask(task, opts...)
+		require.NotNil(t, got.Report)
+		assert.JSONEq(t, `{"version":1}`, string(*got.Report))
 	})
 }
 
