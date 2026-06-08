@@ -77,10 +77,9 @@ use model::machine::{
     MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
     NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
     PowerState, ReprovisionState, ResetBossConfigContext, ResetBossConfigState, RetryInfo,
-    SecureEraseBossContext, SecureEraseBossState,
-    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
-    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
-    dpf_based_dpu_provisioning_possible, get_display_ids,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::resource_pool::common::CommonPools;
