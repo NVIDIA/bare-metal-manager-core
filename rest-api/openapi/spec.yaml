@@ -10264,7 +10264,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Task
-  '/v2/org/{org}/nico/rule':
+  '/v2/org/{org}/nico/task/rule':
     parameters:
       - schema:
           type: string
@@ -10360,7 +10360,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rule
-  '/v2/org/{org}/nico/rule/{id}':
+  '/v2/org/{org}/nico/task/rule/{id}':
     parameters:
       - schema:
           type: string

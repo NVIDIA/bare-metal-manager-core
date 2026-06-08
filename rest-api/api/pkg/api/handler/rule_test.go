@@ -164,7 +164,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 			bodyBytes, err := json.Marshal(tt.body)
 			require.NoError(t, err)
 
-			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/v2/org/%s/nico/rule", tt.reqOrg), bytes.NewReader(bodyBytes))
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/v2/org/%s/nico/task/rule", tt.reqOrg), bytes.NewReader(bodyBytes))
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
 			ec := e.NewContext(req, rec)
@@ -299,7 +299,7 @@ func TestGetRuleHandler_Handle(t *testing.T) {
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/rule/%s?%s", org, tt.ruleID, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/rule/%s?%s", org, tt.ruleID, q.Encode())
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -435,7 +435,7 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/rule?%s", org, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/rule?%s", org, q.Encode())
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -545,7 +545,7 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 
 			bodyBytes, err := json.Marshal(tt.body)
 			require.NoError(t, err)
-			path := fmt.Sprintf("/v2/org/%s/nico/rule/%s", org, tt.ruleID)
+			path := fmt.Sprintf("/v2/org/%s/nico/task/rule/%s", org, tt.ruleID)
 			req := httptest.NewRequest(http.MethodPatch, path, bytes.NewReader(bodyBytes))
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -631,7 +631,7 @@ func TestDeleteRuleHandler_Handle(t *testing.T) {
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/rule/%s?%s", org, tt.ruleID, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/rule/%s?%s", org, tt.ruleID, q.Encode())
 			req := httptest.NewRequest(http.MethodDelete, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()

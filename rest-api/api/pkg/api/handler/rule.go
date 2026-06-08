@@ -159,7 +159,7 @@ func NewCreateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Param org path string true "Name of NGC organization"
 // @Param body body model.APICreateRuleRequest true "Create rule request"
 // @Success 201 {object} model.APIOperationRule
-// @Router /v2/org/{org}/nico/rule [post]
+// @Router /v2/org/{org}/nico/task/rule [post]
 func (h CreateRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Create", c, h.tracerSpan)
 	if handlerSpan != nil {
@@ -264,7 +264,7 @@ func NewGetRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Client
 // @Param id path string true "UUID of the Rule"
 // @Param siteId query string true "ID of the Site"
 // @Success 200 {object} model.APIOperationRule
-// @Router /v2/org/{org}/nico/rule/{id} [get]
+// @Router /v2/org/{org}/nico/task/rule/{id} [get]
 func (h GetRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Get", c, h.tracerSpan)
 	if handlerSpan != nil {
@@ -376,7 +376,7 @@ func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APIOperationRule
-// @Router /v2/org/{org}/nico/rule [get]
+// @Router /v2/org/{org}/nico/task/rule [get]
 func (h ListRulesHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "List", c, h.tracerSpan)
 	if handlerSpan != nil {
@@ -499,7 +499,7 @@ func NewUpdateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Param id path string true "UUID of the Rule"
 // @Param body body model.APIUpdateRuleRequest true "Update rule request"
 // @Success 204 "No Content"
-// @Router /v2/org/{org}/nico/rule/{id} [patch]
+// @Router /v2/org/{org}/nico/task/rule/{id} [patch]
 func (h UpdateRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Update", c, h.tracerSpan)
 	if handlerSpan != nil {
@@ -602,7 +602,7 @@ func NewDeleteRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Param id path string true "UUID of the Rule"
 // @Param siteId query string true "ID of the Site"
 // @Success 204 "No Content"
-// @Router /v2/org/{org}/nico/rule/{id} [delete]
+// @Router /v2/org/{org}/nico/task/rule/{id} [delete]
 func (h DeleteRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Delete", c, h.tracerSpan)
 	if handlerSpan != nil {
