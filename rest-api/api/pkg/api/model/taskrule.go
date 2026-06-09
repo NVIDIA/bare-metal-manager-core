@@ -61,7 +61,7 @@ func operationTypeFromAPI(s string) (flowv1.OperationType, error) {
 type APITaskRule struct {
 	ID             string                `json:"id"`
 	Name           string                `json:"name"`
-	Description    string                `json:"description,omitempty"`
+	Description    string                `json:"description"`
 	OperationType  string                `json:"operationType"`
 	OperationCode  string                `json:"operationCode"`
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
@@ -73,7 +73,7 @@ type APITaskRule struct {
 // APITaskRuleDefinition is the executable body of a rule.
 type APITaskRuleDefinition struct {
 	Version string                    `json:"version"`
-	Steps   []APITaskRuleSequenceStep `json:"steps,omitempty"`
+	Steps   []APITaskRuleSequenceStep `json:"steps"`
 }
 
 // APITaskRuleSequenceStep describes one stage of execution. Durations are
@@ -84,12 +84,12 @@ type APITaskRuleSequenceStep struct {
 	ComponentType string                    `json:"componentType"`
 	Stage         int                       `json:"stage"`
 	MaxParallel   int                       `json:"maxParallel"`
-	Timeout       string                    `json:"timeout,omitempty"`
-	Retry         *APITaskRuleRetryPolicy   `json:"retry,omitempty"`
-	PreOperation  []APITaskRuleActionConfig `json:"preOperation,omitempty"`
+	Timeout       string                    `json:"timeout"`
+	Retry         *APITaskRuleRetryPolicy   `json:"retry"`
+	PreOperation  []APITaskRuleActionConfig `json:"preOperation"`
 	MainOperation APITaskRuleActionConfig   `json:"mainOperation"`
-	PostOperation []APITaskRuleActionConfig `json:"postOperation,omitempty"`
-	DelayAfter    string                    `json:"delayAfter,omitempty"`
+	PostOperation []APITaskRuleActionConfig `json:"postOperation"`
+	DelayAfter    string                    `json:"delayAfter"`
 }
 
 // APITaskRuleActionConfig configures a single action within a step. The
@@ -97,9 +97,9 @@ type APITaskRuleSequenceStep struct {
 // specific and pass through to Flow's executor unchanged.
 type APITaskRuleActionConfig struct {
 	Name         string         `json:"name"`
-	Timeout      string         `json:"timeout,omitempty"`
-	PollInterval string         `json:"pollInterval,omitempty"`
-	Parameters   map[string]any `json:"parameters,omitempty"`
+	Timeout      string         `json:"timeout"`
+	PollInterval string         `json:"pollInterval"`
+	Parameters   map[string]any `json:"parameters"`
 }
 
 // APITaskRuleRetryPolicy describes retry behavior for a step's workflow.
@@ -107,7 +107,7 @@ type APITaskRuleRetryPolicy struct {
 	MaxAttempts        int     `json:"maxAttempts"`
 	InitialInterval    string  `json:"initialInterval"`
 	BackoffCoefficient float64 `json:"backoffCoefficient"`
-	MaxInterval        string  `json:"maxInterval,omitempty"`
+	MaxInterval        string  `json:"maxInterval"`
 }
 
 // flow*Wire types mirror the API-facing rule definition structs above but
@@ -320,11 +320,11 @@ func NewAPITaskRule(pbRule *flowv1.OperationRule) (*APITaskRule, error) {
 // rule API design doc for the rationale (atomic swap requires Flow's
 // SetRuleAsDefault RPC, which has different semantics than CRUD update).
 type APITaskRuleCreateRequest struct {
-	SiteID         string            `json:"siteId"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	OperationType  string            `json:"operationType"`
-	OperationCode  string            `json:"operationCode"`
+	SiteID         string                `json:"siteId"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description"`
+	OperationType  string                `json:"operationType"`
+	OperationCode  string                `json:"operationCode"`
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 }
 
@@ -382,10 +382,10 @@ func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest
 // rule and deleting the old one. is_default is also immutable here; see
 // APITaskRuleCreateRequest comment.
 type APITaskRuleUpdateRequest struct {
-	SiteID         string             `json:"siteId"`
-	Name           *string            `json:"name,omitempty"`
-	Description    *string            `json:"description,omitempty"`
-	RuleDefinition *APITaskRuleDefinition `json:"ruleDefinition,omitempty"`
+	SiteID         string                 `json:"siteId"`
+	Name           *string                `json:"name"`
+	Description    *string                `json:"description"`
+	RuleDefinition *APITaskRuleDefinition `json:"ruleDefinition"`
 }
 
 // Validate enforces that the request actually carries at least one field to
