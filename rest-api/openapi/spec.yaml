@@ -215,7 +215,7 @@ tags:
       Task represents an asynchronous, site-scoped operation (for example firmware update, power state change, or rack bring-up). Tasks are created when operations run against Racks, Trays, or other components. Endpoints in this tag retrieve or cancel a Task by ID; list Tasks for a Rack or Tray under the Rack and Tray tags.
   - name: Rule
     description: |-
-      Operation Rule defines, per Site, how a particular operation (for example `power_control` / `power_on` or `firmware_control` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
+      Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -10325,8 +10325,8 @@ paths:
         - schema:
             type: string
             enum:
-              - power_control
-              - firmware_control
+              - PowerControl
+              - FirmwareControl
           name: operationType
           in: query
           required: false
@@ -17968,8 +17968,8 @@ components:
         operationType:
           type: string
           enum:
-            - power_control
-            - firmware_control
+            - PowerControl
+            - FirmwareControl
           description: Type of operation this rule applies to. Immutable after creation.
         operationCode:
           type: string
@@ -18159,8 +18159,8 @@ components:
         operationType:
           type: string
           enum:
-            - power_control
-            - firmware_control
+            - PowerControl
+            - FirmwareControl
           description: Operation type the rule applies to.
         operationCode:
           type: string

@@ -14,13 +14,14 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// Operation type strings exposed by the REST API. These mirror the
-// protobuf OperationType enum (with "unknown" excluded from the public surface)
-// so that the wire form is the same word a YAML rule file uses for
-// operation_type. Keep names lowercase snake_case.
+// Operation type strings exposed by the REST API. PascalCase follows the
+// convention used elsewhere on the REST surface for enum-like string fields
+// (TaskStatus, ComponentType, DiffType, BMCType). The internal Flow YAML
+// rule files keep their snake_case spelling; conversion happens at the
+// REST boundary via the maps below.
 const (
-	APIOperationTypePowerControl    = "power_control"
-	APIOperationTypeFirmwareControl = "firmware_control"
+	APIOperationTypePowerControl    = "PowerControl"
+	APIOperationTypeFirmwareControl = "FirmwareControl"
 )
 
 // ProtoToAPIOperationTypeName maps Flow's protobuf OperationType enum to the
@@ -36,7 +37,7 @@ var apiToProtoOperationType = map[string]flowv1.OperationType{
 	APIOperationTypeFirmwareControl: flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL,
 }
 
-// operationTypeFromAPI parses an API operation_type string. The empty string
+// operationTypeFromAPI parses an API operationType string. The empty string
 // is treated as "unset" (caller decides whether that is valid). Returns an
 // error for unknown values so we don't silently accept garbage.
 func operationTypeFromAPI(s string) (flowv1.OperationType, error) {

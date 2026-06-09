@@ -372,7 +372,7 @@ func NewGetAllTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param siteId query string true "ID of the Site"
-// @Param operationType query string false "Filter by operation type (power_control|firmware_control)"
+// @Param operationType query string false "Filter by operation type (PowerControl|FirmwareControl)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APITaskRule
