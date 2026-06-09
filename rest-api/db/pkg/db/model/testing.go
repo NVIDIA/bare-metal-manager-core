@@ -175,7 +175,14 @@ func TestBuildTenant(t *testing.T, dbSession *db.Session, name string, org strin
 
 	tncfg := TenantConfig{}
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, cutil.GetPtr(org), &tncfg, user)
+	tn, err := tnDAO.Create(context.Background(), nil, TenantCreateInput{
+		Name:           name,
+		DisplayName:    cutil.GetPtr("Test Tenant"),
+		Org:            org,
+		OrgDisplayName: cutil.GetPtr(org),
+		Config:         &tncfg,
+		CreatedBy:      user.ID,
+	})
 	assert.Nil(t, err)
 
 	return tn
