@@ -21,14 +21,22 @@ spec:
       labels:
         {{- include "unbound.podLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with (.Values.imagePullSecrets | default .Values.global.imagePullSecrets) }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: unbound
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ required "unbound.image.repository is required — set it in helm-prereqs/values/nico-core.yaml (unbound.image.repository)" .Values.image.repository }}:{{ required "unbound.image.tag is required — set it in helm-prereqs/values/nico-core.yaml (unbound.image.tag)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: dns-udp
               containerPort: 53
@@ -50,8 +58,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: unbound-envvars
+        {{- if .Values.exporter.enabled }}
         - name: unbound-metrics
-          image: "{{ .Values.exporterImage.repository }}:{{ .Values.exporterImage.tag }}"
+          image: "{{ required "unbound.exporterImage.repository is required when exporter.enabled — set unbound.exporterImage.repository, or set unbound.exporter.enabled=false for a public/stock unbound image" .Values.exporterImage.repository }}:{{ required "unbound.exporterImage.tag is required when exporter.enabled — set unbound.exporterImage.tag" .Values.exporterImage.tag }}"
           imagePullPolicy: {{ .Values.exporterImage.pullPolicy }}
           env:
             - name: KEYS_DIR
@@ -64,6 +73,7 @@ spec:
             - name: metrics
               containerPort: 9167
               protocol: TCP
+        {{- end }}
       volumes:
         - name: local-config
           configMap:
