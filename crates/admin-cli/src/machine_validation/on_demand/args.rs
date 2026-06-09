@@ -19,6 +19,17 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Start on-demand validation for a machine:
+    $ carbide-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567
+
+Start with a restricted set of allowed tests, including unverified:
+    $ carbide-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --allowed-tests gpu_bandwidth --run-unverfied-tests
+
+")]
 pub enum Args {
     #[clap(about = "Start on demand machine validation")]
     Start(OnDemandOptions),

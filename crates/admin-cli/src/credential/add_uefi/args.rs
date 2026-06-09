@@ -22,6 +22,16 @@ use crate::credential::common::{UefiCredentialType, password_validator};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set the site-wide DPU UEFI default password:
+    $ carbide-admin-cli credential add-uefi --kind=dpu --password=mynewpassword
+
+Set the site-wide host UEFI default password:
+    $ carbide-admin-cli credential add-uefi --kind=host --password=mynewpassword
+
+")]
 pub struct Args {
     #[clap(long, require_equals(true), required(true), help = "The UEFI kind")]
     pub kind: UefiCredentialType,

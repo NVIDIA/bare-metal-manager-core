@@ -22,6 +22,28 @@ use super::super::common::ExtensionServiceType;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a Kubernetes-pod extension service:
+    $ carbide-admin-cli extension-service create --name my-service --type kubernetes-pod \
+    --data '{\"image\":\"my-registry/my-service:1.0\"}'
+
+Create with an explicit service ID and a description:
+    $ carbide-admin-cli extension-service create --id 12345678-1234-5678-90ab-cdef01234567 \
+    --name my-service --type kubernetes-pod --data '{\"image\":\"my-registry/my-service:1.0\"}' \
+    --description \"Front-end telemetry agent\"
+
+Create scoped to a tenant organization:
+    $ carbide-admin-cli extension-service create --name my-service --type kubernetes-pod \
+    --data '{\"image\":\"my-registry/my-service:1.0\"}' --tenant-organization-id fds34511233a
+
+Create with private-registry pull credentials:
+    $ carbide-admin-cli extension-service create --name my-service --type kubernetes-pod \
+    --data '{\"image\":\"my-registry/my-service:1.0\"}' --registry-url my-registry.example.com \
+    --username admin --password mypassword
+
+")]
 pub struct Args {
     #[clap(
         short = 'i',

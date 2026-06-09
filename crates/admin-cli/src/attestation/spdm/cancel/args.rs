@@ -19,6 +19,13 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Cancel in-progress SPDM attestation for a machine:
+    $ carbide-admin-cli attestation spdm cancel 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Machine ID")]
     pub machine_id: MachineId,

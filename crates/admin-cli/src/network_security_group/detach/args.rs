@@ -20,6 +20,16 @@ use carbide_uuid::vpc::VpcId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove the network security group from a VPC:
+    $ carbide-admin-cli network-security-group detach --vpc-id 12345678-1234-5678-90ab-cdef01234567
+
+Remove it from a single instance:
+    $ carbide-admin-cli network-security-group detach --instance-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         short = 'v',

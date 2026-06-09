@@ -19,6 +19,20 @@ use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&["description", "device_type"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Update a SKU's description:
+    $ carbide-admin-cli sku update-metadata DGX-H100-640GB --description \"DGX H100 640GB\"
+
+Update a SKU's device type:
+    $ carbide-admin-cli sku update-metadata DGX-H100-640GB --device-type gpu-server
+
+Update both at once:
+    $ carbide-admin-cli sku update-metadata DGX-H100-640GB \
+    --description \"DGX H100 640GB\" --device-type gpu-server
+
+")]
 pub struct Args {
     #[clap(help = "SKU ID of the SKU to update")]
     pub sku_id: String,
