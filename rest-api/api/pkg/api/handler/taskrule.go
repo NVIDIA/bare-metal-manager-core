@@ -187,7 +187,7 @@ func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 	}
 
 	// Dedicated workflow ID per request so Create is never deduped.
-	workflowID := fmt.Sprintf("rule-create-%s", uuid.NewString())
+	workflowID := fmt.Sprintf("task-rule-create-%s", uuid.NewString())
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:                       workflowID,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
@@ -296,7 +296,7 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.GetOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: ruleID},
 	}
-	workflowID := fmt.Sprintf("rule-get-%s", ruleID)
+	workflowID := fmt.Sprintf("task-rule-get-%s", ruleID)
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:                       workflowID,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
@@ -414,7 +414,7 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
 	}
 
-	workflowID := fmt.Sprintf("rules-list-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowID := fmt.Sprintf("task-rule-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:                       workflowID,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
@@ -531,7 +531,7 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
 	}
 
-	workflowID := fmt.Sprintf("rule-update-%s-%s", ruleID, uuid.NewString())
+	workflowID := fmt.Sprintf("task-rule-update-%s-%s", ruleID, uuid.NewString())
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:                       workflowID,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
@@ -634,7 +634,7 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.DeleteOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: ruleID},
 	}
-	workflowID := fmt.Sprintf("rule-delete-%s", ruleID)
+	workflowID := fmt.Sprintf("task-rule-delete-%s", ruleID)
 	workflowOptions := tClient.StartWorkflowOptions{
 		ID:                       workflowID,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
