@@ -26,20 +26,10 @@ pub struct Args {
     )]
     pub machine: String,
 
-    #[clap(
-        short = 'd',
-        long,
-        action,
-        help = "Delete interfaces."
-    )]
+    #[clap(short = 'd', long, action, help = "Delete interfaces.")]
     pub delete_interfaces: bool,
 
-    #[clap(
-        short = 'b',
-        long,
-        action,
-        help = "Delete BMC interfaces."
-    )]
+    #[clap(short = 'b', long, action, help = "Delete BMC interfaces.")]
     pub delete_bmc_interfaces: bool,
 
     #[clap(
