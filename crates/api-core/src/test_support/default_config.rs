@@ -43,7 +43,7 @@ use crate::cfg::file::{
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
-    VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
+    TracingConfig, VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
     default_bmc_session_lockout_threshold, default_max_find_by_ids,
 };
 
@@ -247,6 +247,7 @@ pub fn get() -> CarbideConfig {
         component_manager: None,
         initial_objects_file: None,
         config_ctx: None,
+        tracing: TracingConfig::default(),
     }
 }
 

@@ -24,6 +24,14 @@ use crate::bmc_machine::common::InfiniteBootArgs;
 // specific newtype to allow sharing of InfiniteBootArgs, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Check whether infinite boot is enabled on a machine:
+    $ carbide-admin-cli bmc-machine is-infinite-boot-enabled \
+    --machine 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: InfiniteBootArgs,

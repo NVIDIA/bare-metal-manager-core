@@ -24,6 +24,16 @@ use rpc::protos::mlx_device as mlx_device_pb;
 
 // RegistryCommand are the registry subcommands.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List the variable registries available on a machine:
+    $ carbide-admin-cli mlx registry list 12345678-1234-5678-90ab-cdef01234567
+
+Show one registry's details:
+    $ carbide-admin-cli mlx registry show 12345678-1234-5678-90ab-cdef01234567 my-registry
+
+")]
 pub enum RegistryCommand {
     #[clap(about = "List all available registries")]
     List(RegistryListCommand),

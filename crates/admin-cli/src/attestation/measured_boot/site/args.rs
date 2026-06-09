@@ -62,6 +62,13 @@ pub enum CmdSite {
 
 /// Import imports a site from a file.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Import a site model (profiles + bundles) from a JSON file:
+    $ carbide-admin-cli attestation measured-boot site import ./site.json
+
+")]
 pub struct Import {
     #[clap(help = "The path of the input JSON file.")]
     pub path: String,
@@ -69,6 +76,16 @@ pub struct Import {
 
 /// Export exports a site to stdout, a file, etc.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Export the site model to stdout:
+    $ carbide-admin-cli attestation measured-boot site export
+
+Export the site model to a file:
+    $ carbide-admin-cli attestation measured-boot site export --path ./site.json
+
+")]
 pub struct Export {
     #[clap(long, help = "An optional path to write the file to.")]
     pub path: Option<String>,
@@ -76,6 +93,21 @@ pub struct Export {
 
 /// TrustedMachine configures trusted machine settings.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Approve a machine for one-shot auto-promotion of its measurements:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine approve \
+    12345678-1234-5678-90ab-cdef01234567 oneshot
+
+List all active machine approvals:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine list
+
+Remove an approval by machine ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    by-machine-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum TrustedMachine {
     #[clap(
         about = "Approve a trusted machine for auto-promoting its measurements.",
@@ -96,6 +128,21 @@ pub enum TrustedMachine {
 
 /// TrustedProfile configures trusted profile settings.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Approve a profile for persistent auto-promotion of matching machines' measurements:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    12345678-1234-5678-90ab-cdef01234567 persist
+
+List all active profile approvals:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile list
+
+Remove an approval by profile ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    by-profile-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum TrustedProfile {
     #[clap(
         about = "Allow auto-promoting of measurements from machines matching a profile.",
@@ -117,6 +164,18 @@ pub enum TrustedProfile {
 /// ApproveMachine approves a machine for auto-promoting its measurement
 /// journal entries into a golden measurement bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Approve a single machine for one-shot auto-promotion:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine approve \
+    12345678-1234-5678-90ab-cdef01234567 oneshot
+
+Approve all machines persistently, restricted to specific PCR registers, with a comment:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine approve '*' \
+    persist --pcr-registers 0,7 --comments \"trusted fleet\"
+
+")]
 pub struct ApproveMachine {
     #[clap(help = "The machine-id to approve (or '*' for all).")]
     pub machine_id: TrustedMachineId,
@@ -138,6 +197,18 @@ pub struct ApproveMachine {
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a machine approval by approval ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    by-approval-id 12345678-1234-5678-90ab-cdef01234567
+
+Remove a machine approval by machine ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    by-machine-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum RemoveMachine {
     #[clap(about = "Remove by approval ID.")]
     ByApprovalId(RemoveMachineByApprovalId),
@@ -149,6 +220,14 @@ pub enum RemoveMachine {
 /// RemoveMachineByApprovalId removes a trusted machine approval
 /// for the given approval ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a machine approval by approval ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    by-approval-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct RemoveMachineByApprovalId {
     #[clap(help = "The approval-id to remove.")]
     pub approval_id: MeasurementApprovedMachineId,
@@ -157,6 +236,14 @@ pub struct RemoveMachineByApprovalId {
 /// RemoveMachineByMachineId removes a trusted machine approval
 /// for the given machine ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a machine approval by machine ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    by-machine-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct RemoveMachineByMachineId {
     #[clap(help = "The machine-id to remove.")]
     pub machine_id: TrustedMachineId,
@@ -164,11 +251,30 @@ pub struct RemoveMachineByMachineId {
 
 /// ListMachines is used to list all active machine approvals.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all active machine approvals:
+    $ carbide-admin-cli attestation measured-boot site trusted-machine list
+
+")]
 pub struct ListMachines {}
 
 /// ApproveProfile approves a profile for auto-promoting its
 /// measurement journal entries into a golden measurement bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Approve a profile for one-shot auto-promotion:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    12345678-1234-5678-90ab-cdef01234567 oneshot
+
+Approve a profile persistently, restricted to specific PCR registers, with a comment:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    12345678-1234-5678-90ab-cdef01234567 persist --pcr-registers 0,7 --comments \"trusted SKU\"
+
+")]
 pub struct ApproveProfile {
     #[clap(help = "The profile-id to approve.")]
     pub profile_id: MeasurementSystemProfileId,
@@ -190,6 +296,18 @@ pub struct ApproveProfile {
 // understanding that its a part of the CLI UX.
 #[allow(clippy::enum_variant_names)]
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a profile approval by approval ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    by-approval-id 12345678-1234-5678-90ab-cdef01234567
+
+Remove a profile approval by profile ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    by-profile-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum RemoveProfile {
     #[clap(about = "Remove by approval ID.")]
     ByApprovalId(RemoveProfileByApprovalId),
@@ -201,6 +319,14 @@ pub enum RemoveProfile {
 /// RemoveProfileByApprovalId removes a trusted profile approval
 /// for the given approval ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a profile approval by approval ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    by-approval-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct RemoveProfileByApprovalId {
     #[clap(help = "The approval-id to remove.")]
     pub approval_id: MeasurementApprovedProfileId,
@@ -209,6 +335,14 @@ pub struct RemoveProfileByApprovalId {
 /// RemoveProfileByProfileId removes a trusted profile approval
 /// for the given profile ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a profile approval by profile ID:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    by-profile-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct RemoveProfileByProfileId {
     #[clap(help = "The profile-id to remove.")]
     pub profile_id: MeasurementSystemProfileId,
@@ -216,6 +350,13 @@ pub struct RemoveProfileByProfileId {
 
 /// ListProfiles is used to list all active profile approvals.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all active profile approvals:
+    $ carbide-admin-cli attestation measured-boot site trusted-profile list
+
+")]
 pub struct ListProfiles {}
 
 impl From<ApproveMachine> for AddMeasurementTrustedMachineRequest {

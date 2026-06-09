@@ -18,4 +18,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Generate a site-default host UEFI password to store in Vault:
+    $ carbide-admin-cli host generate-host-uefi-password
+
+")]
 pub struct Args {}

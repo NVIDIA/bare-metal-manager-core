@@ -19,6 +19,7 @@
     - [CheckScheduleConflictsResponse](#v1-CheckScheduleConflictsResponse)
     - [Component](#v1-Component)
     - [ComponentDiff](#v1-ComponentDiff)
+    - [ComponentStatus](#v1-ComponentStatus)
     - [ComponentTarget](#v1-ComponentTarget)
     - [ComponentTargets](#v1-ComponentTargets)
     - [ComponentTypes](#v1-ComponentTypes)
@@ -128,6 +129,7 @@
     - [DiffType](#v1-DiffType)
     - [OperationType](#v1-OperationType)
     - [OverlapPolicy](#v1-OverlapPolicy)
+    - [Phase](#v1-Phase)
     - [PowerControlOp](#v1-PowerControlOp)
     - [RackFilterField](#v1-RackFilterField)
     - [RackOrderByField](#v1-RackOrderByField)
@@ -394,6 +396,7 @@ An empty list means no conflicts were detected.
 | component_id | [string](#string) |  | Component&#39;s own ID from its source system (e.g., NICo machine_id for Compute) |
 | rack_id | [UUID](#v1-UUID) |  |  |
 | power_state | [string](#string) |  | Current power state (synced from external system by inventory loop) |
+| status | [ComponentStatus](#v1-ComponentStatus) |  |  |
 
 
 
@@ -414,6 +417,24 @@ An empty list means no conflicts were detected.
 | actual | [Component](#v1-Component) |  |  |
 | field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is MISMATCH |
 | id | [UUID](#v1-UUID) |  | Flow internal component UUID |
+
+
+
+
+
+
+<a name="v1-ComponentStatus"></a>
+
+### ComponentStatus
+ComponentStatus is Flow&#39;s view of a component&#39;s operability. The
+inventory loop computes it on every sync from core&#39;s controller_state.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| phase | [Phase](#v1-Phase) |  |  |
+| reason | [string](#string) |  | Human-readable detail (typically the raw core state string). |
+| blocked_operations | [OperationType](#v1-OperationType) | repeated | Operations Flow will reject while the component is in this status. Empty when phase is READY. |
 
 
 
@@ -2224,6 +2245,24 @@ execution for the same scope is still active.
 | OVERLAP_POLICY_UNSPECIFIED | 0 |  |
 | OVERLAP_POLICY_SKIP | 1 | skip this firing cycle for any scope whose last task is still active |
 | OVERLAP_POLICY_QUEUE | 2 | submit unconditionally; the task manager queues behind the active task |
+
+
+
+<a name="v1-Phase"></a>
+
+### Phase
+Phase is the coarse lifecycle bucket a component is in, derived from
+core&#39;s per-component state machine. Shared across compute, nvswitch,
+and power shelf.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| PHASE_UNKNOWN | 0 |  |
+| PHASE_INITIALIZING | 1 |  |
+| PHASE_READY | 2 |  |
+| PHASE_IN_USE | 3 |  |
+| PHASE_ERROR | 4 |  |
+| PHASE_DELETING | 5 |  |
 
 
 

@@ -22,6 +22,22 @@ use crate::machine::HealthReportTemplates;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("health_report_source").required(true).args(&["health_report", "template"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a health report source from a predefined template:
+    $ carbide-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template internal-maintenance --message \"Firmware upgrade in progress\"
+
+Add a health report source from raw JSON:
+    $ carbide-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --health-report '{...}'
+
+Preview the report without sending it:
+    $ carbide-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template degraded --print-only
+
+")]
 pub struct Args {
     pub power_shelf_id: PowerShelfId,
     #[clap(long, help = "New health report as json")]
