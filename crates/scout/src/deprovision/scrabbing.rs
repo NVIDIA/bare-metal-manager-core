@@ -622,19 +622,37 @@ fn read_block_sysfs_attr(devname: &str, attr: &str) -> Option<String> {
         .map(|value| value.trim().to_string())
 }
 
-fn block_device_cleanup_skip_reason(devname: &str) -> Option<String> {
+enum BlockDeviceCleanupSkipReason {
+    Hidden,
+    Removable { removable: String },
+    UsbTransport,
+}
+
+impl std::fmt::Display for BlockDeviceCleanupSkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hidden => write!(f, "hidden block device"),
+            Self::Removable { removable } => {
+                write!(f, "removable block device (removable={removable})")
+            }
+            Self::UsbTransport => write!(f, "USB transport block device"),
+        }
+    }
+}
+
+fn block_device_cleanup_skip_reason(devname: &str) -> Option<BlockDeviceCleanupSkipReason> {
     if read_block_sysfs_attr(devname, "hidden").is_some_and(|value| value == "1") {
-        return Some("hidden block device".to_string());
+        return Some(BlockDeviceCleanupSkipReason::Hidden);
     }
 
     if let Some(removable) = read_block_sysfs_attr(devname, "removable")
         && removable != "0"
     {
-        return Some(format!("removable block device (removable={removable})"));
+        return Some(BlockDeviceCleanupSkipReason::Removable { removable });
     }
 
     if is_usb_device(devname) {
-        return Some("USB transport block device".to_string());
+        return Some(BlockDeviceCleanupSkipReason::UsbTransport);
     }
 
     None
