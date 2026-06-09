@@ -87,7 +87,8 @@ bootArtifactContainers: []
 #     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
 #   - name: boot-artifacts-aarch64
 #     image: <your-registry>/boot-artifacts-aarch64:latest
-#     command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+#     # NOTE: the aarch64 image ships /aarch64 + /apt (NOT /firmware) — copying a missing dir crash-loops the init.
+#     command: ["sh", "-c", "cp -r /aarch64 /apt /boot-artifacts/blobs/internal"]
 #   - name: machine-validation-config
 #     image: <your-registry>/machine-validation-config:latest
 #     command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
@@ -180,6 +181,15 @@ auth:
   principals:
     dhcp: nico-dhcp
     dns: nico-dns
+  ## [auth] permissive_mode — bypass the casbin policy layer. DEV ONLY. Note: this does
+  ## NOT bypass the internal RBAC handler, so it does not grant admin-CLI access by itself.
+  permissiveMode: false
+  ## [auth.trust] additional_issuer_cns — CNs of non-SPIFFE issuer CAs trusted as ExternalUser
+  ## principals (group = cert SubjectOU). Set to the site CA CN (e.g. ["site-root"]) to enable
+  ## admin-CLI client certs minted from the vault PKI without manual ConfigMap edits.
+  additionalIssuerCns: []
+  ## [tls] admin_root_cafile_path — CA bundle whose client certs are treated as admin ExternalUsers.
+  adminRootCafilePath: "/etc/forge/carbide-api/site/admin_root_cert_pem"
 
 ## Config files -- can be overridden with custom content
 configFiles:
