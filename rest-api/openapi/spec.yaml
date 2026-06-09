@@ -17907,6 +17907,15 @@ components:
         message:
           type: string
           description: Optional status or error message describing the current state or result.
+        ruleId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |-
+            Operation Rule that Flow resolved for this task — either because
+            the caller pinned one via `ruleId` on the originating request or
+            because Flow's default rule resolution picked it. Null if Flow
+            has not yet recorded a resolution.
         started:
           type: string
           format: date-time
@@ -17923,14 +17932,6 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
-        ruleId:
-          type: string
-          format: uuid
-          description: |-
-            Operation Rule that Flow resolved for this task — either because
-            the caller pinned one via `ruleId` on the originating request or
-            because Flow's default rule resolution picked it. Omitted if Flow
-            has not yet recorded a resolution.
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running

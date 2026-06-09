@@ -28,14 +28,10 @@ var ProtoToAPITaskStatusName = map[flowv1.TaskStatus]string{
 // infrastructure — rack, tray, or otherwise — so the type is intentionally
 // scope-agnostic and shared across all task endpoints.
 type APITask struct {
-	ID          string     `json:"id"`
-	Status      string     `json:"status"`
-	Description string     `json:"description"`
-	Message     string     `json:"message"`
-	Started     *time.Time `json:"started"`
-	Finished    *time.Time `json:"finished"`
-	Created     time.Time  `json:"created"`
-	Updated     time.Time  `json:"updated"`
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Message     string `json:"message"`
 	// RuleID is the Operation Rule that Flow resolved for this task — either
 	// because the caller pinned one via `ruleId` on the originating request or
 	// because Flow's default rule resolution picked it. Nil if Flow has not
@@ -43,7 +39,11 @@ type APITask struct {
 	// the proto field `Task.applied_rule_id`; we flatten the request/response
 	// vocabulary to `ruleId` on the REST surface since the field carries the
 	// same meaning on the way in and out.
-	RuleID *string `json:"ruleId,omitempty"`
+	RuleID   *string    `json:"ruleId"`
+	Started  *time.Time `json:"started"`
+	Finished *time.Time `json:"finished"`
+	Created  time.Time  `json:"created"`
+	Updated  time.Time  `json:"updated"`
 }
 
 func (t *APITask) FromProto(task *flowv1.Task) {
