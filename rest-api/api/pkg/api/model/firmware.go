@@ -36,16 +36,14 @@ type APIUpdateFirmwareRequest struct {
 	Targets []string `json:"targets,omitempty"`
 	// RuleID, when set, overrides the default rule resolution and pins this
 	// firmware operation to the named Operation Rule.
-	RuleID *string `json:"ruleId,omitempty"`
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate validates the firmware update request
 func (r *APIUpdateFirmwareRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
-		validation.Field(&r.RuleID,
-			validation.When(r.RuleID != nil,
-				validationis.UUID.Error(validationErrorInvalidUUID))),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
 	); err != nil {
 		return err
 	}
@@ -87,16 +85,14 @@ type APIBatchRackFirmwareUpdateRequest struct {
 	Version *string     `json:"version,omitempty"`
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
-	RuleID *string `json:"ruleId,omitempty"`
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate checks required fields.
 func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
 	return validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
-		validation.Field(&r.RuleID,
-			validation.When(r.RuleID != nil,
-				validationis.UUID.Error(validationErrorInvalidUUID))),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
 	)
 }
 
@@ -113,16 +109,14 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 	Targets []string `json:"targets,omitempty"`
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
-	RuleID *string `json:"ruleId,omitempty"`
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate checks required fields and filter constraints.
 func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
-		validation.Field(&r.RuleID,
-			validation.When(r.RuleID != nil,
-				validationis.UUID.Error(validationErrorInvalidUUID))),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
 	); err != nil {
 		return err
 	}
