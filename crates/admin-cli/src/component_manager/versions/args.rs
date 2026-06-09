@@ -20,6 +20,22 @@ use clap::Parser;
 use crate::component_manager::common::DeviceTargetArgs;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List available firmware versions for switches:
+    $ carbide-admin-cli component-manager get-firmware-versions switch \
+    --switch-id 12345678-1234-5678-90ab-cdef01234567
+
+List versions for power shelves:
+    $ carbide-admin-cli component-manager get-firmware-versions power-shelf \
+    --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
+List versions for an entire rack:
+    $ carbide-admin-cli component-manager get-firmware-versions rack \
+    --rack-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(subcommand)]
     pub target: DeviceTargetArgs,

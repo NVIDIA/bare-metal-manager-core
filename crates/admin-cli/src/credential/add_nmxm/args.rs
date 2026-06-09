@@ -19,6 +19,13 @@ use clap::Parser;
 use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add an NMX-M credential:
+    $ carbide-admin-cli credential add-nmx-m --username admin --password mypassword
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "Username")]
     pub username: String,

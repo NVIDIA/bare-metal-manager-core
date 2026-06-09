@@ -19,6 +19,13 @@ use carbide_uuid::rack::RackId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show the profile for a rack:
+    $ carbide-admin-cli rack profile show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Rack ID to get profile for")]
     pub rack_id: RackId,

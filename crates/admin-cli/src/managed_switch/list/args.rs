@@ -18,4 +18,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all managed switches:
+    $ carbide-admin-cli managed-switch list
+
+")]
 pub struct Args;

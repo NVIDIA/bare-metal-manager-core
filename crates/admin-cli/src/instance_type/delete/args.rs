@@ -19,6 +19,13 @@ use clap::Parser;
 use rpc::forge::DeleteInstanceTypeRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an instance type by id:
+    $ carbide-admin-cli instance-type delete --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "Instance type ID to delete")]
     pub id: String,

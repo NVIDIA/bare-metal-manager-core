@@ -18,6 +18,20 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show external config entries by name:
+    $ carbide-admin-cli machine-validation external-config show --name my-config
+
+Add or update an external config from a file:
+    $ carbide-admin-cli machine-validation external-config add-update --name my-config \
+    --file-name ./config.toml --description \"validation overrides\"
+
+Remove an external config:
+    $ carbide-admin-cli machine-validation external-config remove --name my-config
+
+")]
 pub enum Args {
     #[clap(about = "Show External config")]
     Show(ExternalConfigShowOptions),

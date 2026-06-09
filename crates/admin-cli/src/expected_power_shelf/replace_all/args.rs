@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Replace all expected power shelves with the contents of a JSON file:
+    $ carbide-admin-cli expected-power-shelf replace-all --filename ./power-shelves.json
+
+")]
 pub struct Args {
     #[clap(short, long)]
     pub filename: String,
