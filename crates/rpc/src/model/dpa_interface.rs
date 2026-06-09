@@ -26,13 +26,11 @@ use model::state_history::StateHistoryRecord;
 use crate as rpc;
 use crate::errors::RpcDataConversionError;
 
-impl TryFrom<rpc::forge::DpaInterfaceType> for DpaInterfaceType {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::forge::DpaInterfaceType) -> Result<Self, Self::Error> {
+impl From<rpc::forge::DpaInterfaceType> for DpaInterfaceType {
+    fn from(value: rpc::forge::DpaInterfaceType) -> Self {
         match value {
-            rpc::forge::DpaInterfaceType::Svpc => Ok(DpaInterfaceType::Svpc),
-            rpc::forge::DpaInterfaceType::Astra => Ok(DpaInterfaceType::Astra),
+            rpc::forge::DpaInterfaceType::Svpc => DpaInterfaceType::Svpc,
+            rpc::forge::DpaInterfaceType::Astra => DpaInterfaceType::Astra,
         }
     }
 }
@@ -64,11 +62,11 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
             interface_type: rpc::forge::DpaInterfaceType::try_from(value.interface_type)
                 .map_err(|_| {
                     RpcDataConversionError::InvalidValue(
-                        "DpaInterfaceType".to_string(),
                         value.interface_type.to_string(),
+                        "interface_type".to_string(),
                     )
                 })?
-                .try_into()?,
+                .into(),
         })
     }
 }

@@ -523,7 +523,13 @@ async fn process_mlx_observation(
             }
         };
 
-        assert_eq!(dpa.interface_type, DpaInterfaceType::Svpc);
+        if dpa.interface_type != DpaInterfaceType::Svpc {
+            tracing::error!(
+                "process_mlx_observation dpa interface type is not Svpc, skipping: {:#?}",
+                dpa
+            );
+            continue;
+        }
 
         // Use the latest CardState we pulled from the database. If there
         // isn't one, then initialize an empty one, for which we will now

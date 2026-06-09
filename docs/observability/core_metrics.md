@@ -126,4 +126,18 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_switches_total</td><td>gauge</td><td>The total number of carbide_switches in the system</td></tr>
 <tr><td>carbide_total_ips_count</td><td>gauge</td><td>The total number of ips in the site</td></tr>
 <tr><td>carbide_unavailable_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update but are unavailable for update.</td></tr>
+<tr><td>carbide_vpc_prefixes_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_vpc_prefixes in the system</td></tr>
+<tr><td>carbide_vpc_prefixes_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type carbide_vpc_prefixes in a certain state</td></tr>
+<tr><td>carbide_vpc_prefixes_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_vpc_prefixes</td></tr>
+<tr><td>carbide_vpc_prefixes_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type carbide_vpc_prefixes</td></tr>
+<tr><td>carbide_vpc_prefixes_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type carbide_vpc_prefixes</td></tr>
+<tr><td>carbide_vpc_prefixes_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_vpc_prefixes</td></tr>
+<tr><td>carbide_vpc_prefixes_object_tasks_requeued_total</td><td>counter</td><td>The amount of object handling tasks that have been requeued for objects of type carbide_vpc_prefixes</td></tr>
+<tr><td>carbide_vpc_prefixes_per_state</td><td>gauge</td><td>The number of carbide_vpc_prefixes in the system with a given state</td></tr>
+<tr><td>carbide_vpc_prefixes_per_state_above_sla</td><td>gauge</td><td>The number of carbide_vpc_prefixes in the system which had been longer in a state than allowed per SLA</td></tr>
+<tr><td>carbide_vpc_prefixes_state_entered_total</td><td>counter</td><td>The amount of types that objects of type carbide_vpc_prefixes have entered a certain state</td></tr>
+<tr><td>carbide_vpc_prefixes_state_exited_total</td><td>counter</td><td>The amount of types that objects of type carbide_vpc_prefixes have exited a certain state</td></tr>
+<tr><td>carbide_vpc_prefixes_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_vpc_prefixes have spent in a certain state</td></tr>
+<tr><td>carbide_vpc_prefixes_total</td><td>gauge</td><td>The total number of carbide_vpc_prefixes in the system</td></tr>
+<tr><td>carbide_vpc_prefixes_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_vpc_prefixes in the system with a given state that failed state handling</td></tr>
 </table>

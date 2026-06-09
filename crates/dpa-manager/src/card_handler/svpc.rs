@@ -72,7 +72,11 @@ impl SvpcInterfaceHandler {
         txn.commit()
             .await
             .map_err(|e| db::AnnotatedSqlxError::new("get_partition_vni commit txn", e))?;
-        Ok(partition[0].vni.unwrap_or(0) as u32)
+        Ok(partition
+            .into_iter()
+            .next()
+            .and_then(|p| p.vni)
+            .unwrap_or(0) as u32)
     }
 
     async fn reconcile_assigned_state<'a>(
@@ -259,18 +263,16 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_provisioning idx out of bounds: {idx}, len: {}",
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
                 new_state: None,
                 txn: None,
             });
-        }
-
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+        };
 
         let host_use_admin_network = dpa_interface.use_admin_network();
         if host_use_admin_network {
@@ -295,18 +297,16 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_ready idx out of bounds: {idx}, len: {}",
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
                 new_state: None,
                 txn: None,
             });
-        }
-
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+        };
 
         let host_use_admin_network = dpa_interface.use_admin_network();
         if !host_use_admin_network {
@@ -351,30 +351,29 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_unlocking idx out of bounds: {idx}, len: {}",
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
                 new_state: None,
                 txn: None,
             });
-        }
+        };
 
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
-
-        if dpa_interface.card_state.is_none() {
-            tracing::info!("card_state none for dpa: {:#?}", dpa_interface.id);
+        let Some(ref cs) = dpa_interface.card_state else {
+            tracing::error!(
+                "Unexpected - card_state none for dpa: {:#?}",
+                dpa_interface.id
+            );
             return Ok(HandlerResult {
                 new_state: None,
                 txn: None,
             });
-        }
+        };
 
-        if let Some(ref cs) = dpa_interface.card_state
-            && cs.lockmode == Some(Unlocked)
-        {
+        if cs.lockmode == Some(Unlocked) {
             let new_state = DpaInterfaceControllerState::ApplyFirmware;
             tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
             return Ok(HandlerResult {
@@ -397,7 +396,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
                 "handle_apply_firmware idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
@@ -406,9 +405,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
                 new_state: None,
                 txn: None,
             });
-        }
-
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+        };
 
         let Some(ref card_state) = dpa_interface.card_state else {
             tracing::info!(
@@ -457,7 +454,18 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        apply_profile(&mh.dpa_interface_snapshots[idx])
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
+            tracing::error!(
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                mh.dpa_interface_snapshots.len()
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        apply_profile(dpa_interface)
     }
 
     #[allow(clippy::unused_async)]
@@ -468,18 +476,16 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_locking idx out of bounds: {idx}, len: {}",
+                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
                 new_state: None,
                 txn: None,
             });
-        }
-
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+        };
 
         let Some(ref cs) = dpa_interface.card_state else {
             tracing::error!(
