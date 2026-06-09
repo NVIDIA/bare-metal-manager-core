@@ -829,3 +829,65 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
         );
     }
 }
+
+/// `delete_interfaces` keeps each deleted interface's boot pair alive in
+/// `retained_boot_interfaces`: the vendor-named Redfish interface id is the
+/// one piece a re-ingested machine can't always rediscover on its own
+/// (after a DPU-to-NIC mode flip the BMC can report the id without its
+/// MAC), so the pair is recorded at the only moment it's guaranteed
+/// complete -- deletion.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    // Record a boot interface id on the host's interface row, as
+    // site-explorer would during exploration.
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let boot_mac = host_machine.interfaces[0].mac_address;
+    db::machine_interface::set_boot_interface_id(boot_mac, "NIC.Slot.5-1", txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_machine_id.to_string(),
+            delete_interfaces: true,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.all_done, "host must be deleted");
+    assert!(response.host_interfaces_deleted);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    // The interface row is gone...
+    assert!(
+        db::machine_interface::find_by_mac_address(txn.as_mut(), boot_mac)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // ...and its boot pair survives in retention, ready for the re-ingest.
+    assert_eq!(
+        db::retained_boot_interface::find_by_mac(txn.as_mut(), boot_mac, None)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("NIC.Slot.5-1"),
+    );
+    txn.rollback().await.unwrap();
+}

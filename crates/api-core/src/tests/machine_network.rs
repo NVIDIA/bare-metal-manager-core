@@ -991,6 +991,7 @@ async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(p
         &active_mac,
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await
     .unwrap();

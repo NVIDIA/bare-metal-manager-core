@@ -734,6 +734,29 @@ impl SiteExplorer {
         self.audit_exploration_results(metrics, &expected_endpoint_index)
             .await?;
 
+        // Retained boot interface records that aged out of the configured
+        // window are already ignored at read time; sweep them once per pass
+        // so MACs that never return don't occupy table rows indefinitely.
+        // (A no-op without a window: records wait for their machine.)
+        if self.config.retained_boot_interface_window.is_some() {
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::new("begin retained boot interface sweep", e))?;
+            let swept = db::retained_boot_interface::delete_expired(
+                &mut txn,
+                self.config.retained_boot_interface_window,
+            )
+            .await?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("end retained boot interface sweep", e))?;
+            if swept > 0 {
+                tracing::info!(swept, "Removed expired retained boot interface records");
+            }
+        }
+
         Ok(identified_hosts)
     }
 
@@ -1379,11 +1402,20 @@ impl SiteExplorer {
 
         // Record each host NIC's Redfish id on its machine_interfaces row so the
         // primary-flagged row is the host's complete boot interface (MAC + id).
+        // Pending predicted interfaces get the same refresh, so a prediction
+        // minted before the report resolved the id stays as current as the
+        // live report until DHCP promotes it.
         for boot_interface in &nic_boot_interfaces {
             db::machine_interface::set_boot_interface_id(
                 boot_interface.mac_address,
                 &boot_interface.interface_id,
                 &mut txn,
+            )
+            .await?;
+            db::predicted_machine_interface::set_boot_interface_id(
+                &mut txn,
+                boot_interface.mac_address,
+                &boot_interface.interface_id,
             )
             .await?;
         }
@@ -1578,6 +1610,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_machine BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1591,6 +1624,7 @@ impl SiteExplorer {
                     ip,
                     InterfaceType::Data,
                     "expected_machine host NIC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1604,6 +1638,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_switch BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1620,6 +1655,7 @@ impl SiteExplorer {
                             nvos_ip,
                             InterfaceType::Data,
                             "expected_switch NVOS",
+                            self.config.retained_boot_interface_window,
                         )
                         .await;
                     }
@@ -1643,6 +1679,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_power_shelf BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -2828,6 +2865,7 @@ pub async fn try_preallocate_one(
     ip: IpAddr,
     interface_type: InterfaceType,
     kind: &'static str,
+    retained_window: Option<chrono::Duration>,
 ) {
     let mut txn = match db::Transaction::begin(pool).await {
         Ok(t) => t,
@@ -2841,10 +2879,22 @@ pub async fn try_preallocate_one(
     };
     let result = match interface_type {
         InterfaceType::Bmc => {
-            db::machine_interface::preallocate_bmc_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_bmc_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
         InterfaceType::Data => {
-            db::machine_interface::preallocate_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
     };
     match result {

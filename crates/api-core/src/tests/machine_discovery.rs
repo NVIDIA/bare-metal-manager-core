@@ -41,6 +41,7 @@ async fn test_machine_discovery_no_domain(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
         None,
+        None,
     )
     .await
     .expect("Unable to create machine");
@@ -77,6 +78,7 @@ async fn test_machine_discovery_with_domain(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
+        None,
         None,
     )
     .await

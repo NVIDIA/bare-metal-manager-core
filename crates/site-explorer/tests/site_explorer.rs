@@ -176,6 +176,7 @@ async fn test_handle_redfish_error_powers_on_machine(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -255,6 +256,7 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -347,6 +349,7 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -422,6 +425,7 @@ async fn test_site_explorer_ingests_no_dpu_host(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -479,6 +483,7 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -754,6 +759,7 @@ async fn test_expected_machine_device_type_metrics(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 3, // Explore our 3 machines
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -863,6 +869,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -1094,6 +1101,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 2,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -1581,6 +1589,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 7,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -1787,6 +1796,7 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 1,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -2061,6 +2071,7 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -2321,6 +2332,7 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -2493,6 +2505,7 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),

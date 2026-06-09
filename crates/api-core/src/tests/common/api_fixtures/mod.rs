@@ -1028,6 +1028,33 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
     create_test_env_with_overrides(db_pool, Default::default()).await
 }
 
+/// `create_test_env` with the fixture admin + host-inband site prefixes
+/// routable and the host-inband network segment created -- the standard
+/// setup for zero-DPU / NicMode ingestion tests.
+pub async fn create_test_env_with_host_inband(db_pool: sqlx::PgPool) -> TestEnv {
+    let env = create_test_env_with_overrides(
+        db_pool,
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    network_segment::FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    network_segment::FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    network_segment::FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    network_segment::FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    network_segment::create_host_inband_network_segment(&env.api, None).await;
+    env
+}
+
 #[derive(Debug, Default)]
 pub struct VerifierSimImpl {
     should_fail_parsing: Arc<AtomicBool>,
@@ -1495,6 +1522,7 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         SiteExplorerConfig {
             enabled: Arc::new(true.into()),
+            retained_boot_interface_window: None,
             // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,

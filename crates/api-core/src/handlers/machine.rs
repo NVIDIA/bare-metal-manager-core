@@ -596,6 +596,9 @@ pub(crate) async fn admin_force_delete_machine(
 
         if request.delete_interfaces {
             for interface in &machine.interfaces {
+                // The delete retains each row's boot interface pair in
+                // `retained_boot_interfaces`, so a re-ingested machine
+                // recovers its boot target before its first DHCP.
                 db::machine_interface::delete(&interface.id, &mut txn).await?;
             }
             response.host_interfaces_deleted = true;

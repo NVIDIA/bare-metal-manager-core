@@ -1972,6 +1972,7 @@ pub async fn create_expected_switches(
                 nvos_mac,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
+                None,
             )
             .await
             .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
@@ -1988,6 +1989,7 @@ pub async fn create_expected_switches(
             &result.bmc_mac_address.clone(),
             false,
             AddressSelectionStrategy::NextAvailableIp,
+            None,
         )
         .await
         .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))

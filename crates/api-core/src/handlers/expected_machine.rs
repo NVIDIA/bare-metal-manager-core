@@ -224,13 +224,25 @@ pub(crate) async fn update(
 
     // Update BMC interface if bmc_ip_address is set.
     if let Some(bmc_ip) = machine.data.bmc_ip_address {
-        update_preallocated_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            machine.bmc_mac_address,
+            bmc_ip,
+            api.runtime_config.retained_boot_interface_window,
+        )
+        .await?;
     }
 
     // Update/create machine interfaces for host NICs with fixed IPs.
     for nic in &machine.data.host_nics {
         if let Some(ip) = nic.fixed_ip {
-            update_preallocated_machine_interface(&mut txn, nic.mac_address, ip).await?;
+            update_preallocated_machine_interface(
+                &mut txn,
+                nic.mac_address,
+                ip,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await?;
         }
     }
 
@@ -426,6 +438,7 @@ async fn update_expected_machine(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
+    retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     let data: ExpectedMachineData = machine.try_into()?;
 
@@ -436,8 +449,13 @@ async fn update_expected_machine(
     };
 
     if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
-        update_preallocated_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip)
-            .await?;
+        update_preallocated_machine_interface(
+            txn,
+            expected_machine.bmc_mac_address,
+            bmc_ip,
+            retained_window,
+        )
+        .await?;
     }
 
     db::expected_machine::update(txn, &expected_machine).await?;
@@ -491,10 +509,13 @@ async fn apply_operation(
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
+    retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     match op {
         BatchOperation::Create => create_expected_machine(txn, machine, id, parsed_mac).await,
-        BatchOperation::Update => update_expected_machine(txn, machine, id, parsed_mac).await,
+        BatchOperation::Update => {
+            update_expected_machine(txn, machine, id, parsed_mac, retained_window).await
+        }
     }
 }
 
@@ -542,7 +563,16 @@ async fn process_batch_operations(
                 }
             };
 
-            match apply_operation(op, txn.as_pgconn(), machine, id, parsed_mac).await {
+            match apply_operation(
+                op,
+                txn.as_pgconn(),
+                machine,
+                id,
+                parsed_mac,
+                api.runtime_config.retained_boot_interface_window,
+            )
+            .await
+            {
                 Ok(_) => match txn.commit().await {
                     Ok(_) => results.push(build_success_result(machine_for_result)),
                     Err(e) => {
@@ -574,7 +604,16 @@ async fn process_batch_operations(
             value: id.to_string(),
         });
 
-        if let Err(e) = apply_operation(op, txn.as_pgconn(), machine, id, parsed_mac).await {
+        if let Err(e) = apply_operation(
+            op,
+            txn.as_pgconn(),
+            machine,
+            id,
+            parsed_mac,
+            api.runtime_config.retained_boot_interface_window,
+        )
+        .await
+        {
             let _ = txn.rollback().await;
             return Err(e);
         }

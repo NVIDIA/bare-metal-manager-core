@@ -1357,9 +1357,27 @@ pub async fn initialize_and_start_controllers<'a>(
         .start(join_set, cancel_token.clone())?;
     }
 
+    let site_explorer_config = {
+        let mut config = carbide_config.site_explorer.clone();
+        // `retained_boot_interface_window` is a single top-level knob
+        // (retention spans DHCP, deletion, and ingestion -- it isn't a
+        // site-explorer feature). Site-explorer's copy is `#[serde(skip)]`,
+        // so it can't be set under `[site_explorer]`; this hand-off is the
+        // only way the value gets in, sparing a constructor parameter
+        // through `SiteExplorer::new` and every test fixture.
+        config.retained_boot_interface_window = carbide_config.retained_boot_interface_window;
+        if let Some(window) = config.retained_boot_interface_window {
+            tracing::info!(
+                window_seconds = window.num_seconds(),
+                "retained_boot_interface_window configured; retained boot interface \
+                 records expire instead of waiting forever"
+            );
+        }
+        config
+    };
     SiteExplorer::new(
         db_pool.clone(),
-        carbide_config.site_explorer.clone(),
+        site_explorer_config,
         meter.clone(),
         bmc_explorer.clone(),
         Arc::new(carbide_config.get_firmware_config()),

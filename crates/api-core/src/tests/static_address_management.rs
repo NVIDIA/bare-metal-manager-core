@@ -41,6 +41,7 @@ async fn test_assign_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     // Delete the DHCP address so we can assign a static one for this family.
@@ -75,6 +76,7 @@ async fn test_assign_replaces_existing_static(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap(),
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -133,6 +135,7 @@ async fn test_assign_takes_over_dhcp_allocation(
         MacAddress::from_str("aa:bb:cc:dd:ee:12").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     let dhcp_ip = interface.addresses[0];
@@ -183,6 +186,7 @@ async fn test_remove_static_address(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:13").unwrap(),
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -235,6 +239,7 @@ async fn test_remove_nonexistent_returns_not_found(
         MacAddress::from_str("aa:bb:cc:dd:ee:14").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     txn.commit().await?;
@@ -269,6 +274,7 @@ async fn test_remove_dhcp_address_returns_not_found(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:25").unwrap(),
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -315,6 +321,7 @@ async fn test_find_interface_addresses_shows_types(
         MacAddress::from_str("aa:bb:cc:dd:ee:15").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     txn.commit().await?;
@@ -349,6 +356,7 @@ async fn test_assign_remove_then_dhcp_reallocates(
         &mut txn,
         mac,
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -428,6 +436,7 @@ async fn test_assign_moves_interface_to_correct_segment(
         MacAddress::from_str("aa:bb:cc:dd:ee:20").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     db::machine_interface_address::delete(&mut txn, &interface.id).await?;
@@ -471,6 +480,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:21").unwrap(),
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -518,6 +528,7 @@ async fn test_assign_within_same_segment_no_move(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:22").unwrap(),
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -739,6 +750,7 @@ async fn test_reserved_segment_serves_static_reservation(
         &bmc_mac,
         true,
         model::address_selection_strategy::AddressSelectionStrategy::StaticAddress(reserved_ip),
+        None,
     )
     .await?;
     txn.commit().await?;

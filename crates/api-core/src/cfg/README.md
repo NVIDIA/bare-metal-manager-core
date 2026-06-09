@@ -42,6 +42,7 @@ applicable.
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
 | `max_concurrent_machine_updates` | `Option<i32>` | — | **Deprecated.** Use `machine_updater` instead. |
 | `machine_update_run_interval` | `Option<u64>` | — | Interval (seconds) at which the machine update manager checks for updates. |
+| `retained_boot_interface_window` | `Option<Duration>` | — (forever) | How long a retained boot interface pair (`retained_boot_interfaces` table) stays applicable after its `machine_interfaces` row was deleted. Unset retains forever; set a window (e.g. `30d`) so a MAC reappearing on different hardware doesn't inherit an obsolete Redfish interface id. |
 | `site_explorer` | `SiteExplorerConfig` | *(see below)* | SiteExplorer hardware discovery settings (see [SiteExplorerConfig](#siteexplorerconfig)). |
 | `nvue_enabled` | `bool` | `true` | DPU agent uses NVUE for config instead of writing files directly. |
 | `vpc_peering_policy` | `Option<VpcPeeringPolicy>` | — | Policy for VPC peering based on network virtualization type at creation time. |
