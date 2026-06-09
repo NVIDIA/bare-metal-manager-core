@@ -21,7 +21,6 @@ use carbide_uuid::rack::RackId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{create_managed_host, create_test_env, site_explorer};
-use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use data_encoding::BASE32_DNSSEC;
 use db::ObjectFilter;
 use itertools::Itertools;
@@ -37,6 +36,7 @@ use rpc::forge::{
 use sha2::{Digest, Sha256};
 use tonic::Request;
 
+use crate::test_support::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{

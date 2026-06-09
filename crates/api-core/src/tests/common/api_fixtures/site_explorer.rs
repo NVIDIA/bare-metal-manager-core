@@ -59,6 +59,7 @@ use uuid;
 use super::dpu::create_machine_inventory;
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
 use super::{discovery_completed, inject_machine_measurements, network_configured};
+use crate::test_support::mac_address_pool::EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::host_uefi_setup;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -71,7 +72,6 @@ use crate::tests::common::api_fixtures::{
     machine_validation_completed, persist_machine_validation_result, reboot_completed,
     update_machine_validation_run,
 };
-use crate::tests::common::mac_address_pool::EXPECTED_SWITCH_NVOS_MAC_ADDRESS_POOL;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 async fn current_host_state_and_cleanup_needed(
@@ -1925,7 +1925,7 @@ pub async fn create_expected_switches(
     use model::expected_switch::ExpectedSwitch;
     use model::metadata::Metadata;
 
-    use crate::tests::common::mac_address_pool::EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL;
+    use crate::test_support::mac_address_pool::EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL;
 
     let mut created = Vec::new();
     for i in 0..6 {
@@ -2005,7 +2005,7 @@ pub async fn create_expected_power_shelves(
     use model::expected_power_shelf::ExpectedPowerShelf;
     use model::metadata::Metadata;
 
-    use crate::tests::common::mac_address_pool::EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL;
+    use crate::test_support::mac_address_pool::EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL;
 
     let mut created = Vec::new();
     for i in 0..6 {

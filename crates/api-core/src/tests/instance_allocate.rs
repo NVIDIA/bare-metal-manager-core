@@ -26,6 +26,7 @@ use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use rpc::{Metadata, forge};
 
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
+use crate::test_support::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -37,7 +38,6 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_underlay_network_segment,
 };
 use crate::tests::common::api_fixtures::{TestEnv, TestEnvOverrides};
-use crate::tests::common::mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[derive(Debug, Default)]

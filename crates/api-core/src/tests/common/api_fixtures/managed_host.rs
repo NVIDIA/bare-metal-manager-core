@@ -31,9 +31,9 @@ use model::site_explorer::{
     UefiDevicePath,
 };
 
+use crate::test_support::{ib_guid_pool, mac_address_pool};
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::X86_INFO_JSON;
-use crate::tests::common::{ib_guid_pool, mac_address_pool};
 
 static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
 const REQUIRED_IB_GUIDS: usize = 6;

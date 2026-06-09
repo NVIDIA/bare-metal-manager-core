@@ -24,8 +24,6 @@ pub mod api_fixtures;
 #[cfg(test)]
 pub mod attestation;
 pub mod endpoint;
-pub mod ib_guid_pool;
-pub mod mac_address_pool;
 pub mod metadata;
 pub mod network_segment;
 pub mod rpc_builder;

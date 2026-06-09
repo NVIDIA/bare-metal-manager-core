@@ -19,6 +19,8 @@ pub mod builder;
 pub mod default_config;
 pub mod endpoint_explorer;
 pub mod ib_fabric;
+pub mod ib_guid_pool;
+pub mod mac_address_pool;
 pub mod network;
 pub mod network_segment;
 

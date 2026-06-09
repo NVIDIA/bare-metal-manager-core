@@ -35,9 +35,9 @@ use sqlx::PgConnection;
 use tonic::Request;
 
 use super::site_explorer;
+use crate::test_support::mac_address_pool;
 use crate::tests::common::api_fixtures::managed_host::{HardwareInfoTemplate, ManagedHostConfig};
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
-use crate::tests::common::mac_address_pool;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 /// The version identifier that is used by dpu-agent in unit-tests
