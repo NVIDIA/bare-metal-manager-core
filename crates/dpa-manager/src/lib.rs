@@ -48,7 +48,7 @@ mod metrics;
 
 pub struct DpaMonitor {
     db_services: DbServices,
-    dpa_info: Option<Arc<DpaInfo>>,
+    dpa_info: Arc<DpaInfo>,
     config: DpaConfig,
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -73,7 +73,7 @@ impl DpaMonitor {
     pub fn new(
         db_pool: PgPool,
         _db_reader: PgPoolReader,
-        dpa_info: Option<Arc<DpaInfo>>,
+        dpa_info: Arc<DpaInfo>,
         _meter: opentelemetry::metrics::Meter,
         config: DpaConfig,
         host_health: HostHealthConfig,
@@ -515,7 +515,7 @@ impl DpaMonitor {
 
         let hb_interval = self.config.hb_interval;
 
-        let dpa_info = self.dpa_info.clone().unwrap();
+        let dpa_info = self.dpa_info.clone();
 
         let host_use_admin_network = dpa_interface.use_admin_network();
 
