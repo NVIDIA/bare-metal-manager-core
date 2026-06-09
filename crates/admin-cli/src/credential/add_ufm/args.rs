@@ -22,6 +22,13 @@ use crate::credential::common::url_validator;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a UFM credential with a token:
+    $ carbide-admin-cli credential add-ufm --url https://192.0.2.10 --token mypassword
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "The UFM url")]
     pub url: String,

@@ -2774,6 +2774,64 @@ async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
     Ok(())
 }
 
+/// A zero-DPU host whose only NIC is a plain (non-DPU) host NIC.
+/// We expect to walk over the report ethernet interfaces and record
+/// the NIC's Redfish-reported interface id onto its machine_interface
+/// row, matched/paired with its MAC address.
+#[sqlx_test]
+async fn test_site_explorer_records_boot_interface_id_onto_non_dpu_nic(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let non_dpu_mac = MacAddress::from_str("d4:04:e6:84:13:98").unwrap();
+    let mh = common::api_fixtures::create_managed_host_with_config(
+        &env,
+        ManagedHostConfig {
+            dpus: vec![],
+            non_dpu_macs: vec![non_dpu_mac],
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let nic = interfaces
+        .get(&mh.id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.mac_address == non_dpu_mac)
+        .expect("the non-DPU host NIC should have a machine_interface row");
+
+    assert_eq!(
+        nic.boot_interface_id.as_deref(),
+        Some("NIC.Embedded.1-1-1"),
+        "exploration should record a non-DPU NIC's Redfish interface id on its row",
+    );
+
+    Ok(())
+}
+
 /// A Managed Host whose `expected_machines` row is later removed becomes an
 /// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
 /// alert on the host's Machine. Re-adding the entry clears the alert on the

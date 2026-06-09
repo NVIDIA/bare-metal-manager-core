@@ -19,6 +19,22 @@ use carbide_uuid::spx::SpxPartitionId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all SPX partitions:
+    $ carbide-admin-cli spx-partition show
+
+Show one partition by ID:
+    $ carbide-admin-cli spx-partition show 12345678-1234-5678-90ab-cdef01234567
+
+Filter by tenant org:
+    $ carbide-admin-cli spx-partition show --tenant-org-id fds34511233a
+
+Filter by name:
+    $ carbide-admin-cli spx-partition show --name my-partition
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),

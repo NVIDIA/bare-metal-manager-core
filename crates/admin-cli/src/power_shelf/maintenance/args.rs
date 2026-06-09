@@ -26,8 +26,32 @@ use rpc::forge as forgerpc;
 #[allow(clippy::enum_variant_names)]
 pub enum Args {
     /// Request the listed power shelves to power on.
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Power on a power shelf:
+    $ carbide-admin-cli power-shelf maintenance power-on --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
+Power on several at once, citing a reference ticket:
+    $ carbide-admin-cli power-shelf maintenance power-on \
+    --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 \
+    --reference https://tickets.example.com/PS-42
+
+")]
     PowerOn(MaintenancePowerArgs),
     /// Request the listed power shelves to power off.
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Power off a power shelf:
+    $ carbide-admin-cli power-shelf maintenance power-off --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
+Power off several at once, citing a reference ticket:
+    $ carbide-admin-cli power-shelf maintenance power-off \
+    --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 \
+    --reference https://tickets.example.com/PS-42
+
+")]
     PowerOff(MaintenancePowerArgs),
 }
 

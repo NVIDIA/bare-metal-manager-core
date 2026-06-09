@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add every certificate in a directory as a CA certificate:
+    $ carbide-admin-cli tpm-ca add-bulk --dirname /path/to/tpm-ca-certs/
+
+")]
 pub struct Args {
     #[clap(short, long, help = "Directory path containing all CA certs")]
     pub dirname: String,

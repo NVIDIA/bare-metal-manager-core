@@ -20,6 +20,13 @@ use clap::Parser;
 use rpc::forge::ApproveRemediationRequest;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Approve a remediation:
+    $ carbide-admin-cli dpu-remediation approve --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "The id of the remediation to approve", long)]
     pub id: RemediationId,

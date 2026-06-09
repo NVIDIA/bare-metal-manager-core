@@ -26,6 +26,21 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 
 // ConfigCommand are the config subcommands.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Query device configuration values (all, or specific comma-separated variables):
+    $ carbide-admin-cli mlx config query 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0 my-registry
+
+Set configuration values (variable=value, comma-separated):
+    $ carbide-admin-cli mlx config set 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0 my-registry \
+    LINK_TYPE=eth,SRIOV_EN=true
+
+Compare a device against expected values:
+    $ carbide-admin-cli mlx config compare 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0 my-registry \
+    LINK_TYPE=eth
+
+")]
 pub enum ConfigCommand {
     #[clap(about = "Query device configuration values")]
     Query(ConfigQueryCommand),

@@ -18,6 +18,17 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show what is attached to a network security group:
+    $ carbide-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567
+
+Include objects inheriting the group from a parent:
+    $ carbide-admin-cli network-security-group show-attachments --id 12345678-1234-5678-90ab-cdef01234567 \
+    --include-indirect
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "network security group ID to query")]
     pub id: String,

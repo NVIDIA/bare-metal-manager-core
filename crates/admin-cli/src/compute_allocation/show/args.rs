@@ -20,6 +20,22 @@ use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all compute allocations:
+    $ carbide-admin-cli compute-allocation show
+
+Show one compute allocation by ID:
+    $ carbide-admin-cli compute-allocation show --id 12345678-1234-5678-90ab-cdef01234567
+
+Show allocations for one tenant:
+    $ carbide-admin-cli compute-allocation show --tenant-organization-id fds34511233a
+
+Filter by instance type:
+    $ carbide-admin-cli compute-allocation show --instance-type-id DGX-H100-640GB
+
+")]
 pub struct Args {
     #[clap(
         short = 'i',
