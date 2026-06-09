@@ -106,6 +106,16 @@ pub async fn update_end_time(
     Ok(())
 }
 
+pub fn is_active(validation: &MachineValidation) -> bool {
+    validation.end_time.is_none()
+        && validation.status.as_ref().is_some_and(|status| {
+            matches!(
+                status.state,
+                MachineValidationState::Started | MachineValidationState::InProgress
+            )
+        })
+}
+
 pub async fn update_end_time_if_active(
     txn: &mut PgConnection,
     id: &MachineValidationId,
@@ -305,14 +315,7 @@ pub async fn find_active_machine_validation_by_machine_id(
 ) -> DatabaseResult<MachineValidation> {
     let ret = find_by_machine_id(txn, machine_id).await?;
     for iter in ret {
-        if iter.end_time.is_none()
-            && iter.status.as_ref().is_some_and(|status| {
-                matches!(
-                    status.state,
-                    MachineValidationState::Started | MachineValidationState::InProgress
-                )
-            })
-        {
+        if is_active(&iter) {
             return Ok(iter);
         }
     }

@@ -1383,6 +1383,31 @@ async fn test_machine_validation_manager_reconciles_stale_run(
     .run_single_iteration()
     .await?;
 
+    let late_result_name = "late-stale-result".to_string();
+    env.api
+        .persist_validation_result(tonic::Request::new(
+            rpc::forge::MachineValidationResultPostRequest {
+                result: Some(rpc::forge::MachineValidationResult {
+                    validation_id: Some(validation_id),
+                    name: late_result_name.clone(),
+                    description: "desc".to_string(),
+                    command: "echo".to_string(),
+                    args: "test".to_string(),
+                    std_out: "".to_string(),
+                    std_err: "".to_string(),
+                    context: "OnDemand".to_string(),
+                    exit_code: 0,
+                    start_time: Some(Timestamp::from(SystemTime::now())),
+                    end_time: Some(Timestamp::from(SystemTime::now())),
+                    test_id: Some(late_result_name.clone()),
+                }),
+            },
+        ))
+        .await?;
+    let results =
+        db::machine_validation_result::find_by_validation_id(&env.pool, &validation_id).await?;
+    assert!(!results.iter().any(|result| result.name == late_result_name));
+
     env.api
         .machine_validation_completed(tonic::Request::new(
             rpc::forge::MachineValidationCompletedRequest {

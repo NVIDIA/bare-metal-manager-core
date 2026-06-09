@@ -229,6 +229,18 @@ pub(crate) async fn persist_validation_result(
                 );
             }
         };
+    let machine_validation =
+        db::machine_validation::find_by_id(&mut txn, &validation_result.validation_id).await?;
+    if !db::machine_validation::is_active(&machine_validation) {
+        tracing::info!(
+            validation_id = %validation_result.validation_id,
+            machine_id = %machine.id,
+            "machine validation result ignored because run is no longer active"
+        );
+        txn.commit().await?;
+        return Ok(tonic::Response::new(()));
+    }
+
     // Check state
     match machine.current_state() {
         ManagedHostState::Validation { validation_state } => {
