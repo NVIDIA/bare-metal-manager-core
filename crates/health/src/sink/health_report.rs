@@ -42,15 +42,36 @@ struct LastSent {
     sent_at: Instant,
 }
 
+struct LastSentCache {
+    entries: HashMap<HealthReportKey, LastSent>,
+    last_evicted: Instant,
+}
+
+impl LastSentCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            last_evicted: Instant::now(),
+        }
+    }
+
+    fn evict_if_due(&mut self, evict_after: Duration) {
+        if self.last_evicted.elapsed() >= evict_after {
+            self.entries.retain(|_, v| v.sent_at.elapsed() < evict_after);
+            self.last_evicted = Instant::now();
+        }
+    }
+}
+
 pub struct HealthReportSink {
     queue: Arc<DedupQueue<HealthReportKey, Arc<HealthReport>>>,
     skip_empty_reports: bool,
     suppress_unchanged_interval: Option<Duration>,
-    last_sent: Mutex<HashMap<HealthReportKey, LastSent>>,
+    last_sent: Mutex<LastSentCache>,
 }
 
 fn content_hash(report: &HealthReport) -> u64 {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
     let mut hasher = DefaultHasher::new();
 
     let mut successes = BTreeSet::new();
@@ -58,19 +79,6 @@ fn content_hash(report: &HealthReport) -> u64 {
         successes.insert((s.probe_id.as_str(), s.target.as_deref()));
     }
     successes.hash(&mut hasher);
-
-    let mut alerts: BTreeMap<(&str, Option<&str>), (&str, Vec<&str>)> = BTreeMap::new();
-    for a in &report.alerts {
-        let mut cls: Vec<&str> = a.classifications.iter().map(|c| c.as_str()).collect();
-        cls.sort_unstable();
-        alerts.insert((a.probe_id.as_str(), a.target.as_deref()), (&a.message, cls));
-    }
-    for ((probe, target), (msg, cls)) in &alerts {
-        probe.hash(&mut hasher);
-        target.hash(&mut hasher);
-        msg.hash(&mut hasher);
-        cls.hash(&mut hasher);
-    }
 
     hasher.finish()
 }
@@ -125,7 +133,7 @@ impl HealthReportSink {
             queue,
             skip_empty_reports: config.skip_empty_reports,
             suppress_unchanged_interval: config.suppress_unchanged_interval,
-            last_sent: Mutex::new(HashMap::new()),
+            last_sent: Mutex::new(LastSentCache::new()),
         })
     }
 
@@ -135,7 +143,7 @@ impl HealthReportSink {
             queue: Arc::new(DedupQueue::new()),
             skip_empty_reports: true,
             suppress_unchanged_interval: None,
-            last_sent: Mutex::new(HashMap::new()),
+            last_sent: Mutex::new(LastSentCache::new()),
         })
     }
 
@@ -178,16 +186,12 @@ impl DataSink for HealthReportSink {
             };
 
             if let Some(suppress_interval) = self.suppress_unchanged_interval {
+                let mut cache = self.last_sent.lock().expect("last_sent mutex poisoned");
+                cache.evict_if_due(suppress_interval * 2);
+
                 if report.alerts.is_empty() {
                     let hash = content_hash(report);
-                    let mut last_sent = self.last_sent.lock().expect("last_sent mutex poisoned");
-
-                    // Evict stale entries so the map doesn't grow without bound as
-                    // hardware is added and removed over the lifetime of the process.
-                    let evict_after = suppress_interval * 2;
-                    last_sent.retain(|_, v| v.sent_at.elapsed() < evict_after);
-
-                    if let Some(prev) = last_sent.get(&key) {
+                    if let Some(prev) = cache.entries.get(&key) {
                         if prev.content_hash == hash && prev.sent_at.elapsed() < suppress_interval {
                             tracing::debug!(
                                 source = ?report.source,
@@ -197,7 +201,11 @@ impl DataSink for HealthReportSink {
                             return;
                         }
                     }
-                    last_sent.insert(key.clone(), LastSent { content_hash: hash, sent_at: Instant::now() });
+                    cache.entries.insert(key.clone(), LastSent { content_hash: hash, sent_at: Instant::now() });
+                } else {
+                    // Clear the suppression entry so the first all-clear report
+                    // after an alert is never throttled.
+                    cache.entries.remove(&key);
                 }
             }
 
@@ -356,16 +364,20 @@ mod tests {
         assert_eq!(third_report.source, ReportSource::TrayLeakDetection);
     }
 
+    fn make_sink(suppress_unchanged_interval: Option<Duration>) -> HealthReportSink {
+        HealthReportSink {
+            queue: Arc::new(DedupQueue::new()),
+            skip_empty_reports: false,
+            suppress_unchanged_interval,
+            last_sent: Mutex::new(LastSentCache::new()),
+        }
+    }
+
     #[test]
     fn unchanged_success_only_report_suppressed_within_interval() {
         let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let ctx = machine_context(mid);
-        let sink = HealthReportSink {
-            queue: Arc::new(DedupQueue::new()),
-            skip_empty_reports: false,
-            suppress_unchanged_interval: Some(Duration::from_secs(300)),
-            last_sent: Mutex::new(HashMap::new()),
-        };
+        let sink = make_sink(Some(Duration::from_secs(300)));
         let report = success_report(ReportSource::BmcSensors);
         let event = CollectorEvent::HealthReport(Arc::clone(&report));
 
@@ -380,33 +392,28 @@ mod tests {
     fn report_with_alerts_never_suppressed() {
         let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let ctx = machine_context(mid);
-        let sink = HealthReportSink {
-            queue: Arc::new(DedupQueue::new()),
-            skip_empty_reports: false,
-            suppress_unchanged_interval: Some(Duration::from_secs(300)),
-            last_sent: Mutex::new(HashMap::new()),
-        };
-        let report = alert_report(ReportSource::BmcSensors);
-        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+        let sink = make_sink(Some(Duration::from_secs(300)));
+        let alert = alert_report(ReportSource::BmcSensors);
+        let success = success_report(ReportSource::BmcSensors);
 
-        sink.handle_event(&ctx, &event);
-        sink.handle_event(&ctx, &event);
+        // Send a success first to populate last_sent, then send an alert.
+        // The alert must not be suppressed, and the subsequent success must
+        // also go through (alert clears the suppression entry).
+        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&success)));
+        sink.queue.pop();
 
-        // DedupQueue replaces the value for the same key, so only one entry exists,
-        // but both sends reached the queue (not suppressed).
-        assert!(sink.queue.pop().is_some());
+        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&alert)));
+        assert!(sink.queue.pop().is_some(), "alert should not be suppressed");
+
+        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&success)));
+        assert!(sink.queue.pop().is_some(), "first success after alert should not be suppressed");
     }
 
     #[test]
     fn changed_content_always_forwarded() {
         let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let ctx = machine_context(mid);
-        let sink = HealthReportSink {
-            queue: Arc::new(DedupQueue::new()),
-            skip_empty_reports: false,
-            suppress_unchanged_interval: Some(Duration::from_secs(300)),
-            last_sent: Mutex::new(HashMap::new()),
-        };
+        let sink = make_sink(Some(Duration::from_secs(300)));
 
         let report_a = success_report(ReportSource::BmcSensors);
         sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_a)));
@@ -431,12 +438,7 @@ mod tests {
     fn suppression_disabled_forwards_all_reports() {
         let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let ctx = machine_context(mid);
-        let sink = HealthReportSink {
-            queue: Arc::new(DedupQueue::new()),
-            skip_empty_reports: false,
-            suppress_unchanged_interval: None,
-            last_sent: Mutex::new(HashMap::new()),
-        };
+        let sink = make_sink(None);
         let report = success_report(ReportSource::BmcSensors);
         let event = CollectorEvent::HealthReport(Arc::clone(&report));
 
