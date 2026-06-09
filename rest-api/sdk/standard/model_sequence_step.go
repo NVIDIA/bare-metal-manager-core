@@ -25,21 +25,21 @@ var _ MappedNullable = &SequenceStep{}
 // SequenceStep A single execution step inside a `RuleDefinition`.
 type SequenceStep struct {
 	// Component type this step targets (e.g. `Compute`, `NVLSwitch`, `PowerShelf`). Validated against Flow's component-type set.
-	ComponentType string `json:"component_type"`
+	ComponentType string `json:"componentType"`
 	// Stage number; steps with the same stage run in parallel, lower stages run first. Component types must be unique within a stage.
 	Stage int32 `json:"stage"`
 	// Maximum number of components of this type processed concurrently. `0` means unlimited, `1` means strictly sequential.
-	MaxParallel *int32 `json:"max_parallel,omitempty"`
+	MaxParallel *int32 `json:"maxParallel,omitempty"`
 	// Optional child-workflow timeout for this step, as a Go duration string (e.g. `30s`, `2m`). Applies to pre + main + post combined.
 	Timeout *string      `json:"timeout,omitempty"`
 	Retry   *RetryPolicy `json:"retry,omitempty"`
 	// Actions to run before the main operation.
-	PreOperation  []ActionConfig `json:"pre_operation,omitempty"`
-	MainOperation ActionConfig   `json:"main_operation"`
+	PreOperation  []ActionConfig `json:"preOperation,omitempty"`
+	MainOperation ActionConfig   `json:"mainOperation"`
 	// Actions to run after the main operation.
-	PostOperation []ActionConfig `json:"post_operation,omitempty"`
+	PostOperation []ActionConfig `json:"postOperation,omitempty"`
 	// Deprecated legacy field — sleep duration after this step, as a Go duration string. Prefer encoding the wait as an explicit `Sleep` post-operation action.
-	DelayAfter *string `json:"delay_after,omitempty"`
+	DelayAfter *string `json:"delayAfter,omitempty"`
 }
 
 type _SequenceStep SequenceStep
@@ -338,10 +338,10 @@ func (o SequenceStep) MarshalJSON() ([]byte, error) {
 
 func (o SequenceStep) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["component_type"] = o.ComponentType
+	toSerialize["componentType"] = o.ComponentType
 	toSerialize["stage"] = o.Stage
 	if !IsNil(o.MaxParallel) {
-		toSerialize["max_parallel"] = o.MaxParallel
+		toSerialize["maxParallel"] = o.MaxParallel
 	}
 	if !IsNil(o.Timeout) {
 		toSerialize["timeout"] = o.Timeout
@@ -350,14 +350,14 @@ func (o SequenceStep) ToMap() (map[string]interface{}, error) {
 		toSerialize["retry"] = o.Retry
 	}
 	if !IsNil(o.PreOperation) {
-		toSerialize["pre_operation"] = o.PreOperation
+		toSerialize["preOperation"] = o.PreOperation
 	}
-	toSerialize["main_operation"] = o.MainOperation
+	toSerialize["mainOperation"] = o.MainOperation
 	if !IsNil(o.PostOperation) {
-		toSerialize["post_operation"] = o.PostOperation
+		toSerialize["postOperation"] = o.PostOperation
 	}
 	if !IsNil(o.DelayAfter) {
-		toSerialize["delay_after"] = o.DelayAfter
+		toSerialize["delayAfter"] = o.DelayAfter
 	}
 	return toSerialize, nil
 }
@@ -367,9 +367,9 @@ func (o *SequenceStep) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"component_type",
+		"componentType",
 		"stage",
-		"main_operation",
+		"mainOperation",
 	}
 
 	allProperties := make(map[string]interface{})

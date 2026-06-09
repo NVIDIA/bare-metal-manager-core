@@ -29,7 +29,7 @@ type ActionConfig struct {
 	// Optional per-action timeout override as a Go duration string (e.g. `30s`, `2m`).
 	Timeout *string `json:"timeout,omitempty"`
 	// Poll interval for actions that loop (e.g. `FirmwareControl`, `VerifyPowerStatus`) as a Go duration string.
-	PollInterval *string `json:"poll_interval,omitempty"`
+	PollInterval *string `json:"pollInterval,omitempty"`
 	// Action-specific parameters. Validated server-side against the action's schema. Examples:   - `Sleep`: `{ duration: \"30s\" }`   - `PowerControl`: `{ operation: \"on\" }`   - `VerifyPowerStatus`: `{ expected_status: \"on\" }`   - `VerifyReachability`: `{ component_types: [\"Compute\"], require_all: true }`   - `FirmwareControl`: `{ poll_interval: \"10s\", poll_timeout: \"30m\" }`
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
 }
@@ -189,7 +189,7 @@ func (o ActionConfig) ToMap() (map[string]interface{}, error) {
 		toSerialize["timeout"] = o.Timeout
 	}
 	if !IsNil(o.PollInterval) {
-		toSerialize["poll_interval"] = o.PollInterval
+		toSerialize["pollInterval"] = o.PollInterval
 	}
 	if !IsNil(o.Parameters) {
 		toSerialize["parameters"] = o.Parameters

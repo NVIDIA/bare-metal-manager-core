@@ -963,7 +963,7 @@ func (r ApiGetRackTasksRequest) PageSize(pageSize int32) ApiGetRackTasksRequest 
 	return r
 }
 
-func (r ApiGetRackTasksRequest) Execute() ([]RackTask, *http.Response, error) {
+func (r ApiGetRackTasksRequest) Execute() ([]Task, *http.Response, error) {
 	return r.ApiService.GetRackTasksExecute(r)
 }
 
@@ -992,13 +992,13 @@ func (a *RackAPIService) GetRackTasks(ctx context.Context, org string, id string
 
 // Execute executes the request
 //
-//	@return []RackTask
-func (a *RackAPIService) GetRackTasksExecute(r ApiGetRackTasksRequest) ([]RackTask, *http.Response, error) {
+//	@return []Task
+func (a *RackAPIService) GetRackTasksExecute(r ApiGetRackTasksRequest) ([]Task, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []RackTask
+		localVarReturnValue []Task
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RackAPIService.GetRackTasks")

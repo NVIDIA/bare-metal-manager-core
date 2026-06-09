@@ -714,7 +714,7 @@ func (r ApiGetTrayTasksRequest) PageSize(pageSize int32) ApiGetTrayTasksRequest 
 	return r
 }
 
-func (r ApiGetTrayTasksRequest) Execute() ([]RackTask, *http.Response, error) {
+func (r ApiGetTrayTasksRequest) Execute() ([]Task, *http.Response, error) {
 	return r.ApiService.GetTrayTasksExecute(r)
 }
 
@@ -743,13 +743,13 @@ func (a *TrayAPIService) GetTrayTasks(ctx context.Context, org string, id string
 
 // Execute executes the request
 //
-//	@return []RackTask
-func (a *TrayAPIService) GetTrayTasksExecute(r ApiGetTrayTasksRequest) ([]RackTask, *http.Response, error) {
+//	@return []Task
+func (a *TrayAPIService) GetTrayTasksExecute(r ApiGetTrayTasksRequest) ([]Task, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []RackTask
+		localVarReturnValue []Task
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TrayAPIService.GetTrayTasks")

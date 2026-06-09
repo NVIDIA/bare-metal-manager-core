@@ -25,13 +25,13 @@ var _ MappedNullable = &RetryPolicy{}
 // RetryPolicy Retry behavior for a step's child workflow.
 type RetryPolicy struct {
 	// Maximum number of attempts including the first.
-	MaxAttempts int32 `json:"max_attempts"`
+	MaxAttempts int32 `json:"maxAttempts"`
 	// Initial retry interval, as a Go duration string (e.g. `1s`).
-	InitialInterval string `json:"initial_interval"`
+	InitialInterval string `json:"initialInterval"`
 	// Exponential backoff multiplier; must be `>= 1.0`.
-	BackoffCoefficient float32 `json:"backoff_coefficient"`
+	BackoffCoefficient float32 `json:"backoffCoefficient"`
 	// Optional cap on retry interval, as a Go duration string.
-	MaxInterval *string `json:"max_interval,omitempty"`
+	MaxInterval *string `json:"maxInterval,omitempty"`
 }
 
 type _RetryPolicy RetryPolicy
@@ -170,11 +170,11 @@ func (o RetryPolicy) MarshalJSON() ([]byte, error) {
 
 func (o RetryPolicy) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["max_attempts"] = o.MaxAttempts
-	toSerialize["initial_interval"] = o.InitialInterval
-	toSerialize["backoff_coefficient"] = o.BackoffCoefficient
+	toSerialize["maxAttempts"] = o.MaxAttempts
+	toSerialize["initialInterval"] = o.InitialInterval
+	toSerialize["backoffCoefficient"] = o.BackoffCoefficient
 	if !IsNil(o.MaxInterval) {
-		toSerialize["max_interval"] = o.MaxInterval
+		toSerialize["maxInterval"] = o.MaxInterval
 	}
 	return toSerialize, nil
 }
@@ -184,9 +184,9 @@ func (o *RetryPolicy) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"max_attempts",
-		"initial_interval",
-		"backoff_coefficient",
+		"maxAttempts",
+		"initialInterval",
+		"backoffCoefficient",
 	}
 
 	allProperties := make(map[string]interface{})
