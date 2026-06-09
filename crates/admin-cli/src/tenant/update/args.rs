@@ -18,6 +18,19 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Rename a tenant org:
+    $ carbide-admin-cli tenant update fds34511233a --name \"Acme Corp\"
+
+Apply a routing profile to a tenant:
+    $ carbide-admin-cli tenant update fds34511233a --routing-profile-type default
+
+Update only if the record is still at a known version (optimistic concurrency):
+    $ carbide-admin-cli tenant update fds34511233a --name \"Acme Corp\" --version 7
+
+")]
 pub struct Args {
     #[clap(help = "Tenant org ID to update", default_value(None))]
     pub tenant_org: String,

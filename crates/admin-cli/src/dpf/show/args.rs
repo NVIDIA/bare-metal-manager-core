@@ -23,6 +23,16 @@ use crate::dpf::common::DpfQuery;
 // specific newtype to allow sharing of DpfQuery, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show DPF status for all hosts:
+    $ carbide-admin-cli dpf show
+
+Show DPF status for one host machine:
+    $ carbide-admin-cli dpf show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: DpfQuery,

@@ -19,6 +19,16 @@ use carbide_uuid::domain::DomainId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all domains:
+    $ carbide-admin-cli domain show
+
+Show one domain by ID:
+    $ carbide-admin-cli domain show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         short,

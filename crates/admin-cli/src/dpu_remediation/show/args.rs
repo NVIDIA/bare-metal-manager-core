@@ -19,6 +19,19 @@ use carbide_uuid::dpu_remediations::RemediationId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all remediations:
+    $ carbide-admin-cli dpu-remediation show
+
+Show details for one remediation:
+    $ carbide-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567
+
+Show a remediation including its script body:
+    $ carbide-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567 --display-script
+
+")]
 pub struct Args {
     #[clap(help = "The remediation id to query, if not provided defaults to all")]
     pub id: Option<RemediationId>,

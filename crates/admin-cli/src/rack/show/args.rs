@@ -19,6 +19,16 @@ use carbide_uuid::rack::RackId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all racks:
+    $ carbide-admin-cli rack show
+
+Show details for one rack:
+    $ carbide-admin-cli rack show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Rack ID to show (leave empty for all)")]
     pub rack: Option<RackId>,

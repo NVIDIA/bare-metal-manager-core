@@ -143,7 +143,7 @@ pub fn setup_logging(
                         .build()?;
 
                     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-                        // CarbideSpanSampler selects spans that begin from our crate
+                        // CarbideSpanSampler selects explicitly marked application trace roots.
                         .with_sampler(trace_sampler.into_sampler())
                         .with_batch_exporter(otlp_exporter)
                         .with_resource(
@@ -247,12 +247,14 @@ fn create_metric_view_for_retry_histograms(
 #[derive(Debug, Clone)]
 struct CarbideSpanSampler(Arc<AtomicBool>);
 
+const CARBIDE_TRACE_ROOT_ATTRIBUTE: &str = "carbide.trace_root";
+
 impl CarbideSpanSampler {
     fn new(enabled: Arc<AtomicBool>) -> Self {
         Self(enabled)
     }
 
-    /// Construct a new Sampler that samples spans originating from the carbide crate
+    /// Construct a new Sampler that samples spans originating from carbide-api.
     fn into_sampler(self) -> Sampler {
         Sampler::ParentBased(Box::new(self))
     }
@@ -290,14 +292,7 @@ impl ShouldSample for CarbideSpanSampler {
         let should_sample = if !enabled {
             false
         } else {
-            attributes
-                .iter()
-                .find(|kv| kv.key.as_str() == "code.namespace")
-                .and_then(|v| match &v.value {
-                    Value::String(str) => Some(str.as_str()),
-                    _ => None,
-                })
-                .is_some_and(|s| s.starts_with("carbide::"))
+            is_carbide_root_span(attributes)
         };
 
         SamplingResult {
@@ -310,6 +305,12 @@ impl ShouldSample for CarbideSpanSampler {
             trace_state: Default::default(),
         }
     }
+}
+
+fn is_carbide_root_span(attributes: &[KeyValue]) -> bool {
+    attributes.iter().any(|kv| {
+        kv.key.as_str() == CARBIDE_TRACE_ROOT_ATTRIBUTE && matches!(&kv.value, Value::Bool(true))
+    })
 }
 
 pub fn create_metric_for_spancount_reader(
@@ -339,6 +340,66 @@ mod tests {
     use prometheus::{Encoder, TextEncoder};
 
     use super::*;
+
+    fn sample_decision(enabled: bool, attributes: Vec<KeyValue>) -> SamplingDecision {
+        CarbideSpanSampler::new(Arc::new(AtomicBool::new(enabled)))
+            .should_sample(
+                None,
+                TraceId::from(1),
+                "test-span",
+                &SpanKind::Internal,
+                &attributes,
+                &[],
+            )
+            .decision
+    }
+
+    #[test]
+    fn sampler_accepts_marked_root_spans_when_enabled() {
+        let decision = sample_decision(
+            true,
+            vec![KeyValue::new(CARBIDE_TRACE_ROOT_ATTRIBUTE, true)],
+        );
+
+        assert!(matches!(decision, SamplingDecision::RecordAndSample));
+    }
+
+    #[test]
+    fn sampler_drops_marked_root_spans_when_disabled() {
+        let decision = sample_decision(
+            false,
+            vec![KeyValue::new(CARBIDE_TRACE_ROOT_ATTRIBUTE, true)],
+        );
+
+        assert!(matches!(decision, SamplingDecision::Drop));
+    }
+
+    #[test]
+    fn sampler_drops_unmarked_root_spans() {
+        let decision = sample_decision(true, vec![KeyValue::new("span_id", "0xabc")]);
+
+        assert!(matches!(decision, SamplingDecision::Drop));
+    }
+
+    #[test]
+    fn sampler_drops_false_trace_root_markers() {
+        let decision = sample_decision(
+            true,
+            vec![KeyValue::new(CARBIDE_TRACE_ROOT_ATTRIBUTE, false)],
+        );
+
+        assert!(matches!(decision, SamplingDecision::Drop));
+    }
+
+    #[test]
+    fn sampler_drops_string_trace_root_markers() {
+        let decision = sample_decision(
+            true,
+            vec![KeyValue::new(CARBIDE_TRACE_ROOT_ATTRIBUTE, "true")],
+        );
+
+        assert!(matches!(decision, SamplingDecision::Drop));
+    }
 
     /// This test mostly mimics the test setup above and checks whether
     /// the prometheus opentelemetry stack will only report the most recent
