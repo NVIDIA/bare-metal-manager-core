@@ -581,9 +581,27 @@ fn sysfs_path_is_sata(path: &std::path::Path) -> bool {
     path.to_string_lossy().contains("/ata")
 }
 
+fn sysfs_symlink_basename(path: &std::path::Path) -> Option<String> {
+    fs::canonicalize(path).ok().and_then(|target| {
+        target
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+    })
+}
+
+fn sysfs_ancestor_is_usb(ancestor: &std::path::Path) -> bool {
+    if sysfs_symlink_basename(&ancestor.join("subsystem")).as_deref() == Some("usb") {
+        return true;
+    }
+
+    matches!(
+        sysfs_symlink_basename(&ancestor.join("driver")).as_deref(),
+        Some("usb-storage" | "uas")
+    )
+}
+
 fn sysfs_path_is_usb(path: &std::path::Path) -> bool {
-    path.components()
-        .any(|component| component.as_os_str().to_string_lossy().starts_with("usb"))
+    path.ancestors().any(sysfs_ancestor_is_usb)
 }
 
 fn is_sata_device(devname: &str) -> bool {
@@ -1308,17 +1326,47 @@ mod tests {
     }
 
     #[test]
-    fn test_sysfs_path_is_usb() {
-        use std::path::Path;
-        assert!(sysfs_path_is_usb(Path::new(
-            "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0/host0/target0:0:0/0:0:0:0/block/sda"
-        )));
-        assert!(!sysfs_path_is_usb(Path::new(
-            "/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/sda"
-        )));
-        assert!(!sysfs_path_is_usb(Path::new(
-            "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
-        )));
+    fn test_sysfs_path_is_usb_by_subsystem_ancestor() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let usb_bus = tempdir.path().join("sys/bus/usb");
+        let usb_interface = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0");
+        let block_device = usb_interface.join("host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&usb_bus).unwrap();
+        std::fs::create_dir_all(&block_device).unwrap();
+        std::os::unix::fs::symlink(&usb_bus, usb_interface.join("subsystem")).unwrap();
+
+        assert!(sysfs_path_is_usb(&block_device));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb_by_driver_ancestor() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let uas_driver = tempdir.path().join("sys/bus/usb/drivers/uas");
+        let usb_interface = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0");
+        let block_device = usb_interface.join("host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&uas_driver).unwrap();
+        std::fs::create_dir_all(&block_device).unwrap();
+        std::os::unix::fs::symlink(&uas_driver, usb_interface.join("driver")).unwrap();
+
+        assert!(sysfs_path_is_usb(&block_device));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb_false_without_usb_ancestor_metadata() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let block_device = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:01.0/host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&block_device).unwrap();
+
+        assert!(!sysfs_path_is_usb(&block_device));
     }
 
     #[test]
