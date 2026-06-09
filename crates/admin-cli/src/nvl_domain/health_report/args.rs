@@ -19,6 +19,20 @@ use carbide_uuid::nvlink::NvLinkDomainId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List the health report sources for an NVLink domain:
+    $ carbide-admin-cli nvl-domain health-report show 12345678-1234-5678-90ab-cdef01234567
+
+Remove a health report source (source name from `health-report show`):
+    $ carbide-admin-cli nvl-domain health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    internal-maintenance
+
+Print an empty health report template:
+    $ carbide-admin-cli nvl-domain health-report print-empty-template
+
+")]
 pub enum Args {
     #[clap(about = "List health report sources for an NVLink domain")]
     Show { domain_id: NvLinkDomainId },

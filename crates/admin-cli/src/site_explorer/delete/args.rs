@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an explored endpoint from the database:
+    $ carbide-admin-cli site-explorer delete --address 192.0.2.10
+
+")]
 pub struct Args {
     #[clap(long, help = "BMC IP address of the endpoint to delete")]
     pub address: String,

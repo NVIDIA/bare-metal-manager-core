@@ -22,6 +22,19 @@ use uuid::Uuid;
 use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all expected machines:
+    $ carbide-admin-cli expected-machine show
+
+Show one expected machine by BMC MAC address:
+    $ carbide-admin-cli expected-machine show 00:11:22:33:44:55
+
+Show one expected machine by id:
+    $ carbide-admin-cli expected-machine show --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),

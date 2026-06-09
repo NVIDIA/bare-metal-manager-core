@@ -19,6 +19,17 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show a machine's hardware info:
+    $ carbide-admin-cli machine hardware-info show --machine 12345678-1234-5678-90ab-cdef01234567
+
+Update a machine's GPUs from a JSON file:
+    $ carbide-admin-cli machine hardware-info update gpus --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --gpu-json-file ./gpus.json
+
+")]
 pub enum Args {
     #[clap(about = "Show the hardware info of the machine")]
     Show(ShowMachineHardwareInfo),

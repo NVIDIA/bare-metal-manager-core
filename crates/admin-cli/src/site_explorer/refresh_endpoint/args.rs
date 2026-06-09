@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Immediately probe a BMC endpoint and persist the report:
+    $ carbide-admin-cli site-explorer refresh 192.0.2.10
+
+")]
 pub struct Args {
     #[clap(help = "BMC IP address")]
     pub address: String,

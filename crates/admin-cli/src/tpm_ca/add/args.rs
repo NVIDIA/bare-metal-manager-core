@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a CA certificate from a DER/CER/PEM file:
+    $ carbide-admin-cli tpm-ca add --filename /path/to/tpm-ca.der
+
+")]
 pub struct Args {
     #[clap(short, long, help = "File name containing certificate in DER format")]
     pub filename: String,

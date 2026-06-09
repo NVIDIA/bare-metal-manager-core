@@ -18,6 +18,19 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all logical partitions:
+    $ carbide-admin-cli logical-partition show
+
+Show one logical partition by ID:
+    $ carbide-admin-cli logical-partition show 12345678-1234-5678-90ab-cdef01234567
+
+Filter by name:
+    $ carbide-admin-cli logical-partition show --name my-partition
+
+")]
 pub struct Args {
     #[clap(
         default_value(""),

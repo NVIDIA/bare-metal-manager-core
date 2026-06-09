@@ -4,11 +4,12 @@
 syntax = "proto3";
 
 package v1;
-option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow";
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow";
 
 service Flow {
     // Version
@@ -271,11 +272,12 @@ message ComponentTarget {
 }
 
 // ExternalRef identifies a component by its external system ID.
-// The component type determines which external system to query
-// (e.g., COMPUTE -> NICo, POWERSHELF -> PSM)
+// All component types are routed through Core (NICo); the ID is the
+// identifier expected by NICo for that component type (e.g. machine_id
+// for compute, PMC MAC for power shelf).
 message ExternalRef {
     ComponentType type = 1;  // Component type determines the source system
-    string id = 2;           // ID in that system (e.g., NICo machine_id, PSM PMC MAC)
+    string id = 2;           // ID expected by NICo for this component type
 }
 
 message NVLDomain {
@@ -316,10 +318,12 @@ message Task {
     string operation = 2;
     UUID rack_id = 3;
     repeated UUID component_uuids = 4;
+    // description is provided by the client when the task is created.
     string description = 5;
     TaskExecutorType executor_type = 6;
     string execution_id = 7;
     TaskStatus status = 8;
+    // message is brief text tied to status (not execution progress).
     string message = 9;
     // queue_expires_at is set only for waiting tasks; absent for all other statuses.
     optional google.protobuf.Timestamp queue_expires_at = 10;
@@ -328,6 +332,8 @@ message Task {
     optional UUID applied_rule_id = 13;
     google.protobuf.Timestamp updated_at = 14;
     optional google.protobuf.Timestamp started_at = 15;
+    // report is a versioned JSON document with structured execution progress.
+    string report = 16;
 }
 
 message CreateExpectedRackRequest {
@@ -439,6 +445,14 @@ message UpgradeFirmwareRequest {
     // bundle (current default behavior). Unknown names are rejected by the
     // downstream component manager.
     repeated string sub_targets = 8;
+    // When true, proceed with the firmware update even if one or more
+    // target hosts (or, for rack-scoped components, any host on the
+    // owning rack) are still in the Assigned/* lifecycle state. The flag
+    // is intended for operator-supervised maintenance windows where the
+    // tenant impact has been acknowledged out-of-band; setting it bypasses
+    // the safety gate that would otherwise block disruptive operations
+    // against tenanted hardware. The bypass is recorded in the server log.
+    bool override_assignment_check = 9;
 }
 
 // GetComponents - retrieves components from local database
@@ -494,9 +508,12 @@ message FieldDiff {
     string actual_value = 3;
 }
 
-// AddComponent - add a single component to an existing rack
+// AddComponent - ingest a single component into the inventory. The component
+// may optionally be attached to an existing rack via component.rack_id; when
+// rack_id is omitted the component is stored without a rack assignment and
+// can be moved into a rack later via PatchComponent.
 message AddComponentRequest {
-    Component component = 1;              // Required: the component to add; component.rack_id must be set
+    Component component = 1;              // Required: the component to add. component.rack_id is optional.
 }
 
 message AddComponentResponse {
@@ -577,6 +594,12 @@ message PowerOnRackRequest {
     string description = 2;               // optional task description
     optional QueueOptions queue_options = 3;
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the power-on even if one or more target
+    // hosts (or, for rack-scoped components, any host on the owning rack)
+    // are still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 5;
 }
 
 message PowerOffRackRequest {
@@ -585,6 +608,12 @@ message PowerOffRackRequest {
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
     optional UUID rule_id = 5;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the power-off even if one or more target
+    // hosts (or, for rack-scoped components, any host on the owning rack)
+    // are still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 6;
 }
 
 message PowerResetRackRequest {
@@ -593,12 +622,24 @@ message PowerResetRackRequest {
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
     optional UUID rule_id = 5;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the reset even if one or more target hosts
+    // (or, for rack-scoped components, any host on the owning rack) are
+    // still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 6;
 }
 
 message BringUpRackRequest {
     OperationTargetSpec target_spec = 1;  // Target racks for bring-up
     string description = 2;               // optional task description
     optional UUID rule_id = 3;            // optional: override rule resolution with a specific rule
+    // When true, allow the bring-up sequence (which may power-cycle hosts
+    // and reset rack-scoped components) to proceed even if any host in
+    // scope is still in the Assigned/* lifecycle state. Intended for
+    // operator-supervised maintenance where tenant impact has been
+    // acknowledged out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 4;
 }
 
 message IngestRackRequest {
@@ -622,6 +663,13 @@ message ListTasksRequest {
     // a component not on the given rack is not an error; it yields an
     // empty result.
     optional UUID component_id = 4;
+    // When true, populate Task.report on each returned task. Defaults to
+    // false because report bodies can be several KB and would otherwise
+    // be persisted in every Temporal activity / workflow result payload
+    // along the caller's path even when the caller never reads them.
+    // GetTasksByIDs and CancelTask always return the report and do not
+    // accept this flag.
+    bool with_report = 5;
 }
 
 message ListTasksResponse {
