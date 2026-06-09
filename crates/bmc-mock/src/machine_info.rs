@@ -44,6 +44,10 @@ pub struct HostMachineInfo {
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
     pub non_dpu_mac_address: Option<MacAddress>,
+    #[serde(default)]
+    pub nvos_mac_addresses: Vec<MacAddress>,
+    #[serde(default)]
+    pub switch_serial_number: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,15 +146,29 @@ impl DpuMachineInfo {
 impl HostMachineInfo {
     pub fn new(hw_type: HostHardwareType, dpus: Vec<DpuMachineInfo>) -> Self {
         let bmc_mac_address = next_mac();
+        let nvos_mac_addresses = if matches!(hw_type, HostHardwareType::NvidiaSwitchNd5200Ld) {
+            vec![next_mac()]
+        } else {
+            vec![]
+        };
+        let switch_serial_number = nvos_mac_addresses
+            .first()
+            .map(|mac| format!("MT{}", mac.to_string().replace(':', "")));
         Self {
             hw_type,
             bmc_mac_address,
             serial: bmc_mac_address.to_string().replace(':', ""),
-            non_dpu_mac_address: if dpus.is_empty() {
+            non_dpu_mac_address: if dpus.is_empty()
+                && !matches!(
+                    hw_type,
+                    HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld
+                ) {
                 Some(next_mac())
             } else {
                 None
             },
+            nvos_mac_addresses,
+            switch_serial_number,
             dpus,
         }
     }
@@ -446,11 +464,15 @@ impl HostMachineInfo {
 
     fn nvidia_switch_nd5200_ld(&self) -> hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld<'_> {
         hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld {
-            bmc_mac_address_eth0: next_mac(),
+            bmc_mac_address_eth0: self.bmc_mac_address,
             bmc_mac_address_eth1: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             bmc_serial_number: Cow::Borrowed(&self.serial),
-            switch_serial_number: format!("MT{}", next_mac().to_string().replace(':', "")).into(),
+            switch_serial_number: self
+                .switch_serial_number
+                .as_deref()
+                .unwrap_or(&self.serial)
+                .into(),
         }
     }
 

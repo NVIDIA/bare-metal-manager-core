@@ -196,7 +196,10 @@ func testMachineUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn 
 	}
 
 	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.UpdateFromParams(context.Background(), nil, tn.ID, nil, nil, nil, &tncfg)
+	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
+		TenantID: tn.ID,
+		Config:   &tncfg,
+	})
 	assert.Nil(t, err)
 
 	return tn

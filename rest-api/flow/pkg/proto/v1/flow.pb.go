@@ -5045,7 +5045,14 @@ type ListTasksRequest struct {
 	// component type. A rack_id + component_id combination that references
 	// a component not on the given rack is not an error; it yields an
 	// empty result.
-	ComponentId   *UUID `protobuf:"bytes,4,opt,name=component_id,json=componentId,proto3,oneof" json:"component_id,omitempty"`
+	ComponentId *UUID `protobuf:"bytes,4,opt,name=component_id,json=componentId,proto3,oneof" json:"component_id,omitempty"`
+	// When true, populate Task.report on each returned task. Defaults to
+	// false because report bodies can be several KB and would otherwise
+	// be persisted in every Temporal activity / workflow result payload
+	// along the caller's path even when the caller never reads them.
+	// GetTasksByIDs and CancelTask always return the report and do not
+	// accept this flag.
+	WithReport    bool `protobuf:"varint,5,opt,name=with_report,json=withReport,proto3" json:"with_report,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5106,6 +5113,13 @@ func (x *ListTasksRequest) GetComponentId() *UUID {
 		return x.ComponentId
 	}
 	return nil
+}
+
+func (x *ListTasksRequest) GetWithReport() bool {
+	if x != nil {
+		return x.WithReport
+	}
+	return false
 }
 
 type ListTasksResponse struct {
@@ -8233,7 +8247,7 @@ const file_flow_proto_rawDesc = "" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12&\n" +
 	"\arule_id\x18\x04 \x01(\v2\b.v1.UUIDH\x00R\x06ruleId\x88\x01\x01B\n" +
 	"\n" +
-	"\b_rule_id\"\xee\x01\n" +
+	"\b_rule_id\"\x8f\x02\n" +
 	"\x10ListTasksRequest\x12&\n" +
 	"\arack_id\x18\x01 \x01(\v2\b.v1.UUIDH\x00R\x06rackId\x88\x01\x01\x12\x1f\n" +
 	"\vactive_only\x18\x02 \x01(\bR\n" +
@@ -8241,7 +8255,9 @@ const file_flow_proto_rawDesc = "" +
 	"\n" +
 	"pagination\x18\x03 \x01(\v2\x0e.v1.PaginationH\x01R\n" +
 	"pagination\x88\x01\x01\x120\n" +
-	"\fcomponent_id\x18\x04 \x01(\v2\b.v1.UUIDH\x02R\vcomponentId\x88\x01\x01B\n" +
+	"\fcomponent_id\x18\x04 \x01(\v2\b.v1.UUIDH\x02R\vcomponentId\x88\x01\x01\x12\x1f\n" +
+	"\vwith_report\x18\x05 \x01(\bR\n" +
+	"withReportB\n" +
 	"\n" +
 	"\b_rack_idB\r\n" +
 	"\v_paginationB\x0f\n" +

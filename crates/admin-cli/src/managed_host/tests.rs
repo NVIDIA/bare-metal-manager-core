@@ -266,6 +266,26 @@ fn parse_set_primary_dpu() {
     }
 }
 
+// parse_set_primary_interface ensures set-primary-interface parses
+// with required args (a host machine id and a machine interface id).
+#[test]
+fn parse_set_primary_interface() {
+    let cmd = Cmd::try_parse_from([
+        "managed-host",
+        "set-primary-interface",
+        TEST_MACHINE_ID,
+        "00000000-0000-0000-0000-000000000001",
+    ])
+    .expect("should parse set-primary-interface");
+
+    match cmd {
+        Cmd::SetPrimaryInterface(args) => {
+            assert!(!args.reboot);
+        }
+        _ => panic!("expected SetPrimaryInterface variant"),
+    }
+}
+
 // parse_debug_bundle ensures debug-bundle parses with
 // required args.
 #[test]
