@@ -21,6 +21,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 )
 
 // ~~~~~ GetAll Handler ~~~~~ //
@@ -139,7 +140,15 @@ func (gafh GetAllFabricHandler) Handle(c echo.Context) error {
 	}
 
 	fbDAO := cdbm.NewFabricDAO(gafh.dbSession)
-	dbfbs, total, err := fbDAO.GetAll(ctx, nil, &org, &st.ID, nil, nil, nil, searchQuery, qIncludeRelations, pageRequest.Offset, pageRequest.Limit, pageRequest.OrderBy)
+	dbfbs, total, err := fbDAO.GetAll(ctx, nil, cdbm.FabricFilterInput{
+		Org:         &org,
+		SiteIDs:     []uuid.UUID{st.ID},
+		SearchQuery: searchQuery,
+	}, cdbp.PageInput{
+		Offset:  pageRequest.Offset,
+		Limit:   pageRequest.Limit,
+		OrderBy: pageRequest.OrderBy,
+	}, qIncludeRelations)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting Fabrics from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Fabrics", nil)
