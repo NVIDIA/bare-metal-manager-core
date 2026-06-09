@@ -777,7 +777,8 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Dedicated instance type for IP-exhaustion fixtures; must not consume ist1 allocation (limit 9).
 	istExhaustFixture := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-exhaust-fixture", st1, cdbm.InstanceStatusReady)
 	assert.NotNil(t, istExhaustFixture)
-	testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, istExhaustFixture.ID, cdbm.AllocationConstraintTypeReserved, 30, ipu)
+	alcExhaustFixture := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, istExhaustFixture.ID, cdbm.AllocationConstraintTypeReserved, 30, ipu)
+	assert.NotNil(t, alcExhaustFixture)
 
 	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
