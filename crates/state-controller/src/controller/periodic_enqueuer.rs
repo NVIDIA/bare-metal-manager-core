@@ -116,6 +116,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             tracing::Level::INFO,
             "periodic_enqueuer_iteration",
             span_id,
+            carbide.trace_root = true,
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
             iteration_id = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
