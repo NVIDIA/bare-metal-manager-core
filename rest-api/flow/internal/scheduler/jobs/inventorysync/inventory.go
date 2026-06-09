@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 const driftFieldSerialNumber = "serial_number"
@@ -156,6 +157,9 @@ func syncMachines(
 
 	// Step 5: Direct-write firmware_version (from pre-fetched details, no extra API call)
 	syncFirmwareVersions(ctx, pool, detailByID, componentsByExternalID)
+
+	// Step 5b: Direct-write derived ComponentStatus (from pre-fetched detail.State).
+	syncMachineStatuses(ctx, pool, detailByID, componentsByExternalID)
 
 	// Step 6: Fetch positions and build drift records (requires separate NICo API)
 	machinePositions, err := nicoClient.GetMachinePositionInfo(ctx, machineIDs)
@@ -385,6 +389,119 @@ func syncFirmwareVersions(
 	}
 }
 
+// syncMachineStatuses derives a types.ComponentStatus from each machine's
+// controller_state (already fetched as detail.State) and direct-writes it to
+// the component row. Only rows whose status actually changed are updated.
+func syncMachineStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	detailByID map[string]nicoapi.MachineDetail,
+	componentsByExternalID map[string]*model.Component,
+) {
+	statesByID := make(map[string]string, len(detailByID))
+	for id, d := range detailByID {
+		if d.State != "" {
+			statesByID[id] = d.State
+		}
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypeCompute, statesByID, componentsByExternalID)
+}
+
+// syncSwitchStatuses fetches controller_state for the matched switches and
+// persists the derived ComponentStatus per DB row.
+func syncSwitchStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	nicoClient nicoapi.Client,
+	componentsBySwitchID map[string]*model.Component,
+) {
+	ids := mapKeys(componentsBySwitchID)
+	if len(ids) == 0 {
+		return
+	}
+	statesByID, err := nicoClient.FindSwitchControllerStates(ctx, ids)
+	if err != nil {
+		log.Error().Msgf("Unable to retrieve switch controller_states from NICo: %v", err)
+		return
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypeNVSwitch, statesByID, componentsBySwitchID)
+}
+
+// syncPowershelfStatuses is the power-shelf equivalent of syncSwitchStatuses.
+func syncPowershelfStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	nicoClient nicoapi.Client,
+	componentsByShelfID map[string]*model.Component,
+) {
+	ids := mapKeys(componentsByShelfID)
+	if len(ids) == 0 {
+		return
+	}
+	statesByID, err := nicoClient.FindPowerShelfControllerStates(ctx, ids)
+	if err != nil {
+		log.Error().Msgf("Unable to retrieve power-shelf controller_states from NICo: %v", err)
+		return
+	}
+	persistComponentStatuses(ctx, pool, types.ComponentTypePowerShelf, statesByID, componentsByShelfID)
+}
+
+func mapKeys(m map[string]*model.Component) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// persistComponentStatuses maps raw core controller_state strings to
+// ComponentStatus values via the per-type mapper and writes any deltas to the
+// component table. components are keyed by external_id (machineID / switchID /
+// shelfID). Entries without a state in statesByID are skipped — missing data
+// is not a status reset.
+func persistComponentStatuses(
+	ctx context.Context,
+	pool *cdb.Session,
+	componentType types.ComponentType,
+	statesByID map[string]string,
+	componentsByExternalID map[string]*model.Component,
+) {
+	if len(statesByID) == 0 {
+		return
+	}
+
+	var toUpdate []model.Component
+	for externalID, raw := range statesByID {
+		comp, ok := componentsByExternalID[externalID]
+		if !ok {
+			continue
+		}
+		newStatus := nicoapi.MapComponentStatus(componentType, raw)
+		if comp.Status != nil && comp.Status.Equal(newStatus) {
+			continue
+		}
+		comp.Status = &newStatus
+		toUpdate = append(toUpdate, *comp)
+	}
+
+	if len(toUpdate) == 0 {
+		return
+	}
+	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		for _, cur := range toUpdate {
+			if err := cur.SetStatusByComponentID(ctx, tx); err != nil {
+				return fmt.Errorf("set component status: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		log.Error().Msgf("Unable to persist component statuses: %v", err)
+	}
+}
+
 // compareMachineFieldsForDrift compares validation fields between expected (DB) and actual (NICo).
 // Validation fields: slot_id, tray_index, host_id, serial_number.
 func compareMachineFieldsForDrift(
@@ -556,6 +673,8 @@ func syncNVSwitchesNICo(
 		}
 	}
 
+	syncSwitchStatuses(ctx, pool, nicoClient, componentsBySwitchID)
+
 	// Build drifts for components that don't have a Core SwitchId yet
 	for _, sw := range expectedByBmcMac {
 		if sw.ComponentID == nil || *sw.ComponentID == "" {
@@ -677,6 +796,8 @@ func syncPowershelvesNICo(
 			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsByShelfID)...)
 		}
 	}
+
+	syncPowershelfStatuses(ctx, pool, nicoClient, componentsByShelfID)
 
 	// Build drifts for components that don't have a Core PowerShelfId yet
 	for _, ps := range expectedByPmcMac {

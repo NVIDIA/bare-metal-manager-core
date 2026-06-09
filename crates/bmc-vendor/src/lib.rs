@@ -40,6 +40,7 @@ pub enum BMCVendor {
     Hpe,
     Nvidia, // DPU, Viking, Oberon
     Liteon,
+    Delta,
     #[serde(other)]
     #[default]
     Unknown,
@@ -62,6 +63,7 @@ impl From<&str> for BMCVendor {
             "hpe" => BMCVendor::Hpe,
             "nvidia" => BMCVendor::Nvidia,
             "liteon" => BMCVendor::Liteon,
+            "delta" => BMCVendor::Delta,
             _ => BMCVendor::Unknown,
         }
     }
@@ -104,6 +106,7 @@ impl BMCVendor {
             BMCVendor::Hpe => "Hpe",
             BMCVendor::Nvidia => "Nvidia",
             BMCVendor::Liteon => "Liteon",
+            BMCVendor::Delta => "Delta",
             BMCVendor::Unknown => "Unknown",
         }
         .to_string()
@@ -134,6 +137,10 @@ impl BMCVendor {
 
     pub fn is_liteon(&self) -> bool {
         *self == Self::Liteon
+    }
+
+    pub fn is_delta(&self) -> bool {
+        *self == Self::Delta
     }
 
     pub fn is_unknown(&self) -> bool {

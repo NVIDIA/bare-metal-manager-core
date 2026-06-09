@@ -241,7 +241,13 @@ pub(crate) async fn forge_agent_control(
             ManagedHostState::HostInit {
                 machine_state: MachineState::WaitingForDiscovery,
             } => {
-                if host_machine.last_cleanup_time.is_some() {
+                // A predicted host isn't the real machine yet, so don't make it wait on
+                // cleanup: send it to discovery, which promotes it; the promoted host then
+                // waits for its storage cleanup. Mirrors the state handler's
+                // WaitingForDiscovery guard.
+                if host_machine.last_cleanup_time.is_some()
+                    || !host_machine.id.machine_type().is_host()
+                {
                     (Action::discovery(), Some(txn))
                 } else {
                     tracing::info!("Waiting for initial storage cleanup before host discovery");

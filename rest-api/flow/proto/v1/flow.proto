@@ -204,6 +204,29 @@ enum TaskExecutorType {
     TASK_EXECUTOR_TYPE_TEMPORAL = 1;
 }
 
+// Phase is the coarse lifecycle bucket a component is in, derived from
+// core's per-component state machine. Shared across compute, nvswitch,
+// and power shelf.
+enum Phase {
+    PHASE_UNKNOWN = 0;
+    PHASE_INITIALIZING = 1;
+    PHASE_READY = 2;
+    PHASE_IN_USE = 3;
+    PHASE_ERROR = 4;
+    PHASE_DELETING = 5;
+}
+
+// ComponentStatus is Flow's view of a component's operability. The
+// inventory loop computes it on every sync from core's controller_state.
+message ComponentStatus {
+    Phase phase = 1;
+    // Human-readable detail (typically the raw core state string).
+    string reason = 2;
+    // Operations Flow will reject while the component is in this status.
+    // Empty when phase is READY.
+    repeated OperationType blocked_operations = 3;
+}
+
 message Component {
     ComponentType type = 1;
     DeviceInfo info = 2;
@@ -213,6 +236,7 @@ message Component {
     string component_id = 6;  // Component's own ID from its source system (e.g., NICo machine_id for Compute)
     UUID rack_id = 7;
     string power_state = 8;  // Current power state (synced from external system by inventory loop)
+    ComponentStatus status = 9;
 }
 
 message Rack {

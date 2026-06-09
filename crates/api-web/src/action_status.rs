@@ -31,6 +31,7 @@ pub(crate) enum Type {
     DisableSecureBoot,
     EnableLockdown,
     DisableLockdown,
+    Sku,
 }
 
 impl Type {
@@ -48,6 +49,7 @@ impl Type {
                 "disable_secure_boot" => Some(Type::DisableSecureBoot),
                 "enable_lockdown" => Some(Type::EnableLockdown),
                 "disable_lockdown" => Some(Type::DisableLockdown),
+                "sku" => Some(Type::Sku),
                 _ => None,
             })
     }
@@ -64,6 +66,7 @@ impl Type {
                 Type::DisableSecureBoot => "disable_secure_boot",
                 Type::EnableLockdown => "enable_lockdown",
                 Type::DisableLockdown => "disable_lockdown",
+                Type::Sku => "sku",
             },
         )
     }
@@ -77,6 +80,7 @@ impl Type {
             Type::DisableSecureBoot => "Disable Secure Boot",
             Type::EnableLockdown => "Enable Lockdown",
             Type::DisableLockdown => "Disable Lockdown",
+            Type::Sku => "SKU Assignment",
         }
     }
 }

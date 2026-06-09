@@ -21,6 +21,19 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a host into reprovisioning mode:
+    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+
+Clear reprovisioning mode for a host:
+    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+
+List all hosts pending reprovisioning:
+    $ carbide-admin-cli host reprovision list
+
+")]
 pub enum Args {
     #[clap(about = "Set the host in reprovisioning mode.")]
     Set(ReprovisionSet),
@@ -34,6 +47,21 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a host into reprovisioning mode:
+    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+
+Set into reprovisioning mode and update firmware:
+    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    --update-firmware
+
+Set into reprovisioning mode and raise a health alert with a message:
+    $ carbide-admin-cli host reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    --update-message \"Quarterly firmware refresh\"
+
+")]
 pub struct ReprovisionSet {
     #[clap(short, long, help = "Machine ID for which reprovisioning is needed.")]
     pub id: MachineId,
@@ -60,6 +88,17 @@ impl From<&ReprovisionSet> for HostReprovisioningRequest {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Clear reprovisioning mode for a host:
+    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+
+Clear reprovisioning mode and update firmware:
+    $ carbide-admin-cli host reprovision clear --id 12345678-1234-5678-90ab-cdef01234567 \
+    --update-firmware
+
+")]
 pub struct ReprovisionClear {
     #[clap(
         short,
@@ -83,6 +122,14 @@ impl From<ReprovisionClear> for HostReprovisioningRequest {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Mark manual firmware upgrade complete for a host:
+    $ carbide-admin-cli host reprovision mark-manual-upgrade-complete \
+    --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ManualFirmwareUpgradeComplete {
     #[clap(
         short,

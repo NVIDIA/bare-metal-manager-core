@@ -31,6 +31,7 @@ impl Run for Args {
             self,
             ctx.config.format,
             &mut ctx.output_file,
+            ctx.config.page_size,
         )
         .await?;
         Ok(())

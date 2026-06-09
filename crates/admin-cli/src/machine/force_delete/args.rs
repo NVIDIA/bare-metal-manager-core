@@ -19,6 +19,17 @@ use clap::Parser;
 use rpc::forge::AdminForceDeleteMachineRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Force delete a machine (by UUID, IPv4, MAC, or hostname):
+    $ carbide-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567
+
+Force delete a machine and its interfaces (redeploy kea afterward):
+    $ carbide-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-interfaces
+
+")]
 pub struct Args {
     #[clap(
         long,

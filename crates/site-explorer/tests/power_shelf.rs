@@ -19,9 +19,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::SiteExplorerConfig;
-use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
@@ -34,6 +32,37 @@ use model::site_explorer::{
     ExploredEndpoint, PreingestionState,
 };
 use rpc::forge::DhcpDiscovery;
+
+use crate::env::Env;
+
+mod env;
+
+trait EnvExt {
+    fn new_power_shelf(
+        &self,
+        bmc_mac_address: &str,
+        ip: &str,
+        serial_number: &str,
+    ) -> FakePowerShelf;
+}
+
+impl EnvExt for Env {
+    fn new_power_shelf(
+        &self,
+        bmc_mac_address: &str,
+        ip: &str,
+        serial_number: &str,
+    ) -> FakePowerShelf {
+        FakePowerShelf {
+            bmc_mac_address: bmc_mac_address.parse().unwrap(),
+            ip: ip.to_string(),
+            serial_number: serial_number.to_string(),
+            bmc_username: "admin",
+            bmc_password: "password",
+            relay_address: self.underlay_segment.relay_address.to_string(),
+        }
+    }
+}
 
 struct FakePowerShelf {
     pub bmc_mac_address: MacAddress,
@@ -62,64 +91,6 @@ impl FakePowerShelf {
             },
             rack_id: None,
             bmc_retain_credentials: None,
-        }
-    }
-}
-
-struct Env {
-    pool: PgPool,
-    underlay_segment: TestNetworkSegment,
-    test_harness: TestHarness,
-}
-
-impl Env {
-    async fn new(pool: PgPool) -> Self {
-        let test_harness = TestHarness::builder(pool.clone()).build().await;
-        let domain = test_harness.test_domain().await;
-        let nc = test_harness.network_controller();
-        let underlay_segment = nc.create_underlay_segment(&domain).await;
-        Self {
-            pool,
-            underlay_segment,
-            test_harness,
-        }
-    }
-
-    fn api(&self) -> &Api {
-        self.test_harness.api()
-    }
-
-    fn new_site_explorer(
-        &self,
-        explorer_config: SiteExplorerConfig,
-        endpoint_explorer: &Arc<MockEndpointExplorer>,
-    ) -> SiteExplorer {
-        SiteExplorer::new(
-            self.api().database_connection.clone(),
-            explorer_config,
-            self.test_harness.test_meter.meter(),
-            endpoint_explorer.clone(),
-            Arc::new(self.api().runtime_config.get_firmware_config()),
-            self.api().common_pools().clone(),
-            self.api().work_lock_manager_handle(),
-            None,
-            self.api().credential_manager().clone(),
-        )
-    }
-
-    fn new_power_shelf(
-        &self,
-        bmc_mac_address: &str,
-        ip: &str,
-        serial_number: &str,
-    ) -> FakePowerShelf {
-        FakePowerShelf {
-            bmc_mac_address: bmc_mac_address.parse().unwrap(),
-            ip: ip.to_string(),
-            serial_number: serial_number.to_string(),
-            bmc_username: "admin",
-            bmc_password: "password",
-            relay_address: self.underlay_segment.relay_address.to_string(),
         }
     }
 }

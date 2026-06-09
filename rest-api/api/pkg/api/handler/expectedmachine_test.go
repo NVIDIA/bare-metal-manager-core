@@ -54,6 +54,8 @@ func testExpectedMachineInitDB(t *testing.T) *cdb.Session {
 	// Then reset child tables that depend on parent tables
 	err = dbSession.DB.ResetModel(ctx, (*cdbm.TenantAccount)(nil))
 	assert.Nil(t, err)
+	err = dbSession.DB.ResetModel(ctx, (*cdbm.TenantSite)(nil))
+	assert.Nil(t, err)
 	err = dbSession.DB.ResetModel(ctx, (*cdbm.SKU)(nil))
 	assert.Nil(t, err)
 	err = dbSession.DB.ResetModel(ctx, (*cdbm.InstanceType)(nil))
@@ -481,7 +483,10 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	assert.NotNil(t, unmanagedEM)
 
 	// Helper function to create mock user
-	createMockUser := func(org string) *cdbm.User {
+	createMockUser := func(org string, roles ...string) *cdbm.User {
+		if len(roles) == 0 {
+			roles = []string{authz.ProviderViewerRole}
+		}
 		return &cdbm.User{
 			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
@@ -490,14 +495,130 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 					Name:        org,
 					DisplayName: org,
 					OrgType:     "ENTERPRISE",
-					Roles:       []string{authz.ProviderViewerRole},
+					Roles:       roles,
 				},
 			},
 		}
 	}
 
+	// Privileged tenant org: tenant-only caller with TargetedInstanceCreation and TenantSite access
+	privilegedTenantOrg := "privileged-tenant-org"
+	privilegedTenantUserID := uuid.New()
+	privilegedTenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "privileged-tenant",
+		Org:            privilegedTenantOrg,
+		OrgDisplayName: cutil.GetPtr("Privileged Tenant Org"),
+		Config: &cdbm.TenantConfig{
+			TargetedInstanceCreation: true,
+		},
+		CreatedBy: privilegedTenantUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(privilegedTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	privilegedTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  privilegedTenant.ID,
+		TenantOrg: privilegedTenantOrg,
+		SiteID:    site.ID,
+		CreatedBy: privilegedTenantUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(privilegedTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	privilegedTenantUser := createMockUser(privilegedTenantOrg, authz.TenantAdminRole)
+
+	// Dual-role org: same org acts as both Infrastructure Provider and privileged Tenant
+	dualRoleOrg := "dual-role-org"
+	dualRoleUserID := uuid.New()
+	dualRoleIP := &cdbm.InfrastructureProvider{
+		ID:   uuid.New(),
+		Name: "dual-role-provider",
+		Org:  dualRoleOrg,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleIP).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleTenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "dual-role-tenant",
+		Org:            dualRoleOrg,
+		OrgDisplayName: cutil.GetPtr("Dual Role Org"),
+		Config: &cdbm.TenantConfig{
+			TargetedInstanceCreation: true,
+		},
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleSite := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "dual-role-site",
+		Org:                      dualRoleOrg,
+		InfrastructureProviderID: dualRoleIP.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleSiteNoTenant := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "dual-role-site-no-tenant",
+		Org:                      dualRoleOrg,
+		InfrastructureProviderID: dualRoleIP.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleSiteNoTenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  dualRoleTenant.ID,
+		TenantOrg: dualRoleOrg,
+		SiteID:    dualRoleSite.ID,
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	// External site owned by a different provider but accessible to dual-role tenant via TenantSite
+	dualRoleExternalTenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  dualRoleTenant.ID,
+		TenantOrg: dualRoleOrg,
+		SiteID:    unmanagedSite.ID,
+		CreatedBy: dualRoleUserID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleExternalTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	dualRoleEM, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+		ExpectedMachineID:        uuid.New(),
+		SiteID:                   dualRoleSite.ID,
+		BmcMacAddress:            "00:11:22:33:44:CC",
+		ChassisSerialNumber:      "DUAL-ROLE-CHASSIS",
+		FallbackDpuSerialNumbers: []string{"DPU003"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, dualRoleEM)
+
+	dualRoleEMNoTenantSite, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+		ExpectedMachineID:        uuid.New(),
+		SiteID:                   dualRoleSiteNoTenant.ID,
+		BmcMacAddress:            "00:11:22:33:44:DD",
+		ChassisSerialNumber:      "DUAL-ROLE-NO-TENANT-CHASSIS",
+		FallbackDpuSerialNumbers: []string{"DPU004"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, dualRoleEMNoTenantSite)
+
+	dualRoleUser := createMockUser(dualRoleOrg, authz.ProviderAdminRole, authz.TenantAdminRole)
+
 	tests := []struct {
 		name                 string
+		orgName              string
 		siteId               string
 		includeRelations     []string
 		setupContext         func(c echo.Context)
@@ -645,13 +766,112 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 				// Should return forbidden error
 			},
 		},
+		{
+			name:    "privileged Tenant GetAll without siteId succeeds (no spurious 400)",
+			orgName: privilegedTenantOrg,
+			siteId:  "",
+			setupContext: func(c echo.Context) {
+				c.Set("user", privilegedTenantUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(privilegedTenantOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from TenantSite associations")
+				for _, em := range response {
+					assert.Equal(t, site.ID, em.SiteID, "All results should be from TenantSite-associated sites")
+					assert.NotEqual(t, unmanagedEM.ID, em.ID, "Should not return machines from sites without TenantSite access")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll without siteId succeeds (no spurious 400)",
+			orgName: dualRoleOrg,
+			siteId:  "",
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.GreaterOrEqual(t, len(response), 3, "Should return machines from provider and tenant site unions")
+				responseIDs := make(map[uuid.UUID]bool, len(response))
+				for _, em := range response {
+					responseIDs[em.ID] = true
+				}
+				assert.True(t, responseIDs[dualRoleEM.ID], "Should include machine from shared provider/tenant site")
+				assert.True(t, responseIDs[dualRoleEMNoTenantSite.ID], "Should include machine from provider-only site")
+				assert.True(t, responseIDs[unmanagedEM.ID], "Should include machine from external TenantSite-associated site")
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on external site (tenant perspective succeeds)",
+			orgName: dualRoleOrg,
+			siteId:  unmanagedSite.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				for _, em := range response {
+					assert.Equal(t, unmanagedSite.ID, em.SiteID, "All results should be from the external TenantSite-associated site")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on provider-only site succeeds",
+			orgName: dualRoleOrg,
+			siteId:  dualRoleSiteNoTenant.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from provider-owned site")
+				for _, em := range response {
+					assert.Equal(t, dualRoleSiteNoTenant.ID, em.SiteID, "All results should be from the provider-only site")
+				}
+			},
+		},
+		{
+			name:    "dual-role org GetAll with siteId on inaccessible site returns forbidden",
+			orgName: dualRoleOrg,
+			siteId:  site.ID.String(),
+			setupContext: func(c echo.Context) {
+				c.Set("user", dualRoleUser)
+				c.SetParamNames("orgName")
+				c.SetParamValues(dualRoleOrg)
+			},
+			expectedStatus: http.StatusForbidden,
+		},
 	}
 
 	_ = infraProv // Ensure infraProv is used to avoid compiler warning
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := "/v2/org/" + org + "/nico/expected-machine"
+			testOrg := org
+			if tt.orgName != "" {
+				testOrg = tt.orgName
+			}
+			url := "/v2/org/" + testOrg + "/nico/expected-machine"
 			params := []string{}
 			if tt.siteId != "" {
 				params = append(params, "siteId="+tt.siteId)
@@ -1327,6 +1547,16 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
 
+	tenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  tenant.ID,
+		TenantOrg: tenantOrg,
+		SiteID:    site.ID,
+		CreatedBy: tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
 	// Setup tenant without capability
 	tenantOrg2 := "test-tenant-org-no-cap"
 	tenant2 := &cdbm.Tenant{
@@ -1468,7 +1698,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 			},
 		},
 		{
-			name:        "GetAll Expected Machines as Tenant without siteId should fail",
+			name:        "GetAll Expected Machines as Tenant without siteId succeeds",
 			method:      http.MethodGet,
 			path:        "/v2/org/" + tenantOrg + "/nico/expected-machine",
 			requestBody: nil,
@@ -1480,8 +1710,13 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 				c.SetParamNames("orgName")
 				c.SetParamValues(tenantOrg)
 			},
-			expectedStatus: http.StatusBadRequest,
-			validateResp:   nil,
+			expectedStatus: http.StatusOK,
+			validateResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				var response []model.APIExpectedMachine
+				err := json.Unmarshal(rec.Body.Bytes(), &response)
+				assert.Nil(t, err)
+				assert.Greater(t, len(response), 0, "Should return expected machines from TenantSite-associated sites")
+			},
 		},
 		{
 			name:   "Tenant without TargetedInstanceCreation capability should fail",

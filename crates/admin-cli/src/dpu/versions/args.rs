@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show firmware versions for all DPUs:
+    $ carbide-admin-cli dpu versions
+
+Show only DPUs that need a firmware upgrade:
+    $ carbide-admin-cli dpu versions --updates-only
+
+")]
 pub struct Args {
     #[clap(short, long, help = "Only show DPUs that need upgrades")]
     pub updates_only: bool,
