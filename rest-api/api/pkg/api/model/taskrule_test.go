@@ -305,7 +305,7 @@ func TestAPIListRulesRequest_QueryValues(t *testing.T) {
 
 	v := req.QueryValues(page)
 	assert.Equal(t, "site-id", v.Get("siteId"))
-	assert.Equal(t, APIOperationTypePowerControl, v.Get("operationType"))
+	assert.Equal(t, string(APIOperationTypePowerControl), v.Get("operationType"))
 	assert.Equal(t, "1", v.Get("pageNumber"))
 	assert.Equal(t, "50", v.Get("pageSize"))
 }
@@ -313,7 +313,7 @@ func TestAPIListRulesRequest_QueryValues(t *testing.T) {
 func TestAPIOperationRule_FromProto(t *testing.T) {
 	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	updated := created.Add(time.Hour)
-	rdJSON, err := sampleRuleDefinition().toFlowJSON()
+	rdJSON, err := json.Marshal(sampleRuleDefinition().toProto())
 	require.NoError(t, err)
 
 	pbRule := &flowv1.OperationRule{

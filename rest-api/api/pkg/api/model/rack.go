@@ -40,7 +40,7 @@ var ProtoToAPIDiffTypeName = map[flowv1.DiffType]string{
 }
 
 // enumOr returns mapped value or fallback when key is missing from mapping.
-func enumOr[K comparable](m map[K]string, key K, fallback string) string {
+func enumOr[K comparable, V any](m map[K]V, key K, fallback V) V {
 	if v, ok := m[key]; ok {
 		return v
 	}

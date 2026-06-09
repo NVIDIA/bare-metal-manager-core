@@ -378,7 +378,7 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			user: providerUser,
 			queryParams: map[string]string{
 				"siteId":        site.ID.String(),
-				"operationType": model.APIOperationTypePowerControl,
+				"operationType": string(model.APIOperationTypePowerControl),
 			},
 			mockRules:      listed,
 			expectedStatus: http.StatusOK,

@@ -16,49 +16,55 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// validOperationTypesAny is the ozzo-friendly `[]any` form of the supported
-// operationType enum, used by validation.In on every request model that
-// accepts operationType.
-var validOperationTypesAny = []any{
+// APIOperationType is the REST surface enum for operation types. PascalCase
+// values follow the convention used by other enum-like strings in this
+// package (TaskStatus, ComponentType, DiffType, BMCType). Flow's stored
+// rule files keep their snake_case spelling; conversion happens at the
+// boundary via (APIOperationType).ToProto and the protoToAPIOperationType map.
+type APIOperationType string
+
+const (
+	APIOperationTypePowerControl    APIOperationType = "PowerControl"
+	APIOperationTypeFirmwareControl APIOperationType = "FirmwareControl"
+)
+
+// validOperationTypes lists the supported values; consumed by validation.In
+// on every request model that accepts operationType.
+var validOperationTypes = []APIOperationType{
 	APIOperationTypePowerControl,
 	APIOperationTypeFirmwareControl,
 }
 
-// Operation type strings exposed by the REST API. PascalCase follows the
-// convention used elsewhere on the REST surface for enum-like string fields
-// (TaskStatus, ComponentType, DiffType, BMCType). The internal Flow YAML
-// rule files keep their snake_case spelling; conversion happens at the
-// REST boundary via the maps below.
-const (
-	APIOperationTypePowerControl    = "PowerControl"
-	APIOperationTypeFirmwareControl = "FirmwareControl"
-)
+var validOperationTypesAny = func() []any {
+	out := make([]any, len(validOperationTypes))
+	for i, t := range validOperationTypes {
+		out[i] = t
+	}
+	return out
+}()
 
-// ProtoToAPIOperationTypeName maps Flow's protobuf OperationType enum to the
-// string form used in API responses.
-var ProtoToAPIOperationTypeName = map[flowv1.OperationType]string{
+// protoToAPIOperationType maps Flow's protobuf enum to the REST string form.
+var protoToAPIOperationType = map[flowv1.OperationType]APIOperationType{
 	flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL:    APIOperationTypePowerControl,
 	flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL: APIOperationTypeFirmwareControl,
 }
 
-// apiToProtoOperationType is the reverse of ProtoToAPIOperationTypeName.
-var apiToProtoOperationType = map[string]flowv1.OperationType{
+var apiToProtoOperationType = map[APIOperationType]flowv1.OperationType{
 	APIOperationTypePowerControl:    flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL,
 	APIOperationTypeFirmwareControl: flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL,
 }
 
-// operationTypeFromAPI parses an API operationType string. The empty string
-// is treated as "unset" (caller decides whether that is valid). Returns an
-// error for unknown values so we don't silently accept garbage.
-func operationTypeFromAPI(s string) (flowv1.OperationType, error) {
-	if s == "" {
+// ToProto converts to Flow's protobuf OperationType. The empty value maps
+// to OPERATION_TYPE_UNKNOWN (caller decides whether that is acceptable);
+// any other unknown value is an error so we don't silently forward garbage.
+func (t APIOperationType) ToProto() (flowv1.OperationType, error) {
+	if t == "" {
 		return flowv1.OperationType_OPERATION_TYPE_UNKNOWN, nil
 	}
-	v, ok := apiToProtoOperationType[s]
+	v, ok := apiToProtoOperationType[t]
 	if !ok {
 		return flowv1.OperationType_OPERATION_TYPE_UNKNOWN,
-			fmt.Errorf("invalid operationType %q (expected one of: %s, %s)",
-				s, APIOperationTypePowerControl, APIOperationTypeFirmwareControl)
+			fmt.Errorf("invalid operationType %q (expected one of %v)", t, validOperationTypes)
 	}
 	return v, nil
 }
@@ -67,12 +73,12 @@ func operationTypeFromAPI(s string) (flowv1.OperationType, error) {
 // use camelCase per the REST convention applied throughout this package.
 // Conversion to Flow's snake_case rule_definition_json blob happens in
 // (*APITaskRule).FromProto and (*APITaskRuleCreateRequest).ToProto via the
-// flow*Wire helpers below.
+// proto* mirror types and their toProto / toAPI methods below.
 type APITaskRule struct {
 	ID             string                `json:"id"`
 	Name           string                `json:"name"`
 	Description    string                `json:"description"`
-	OperationType  string                `json:"operationType"`
+	OperationType  APIOperationType      `json:"operationType"`
 	OperationCode  string                `json:"operationCode"`
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 	IsDefault      bool                  `json:"isDefault"`
@@ -120,106 +126,85 @@ type APITaskRuleRetryPolicy struct {
 	MaxInterval        string  `json:"maxInterval"`
 }
 
-// flow*Wire types mirror the API-facing rule definition structs above but
-// carry snake_case JSON tags. They exist solely to (de)serialize Flow's
-// rule_definition_json blob, which preserves the snake_case spelling used by
-// Flow's YAML rule files. Keep these in lock-step with the corresponding
-// API types when adding fields.
-type flowRuleDefinitionWire struct {
-	Version string                 `json:"version"`
-	Steps   []flowSequenceStepWire `json:"steps,omitempty"`
+// proto* types mirror the API-facing rule definition structs above but carry
+// snake_case JSON tags so they (de)serialize directly to and from Flow's
+// rule_definition_json blob — which uses the same shape Flow's protobuf
+// definitions would have if the rule body were modeled in proto today. Keep
+// each proto* type in lock-step with its API counterpart when adding fields.
+type protoRuleDefinition struct {
+	Version string              `json:"version"`
+	Steps   []protoSequenceStep `json:"steps,omitempty"`
 }
 
-type flowSequenceStepWire struct {
-	ComponentType string                 `json:"component_type"`
-	Stage         int                    `json:"stage"`
-	MaxParallel   int                    `json:"max_parallel"`
-	Timeout       string                 `json:"timeout,omitempty"`
-	Retry         *flowRetryPolicyWire   `json:"retry,omitempty"`
-	PreOperation  []flowActionConfigWire `json:"pre_operation,omitempty"`
-	MainOperation flowActionConfigWire   `json:"main_operation"`
-	PostOperation []flowActionConfigWire `json:"post_operation,omitempty"`
-	DelayAfter    string                 `json:"delay_after,omitempty"`
+type protoSequenceStep struct {
+	ComponentType string              `json:"component_type"`
+	Stage         int                 `json:"stage"`
+	MaxParallel   int                 `json:"max_parallel"`
+	Timeout       string              `json:"timeout,omitempty"`
+	Retry         *protoRetryPolicy   `json:"retry,omitempty"`
+	PreOperation  []protoActionConfig `json:"pre_operation,omitempty"`
+	MainOperation protoActionConfig   `json:"main_operation"`
+	PostOperation []protoActionConfig `json:"post_operation,omitempty"`
+	DelayAfter    string              `json:"delay_after,omitempty"`
 }
 
-type flowActionConfigWire struct {
+type protoActionConfig struct {
 	Name         string         `json:"name"`
 	Timeout      string         `json:"timeout,omitempty"`
 	PollInterval string         `json:"poll_interval,omitempty"`
 	Parameters   map[string]any `json:"parameters,omitempty"`
 }
 
-type flowRetryPolicyWire struct {
+type protoRetryPolicy struct {
 	MaxAttempts        int     `json:"max_attempts"`
 	InitialInterval    string  `json:"initial_interval"`
 	BackoffCoefficient float64 `json:"backoff_coefficient"`
 	MaxInterval        string  `json:"max_interval,omitempty"`
 }
 
-// toFlowJSON serialises the API-facing rule definition into Flow's blob
-// form (snake_case).
-func (def APITaskRuleDefinition) toFlowJSON() ([]byte, error) {
-	return json.Marshal(flowRuleDefinitionWire{
-		Version: def.Version,
-		Steps:   sequenceStepsToWire(def.Steps),
-	})
-}
+// API → proto conversions.
 
-// fromFlowJSON populates def from Flow's blob form.
-func (def *APITaskRuleDefinition) fromFlowJSON(raw []byte) error {
-	var w flowRuleDefinitionWire
-	if err := json.Unmarshal(raw, &w); err != nil {
-		return err
-	}
-	def.Version = w.Version
-	def.Steps = sequenceStepsFromWire(w.Steps)
-	return nil
-}
-
-func sequenceStepsToWire(in []APITaskRuleSequenceStep) []flowSequenceStepWire {
-	if in == nil {
-		return nil
-	}
-	out := make([]flowSequenceStepWire, len(in))
-	for i, s := range in {
-		out[i] = flowSequenceStepWire{
-			ComponentType: s.ComponentType,
-			Stage:         s.Stage,
-			MaxParallel:   s.MaxParallel,
-			Timeout:       s.Timeout,
-			Retry:         retryPolicyToWire(s.Retry),
-			PreOperation:  actionConfigsToWire(s.PreOperation),
-			MainOperation: actionConfigToWire(s.MainOperation),
-			PostOperation: actionConfigsToWire(s.PostOperation),
-			DelayAfter:    s.DelayAfter,
+func (d APITaskRuleDefinition) toProto() protoRuleDefinition {
+	out := protoRuleDefinition{Version: d.Version}
+	if d.Steps != nil {
+		out.Steps = make([]protoSequenceStep, len(d.Steps))
+		for i, s := range d.Steps {
+			out.Steps[i] = s.toProto()
 		}
 	}
 	return out
 }
 
-func sequenceStepsFromWire(in []flowSequenceStepWire) []APITaskRuleSequenceStep {
-	if in == nil {
-		return nil
+func (s APITaskRuleSequenceStep) toProto() protoSequenceStep {
+	out := protoSequenceStep{
+		ComponentType: s.ComponentType,
+		Stage:         s.Stage,
+		MaxParallel:   s.MaxParallel,
+		Timeout:       s.Timeout,
+		MainOperation: s.MainOperation.toProto(),
+		DelayAfter:    s.DelayAfter,
 	}
-	out := make([]APITaskRuleSequenceStep, len(in))
-	for i, s := range in {
-		out[i] = APITaskRuleSequenceStep{
-			ComponentType: s.ComponentType,
-			Stage:         s.Stage,
-			MaxParallel:   s.MaxParallel,
-			Timeout:       s.Timeout,
-			Retry:         retryPolicyFromWire(s.Retry),
-			PreOperation:  actionConfigsFromWire(s.PreOperation),
-			MainOperation: actionConfigFromWire(s.MainOperation),
-			PostOperation: actionConfigsFromWire(s.PostOperation),
-			DelayAfter:    s.DelayAfter,
+	if s.Retry != nil {
+		p := s.Retry.toProto()
+		out.Retry = &p
+	}
+	if s.PreOperation != nil {
+		out.PreOperation = make([]protoActionConfig, len(s.PreOperation))
+		for i, a := range s.PreOperation {
+			out.PreOperation[i] = a.toProto()
+		}
+	}
+	if s.PostOperation != nil {
+		out.PostOperation = make([]protoActionConfig, len(s.PostOperation))
+		for i, a := range s.PostOperation {
+			out.PostOperation[i] = a.toProto()
 		}
 	}
 	return out
 }
 
-func actionConfigToWire(ac APITaskRuleActionConfig) flowActionConfigWire {
-	return flowActionConfigWire{
+func (ac APITaskRuleActionConfig) toProto() protoActionConfig {
+	return protoActionConfig{
 		Name:         ac.Name,
 		Timeout:      ac.Timeout,
 		PollInterval: ac.PollInterval,
@@ -227,58 +212,71 @@ func actionConfigToWire(ac APITaskRuleActionConfig) flowActionConfigWire {
 	}
 }
 
-func actionConfigFromWire(ac flowActionConfigWire) APITaskRuleActionConfig {
+func (rp APITaskRuleRetryPolicy) toProto() protoRetryPolicy {
+	return protoRetryPolicy{
+		MaxAttempts:        rp.MaxAttempts,
+		InitialInterval:    rp.InitialInterval,
+		BackoffCoefficient: rp.BackoffCoefficient,
+		MaxInterval:        rp.MaxInterval,
+	}
+}
+
+// proto → API conversions.
+
+func (p protoRuleDefinition) toAPI() APITaskRuleDefinition {
+	out := APITaskRuleDefinition{Version: p.Version}
+	if p.Steps != nil {
+		out.Steps = make([]APITaskRuleSequenceStep, len(p.Steps))
+		for i, s := range p.Steps {
+			out.Steps[i] = s.toAPI()
+		}
+	}
+	return out
+}
+
+func (p protoSequenceStep) toAPI() APITaskRuleSequenceStep {
+	out := APITaskRuleSequenceStep{
+		ComponentType: p.ComponentType,
+		Stage:         p.Stage,
+		MaxParallel:   p.MaxParallel,
+		Timeout:       p.Timeout,
+		MainOperation: p.MainOperation.toAPI(),
+		DelayAfter:    p.DelayAfter,
+	}
+	if p.Retry != nil {
+		a := p.Retry.toAPI()
+		out.Retry = &a
+	}
+	if p.PreOperation != nil {
+		out.PreOperation = make([]APITaskRuleActionConfig, len(p.PreOperation))
+		for i, a := range p.PreOperation {
+			out.PreOperation[i] = a.toAPI()
+		}
+	}
+	if p.PostOperation != nil {
+		out.PostOperation = make([]APITaskRuleActionConfig, len(p.PostOperation))
+		for i, a := range p.PostOperation {
+			out.PostOperation[i] = a.toAPI()
+		}
+	}
+	return out
+}
+
+func (p protoActionConfig) toAPI() APITaskRuleActionConfig {
 	return APITaskRuleActionConfig{
-		Name:         ac.Name,
-		Timeout:      ac.Timeout,
-		PollInterval: ac.PollInterval,
-		Parameters:   ac.Parameters,
+		Name:         p.Name,
+		Timeout:      p.Timeout,
+		PollInterval: p.PollInterval,
+		Parameters:   p.Parameters,
 	}
 }
 
-func actionConfigsToWire(in []APITaskRuleActionConfig) []flowActionConfigWire {
-	if in == nil {
-		return nil
-	}
-	out := make([]flowActionConfigWire, len(in))
-	for i, a := range in {
-		out[i] = actionConfigToWire(a)
-	}
-	return out
-}
-
-func actionConfigsFromWire(in []flowActionConfigWire) []APITaskRuleActionConfig {
-	if in == nil {
-		return nil
-	}
-	out := make([]APITaskRuleActionConfig, len(in))
-	for i, a := range in {
-		out[i] = actionConfigFromWire(a)
-	}
-	return out
-}
-
-func retryPolicyToWire(rp *APITaskRuleRetryPolicy) *flowRetryPolicyWire {
-	if rp == nil {
-		return nil
-	}
-	return &flowRetryPolicyWire{
-		MaxAttempts:        rp.MaxAttempts,
-		InitialInterval:    rp.InitialInterval,
-		BackoffCoefficient: rp.BackoffCoefficient,
-		MaxInterval:        rp.MaxInterval,
-	}
-}
-
-func retryPolicyFromWire(rp *flowRetryPolicyWire) *APITaskRuleRetryPolicy {
-	if rp == nil {
-		return nil
-	}
-	return &APITaskRuleRetryPolicy{
-		MaxAttempts:        rp.MaxAttempts,
-		InitialInterval:    rp.InitialInterval,
-		BackoffCoefficient: rp.BackoffCoefficient,
-		MaxInterval:        rp.MaxInterval,
+func (p protoRetryPolicy) toAPI() APITaskRuleRetryPolicy {
+	return APITaskRuleRetryPolicy{
+		MaxAttempts:        p.MaxAttempts,
+		InitialInterval:    p.InitialInterval,
+		BackoffCoefficient: p.BackoffCoefficient,
+		MaxInterval:        p.MaxInterval,
 	}
 }
 
@@ -294,7 +292,7 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	}
 	r.Name = pbRule.GetName()
 	r.Description = pbRule.GetDescription()
-	r.OperationType = enumOr(ProtoToAPIOperationTypeName, pbRule.GetOperationType(), "")
+	r.OperationType = enumOr(protoToAPIOperationType, pbRule.GetOperationType(), "")
 	r.OperationCode = pbRule.GetOperationCode()
 	r.IsDefault = pbRule.GetIsDefault()
 	if ts := pbRule.GetCreatedAt(); ts != nil {
@@ -305,9 +303,11 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	}
 
 	if raw := pbRule.GetRuleDefinitionJson(); raw != "" {
-		if err := r.RuleDefinition.fromFlowJSON([]byte(raw)); err != nil {
+		var p protoRuleDefinition
+		if err := json.Unmarshal([]byte(raw), &p); err != nil {
 			return fmt.Errorf("invalid ruleDefinition from Flow: %w", err)
 		}
+		r.RuleDefinition = p.toAPI()
 	}
 	return nil
 }
@@ -325,7 +325,7 @@ type APITaskRuleCreateRequest struct {
 	SiteID         string                `json:"siteId"`
 	Name           string                `json:"name"`
 	Description    string                `json:"description"`
-	OperationType  string                `json:"operationType"`
+	OperationType  APIOperationType      `json:"operationType"`
 	OperationCode  string                `json:"operationCode"`
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 }
@@ -341,8 +341,7 @@ func (r *APITaskRuleCreateRequest) Validate() error {
 		validation.Field(&r.OperationType,
 			validation.Required.Error("operationType is required"),
 			validation.In(validOperationTypesAny...).Error(
-				fmt.Sprintf("operationType must be one of %v",
-					[]string{APIOperationTypePowerControl, APIOperationTypeFirmwareControl}))),
+				fmt.Sprintf("operationType must be one of %v", validOperationTypes))),
 		validation.Field(&r.OperationCode, validation.Required.Error("operationCode is required")),
 	)
 }
@@ -351,11 +350,11 @@ func (r *APITaskRuleCreateRequest) Validate() error {
 // Returns an error if the rule definition cannot be marshaled (shouldn't
 // happen for well-formed input).
 func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest, error) {
-	opType, err := operationTypeFromAPI(r.OperationType)
+	opType, err := r.OperationType.ToProto()
 	if err != nil {
 		return nil, err
 	}
-	rdJSON, err := r.RuleDefinition.toFlowJSON()
+	rdJSON, err := json.Marshal(r.RuleDefinition.toProto())
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
 	}
@@ -410,7 +409,7 @@ func (r *APITaskRuleUpdateRequest) ToProto(ruleID string) (*flowv1.UpdateOperati
 		Description: r.Description,
 	}
 	if r.RuleDefinition != nil {
-		rdJSON, err := r.RuleDefinition.toFlowJSON()
+		rdJSON, err := json.Marshal(r.RuleDefinition.toProto())
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
 		}
@@ -449,8 +448,8 @@ func (r *APITaskRuleDeleteRequest) Validate() error {
 // APITaskRuleGetAllRequest binds query parameters for GET /rule. Pagination is
 // bound separately via pagination.PageRequest.
 type APITaskRuleGetAllRequest struct {
-	SiteID        string `query:"siteId"`
-	OperationType string `query:"operationType"`
+	SiteID        string           `query:"siteId"`
+	OperationType APIOperationType `query:"operationType"`
 }
 
 func (r *APITaskRuleGetAllRequest) Validate() error {
@@ -459,8 +458,7 @@ func (r *APITaskRuleGetAllRequest) Validate() error {
 		validation.Field(&r.OperationType,
 			validation.When(r.OperationType != "",
 				validation.In(validOperationTypesAny...).Error(
-					fmt.Sprintf("operationType must be one of %v",
-						[]string{APIOperationTypePowerControl, APIOperationTypeFirmwareControl})))),
+					fmt.Sprintf("operationType must be one of %v", validOperationTypes)))),
 	)
 }
 
@@ -469,7 +467,7 @@ func (r *APITaskRuleGetAllRequest) Validate() error {
 func (r *APITaskRuleGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRulesRequest, error) {
 	req := &flowv1.ListOperationRulesRequest{}
 	if r.OperationType != "" {
-		opType, err := operationTypeFromAPI(r.OperationType)
+		opType, err := r.OperationType.ToProto()
 		if err != nil {
 			return nil, err
 		}
@@ -495,7 +493,7 @@ func (r *APITaskRuleGetAllRequest) QueryValues(page pagination.PageRequest) url.
 	v := url.Values{}
 	v.Set("siteId", r.SiteID)
 	if r.OperationType != "" {
-		v.Set("operationType", r.OperationType)
+		v.Set("operationType", string(r.OperationType))
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))
