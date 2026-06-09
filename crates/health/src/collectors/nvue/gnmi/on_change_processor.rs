@@ -30,7 +30,15 @@ use crate::HealthError;
 use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
 
 type ParsedRow = HashMap<String, String>;
-type TableSnapshot = HashMap<String, ParsedRow>;
+type CachedRows = HashMap<String, ParsedRow>;
+
+enum DeleteTarget {
+    Row(String),
+    Leaf {
+        instance_id: String,
+        leaf_name: String,
+    },
+}
 
 pub(crate) const ON_CHANGE_STREAM_ID_SYSTEM_EVENTS: &str = "nvue_gnmi_events";
 
@@ -78,7 +86,7 @@ pub(crate) struct GnmiOnChangeProcessor {
     pub(crate) data_sink: Option<Arc<dyn DataSink>>,
     pub(crate) event_context: EventContext,
     pub(crate) switch_id: String,
-    previous_snapshot: Mutex<TableSnapshot>,
+    cached_rows: Mutex<CachedRows>,
 }
 
 impl GnmiOnChangeProcessor {
@@ -95,7 +103,7 @@ impl GnmiOnChangeProcessor {
             data_sink,
             event_context,
             switch_id,
-            previous_snapshot: Mutex::new(HashMap::new()),
+            cached_rows: Mutex::new(HashMap::new()),
         }
     }
 
@@ -141,7 +149,8 @@ impl GnmiOnChangeProcessor {
             .map(|p| p.elem.as_slice())
             .unwrap_or_default();
 
-        let mut current: TableSnapshot = HashMap::new();
+        let mut updated_rows: CachedRows = HashMap::new();
+        let mut delete_targets = Vec::new();
 
         for update in &notification.update {
             let val = match update.val.as_ref() {
@@ -165,25 +174,71 @@ impl GnmiOnChangeProcessor {
             };
 
             let value = typed_value_to_string(val).unwrap_or_default();
-            current
+            updated_rows
                 .entry(instance_key.to_string())
                 .or_default()
                 .insert(leaf_elem.name.clone(), value);
         }
 
-        let mut previous = match self.previous_snapshot.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        for (instance_id, row) in &current {
-            let is_new_or_changed = previous.get(instance_id).map(|p| p != row).unwrap_or(true);
-            if is_new_or_changed {
-                self.emit_row_as_metric(instance_id, row);
+        for path in &notification.delete {
+            let combined: Vec<&PathElem> = prefix_elems.iter().chain(path.elem.iter()).collect();
+            if let Some(delete_target) = delete_target_from_path(&combined) {
+                delete_targets.push(delete_target);
             }
         }
 
-        let entity_count = current.len();
-        *previous = current;
+        let mut cached_rows = match self.cached_rows.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        let mut rows_to_emit = CachedRows::new();
+        for target in delete_targets {
+            match target {
+                DeleteTarget::Row(instance_id) => {
+                    cached_rows.remove(&instance_id);
+                }
+                DeleteTarget::Leaf {
+                    instance_id,
+                    leaf_name,
+                } => {
+                    if let Some(row) = cached_rows.get_mut(&instance_id)
+                        && row.remove(&leaf_name).is_some()
+                    {
+                        if row.is_empty() {
+                            cached_rows.remove(&instance_id);
+                        } else {
+                            rows_to_emit.insert(instance_id, row.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (instance_id, updated_row) in updated_rows {
+            let row = cached_rows.entry(instance_id.clone()).or_default();
+            let mut changed = false;
+
+            for (leaf_name, value) in updated_row {
+                let is_changed = row.get(&leaf_name) != Some(&value);
+                if is_changed {
+                    row.insert(leaf_name, value);
+                    changed = true;
+                }
+            }
+
+            if changed {
+                rows_to_emit.insert(instance_id, row.clone());
+            }
+        }
+
+        let entity_count = cached_rows.len();
+        drop(cached_rows);
+
+        for (instance_id, row) in rows_to_emit {
+            self.emit_row_as_metric(&instance_id, &row);
+        }
+
         entity_count
     }
 
@@ -235,10 +290,26 @@ impl GnmiOnChangeProcessor {
 }
 
 fn find_instance_key<'a>(elems: &[&'a PathElem]) -> Option<&'a str> {
+    find_instance_key_with_index(elems).map(|(_, key)| key)
+}
+
+fn find_instance_key_with_index<'a>(elems: &[&'a PathElem]) -> Option<(usize, &'a str)> {
     elems
         .iter()
-        .find(|e| !e.key.is_empty())
-        .and_then(|e| e.key.values().next().map(String::as_str))
+        .enumerate()
+        .find_map(|(index, elem)| elem.key.values().next().map(|key| (index, key.as_str())))
+}
+
+fn delete_target_from_path(elems: &[&PathElem]) -> Option<DeleteTarget> {
+    let (instance_index, instance_id) = find_instance_key_with_index(elems)?;
+    if elems.len() == instance_index + 1 {
+        return Some(DeleteTarget::Row(instance_id.to_string()));
+    }
+
+    elems.last().map(|leaf_elem| DeleteTarget::Leaf {
+        instance_id: instance_id.to_string(),
+        leaf_name: leaf_elem.name.clone(),
+    })
 }
 
 fn severity_to_f64(severity: Option<&str>) -> f64 {
@@ -338,6 +409,40 @@ mod tests {
         proto::TypedValue {
             value: Some(proto::typed_value::Value::StringVal(value.to_string())),
         }
+    }
+
+    fn make_system_event_update(event_id: &str, leaf_name: &str, value: &str) -> proto::Update {
+        proto::Update {
+            path: Some(proto::Path {
+                elem: vec![
+                    make_path_elem("system-event", &[("event-id", event_id)]),
+                    make_path_elem("state", &[]),
+                    make_path_elem(leaf_name, &[]),
+                ],
+                ..Default::default()
+            }),
+            val: Some(make_typed_value_string(value)),
+            ..Default::default()
+        }
+    }
+
+    fn make_system_events_notification(updates: Vec<proto::Update>) -> proto::Notification {
+        proto::Notification {
+            prefix: Some(proto::Path {
+                elem: vec![make_path_elem("system-events", &[])],
+                ..Default::default()
+            }),
+            update: updates,
+            ..Default::default()
+        }
+    }
+
+    fn metric_label<'a>(metric: &'a SensorHealthData, label: &str) -> Option<&'a str> {
+        metric
+            .labels
+            .iter()
+            .find(|(key, _)| key.as_ref() == label)
+            .map(|(_, value)| value.as_str())
     }
 
     #[test]
@@ -478,6 +583,174 @@ mod tests {
                 .with_label_values(&["error"])
                 .get(),
             1.0
+        );
+    }
+
+    #[test]
+    fn test_process_notification_merges_delta_updates_into_cached_row() {
+        let sink = Arc::new(CapturingSink::default());
+        let processor = test_processor(Some(sink.clone()));
+
+        processor.process_notification(&make_system_events_notification(vec![
+            make_system_event_update("9", "severity", "critical"),
+        ]));
+        processor.process_notification(&make_system_events_notification(vec![
+            make_system_event_update("9", "text", "partial event text"),
+        ]));
+
+        assert_eq!(
+            processor
+                .stream_metrics
+                .rows_total
+                .with_label_values(&["critical"])
+                .get(),
+            2.0
+        );
+        assert_eq!(
+            processor
+                .stream_metrics
+                .rows_total
+                .with_label_values(&["unknown"])
+                .get(),
+            0.0
+        );
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 2);
+        let CollectorEvent::Metric(metric) = &events[1].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(metric.value, 4.0);
+        assert_eq!(metric_label(metric, "severity"), Some("critical"));
+        assert_eq!(metric_label(metric, "text"), Some("partial event text"));
+    }
+
+    #[test]
+    fn test_process_notification_delete_removes_cached_leaf() {
+        let sink = Arc::new(CapturingSink::default());
+        let processor = test_processor(Some(sink.clone()));
+
+        processor.process_notification(&make_system_events_notification(vec![
+            make_system_event_update("11", "severity", "critical"),
+            make_system_event_update("11", "text", "cached event text"),
+        ]));
+
+        let delete = proto::Path {
+            elem: vec![
+                make_path_elem("system-event", &[("event-id", "11")]),
+                make_path_elem("state", &[]),
+                make_path_elem("severity", &[]),
+            ],
+            ..Default::default()
+        };
+        processor.process_notification(&proto::Notification {
+            prefix: Some(proto::Path {
+                elem: vec![make_path_elem("system-events", &[])],
+                ..Default::default()
+            }),
+            delete: vec![delete],
+            ..Default::default()
+        });
+        processor.process_notification(&make_system_events_notification(vec![
+            make_system_event_update("11", "text", "event text after delete"),
+        ]));
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 3);
+        let CollectorEvent::Metric(metric) = &events[2].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(metric.value, 0.0);
+        assert_eq!(metric_label(metric, "severity"), None);
+        assert_eq!(
+            metric_label(metric, "text"),
+            Some("event text after delete")
+        );
+    }
+
+    #[test]
+    fn test_process_notification_leaf_delete_emits_updated_cached_row() {
+        let sink = Arc::new(CapturingSink::default());
+        let processor = test_processor(Some(sink.clone()));
+
+        processor.process_notification(&make_system_events_notification(vec![
+            make_system_event_update("13", "severity", "critical"),
+            make_system_event_update("13", "text", "cached event text"),
+        ]));
+
+        let delete = proto::Path {
+            elem: vec![
+                make_path_elem("system-event", &[("event-id", "13")]),
+                make_path_elem("state", &[]),
+                make_path_elem("severity", &[]),
+            ],
+            ..Default::default()
+        };
+        processor.process_notification(&proto::Notification {
+            prefix: Some(proto::Path {
+                elem: vec![make_path_elem("system-events", &[])],
+                ..Default::default()
+            }),
+            delete: vec![delete],
+            ..Default::default()
+        });
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 2);
+        let CollectorEvent::Metric(metric) = &events[1].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(metric.value, 0.0);
+        assert_eq!(metric_label(metric, "severity"), None);
+        assert_eq!(metric_label(metric, "text"), Some("cached event text"));
+    }
+
+    #[test]
+    fn test_process_notification_row_delete_drops_cached_leaves() {
+        let sink = Arc::new(CapturingSink::default());
+        let processor = test_processor(Some(sink.clone()));
+
+        assert_eq!(
+            processor.process_notification(&make_system_events_notification(vec![
+                make_system_event_update("17", "severity", "critical"),
+                make_system_event_update("17", "text", "cached event text"),
+            ])),
+            1
+        );
+
+        let delete = proto::Path {
+            elem: vec![make_path_elem("system-event", &[("event-id", "17")])],
+            ..Default::default()
+        };
+        assert_eq!(
+            processor.process_notification(&proto::Notification {
+                prefix: Some(proto::Path {
+                    elem: vec![make_path_elem("system-events", &[])],
+                    ..Default::default()
+                }),
+                delete: vec![delete],
+                ..Default::default()
+            }),
+            0
+        );
+
+        assert_eq!(
+            processor.process_notification(&make_system_events_notification(vec![
+                make_system_event_update("17", "text", "event text after row delete"),
+            ])),
+            1
+        );
+
+        let events = sink.events.lock().expect("lock poisoned");
+        assert_eq!(events.len(), 2);
+        let CollectorEvent::Metric(metric) = &events[1].1 else {
+            panic!("expected metric event");
+        };
+        assert_eq!(metric.value, 0.0);
+        assert_eq!(metric_label(metric, "severity"), None);
+        assert_eq!(
+            metric_label(metric, "text"),
+            Some("event text after row delete")
         );
     }
 
