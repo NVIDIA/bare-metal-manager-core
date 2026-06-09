@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Replace all expected racks with the contents of a JSON file:
-    $ carbide-admin-cli expected-rack replace-all --filename ./racks.json
+    $ nico-admin-cli expected-rack replace-all --filename ./racks.json
 
 ")]
 pub struct Args {

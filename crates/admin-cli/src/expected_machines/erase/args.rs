@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Erase every expected machine (requires explicit confirmation):
-    $ carbide-admin-cli expected-machine erase --confirm
+    $ nico-admin-cli expected-machine erase --confirm
 
 ")]
 pub struct Args {

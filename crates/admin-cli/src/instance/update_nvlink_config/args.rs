@@ -24,7 +24,7 @@ use rpc::forge::InstanceNvLinkConfig;
 EXAMPLES:
 
 Update an instance's NVLink configuration:
-    $ carbide-admin-cli instance update-nv-link-config \
+    $ nico-admin-cli instance update-nv-link-config \
     --instance 12345678-1234-5678-90ab-cdef01234567 \
     --config '{\"partition_id\":\"abcdef01-2345-6789-abcd-ef0123456789\"}'
 

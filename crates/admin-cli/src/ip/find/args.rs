@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Identify what owns an IPv4 address:
-    $ carbide-admin-cli ip find 192.0.2.10
+    $ nico-admin-cli ip find 192.0.2.10
 
 Identify what owns an IPv6 address:
-    $ carbide-admin-cli ip find 2001:db8::1
+    $ nico-admin-cli ip find 2001:db8::1
 
 ")]
 pub struct Args {

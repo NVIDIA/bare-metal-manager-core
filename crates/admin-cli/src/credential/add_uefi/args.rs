@@ -26,10 +26,10 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Set the site-wide DPU UEFI default password:
-    $ carbide-admin-cli credential add-uefi --kind=dpu --password=mynewpassword
+    $ nico-admin-cli credential add-uefi --kind=dpu --password=mynewpassword
 
 Set the site-wide host UEFI default password:
-    $ carbide-admin-cli credential add-uefi --kind=host --password=mynewpassword
+    $ nico-admin-cli credential add-uefi --kind=host --password=mynewpassword
 
 ")]
 pub struct Args {

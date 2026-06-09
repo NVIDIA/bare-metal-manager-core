@@ -565,13 +565,13 @@ provisioned via DPF only when **both** of the following are true:
 There are several operator paths that can set this field. They are described
 below in the order an operator typically uses them.
 
-#### 3.6.a. `carbide-admin-cli expected-machine add` — create a new entry
+#### 3.6.a. `nico-admin-cli expected-machine add` — create a new entry
 
 Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
 stores `false`**.
 
 ```bash
-carbide-admin-cli expected-machine add \
+nico-admin-cli expected-machine add \
   --bmc-mac-address 1a:1b:1c:1d:1e:1f \
   --bmc-username admin \
   --bmc-password secret \
@@ -579,20 +579,20 @@ carbide-admin-cli expected-machine add \
   --dpf-enabled true
 ```
 
-#### 3.6.b. `carbide-admin-cli expected-machine patch` — partial update via flags
+#### 3.6.b. `nico-admin-cli expected-machine patch` — partial update via flags
 
 Updates an existing entry in place. The lookup key is `--bmc-mac-address`
 (or `--id <UUID>`). Omitting `--dpf-enabled` **preserves** the existing
 value.
 
 ```bash
-carbide-admin-cli expected-machine patch \
+nico-admin-cli expected-machine patch \
   --bmc-mac-address 1a:1b:1c:1d:1e:1f \
   --chassis-serial-number CHASSIS-SN-001 \
   --dpf-enabled true
 ```
 
-#### 3.6.c. `carbide-admin-cli expected-machine update --filename` — single-host update from JSON
+#### 3.6.c. `nico-admin-cli expected-machine update --filename` — single-host update from JSON
 
 Updates one entry from a JSON file. The JSON shape uses
 `chassis_serial_number` (not `serial_number`) and any field omitted from the
@@ -611,13 +611,13 @@ file is **preserved** server-side.
 ```
 
 ```bash
-carbide-admin-cli expected-machine update --filename em.json
+nico-admin-cli expected-machine update --filename em.json
 ```
 
 This is the most ergonomic path for "toggle DPF on one already-existing
 expected machine without touching anything else."
 
-#### 3.6.d. `carbide-admin-cli expected-machine replace-all --filename` — destructive full reload
+#### 3.6.d. `nico-admin-cli expected-machine replace-all --filename` — destructive full reload
 
 Wipes the entire `expected_machines` table and re-creates it from the file.
 The file shape is a wrapper object whose `expected_machines` array uses the
@@ -640,7 +640,7 @@ same per-entry shape as `update`:
 ```
 
 ```bash
-carbide-admin-cli expected-machine replace-all --filename em-all.json
+nico-admin-cli expected-machine replace-all --filename em-all.json
 ```
 
 > **Important**: this is **not a merge**. Any expected-machine row that is
@@ -652,23 +652,23 @@ carbide-admin-cli expected-machine replace-all --filename em-all.json
 
 | Goal | Path |
 |---|---|
-| Add a new host with DPF enabled | `carbide-admin-cli expected-machine add … --dpf-enabled true` |
-| Flip DPF on an existing entry, preserving everything else | `carbide-admin-cli expected-machine update --filename em.json` |
-| Flip DPF inline with one or more other fields | `carbide-admin-cli expected-machine patch … --dpf-enabled true` |
-| Replace the entire inventory | `carbide-admin-cli expected-machine replace-all --filename em-all.json` |
-| Inspect current value | `carbide-admin-cli expected-machine show <bmc-mac>` |
+| Add a new host with DPF enabled | `nico-admin-cli expected-machine add … --dpf-enabled true` |
+| Flip DPF on an existing entry, preserving everything else | `nico-admin-cli expected-machine update --filename em.json` |
+| Flip DPF inline with one or more other fields | `nico-admin-cli expected-machine patch … --dpf-enabled true` |
+| Replace the entire inventory | `nico-admin-cli expected-machine replace-all --filename em-all.json` |
+| Inspect current value | `nico-admin-cli expected-machine show <bmc-mac>` |
 
 ### 3.7 Enabling DPF for Existing (Ingested) Nodes
 
 You can enable the DPF flag on an already discovered host without force-deleting or recreating it by using:
 
 ```bash
-carbide-admin-cli dpf enable <host-id>
+nico-admin-cli dpf enable <host-id>
 ```
 
 After changing the DPF status for a host in this way, you should trigger a reprovisioning for all the DPUs under a host (using its host ID). For environments where a host has multiple DPUs, make sure to trigger reprovisioning for all DPUs under the host; otherwise, NICo will not transition the node to DPF-managed status.
 
-**Note:** The `carbide-admin-cli dpf enable` command updates the DPF flag only for the currently ingested machine. If you later force-delete the host, this change is lost—on rediscovery, the DPF setting will revert to whatever is present in your `expected_machines` database.
+**Note:** The `nico-admin-cli dpf enable` command updates the DPF flag only for the currently ingested machine. If you later force-delete the host, this change is lost—on rediscovery, the DPF setting will revert to whatever is present in your `expected_machines` database.
 
 ---
 
@@ -702,9 +702,9 @@ configuration to take effect.
 
 ---
 
-## Appendix: `carbide-admin-cli dpf` command reference
+## Appendix: `nico-admin-cli dpf` command reference
 
-`carbide-admin-cli` ships a top-level `dpf` subcommand group for inspecting and
+`nico-admin-cli` ships a top-level `dpf` subcommand group for inspecting and
 toggling DPF state on already-ingested hosts and for diffing the running DPF
 service stack against the configured one. The full set is listed below.
 
@@ -718,7 +718,7 @@ service stack against the configured one. The full set is listed below.
 ### `dpf enable` — turn DPF on for a host
 
 ```bash
-carbide-admin-cli dpf enable <host-machine-id>
+nico-admin-cli dpf enable <host-machine-id>
 ```
 
 | Argument | Required | Notes |
@@ -732,10 +732,10 @@ the `ModifyDPFState` RPC.
 
 ```bash
 # One host
-carbide-admin-cli dpf show <host-machine-id>
+nico-admin-cli dpf show <host-machine-id>
 
 # All hosts (paginated by --page-size)
-carbide-admin-cli dpf show
+nico-admin-cli dpf show
 ```
 
 | Argument | Required | Notes |
@@ -749,7 +749,7 @@ from the all-hosts list.
 ### `dpf snapshot` — dump DPF CRs for a host
 
 ```bash
-carbide-admin-cli dpf snapshot <host-machine-id>
+nico-admin-cli dpf snapshot <host-machine-id>
 ```
 
 | Argument | Required | Notes |
@@ -763,9 +763,9 @@ why a host is stuck during DPF-based provisioning.
 ### `dpf service-version` (alias: `sv`) — diff configured vs. deployed services
 
 ```bash
-carbide-admin-cli dpf service-version
+nico-admin-cli dpf service-version
 # or
-carbide-admin-cli dpf sv
+nico-admin-cli dpf sv
 ```
 
 No arguments. Prints a table comparing each configured DPF service
@@ -789,8 +789,8 @@ configured versions onto the cluster.
 
 | Goal | Command |
 |---|---|
-| Turn DPF on for an already-discovered host (transient) | `carbide-admin-cli dpf enable <host-id>` |
-| Show DPF state for one host | `carbide-admin-cli dpf show <host-id>` |
-| List DPF state for all hosts | `carbide-admin-cli dpf show` |
-| Snapshot DPF CRs for a host | `carbide-admin-cli dpf snapshot <host-id>` |
-| Diff configured vs. deployed DPF service versions | `carbide-admin-cli dpf service-version` |
+| Turn DPF on for an already-discovered host (transient) | `nico-admin-cli dpf enable <host-id>` |
+| Show DPF state for one host | `nico-admin-cli dpf show <host-id>` |
+| List DPF state for all hosts | `nico-admin-cli dpf show` |
+| Snapshot DPF CRs for a host | `nico-admin-cli dpf snapshot <host-id>` |
+| Diff configured vs. deployed DPF service versions | `nico-admin-cli dpf service-version` |

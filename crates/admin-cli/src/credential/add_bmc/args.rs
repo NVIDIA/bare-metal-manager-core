@@ -27,10 +27,10 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Add the site-wide BMC root credential:
-    $ carbide-admin-cli credential add-bmc --kind=site-wide-root --username admin --password mypassword
+    $ nico-admin-cli credential add-bmc --kind=site-wide-root --username admin --password mypassword
 
 Add a per-BMC root credential for a specific MAC address:
-    $ carbide-admin-cli credential add-bmc --kind=bmc-root --username admin --password mypassword \
+    $ nico-admin-cli credential add-bmc --kind=bmc-root --username admin --password mypassword \
     --mac-address 00:11:22:33:44:55
 
 ")]

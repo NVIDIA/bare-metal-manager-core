@@ -23,11 +23,11 @@ use clap::Parser;
 EXAMPLES:
 
 Start on-demand validation for a machine:
-    $ carbide-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567
 
 Start with a restricted set of allowed tests, including unverified:
-    $ carbide-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567 \
-    --allowed-tests gpu_bandwidth --run-unverfied-tests
+    $ nico-admin-cli machine-validation on-demand start --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --allowed-tests gpu_bandwidth --run-unverified-tests
 
 ")]
 pub enum Args {
@@ -50,8 +50,8 @@ pub struct OnDemandOptions {
     #[clap(long, help = "Allowed tests")]
     pub allowed_tests: Option<Vec<String>>,
 
-    #[clap(long, default_value = "false", help = "Run not verfified tests")]
-    pub run_unverfied_tests: bool,
+    #[clap(long, default_value = "false", help = "Run unverified tests")]
+    pub run_unverified_tests: bool,
 
     #[clap(long, help = "Contexts")]
     pub contexts: Option<Vec<String>>,

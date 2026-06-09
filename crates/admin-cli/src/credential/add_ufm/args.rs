@@ -26,7 +26,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Add a UFM credential with a token:
-    $ carbide-admin-cli credential add-ufm --url https://192.0.2.10 --token mypassword
+    $ nico-admin-cli credential add-ufm --url https://192.0.2.10 --token mypassword
 
 ")]
 pub struct Args {

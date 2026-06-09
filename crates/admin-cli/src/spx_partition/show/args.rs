@@ -23,16 +23,16 @@ use clap::Parser;
 EXAMPLES:
 
 List all SPX partitions:
-    $ carbide-admin-cli spx-partition show
+    $ nico-admin-cli spx-partition show
 
 Show one partition by ID:
-    $ carbide-admin-cli spx-partition show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli spx-partition show 12345678-1234-5678-90ab-cdef01234567
 
 Filter by tenant org:
-    $ carbide-admin-cli spx-partition show --tenant-org-id fds34511233a
+    $ nico-admin-cli spx-partition show --tenant-org-id fds34511233a
 
 Filter by name:
-    $ carbide-admin-cli spx-partition show --name my-partition
+    $ nico-admin-cli spx-partition show --name my-partition
 
 ")]
 pub struct Args {

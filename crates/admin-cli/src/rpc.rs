@@ -1675,7 +1675,7 @@ impl ApiClient {
         machine_id: MachineId,
         tags: Option<Vec<String>>,
         allowed_tests: Option<Vec<String>>,
-        run_unverfied_tests: bool,
+        run_unverified_tests: bool,
         contexts: Option<Vec<String>>,
     ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
         let allowed_tests: Vec<String> = allowed_tests
@@ -1688,7 +1688,7 @@ impl ApiClient {
             tags: tags.unwrap_or_default(),
             allowed_tests,
             action: rpc::machine_validation_on_demand_request::Action::Start.into(),
-            run_unverfied_tests,
+            run_unverfied_tests: run_unverified_tests,
             contexts: contexts.unwrap_or_default(),
         };
         Ok(self.0.on_demand_machine_validation(request).await?)

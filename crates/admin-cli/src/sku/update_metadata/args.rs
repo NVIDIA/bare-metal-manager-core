@@ -23,13 +23,13 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Update a SKU's description:
-    $ carbide-admin-cli sku update-metadata DGX-H100-640GB --description \"DGX H100 640GB\"
+    $ nico-admin-cli sku update-metadata DGX-H100-640GB --description \"DGX H100 640GB\"
 
 Update a SKU's device type:
-    $ carbide-admin-cli sku update-metadata DGX-H100-640GB --device-type gpu-server
+    $ nico-admin-cli sku update-metadata DGX-H100-640GB --device-type gpu-server
 
 Update both at once:
-    $ carbide-admin-cli sku update-metadata DGX-H100-640GB \
+    $ nico-admin-cli sku update-metadata DGX-H100-640GB \
     --description \"DGX H100 640GB\" --device-type gpu-server
 
 ")]

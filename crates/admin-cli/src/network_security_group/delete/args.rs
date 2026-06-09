@@ -23,7 +23,7 @@ use rpc::forge::DeleteNetworkSecurityGroupRequest;
 EXAMPLES:
 
 Delete a network security group:
-    $ carbide-admin-cli network-security-group delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group delete --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a
 
 ")]

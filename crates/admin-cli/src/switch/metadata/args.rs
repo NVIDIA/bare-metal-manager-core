@@ -37,7 +37,7 @@ pub enum Args {
 EXAMPLES:
 
 Show a switch's metadata:
-    $ carbide-admin-cli switch metadata show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli switch metadata show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct SwitchMetadataCommandShow {
@@ -50,7 +50,7 @@ pub struct SwitchMetadataCommandShow {
 EXAMPLES:
 
 Set a switch's name and description:
-    $ carbide-admin-cli switch metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch metadata set 12345678-1234-5678-90ab-cdef01234567 \
     --name spine-01 --description \"Rack 4 spine\"
 
 ")]
@@ -68,10 +68,10 @@ pub struct SwitchMetadataCommandSet {
 EXAMPLES:
 
 Add a key-only label:
-    $ carbide-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+    $ nico-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
 
 Add a key/value label:
-    $ carbide-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
     --key env --value prod
 
 ")]
@@ -89,7 +89,7 @@ pub struct SwitchMetadataCommandAddLabel {
 EXAMPLES:
 
 Remove one or more labels by key:
-    $ carbide-admin-cli switch metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
     --keys env --keys edge
 
 ")]
@@ -105,10 +105,10 @@ pub struct SwitchMetadataCommandRemoveLabels {
 EXAMPLES:
 
 Fill in missing metadata from the expected-switch (leaving existing values intact):
-    $ carbide-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567
 
 Overwrite the switch's metadata with the expected-switch's values:
-    $ carbide-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567 \
     --replace-all
 
 ")]
