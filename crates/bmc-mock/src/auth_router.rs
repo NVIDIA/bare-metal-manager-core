@@ -165,6 +165,7 @@ impl AuthMiddleware {
 pub struct Authorizer {
     account_service_state: Arc<AccountServiceState>,
     session_service_state: Arc<SessionServiceState>,
+    forbid_factory_default_password: bool,
 }
 
 impl Authorizer {
@@ -176,7 +177,13 @@ impl Authorizer {
         Self {
             account_service_state,
             session_service_state,
+            forbid_factory_default_password: true,
         }
+    }
+
+    pub fn permit_factory_default_password(mut self) -> Self {
+        self.forbid_factory_default_password = false;
+        self
     }
 
     fn authorize(
@@ -202,7 +209,8 @@ impl Authorizer {
             .account_service_state
             .is_authorized(actual.username(), actual.password())
         {
-            if !permit_factory_default
+            if self.forbid_factory_default_password
+                && !permit_factory_default
                 && self
                     .account_service_state
                     .is_factory_default_password(actual.username(), actual.password())

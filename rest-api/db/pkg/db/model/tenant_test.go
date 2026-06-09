@@ -228,18 +228,13 @@ func TestTenantSQLDAO_GetAllByOrg(t *testing.T) {
 	}
 }
 
-func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
+func TestTenantSQLDAO_Create(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 	type args struct {
-		ctx            context.Context
-		name           string
-		displayName    *string
-		org            string
-		orgDisplayName *string
-		config         *TenantConfig
-		createdBy      *User
+		ctx   context.Context
+		input TenantCreateInput
 	}
 
 	// Create test DB
@@ -284,14 +279,14 @@ func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:            ctx,
-				name:           tn.Name,
-				displayName:    tn.DisplayName,
-				org:            tn.Org,
-				orgDisplayName: tn.OrgDisplayName,
-				config:         tncfg,
-				createdBy: &User{
-					ID: tn.CreatedBy,
+				ctx: ctx,
+				input: TenantCreateInput{
+					Name:           tn.Name,
+					DisplayName:    tn.DisplayName,
+					Org:            tn.Org,
+					OrgDisplayName: tn.OrgDisplayName,
+					Config:         tncfg,
+					CreatedBy:      tn.CreatedBy,
 				},
 			},
 			want:               tn,
@@ -304,13 +299,14 @@ func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:            context.Background(),
-				name:           tn.Name,
-				displayName:    tn.DisplayName,
-				org:            tn.Org,
-				orgDisplayName: tn.OrgDisplayName,
-				createdBy: &User{
-					ID: tn.CreatedBy,
+				ctx: context.Background(),
+				input: TenantCreateInput{
+					Name:           tn.Name,
+					DisplayName:    tn.DisplayName,
+					Org:            tn.Org,
+					OrgDisplayName: tn.OrgDisplayName,
+					Config:         defaultcfg,
+					CreatedBy:      tn.CreatedBy,
 				},
 			},
 			want: &Tenant{
@@ -329,9 +325,9 @@ func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
 			ipsd := TenantSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.CreateFromParams(tt.args.ctx, nil, tt.args.name, tt.args.displayName, tt.args.org, tt.args.orgDisplayName, tt.args.config, tt.args.createdBy)
+			got, err := ipsd.Create(tt.args.ctx, nil, tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("TenantSQLDAO.CreateFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("TenantSQLDAO.Create() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -355,17 +351,13 @@ func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
 	}
 }
 
-func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
+func TestTenantSQLDAO_Update(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
 	type args struct {
-		ctx            context.Context
-		id             uuid.UUID
-		name           *string
-		displayName    *string
-		orgDisplayName *string
-		config         *TenantConfig
+		ctx   context.Context
+		input TenantUpdateInput
 	}
 
 	// Create test DB
@@ -424,12 +416,14 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				ctx:            ctx,
-				id:             tn.ID,
-				name:           cutil.GetPtr(utn.Name),
-				displayName:    utn.DisplayName,
-				orgDisplayName: utn.OrgDisplayName,
-				config:         tncfg,
+				ctx: ctx,
+				input: TenantUpdateInput{
+					TenantID:       tn.ID,
+					Name:           cutil.GetPtr(utn.Name),
+					DisplayName:    utn.DisplayName,
+					OrgDisplayName: utn.OrgDisplayName,
+					Config:         tncfg,
+				},
 			},
 			want:               utn,
 			wantErr:            false,
@@ -441,9 +435,9 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 			ipsd := TenantSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, err := ipsd.UpdateFromParams(tt.args.ctx, nil, tt.args.id, tt.args.name, tt.args.displayName, tt.args.orgDisplayName, tt.args.config)
+			got, err := ipsd.Update(tt.args.ctx, nil, tt.args.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("TenantSQLDAO.UpdateFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("TenantSQLDAO.Update() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -464,7 +458,7 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestTenantSQLDAO_DeleteByID(t *testing.T) {
+func TestTenantSQLDAO_Delete(t *testing.T) {
 	type fields struct {
 		dbSession *db.Session
 	}
@@ -522,8 +516,8 @@ func TestTenantSQLDAO_DeleteByID(t *testing.T) {
 			ipsd := TenantSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			if err := ipsd.DeleteByID(tt.args.ctx, nil, tt.args.id); (err != nil) != tt.wantErr {
-				t.Errorf("TenantSQLDAO.DeleteByID() error = %v, wantErr %v", err, tt.wantErr)
+			if err := ipsd.Delete(tt.args.ctx, nil, tt.args.id); (err != nil) != tt.wantErr {
+				t.Errorf("TenantSQLDAO.Delete() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			dip := &Tenant{}

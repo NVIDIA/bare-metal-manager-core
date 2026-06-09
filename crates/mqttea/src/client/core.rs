@@ -24,7 +24,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 use tokio::sync::{Mutex, RwLock, Semaphore, mpsc};
@@ -49,21 +48,13 @@ const DEFAULT_CLIENT_QUEUE_SIZE: usize = 5000;
 // Each client instance has its own registry for complete isolation between clients.
 pub struct MqtteaClient {
     // client is the underlying MQTT client for actual network
-    // communication. Wrapped in RwLock<Arc<...>> so the event loop
-    // task can swap in a freshly built AsyncClient on rebuild
-    // without invalidating external `publish`/`subscribe` callers,
-    // which read through the lock to pick up the current client.
-    client: RwLock<Arc<AsyncClient>>,
+    // communication.
+    client: Arc<AsyncClient>,
     // client_id is the client ID that we pass to the
     // underlying rumqttc::AsyncClient. The AsyncClient
     // itself doesn't provide access to it, so we store
     // it here for logging/identification purposes.
     client_id: String,
-    // broker_host and broker_port are stored so that we can rebuild
-    // a new `MqttOptions` (and the paired `AsyncClient`/`EventLoop`)
-    // when the rebuild watchdog trips.
-    broker_host: String,
-    broker_port: u16,
     // event_loop is stored to be used in start() method
     event_loop: Arc<Mutex<Option<EventLoop>>>,
     // client_options is used when no explicit PublishOptions are provided
@@ -75,10 +66,8 @@ pub struct MqtteaClient {
     // will be fetched from this provider (e.g., to get a new OAuth2 token).
     credentials_provider: Option<Arc<dyn CredentialsProvider>>,
     // subscriptions tracks the topic patterns and QoS values passed
-    // to `subscribe()` so the rebuild path can replay them on the
-    // freshly built `AsyncClient`. The broker has no session state
-    // for the post-rebuild CONNECT (we explicitly tear it down), so
-    // SUBSCRIBE has to be reissued client-side.
+    // to `subscribe()` so they can be replayed when the broker reports
+    // that a reconnect created a fresh session.
     subscriptions: Arc<RwLock<HashMap<String, QoS>>>,
     // handlers stores message-type-specific handlers for processing
     // received messages
@@ -146,10 +135,8 @@ impl MqtteaClient {
         info!("Created MQTT client for {}:{}", broker_host, broker_port);
 
         Ok(Arc::new(Self {
-            client: RwLock::new(Arc::new(client)),
+            client: Arc::new(client),
             client_id: client_id.into(),
-            broker_host: broker_host.to_string(),
-            broker_port,
             event_loop: Arc::new(Mutex::new(Some(event_loop))),
             concurrency_semaphore: Arc::new(Semaphore::new(concurrency_limit)),
             client_options,
@@ -162,44 +149,7 @@ impl MqtteaClient {
         }))
     }
 
-    // current_client returns a clone of the Arc to the underlying
-    // rumqttc AsyncClient currently in use. Callers should hold it
-    // only as long as they need to issue a single command; on rebuild
-    // the field will be swapped to point at a new AsyncClient.
-    async fn current_client(&self) -> Arc<AsyncClient> {
-        self.client.read().await.clone()
-    }
-
-    // rebuild_client_internal tears down the underlying rumqttc
-    // AsyncClient/EventLoop pair and stands up a fresh one. Tracked
-    // subscriptions are replayed against the new AsyncClient (queued
-    // by rumqttc and sent once CONNECT lands) so message flow resumes
-    // automatically after the new connection comes up.
-    //
-    // The returned EventLoop is the one the caller should poll going
-    // forward. The old EventLoop should be dropped by the caller by
-    // letting its binding go out of scope.
-    async fn rebuild_client_internal(&self) -> Result<EventLoop, MqtteaClientError> {
-        let mqtt_options = build_mqtt_options(
-            &self.client_id,
-            &self.broker_host,
-            self.broker_port,
-            self.client_options.as_ref(),
-        )
-        .await?;
-
-        let capacity = self
-            .client_options
-            .as_ref()
-            .and_then(|opts| opts.message_channel_capacity)
-            .unwrap_or(DEFAULT_MESSAGE_CHANNEL_CAPACITY);
-
-        let (new_client, new_event_loop) = AsyncClient::new(mqtt_options, capacity);
-        let new_client = Arc::new(new_client);
-
-        // Replay tracked subscriptions onto the new client. rumqttc
-        // buffers SUBSCRIBE commands and ships them on the wire once
-        // CONNECT lands on the new EventLoop.
+    async fn replay_subscriptions(&self) {
         let subs_snapshot: Vec<(String, QoS)> = self
             .subscriptions
             .read()
@@ -207,16 +157,24 @@ impl MqtteaClient {
             .iter()
             .map(|(topic, qos)| (topic.clone(), *qos))
             .collect();
-        for (topic, qos) in subs_snapshot {
-            new_client
-                .subscribe(topic.as_str(), qos)
-                .await
-                .map_err(MqtteaClientError::ConnectionError)?;
+
+        if subs_snapshot.is_empty() {
+            return;
         }
 
-        *self.client.write().await = new_client;
-        self.queue_stats.increment_client_rebuilds();
-        Ok(new_event_loop)
+        info!(
+            subscription_count = subs_snapshot.len(),
+            "Replaying MQTT subscriptions after broker reported a fresh session"
+        );
+
+        for (topic, qos) in subs_snapshot {
+            if let Err(e) = self.client.subscribe(topic.as_str(), qos).await {
+                error!(
+                    "Failed to re-subscribe to {} after fresh session: {:?}",
+                    topic, e
+                );
+            }
+        }
     }
 
     // connect actually connects and starts the event_loop for both
@@ -269,66 +227,21 @@ impl MqtteaClient {
         let queue_stats_producer = self.queue_stats.clone();
         let registry_clone = self.registry.clone();
         let credentials_provider = self.credentials_provider.clone();
-        let rebuild_after_persistent_disconnect = self
-            .client_options
-            .as_ref()
-            .and_then(|opts| opts.rebuild_after_persistent_disconnect);
-        let client_for_rebuild = self.clone();
-        // None while the connection is healthy; Some(t) where t is the
-        // wall-clock instant of the first event loop error in the
-        // current outage. Cleared by any successful poll. Local to this
-        // task — only ever read/written from the event loop body — so no
-        // synchronization is needed.
-        let mut first_error_at: Option<Instant> = None;
+        let client_for_reconnect = self.clone();
+        let mut has_connected = false;
         let mut backoff_strategy = SuperBasicBackoff::new();
         tokio::spawn(async move {
             loop {
                 match event_loop.poll().await {
                     Ok(event) => {
-                        // Only events that prove the MQTT session is
-                        // actually functional reset the outage clock.
-                        // Transient handshake events (Outgoing(Connect),
-                        // Incoming(ConnAck)) can fire during a wedge --
-                        // rumqttc keeps cycling TCP/CONNECT/CONNACK
-                        // without ever issuing SUBSCRIBE -- so treating
-                        // them as "success" makes the rebuild watchdog
-                        // never accumulate threshold and fire. SubAck,
-                        // Publish, and PingResp are the events that
-                        // actually demonstrate we're sending and
-                        // receiving on the wire.
-                        match &event {
-                            Event::Incoming(Packet::SubAck(_))
-                            | Event::Incoming(Packet::Publish(_))
-                            | Event::Incoming(Packet::PingResp) => {
-                                first_error_at = None;
-                            }
-                            _ => {}
-                        }
+                        if let Event::Incoming(Packet::ConnAck(connack)) = &event {
+                            let should_replay =
+                                should_replay_subscriptions(has_connected, connack.session_present);
+                            has_connected = true;
+                            backoff_strategy.reset();
 
-                        // Every fresh MQTT session needs subscriptions
-                        // reissued. rumqttc with clean_session=false
-                        // assumes the broker remembers our session, but
-                        // the broker may have restarted and lost it (the
-                        // NVBug 6191840 wedge scenario). Defensively
-                        // resend SUBSCRIBE on every CONNACK so the new
-                        // session has the subscriptions we expect.
-                        if let Event::Incoming(Packet::ConnAck(_)) = &event {
-                            let current_client = client_for_rebuild.current_client().await;
-                            let subs_snapshot: Vec<(String, QoS)> = client_for_rebuild
-                                .subscriptions
-                                .read()
-                                .await
-                                .iter()
-                                .map(|(topic, qos)| (topic.clone(), *qos))
-                                .collect();
-                            for (topic, qos) in subs_snapshot {
-                                if let Err(e) = current_client.subscribe(topic.as_str(), qos).await
-                                {
-                                    error!(
-                                        "Failed to re-subscribe to {} after CONNACK: {:?}",
-                                        topic, e
-                                    );
-                                }
+                            if should_replay {
+                                client_for_reconnect.replay_subscriptions().await;
                             }
                         }
 
@@ -374,40 +287,6 @@ impl MqtteaClient {
                     Err(e) => {
                         error!("MQTT event loop connection error: {:?}", e);
                         queue_stats_producer.increment_event_loop_errors();
-
-                        // Start (or check) the outage clock. If the
-                        // caller configured a rebuild threshold and the
-                        // event loop has been continuously failing for
-                        // that long, tear down the rumqttc client and
-                        // stand up a fresh one so a wedged session
-                        // doesn't sit silently forever.
-                        let outage_start = *first_error_at.get_or_insert_with(Instant::now);
-                        if let Some(threshold) = rebuild_after_persistent_disconnect
-                            && outage_start.elapsed() >= threshold
-                        {
-                            warn!(
-                                disconnected_secs = outage_start.elapsed().as_secs(),
-                                threshold_secs = threshold.as_secs(),
-                                "MQTT event loop disconnected past threshold; rebuilding client"
-                            );
-                            match client_for_rebuild.rebuild_client_internal().await {
-                                Ok(new_event_loop) => {
-                                    event_loop = new_event_loop;
-                                    first_error_at = None;
-                                    backoff_strategy.reset();
-                                    info!("MQTT client rebuilt; resuming event loop");
-                                    continue;
-                                }
-                                Err(rebuild_err) => {
-                                    error!(
-                                        "Failed to rebuild MQTT client: {:?}; will retry after backoff",
-                                        rebuild_err
-                                    );
-                                    tokio::time::sleep(backoff_strategy.next_delay()).await;
-                                    continue;
-                                }
-                            }
-                        }
 
                         // Refresh credentials before reconnection attempt if a provider is configured.
                         // This ensures we use fresh tokens (e.g., OAuth2) for the next connection.
@@ -567,16 +446,15 @@ impl MqtteaClient {
     // subscribe subscribes to a topic with the specified QoS.
     //
     // The subscription is also stored in the client so it can be
-    // replayed if the rebuild watchdog tears down and rebuilds the
-    // underlying rumqttc client after a sustained broker outage.
+    // replayed after a reconnect when the broker reports that the
+    // previous session was not resumed.
     pub async fn subscribe(&self, topic: &str, qos: QoS) -> Result<(), MqtteaClientError> {
         self.subscriptions
             .write()
             .await
             .insert(topic.to_string(), qos);
 
-        self.current_client()
-            .await
+        self.client
             .subscribe(topic, qos)
             .await
             .map_err(MqtteaClientError::ConnectionError)?;
@@ -627,8 +505,7 @@ impl MqtteaClient {
             })
             .unwrap_or(DEFAULT_RETAIN);
 
-        let client = self.current_client().await;
-        match client.publish(topic, qos, retain, payload).await {
+        match self.client.publish(topic, qos, retain, payload).await {
             Ok(_) => {
                 self.publish_stats.increment_published(payload_size);
                 debug!("Published message to topic: {}", topic);
@@ -662,8 +539,7 @@ impl MqtteaClient {
     // disconnect gracefully shuts down the MQTT client connection. Should
     // be called before dropping the client to ensure clean shutdown
     pub async fn disconnect(&self) -> Result<(), MqtteaClientError> {
-        self.current_client()
-            .await
+        self.client
             .disconnect()
             .await
             .map_err(MqtteaClientError::ConnectionError)?;
@@ -709,12 +585,8 @@ impl MqtteaClient {
     }
 }
 
-// build_mqtt_options assembles a fresh rumqttc `MqttOptions` from
-// the stored client identity / broker target / option settings,
-// fetching fresh credentials from the credentials provider if
-// configured. Used by both `MqtteaClient::new` (initial connect)
-// and `MqtteaClient::rebuild_client_internal` (post-outage rebuild)
-// so the two paths can't drift.
+// build_mqtt_options assembles rumqttc `MqttOptions`, fetching fresh
+// credentials from the credentials provider if configured.
 async fn build_mqtt_options(
     client_id: &str,
     broker_host: &str,
@@ -735,6 +607,10 @@ async fn build_mqtt_options(
     }
 
     Ok(mqtt_options)
+}
+
+fn should_replay_subscriptions(has_connected_before: bool, session_present: bool) -> bool {
+    has_connected_before && !session_present
 }
 
 // SuperBasicBackoff is a basic backoff I'm implementing
@@ -768,5 +644,26 @@ impl SuperBasicBackoff {
 
     fn reset(&mut self) {
         self.current = std::time::Duration::from_millis(100);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_replay_subscriptions;
+
+    #[test]
+    fn does_not_replay_on_initial_connect() {
+        assert!(!should_replay_subscriptions(false, false));
+        assert!(!should_replay_subscriptions(false, true));
+    }
+
+    #[test]
+    fn replays_on_reconnect_when_broker_has_fresh_session() {
+        assert!(should_replay_subscriptions(true, false));
+    }
+
+    #[test]
+    fn does_not_replay_on_reconnect_when_broker_resumed_session() {
+        assert!(!should_replay_subscriptions(true, true));
     }
 }
