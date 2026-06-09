@@ -128,6 +128,8 @@ navigation:
               path: dpu-management/dpu-lifecycle-management.md
             - page: DPU Configuration
               path: dpu-management/dpu_configuration.md
+            - page: DPU Extension Service Management
+              path: manuals/dpu_extension_service.md
             - page: BlueField DPU Operations
               path: dpu-management/dpu-operations.md
         - page: Firmware Updates
