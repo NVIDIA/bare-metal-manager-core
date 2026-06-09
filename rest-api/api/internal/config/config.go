@@ -30,6 +30,8 @@ var (
 	ProjectRoot = filepath.Join(filepath.Dir(cur), "../..")
 )
 
+const defaultSitePhoneHomeUrl = "http://169.254.169.254:7777/latest/meta-data/phone_home"
+
 const (
 	// ConfigFilePath specifies the path to the config file, this contains the default path
 	ConfigFilePath = "config.file"
@@ -193,12 +195,13 @@ var config *Config
 // Config represents configurations for the service
 type Config struct {
 	sync.RWMutex
-	v               *viper.Viper
-	db              *cconfig.DBConfig
-	temporal        *cconfig.TemporalConfig
-	JwtOriginConfig *cauth.JWTOriginConfig
-	SiteConfig      *SiteConfig
-	KeycloakConfig  *cauth.KeycloakConfig
+	v                *viper.Viper
+	db               *cconfig.DBConfig
+	temporal         *cconfig.TemporalConfig
+	JwtOriginConfig  *cauth.JWTOriginConfig
+	SiteConfig       *SiteConfig
+	KeycloakConfig   *cauth.KeycloakConfig
+	sitePhoneHomeUrl string
 }
 
 // NewConfig creates a new config object
@@ -242,7 +245,7 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
 	// SiteConfig default phone home url
-	c.v.SetDefault(ConfigSitePhoneHomeUrl, "http://169.254.169.254:7777/latest/meta-data/phone_home")
+	c.v.SetDefault(ConfigSitePhoneHomeUrl, defaultSitePhoneHomeUrl)
 
 	// Keycloak needs to be explicitly enabled via config
 	c.v.SetDefault(ConfigKeycloakEnabled, false)
@@ -266,6 +269,7 @@ func NewConfig() *Config {
 	} else if err != nil { // Handle other errors that occurred while reading the config file
 		log.Panic().Err(err).Msgf("fatal error while reading the config file: %s", err)
 	}
+	c.SetSitePhoneHomeUrl(c.v.GetString(ConfigSitePhoneHomeUrl))
 
 	// Set values
 	c.setLogLevel()
@@ -298,6 +302,7 @@ func NewConfig() *Config {
 
 	// Watch secret files
 	c.WatchSecretFilePaths()
+	c.WatchConfigFile()
 
 	config = &c
 
@@ -855,11 +860,21 @@ func (c *Config) GetSiteManagerEndpoint() string {
 
 // SetSitePhoneHomeUrl sets the url for PhoneHome
 func (c *Config) SetSitePhoneHomeUrl(value string) {
-	c.v.Set(ConfigSitePhoneHomeUrl, value)
+	c.Lock()
+	defer c.Unlock()
+	c.sitePhoneHomeUrl = value
 }
 
 // GetSitePhoneHomeUrl gets the url for PhoneHome
 func (c *Config) GetSitePhoneHomeUrl() string {
+	c.RLock()
+	defer c.RUnlock()
+	if c.sitePhoneHomeUrl != "" {
+		return c.sitePhoneHomeUrl
+	}
+	if c.v == nil {
+		return ""
+	}
 	return c.v.GetString(ConfigSitePhoneHomeUrl)
 }
 
@@ -1101,6 +1116,44 @@ func (c *Config) WatchSecretFilePaths() {
 		eventsWG.Wait() // now, wait for event loop to end in this go-routine...
 	}()
 	initWG.Wait() // make sure that the go routine above fully ended before returning
+}
+
+// WatchConfigFile starts watching the config file for reloadable setting changes.
+func (c *Config) WatchConfigFile() {
+	configPath := c.GetPathToConfig()
+	if absPath, err := filepath.Abs(configPath); err == nil {
+		configPath = absPath
+	}
+
+	watch := viper.New()
+	watch.SetConfigFile(configPath)
+	watch.OnConfigChange(func(e fsnotify.Event) {
+		if !e.Has(fsnotify.Write) {
+			return
+		}
+		log.Info().Str("config.file", configPath).Str("event.file", e.Name).Msg("config file changed")
+		if err := c.reloadSitePhoneHomeUrl(configPath); err != nil {
+			log.Warn().Err(err).Str("config.file", configPath).Str("event.file", e.Name).Msg("failed to reload site phone home URL")
+		}
+	})
+	watch.WatchConfig()
+}
+
+func (c *Config) reloadSitePhoneHomeUrl(path string) error {
+	v := viper.New()
+	v.SetDefault(ConfigSitePhoneHomeUrl, defaultSitePhoneHomeUrl)
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return err
+	}
+
+	phoneHomeUrl := v.GetString(ConfigSitePhoneHomeUrl)
+	if phoneHomeUrl == "" {
+		return fmt.Errorf("invalid Site PhoneHome url")
+	}
+
+	c.SetSitePhoneHomeUrl(phoneHomeUrl)
+	return nil
 }
 
 // Close stops background tasks
