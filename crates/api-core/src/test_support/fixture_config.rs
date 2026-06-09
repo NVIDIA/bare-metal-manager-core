@@ -101,6 +101,7 @@ impl FixtureDefault for ManagedHostConfig {
             auto_assign_sku_in_fixture: true,
             hardware_info_template: HardwareInfoTemplate::Default,
             expected_machine_data: None,
+            vendor: Some(bmc_vendor::BMCVendor::Dell),
         }
     }
 }

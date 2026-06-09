@@ -1182,28 +1182,45 @@ impl SiteExplorer {
                         );
 
                         if !all_dpus_configured_properly_in_host {
-                            if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
-                                let time_since_redfish_powercycle = Utc::now()
-                                    .signed_duration_since(
-                                        ep.last_redfish_powercycle.unwrap_or_default(),
-                                    );
-                                if time_since_redfish_powercycle > self.config.reset_rate_limit {
-                                    tracing::warn!(
-                                        "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
-                                        ep.address,
-                                    );
+                            // A queued `set_nic_mode` only takes effect after a host
+                            // power cycle, so drive one for every vendor -- the
+                            // Redfish `ComputerSystem.Reset` action is standard
+                            // across BMCs -- throttled by `reset_rate_limit`. A BMC
+                            // that refuses the request surfaces the host as needing
+                            // a manual power cycle via the pairing-blocker metric.
+                            let time_since_redfish_powercycle = Utc::now().signed_duration_since(
+                                ep.last_redfish_powercycle.unwrap_or_default(),
+                            );
+                            if time_since_redfish_powercycle > self.config.reset_rate_limit {
+                                tracing::warn!(
+                                    "power cycling host {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
+                                    ep.address,
+                                );
 
-                                    self.redfish_powercycle(ep.address)
-                                        .await
-                                        .inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address))
-                                        .ok();
+                                if let Err(err) = self.redfish_powercycle(ep.address).await {
+                                    tracing::warn!(
+                                        "site explorer failed to power cycle host {} to apply DPU mode changes: {err}; a manual power cycle may be required",
+                                        ep.address
+                                    );
+                                    metrics.increment_host_dpu_pairing_blocker(
+                                        PairingBlockerReason::ManualPowerCycleRequired,
+                                    );
                                 }
                             } else {
-                                tracing::warn!(
-                                    "wait for manual power cycle of host {}; site explorer doesn't support power cycling vendor {:#?}",
-                                    ep.address,
-                                    ep.report.vendor
-                                );
+                                // We power-cycled within the rate limit and the
+                                // DPUs still aren't in the declared mode -- either
+                                // the change is mid-flight (the host is booting, a
+                                // pass or two of normal convergence) or this
+                                // vendor's `PowerCycle` is a warm reset that never
+                                // actually drops power. Keep the pairing-blocker
+                                // signal standing so a host stuck in the warm-reset
+                                // loop stays visible to operators instead of
+                                // rebooting hourly in silence.
+                                //
+                                // TODO(chet): If the power cycle doesn't appear to
+                                // be flipping the NIC to the expected mode, this is
+                                // where we'd want to introduce a cold power cycle
+                                // (`ForceOff`/`On` or similar).
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::ManualPowerCycleRequired,
                                 );
