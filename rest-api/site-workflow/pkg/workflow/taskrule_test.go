@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	rActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
@@ -237,7 +236,7 @@ func (s *UpdateTaskRuleTestSuite) Test_UpdateTaskRule_Success() {
 	}
 
 	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
-	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
+	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(UpdateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -253,7 +252,7 @@ func (s *UpdateTaskRuleTestSuite) Test_UpdateTaskRule_ActivityFails() {
 	errMsg := "rule not found"
 
 	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
-	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(UpdateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -293,7 +292,7 @@ func (s *DeleteTaskRuleTestSuite) Test_DeleteTaskRule_Success() {
 	}
 
 	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
-	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
+	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil)
 
 	s.env.ExecuteWorkflow(DeleteTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -309,7 +308,7 @@ func (s *DeleteTaskRuleTestSuite) Test_DeleteTaskRule_ActivityFails() {
 	errMsg := "rule still associated with racks"
 
 	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
-	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(DeleteTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())

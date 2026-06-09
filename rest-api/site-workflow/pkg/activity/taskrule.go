@@ -9,7 +9,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
@@ -122,7 +121,7 @@ func (mr *ManageTaskRule) GetAllTaskRulesFromFlow(ctx context.Context, request *
 // UpdateTaskRuleOnFlow updates an Operation Rule via Flow. Note that
 // is_default is not updatable via this path on Flow; use SetRuleAsDefault
 // for that (not surfaced through this CRUD API).
-func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
+func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) error {
 	logger := log.With().Str("Activity", "UpdateTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -134,26 +133,25 @@ func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flo
 		err = errors.New("received update operation rule request without rule ID")
 	}
 	if err != nil {
-		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
 	grpcClient := mr.flowGrpcAtomicClient.GetClient()
 	if grpcClient == nil {
-		return nil, cClient.ErrFlowGrpcClientNotConnected
+		return cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := grpcClient.GrpcServiceClient().UpdateOperationRule(ctx, request)
-	if err != nil {
+	if _, err := grpcClient.GrpcServiceClient().UpdateOperationRule(ctx, request); err != nil {
 		logger.Warn().Err(err).Msg("Failed to update operation rule using Flow gRPC API")
-		return nil, swe.WrapErr(err)
+		return swe.WrapErr(err)
 	}
 
 	logger.Info().Str("RuleID", request.GetRuleId().GetId()).Msg("Completed activity")
-	return response, nil
+	return nil
 }
 
 // DeleteTaskRuleOnFlow deletes an Operation Rule via Flow.
-func (mr *ManageTaskRule) DeleteTaskRuleOnFlow(ctx context.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
+func (mr *ManageTaskRule) DeleteTaskRuleOnFlow(ctx context.Context, request *flowv1.DeleteOperationRuleRequest) error {
 	logger := log.With().Str("Activity", "DeleteTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -165,20 +163,19 @@ func (mr *ManageTaskRule) DeleteTaskRuleOnFlow(ctx context.Context, request *flo
 		err = errors.New("received delete operation rule request without rule ID")
 	}
 	if err != nil {
-		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
 	grpcClient := mr.flowGrpcAtomicClient.GetClient()
 	if grpcClient == nil {
-		return nil, cClient.ErrFlowGrpcClientNotConnected
+		return cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := grpcClient.GrpcServiceClient().DeleteOperationRule(ctx, request)
-	if err != nil {
+	if _, err := grpcClient.GrpcServiceClient().DeleteOperationRule(ctx, request); err != nil {
 		logger.Warn().Err(err).Msg("Failed to delete operation rule using Flow gRPC API")
-		return nil, swe.WrapErr(err)
+		return swe.WrapErr(err)
 	}
 
 	logger.Info().Str("RuleID", request.GetRuleId().GetId()).Msg("Completed activity")
-	return response, nil
+	return nil
 }

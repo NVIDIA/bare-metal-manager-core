@@ -194,7 +194,7 @@ func TestManageRule_UpdateOperationRuleOnFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.UpdateTaskRuleOnFlow(context.Background(), tt.request)
+			err := mr.UpdateTaskRuleOnFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -205,7 +205,6 @@ func TestManageRule_UpdateOperationRuleOnFlow(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.NotNil(t, result)
 		})
 	}
 }
@@ -240,7 +239,7 @@ func TestManageRule_DeleteOperationRuleOnFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.DeleteTaskRuleOnFlow(context.Background(), tt.request)
+			err := mr.DeleteTaskRuleOnFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -251,7 +250,6 @@ func TestManageRule_DeleteOperationRuleOnFlow(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			assert.NotNil(t, result)
 		})
 	}
 }

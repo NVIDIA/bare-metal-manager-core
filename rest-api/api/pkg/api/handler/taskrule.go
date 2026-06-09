@@ -17,7 +17,6 @@ import (
 	temporalEnums "go.temporal.io/api/enums/v1"
 	tClient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -549,8 +548,7 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule update workflow", nil)
 	}
 
-	var flowResponse emptypb.Empty
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
+	if err := we.Get(wfCtx, nil); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
 			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "UpdateTaskRule")
@@ -652,8 +650,7 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule deletion workflow", nil)
 	}
 
-	var flowResponse emptypb.Empty
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
+	if err := we.Get(wfCtx, nil); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
 			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "DeleteTaskRule")
