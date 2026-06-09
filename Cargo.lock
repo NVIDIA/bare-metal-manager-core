@@ -1065,6 +1065,7 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
+ "pandoc",
  "prettytable-rs",
  "reqwest 0.13.4",
  "serde",
@@ -2261,6 +2262,7 @@ dependencies = [
  "carbide-network",
  "carbide-rpc",
  "carbide-tls",
+ "carbide-utils",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -2274,7 +2276,6 @@ dependencies = [
  "mac_address",
  "rand 0.10.1",
  "ratatui",
- "rcgen",
  "reqwest 0.13.4",
  "russh",
  "serde",
@@ -3084,6 +3085,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "prometheus",
+ "rcgen",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
@@ -6049,6 +6051,15 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -7814,6 +7825,15 @@ dependencies = [
  "tokio",
  "windows",
  "windows-strings",
+]
+
+[[package]]
+name = "pandoc"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "463d53d1a77a4291203dbf9d461365609e6857c95bd7d807098bffdc0a02a65c"
+dependencies = [
+ "itertools 0.12.1",
 ]
 
 [[package]]

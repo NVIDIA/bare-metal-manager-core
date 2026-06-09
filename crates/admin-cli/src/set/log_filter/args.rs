@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Raise the server's log level, reverting after the default 1h:
+    $ carbide-admin-cli set log-filter --filter debug
+
+Set a targeted filter that reverts after 30 minutes:
+    $ carbide-admin-cli set log-filter --filter carbide_api=trace,info --expiry 30min
+
+")]
 pub struct Args {
     #[clap(short, long, help = "Set server's RUST_LOG.")]
     pub filter: String,

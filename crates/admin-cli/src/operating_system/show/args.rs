@@ -18,6 +18,19 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all operating system definitions:
+    $ carbide-admin-cli operating-system show
+
+Show one OS definition by ID:
+    $ carbide-admin-cli operating-system show 12345678-1234-5678-90ab-cdef01234567
+
+List the OS definitions for an organization:
+    $ carbide-admin-cli operating-system show --org fds34511233a
+
+")]
 pub struct Args {
     #[clap(help = "Operating system definition ID; omit to list all.")]
     pub id: Option<String>,

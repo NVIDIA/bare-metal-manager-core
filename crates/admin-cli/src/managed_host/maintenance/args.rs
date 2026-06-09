@@ -20,7 +20,7 @@ use clap::Parser;
 use rpc::forge as forgerpc;
 
 /// Enable or disable maintenance mode on a managed host.
-/// To list machines in maintenance mode use `forge-admin-cli mh show --all --fix`
+/// To list machines in maintenance mode use `carbide-admin-cli mh show --all --fix`
 #[derive(Parser, Debug)]
 pub enum Args {
     /// Put this machine into maintenance mode. Prevents an instance being assigned to it.
@@ -30,6 +30,14 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Put a host into maintenance mode (prevents instance assignment):
+    $ carbide-admin-cli managed-host maintenance on --host 12345678-1234-5678-90ab-cdef01234567 \
+    --reference https://tickets.example.com/MH-42
+
+")]
 pub struct MaintenanceOn {
     #[clap(long, required(true), help = "Managed Host ID")]
     pub host: MachineId,
@@ -54,6 +62,13 @@ impl From<MaintenanceOn> for forgerpc::MaintenanceRequest {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Return a host to normal operation:
+    $ carbide-admin-cli managed-host maintenance off --host 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct MaintenanceOff {
     #[clap(long, required(true), help = "Managed Host ID")]
     pub host: MachineId,

@@ -21,5 +21,5 @@ pub mod cmds;
 #[cfg(test)]
 mod tests;
 
-pub use args::{Cmd, RedfishAction, UriInfo};
-pub use cmds::{action, handle_browse_command};
+pub use args::RedfishAction;
+pub use cmds::action;

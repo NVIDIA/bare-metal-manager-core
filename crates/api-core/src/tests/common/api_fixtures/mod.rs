@@ -100,7 +100,6 @@ use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
 };
-use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
@@ -2643,12 +2642,4 @@ where
             .handle_object_state(object_id, state, controller_state, ctx)
             .await
     }
-}
-
-fn create_random_self_signed_cert() -> Vec<u8> {
-    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
-
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)
-        .expect("Failed to generate self-signed cert");
-    cert.der().to_vec()
 }

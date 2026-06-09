@@ -19,6 +19,18 @@ use clap::Parser;
 use mac_address::MacAddress;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Copy a BFB to a DPU's rshim via its BMC, power-cycling the host afterward:
+    $ carbide-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
+    --host-bmc-ip 192.0.2.20
+
+Power-cycle the host first to release rshim control to the DPU BMC:
+    $ carbide-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
+    --host-bmc-ip 192.0.2.20 --pre-copy-powercycle
+
+")]
 pub struct Args {
     #[clap(help = "BMC IP address or hostname with optional port")]
     pub address: String,

@@ -23,6 +23,17 @@ use crate::credential::common::{BmcCredentialType, password_validator};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add the site-wide BMC root credential:
+    $ carbide-admin-cli credential add-bmc --kind=site-wide-root --username admin --password mypassword
+
+Add a per-BMC root credential for a specific MAC address:
+    $ carbide-admin-cli credential add-bmc --kind=bmc-root --username admin --password mypassword \
+    --mac-address 00:11:22:33:44:55
+
+")]
 pub struct Args {
     #[clap(
         long,

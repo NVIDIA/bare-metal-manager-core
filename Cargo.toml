@@ -175,6 +175,7 @@ oauth2 = { default-features = false, version = "5" }
 octseq = "0.6.1"
 oid-registry = "0.8"
 once_cell = "1.19"
+pandoc = "0.8.11"
 pin-project-lite = "0.2"
 pkcs1 = "0.7.5"
 prettyplease = "0.2.30"
