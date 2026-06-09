@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show client and server versions:
+    $ carbide-admin-cli version
+
+Also display the runtime config:
+    $ carbide-admin-cli version --show-runtime-config
+
+")]
 pub struct Opts {
     #[clap(short, long, action, help = "Display Runtime Config also.")]
     pub show_runtime_config: bool,

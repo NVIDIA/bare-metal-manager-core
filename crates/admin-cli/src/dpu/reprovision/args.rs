@@ -21,6 +21,22 @@ use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all DPUs pending reprovisioning:
+    $ carbide-admin-cli dpu reprovision list
+
+Set a DPU into reprovisioning mode:
+    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+
+Clear reprovisioning mode for a DPU:
+    $ carbide-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+
+Restart reprovisioning for a host:
+    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum Args {
     #[clap(about = "Set the DPU in reprovisioning mode.")]
     Set(DpuReprovisionSet),
@@ -33,6 +49,20 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a single DPU into reprovisioning mode:
+    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+
+Reprovision all DPUs on a host by passing the host machine id:
+    $ carbide-admin-cli dpu reprovision set --id abcdef01-2345-6789-abcd-ef0123456789
+
+Reprovision and update DPU firmware, recording a maintenance message:
+    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    --update-firmware --update-message \"scheduled firmware refresh\"
+
+")]
 pub struct DpuReprovisionSet {
     #[clap(
         short,
@@ -65,6 +95,16 @@ impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Clear reprovisioning mode for a single DPU:
+    $ carbide-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+
+Clear reprovisioning for all DPUs on a host by passing the host machine id:
+    $ carbide-admin-cli dpu reprovision clear --id abcdef01-2345-6789-abcd-ef0123456789
+
+")]
 pub struct DpuReprovisionClear {
     #[clap(
         short,
@@ -90,6 +130,17 @@ impl From<&DpuReprovisionClear> for DpuReprovisioningRequest {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Restart reprovisioning for a host:
+    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
+
+Restart reprovisioning and update DPU firmware:
+    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567 \
+    --update-firmware
+
+")]
 pub struct DpuReprovisionRestart {
     #[clap(
         short,

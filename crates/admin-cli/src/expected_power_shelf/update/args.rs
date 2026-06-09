@@ -26,6 +26,18 @@ use uuid::Uuid;
 use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Update an expected power shelf's BMC credentials, selecting it by MAC address:
+    $ carbide-admin-cli expected-power-shelf update --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mynewpassword
+
+Update an expected power shelf's serial number, selecting it by ID:
+    $ carbide-admin-cli expected-power-shelf update --id 12345678-1234-5678-90ab-cdef01234567 \
+    --shelf-serial-number DGX-H100-640GB
+
+")]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&[
 "bmc_username",
 "bmc_password",

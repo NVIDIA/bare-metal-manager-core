@@ -193,7 +193,13 @@ func TestBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org stri
 func TestBuildTenantWithDisplayName(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User, displayName string) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, &displayName, org, &displayName, nil, user)
+	tn, err := tnDAO.Create(context.Background(), nil, cdbm.TenantCreateInput{
+		Name:           name,
+		DisplayName:    &displayName,
+		Org:            org,
+		OrgDisplayName: &displayName,
+		CreatedBy:      user.ID,
+	})
 	assert.Nil(t, err)
 
 	return tn

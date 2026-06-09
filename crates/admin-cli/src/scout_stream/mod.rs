@@ -43,16 +43,37 @@ pub enum ScoutStreamAction {
 
 // ConnectionsShowCommand shows all active scout stream connections.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all active scout stream connections:
+    $ carbide-admin-cli scout-stream show
+
+")]
 pub struct ConnectionsShowCommand {}
 
 // ConnectionsDisconnectCommand disconnects a machine based on machine ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Disconnect a machine's scout stream connection:
+    $ carbide-admin-cli scout-stream disconnect 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ConnectionsDisconnectCommand {
     pub machine_id: MachineId,
 }
 
 // ConnectionsPingCommand pings a machine based on machine ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Ping-test a machine's scout stream connection:
+    $ carbide-admin-cli scout-stream ping 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ConnectionsPingCommand {
     pub machine_id: MachineId,
 }
