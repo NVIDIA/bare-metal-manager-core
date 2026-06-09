@@ -149,7 +149,7 @@
 	<tr><th>ASN</th><td>{{ carbide_config.asn }}</td></tr>
 	<tr><th>DHCP Servers</th><td>{{ carbide_config.dhcp_servers | comma_separated }}</td></tr>
 	<tr><th>Route Server State</th><td>{% if carbide_config.enable_route_servers %}Enabled{% else %}Disabled{% endif %}</td></tr>
-	<tr><th>Route Servers</th><td>{{ carbide_config.route_servers.join(", ") }}</td></tr>
+	<tr><th>Route Servers</th><td>{{ carbide_config.route_servers | comma_separated }}</td></tr>
 	<tr><th>Deny Prefixes</th><td>
 			{% if carbide_config.deny_prefixes.len() != 0 %}
 			{% for prefix in carbide_config.deny_prefixes %}
