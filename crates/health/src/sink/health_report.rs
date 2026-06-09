@@ -191,15 +191,16 @@ impl DataSink for HealthReportSink {
 
                 if report.alerts.is_empty() {
                     let hash = content_hash(report);
-                    if let Some(prev) = cache.entries.get(&key) {
-                        if prev.content_hash == hash && prev.sent_at.elapsed() < suppress_interval {
-                            tracing::debug!(
-                                source = ?report.source,
-                                machine_id = %key.id,
-                                "Suppressing unchanged success-only health report"
-                            );
-                            return;
-                        }
+                    if let Some(prev) = cache.entries.get(&key)
+                        && prev.content_hash == hash
+                        && prev.sent_at.elapsed() < suppress_interval
+                    {
+                        tracing::debug!(
+                            source = ?report.source,
+                            machine_id = %key.id,
+                            "Suppressing unchanged success-only health report"
+                        );
+                        return;
                     }
                     cache.entries.insert(key.clone(), LastSent { content_hash: hash, sent_at: Instant::now() });
                 } else {
