@@ -96,7 +96,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
     {
         let metrics = shared_metrics.clone();
         meter
-            .u64_observable_gauge("carbide_machine_validation_stale")
+            .u64_observable_gauge("carbide_machine_validation_stale_runs_count")
             .with_description("Count of active machine validation runs considered stale")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
