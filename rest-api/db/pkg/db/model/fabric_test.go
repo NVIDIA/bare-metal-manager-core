@@ -60,7 +60,7 @@ func testFabricSetupSchema(t *testing.T, dbSession *db.Session) {
 	assert.Nil(t, err)
 }
 
-func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
+func TestFabricSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -69,7 +69,13 @@ func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
 	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	fbsd := NewFabricDAO(dbSession)
-	fb1, err := fbsd.CreateFromParams(ctx, nil, "IFabricTest1", ip.Org, site.ID, ip.ID, "Ready")
+	fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "IFabricTest1",
+		Org:                      ip.Org,
+		SiteID:                   site.ID,
+		InfrastructureProviderID: ip.ID,
+		Status:                   "Ready",
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb1)
 
@@ -80,18 +86,18 @@ func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
 
 	tests := []struct {
 		desc               string
-		fbs                []Fabric
+		inputs             []FabricCreateInput
 		expectError        bool
 		verifyChildSpanner bool
 	}{
 		{
 			desc: "create multiple",
-			fbs: []Fabric{
+			inputs: []FabricCreateInput{
 				{
-					ID: "IFabricTest2", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusPending,
+					FabricID: "IFabricTest2", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusPending,
 				},
 				{
-					ID: "IFabricTest3", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusError,
+					FabricID: "IFabricTest3", Org: "testorg", SiteID: site.ID, InfrastructureProviderID: ip.ID, Status: FabricStatusError,
 				},
 			},
 			expectError: false,
@@ -99,8 +105,8 @@ func TestFabricSQLDAO_CreateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			for _, fb := range tc.fbs {
-				dbfb, err := fbisd.CreateFromParams(ctx, nil, fb.ID, fb.Org, fb.SiteID, fb.InfrastructureProviderID, fb.Status)
+			for _, input := range tc.inputs {
+				dbfb, err := fbisd.Create(ctx, nil, input)
 				assert.Equal(t, tc.expectError, err != nil)
 				if !tc.expectError {
 					assert.NotNil(t, dbfb)
@@ -126,7 +132,13 @@ func TestFabricSQLDAO_GetByID(t *testing.T) {
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	fbsd := NewFabricDAO(dbSession)
-	fb1, err := fbsd.CreateFromParams(ctx, nil, "IFabricTest1", ip.Org, site.ID, ip.ID, FabricStatusReady)
+	fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "IFabricTest1",
+		Org:                      ip.Org,
+		SiteID:                   site.ID,
+		InfrastructureProviderID: ip.ID,
+		Status:                   FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb1)
 
@@ -211,7 +223,13 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 	fbsd := NewFabricDAO(dbSession)
 	fbs := []*Fabric{}
 	for i := 1; i <= 25; i++ {
-		fb1, err := fbsd.CreateFromParams(ctx, nil, fmt.Sprintf("test-%d", i), ip.Org, site.ID, ip.ID, FabricStatusReady)
+		fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+			FabricID:                 fmt.Sprintf("test-%d", i),
+			Org:                      ip.Org,
+			SiteID:                   site.ID,
+			InfrastructureProviderID: ip.ID,
+			Status:                   FabricStatusReady,
+		})
 		fbs = append(fbs, fb1)
 		assert.Nil(t, err)
 		assert.NotNil(t, fb1)
@@ -222,112 +240,122 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 
 	tests := []struct {
 		desc             string
+		filter           FabricFilterInput
+		page             paginator.PageInput
 		includeRelations []string
 
-		paramIDs         []string
-		paramOrg         *string
-		paramSiteID      *uuid.UUID
-		paramIpID        *uuid.UUID
-		paramSearchQuery *string
-		paramStatus      *string
-		paramOffset      *int
-		paramLimit       *int
-		paramOrderBy     *paginator.OrderBy
-
-		expectCnt                 int
-		expectTotal               int
-		expectFirstObjectFabricID string
-
-		expectNotNilIP     bool
-		expectNotNilSite   bool
-		expectError        bool
-		verifyChildSpanner bool
+		expectCnt           int
+		expectTotal         int
+		expectFirstFabricID string
+		expectNotNilIP      bool
+		expectNotNilSite    bool
+		expectError         bool
+		verifyChildSpanner  bool
 	}{
 		{
-			desc:                      "getall with Fabric IDs filters but no relations returns objects",
-			paramIDs:                  []string{fbs[0].ID, fbs[1].ID},
-			includeRelations:          []string{},
-			expectFirstObjectFabricID: fbs[0].ID,
-			expectError:               false,
-			expectTotal:               2,
-			expectCnt:                 2,
-			verifyChildSpanner:        true,
-		},
-		{
-			desc:             "getall with site filters and relations returns objects",
-			includeRelations: []string{SiteRelationName},
-			paramSiteID:      cutil.GetPtr(site.ID),
-			paramOrderBy: &paginator.OrderBy{
-				Field: "updated",
-				Order: paginator.OrderAscending,
+			desc: "getall with Fabric IDs filters but no relations returns objects",
+			filter: FabricFilterInput{
+				FabricIDs: []string{fbs[0].ID, fbs[1].ID},
 			},
-			expectFirstObjectFabricID: fbs[0].ID,
-			expectError:               false,
-			expectTotal:               25,
-			expectCnt:                 20,
-			expectNotNilSite:          true,
+			includeRelations:    []string{},
+			expectFirstFabricID: fbs[0].ID,
+			expectError:         false,
+			expectTotal:         2,
+			expectCnt:           2,
+			verifyChildSpanner:  true,
 		},
 		{
-			desc:             "getall with ip filters and relations returns objects",
-			includeRelations: []string{InfrastructureProviderRelationName},
-			paramIpID:        cutil.GetPtr(ip.ID),
-			paramOrderBy: &paginator.OrderBy{
-				Field: "updated",
-				Order: paginator.OrderAscending,
+			desc: "getall with site filters and relations returns objects",
+			filter: FabricFilterInput{
+				SiteIDs: []uuid.UUID{site.ID},
 			},
-			expectFirstObjectFabricID: fbs[0].ID,
-			expectError:               false,
-			expectTotal:               25,
-			expectCnt:                 20,
-			expectNotNilIP:            true,
-		},
-		{
-			desc:             "getall with offset, limit returns objects",
-			includeRelations: []string{},
-			paramOffset:      cutil.GetPtr(10),
-			paramLimit:       cutil.GetPtr(10),
-			paramOrderBy: &paginator.OrderBy{
-				Field: "updated",
-				Order: paginator.OrderAscending,
+			page: paginator.PageInput{
+				OrderBy: &paginator.OrderBy{
+					Field: "updated",
+					Order: paginator.OrderAscending,
+				},
 			},
-			expectFirstObjectFabricID: fbs[10].ID,
-			expectError:               false,
-			expectTotal:               25,
-			expectCnt:                 10,
+			includeRelations:    []string{SiteRelationName},
+			expectFirstFabricID: fbs[0].ID,
+			expectError:         false,
+			expectTotal:         25,
+			expectCnt:           20,
+			expectNotNilSite:    true,
 		},
 		{
-			desc:             "getall with search query returns objects",
-			includeRelations: []string{InfrastructureProviderRelationName},
-			paramIpID:        cutil.GetPtr(ip.ID),
-			paramSearchQuery: cutil.GetPtr("test-10"),
-			paramOrderBy: &paginator.OrderBy{
-				Field: "updated",
-				Order: paginator.OrderAscending,
+			desc: "getall with ip filters and relations returns objects",
+			filter: FabricFilterInput{
+				InfrastructureProviderID: cutil.GetPtr(ip.ID),
 			},
-			expectFirstObjectFabricID: fbs[9].ID,
-			expectError:               false,
-			expectTotal:               1,
-			expectCnt:                 1,
-			expectNotNilIP:            true,
+			page: paginator.PageInput{
+				OrderBy: &paginator.OrderBy{
+					Field: "updated",
+					Order: paginator.OrderAscending,
+				},
+			},
+			includeRelations:    []string{InfrastructureProviderRelationName},
+			expectFirstFabricID: fbs[0].ID,
+			expectError:         false,
+			expectTotal:         25,
+			expectCnt:           20,
+			expectNotNilIP:      true,
 		},
 		{
-			desc:             "case when no objects are returned",
+			desc:   "getall with offset, limit returns objects",
+			filter: FabricFilterInput{},
+			page: paginator.PageInput{
+				Offset: cutil.GetPtr(10),
+				Limit:  cutil.GetPtr(10),
+				OrderBy: &paginator.OrderBy{
+					Field: "updated",
+					Order: paginator.OrderAscending,
+				},
+			},
+			includeRelations:    []string{},
+			expectFirstFabricID: fbs[10].ID,
+			expectError:         false,
+			expectTotal:         25,
+			expectCnt:           10,
+		},
+		{
+			desc: "getall with search query returns objects",
+			filter: FabricFilterInput{
+				InfrastructureProviderID: cutil.GetPtr(ip.ID),
+				SearchQuery:              cutil.GetPtr("test-10"),
+			},
+			page: paginator.PageInput{
+				OrderBy: &paginator.OrderBy{
+					Field: "updated",
+					Order: paginator.OrderAscending,
+				},
+			},
+			includeRelations:    []string{InfrastructureProviderRelationName},
+			expectFirstFabricID: fbs[9].ID,
+			expectError:         false,
+			expectTotal:         1,
+			expectCnt:           1,
+			expectNotNilIP:      true,
+		},
+		{
+			desc: "case when no objects are returned",
+			filter: FabricFilterInput{
+				FabricIDs: []string{uuid.New().String()},
+			},
 			includeRelations: []string{},
 			expectError:      false,
-			paramIDs:         []string{uuid.New().String()},
 			expectTotal:      0,
 			expectCnt:        0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			objs, tot, err := fbsd.GetAll(ctx, nil, tc.paramOrg, tc.paramSiteID, tc.paramIpID, tc.paramStatus, tc.paramIDs, tc.paramSearchQuery, tc.includeRelations, tc.paramOffset, tc.paramLimit, tc.paramOrderBy)
+			objs, tot, err := fbsd.GetAll(ctx, nil, tc.filter, tc.page, tc.includeRelations)
 			assert.Equal(t, tc.expectError, err != nil)
 			assert.Equal(t, tc.expectCnt, len(objs))
 			assert.Equal(t, tc.expectTotal, tot)
 			if len(objs) > 0 {
-				if tc.expectFirstObjectFabricID != "" {
-					assert.Equal(t, tc.expectFirstObjectFabricID, objs[0].ID)
+				if tc.expectFirstFabricID != "" {
+					assert.Equal(t, tc.expectFirstFabricID, objs[0].ID)
 				}
 
 				if tc.expectNotNilIP {
@@ -348,7 +376,7 @@ func TestFabricSQLDAO_GetAll(t *testing.T) {
 	}
 }
 
-func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
+func TestFabricSQLDAO_Update(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -360,11 +388,23 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 	site2 := TestBuildSite(t, dbSession, ip2, "test2", user)
 	fbsd := NewFabricDAO(dbSession)
 
-	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "test-1",
+		Org:                      ip1.Org,
+		SiteID:                   site1.ID,
+		InfrastructureProviderID: ip1.ID,
+		Status:                   FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb1)
 
-	fb2, err := fbsd.CreateFromParams(ctx, nil, "test-2", ip2.Org, site2.ID, ip2.ID, FabricStatusReady)
+	fb2, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "test-2",
+		Org:                      ip2.Org,
+		SiteID:                   site2.ID,
+		InfrastructureProviderID: ip2.ID,
+		Status:                   FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb2)
 
@@ -409,7 +449,13 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := fbsd.UpdateFromParams(ctx, nil, tc.id, tc.paramSiteID, tc.paramIpID, tc.paramStatus, cutil.GetPtr(true))
+			got, err := fbsd.Update(ctx, nil, FabricUpdateInput{
+				FabricID:                 tc.id,
+				SiteID:                   tc.paramSiteID,
+				InfrastructureProviderID: tc.paramIpID,
+				Status:                   tc.paramStatus,
+				IsMissingOnSite:          cutil.GetPtr(true),
+			})
 			assert.Equal(t, tc.expectError, err != nil)
 			if err == nil {
 				assert.Equal(t, tc.id, got.ID)
@@ -427,7 +473,7 @@ func TestFabricSQLDAO_UpdateFromParams(t *testing.T) {
 	}
 }
 
-func TestFabricSQLDAO_DeleteByID(t *testing.T) {
+func TestFabricSQLDAO_Delete(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -437,7 +483,13 @@ func TestFabricSQLDAO_DeleteByID(t *testing.T) {
 	site1 := TestBuildSite(t, dbSession, ip1, "test1", user)
 	fbsd := NewFabricDAO(dbSession)
 
-	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "test-1",
+		Org:                      ip1.Org,
+		SiteID:                   site1.ID,
+		InfrastructureProviderID: ip1.ID,
+		Status:                   FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb1)
 
@@ -467,7 +519,7 @@ func TestFabricSQLDAO_DeleteByID(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			err := fbsd.DeleteByID(ctx, nil, tc.id, tc.siteID)
+			err := fbsd.Delete(ctx, nil, tc.id, tc.siteID)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if !tc.expectedError {
 				tmp, err := fbsd.GetByID(ctx, nil, tc.id, tc.siteID, nil)
@@ -501,23 +553,37 @@ func TestFabricSQLDAO_DeleteAll(t *testing.T) {
 
 	fbsd := NewFabricDAO(dbSession)
 
-	fb1, err := fbsd.CreateFromParams(ctx, nil, "test-1", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	fb1, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID:                 "test-1",
+		Org:                      ip1.Org,
+		SiteID:                   site1.ID,
+		InfrastructureProviderID: ip1.ID,
+		Status:                   FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb1)
 
-	fb2, err := fbsd.CreateFromParams(ctx, nil, "test-2", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	fb2, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID: "test-2", Org: ip1.Org, SiteID: site1.ID, InfrastructureProviderID: ip1.ID, Status: FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb2)
 
-	fb3, err := fbsd.CreateFromParams(ctx, nil, "test-3", ip1.Org, site1.ID, ip1.ID, FabricStatusReady)
+	fb3, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID: "test-3", Org: ip1.Org, SiteID: site1.ID, InfrastructureProviderID: ip1.ID, Status: FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb3)
 
-	fb4, err := fbsd.CreateFromParams(ctx, nil, "test-4", ip1.Org, site2.ID, ip2.ID, FabricStatusReady)
+	fb4, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID: "test-4", Org: ip1.Org, SiteID: site2.ID, InfrastructureProviderID: ip2.ID, Status: FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb4)
 
-	fb5, err := fbsd.CreateFromParams(ctx, nil, "test-5", ip1.Org, site2.ID, ip2.ID, FabricStatusReady)
+	fb5, err := fbsd.Create(ctx, nil, FabricCreateInput{
+		FabricID: "test-5", Org: ip1.Org, SiteID: site2.ID, InfrastructureProviderID: ip2.ID, Status: FabricStatusReady,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, fb5)
 
@@ -525,25 +591,28 @@ func TestFabricSQLDAO_DeleteAll(t *testing.T) {
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		desc               string
-		ids                []string
-		siteID             *uuid.UUID
-		expectedError      bool
-		verifyChildSpanner bool
+		desc                   string
+		ids                    []string
+		siteID                 *uuid.UUID
+		expectedError          bool
+		expectedRemainingCount int
+		verifyChildSpanner     bool
 	}{
 		{
-			desc:               "can delete by ids",
-			ids:                []string{fb1.ID, fb2.ID},
-			siteID:             cutil.GetPtr(site1.ID),
-			expectedError:      false,
-			verifyChildSpanner: true,
+			desc:                   "can delete by ids",
+			ids:                    []string{fb1.ID, fb2.ID},
+			siteID:                 cutil.GetPtr(site1.ID),
+			expectedError:          false,
+			expectedRemainingCount: 1,
+			verifyChildSpanner:     true,
 		},
 		{
-			desc:               "can delete by site id",
-			ids:                nil,
-			siteID:             cutil.GetPtr(site2.ID),
-			expectedError:      false,
-			verifyChildSpanner: true,
+			desc:                   "can delete by site id",
+			ids:                    nil,
+			siteID:                 cutil.GetPtr(site2.ID),
+			expectedError:          false,
+			expectedRemainingCount: 0,
+			verifyChildSpanner:     true,
 		},
 	}
 	for _, tc := range tests {
@@ -559,9 +628,11 @@ func TestFabricSQLDAO_DeleteAll(t *testing.T) {
 					}
 				}
 				if tc.siteID != nil {
-					_, tcount, err := fbsd.GetAll(ctx, nil, nil, nil, tc.siteID, nil, nil, nil, nil, nil, nil, nil)
+					_, tcount, err := fbsd.GetAll(ctx, nil, FabricFilterInput{
+						SiteIDs: []uuid.UUID{*tc.siteID},
+					}, paginator.PageInput{}, nil)
 					assert.Nil(t, err)
-					assert.Equal(t, tcount, 0)
+					assert.Equal(t, tcount, tc.expectedRemainingCount)
 				}
 			}
 			if tc.verifyChildSpanner {

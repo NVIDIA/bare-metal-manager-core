@@ -18,6 +18,19 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Load bash completions into the current shell:
+    $ source <(carbide-admin-cli generate-shell-complete bash)
+
+Write zsh completions to a file on the fpath:
+    $ carbide-admin-cli generate-shell-complete zsh > ~/.zfunc/_carbide-admin-cli
+
+Generate fish completions:
+    $ carbide-admin-cli generate-shell-complete fish
+
+")]
 pub struct Cmd {
     #[clap(subcommand)]
     pub shell: Shell,

@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all power shelves:
+    $ carbide-admin-cli power-shelf show
+
+Show one power shelf by ID or name:
+    $ carbide-admin-cli power-shelf show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Power shelf ID or name to show (leave empty for all)")]
     pub identifier: Option<String>,

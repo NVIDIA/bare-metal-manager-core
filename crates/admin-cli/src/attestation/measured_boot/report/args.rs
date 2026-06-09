@@ -94,6 +94,14 @@ pub enum CmdReport {
 /// Create is used for creating reports, which really
 /// should be happening during machine attestation.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a measurement report for a machine with two PCR values:
+    $ carbide-admin-cli attestation measured-boot report create \
+    12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
+
+")]
 pub struct Create {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
     pub machine_id: MachineId,
@@ -110,6 +118,14 @@ pub struct Create {
 
 /// Delete a profile by ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a report by ID:
+    $ carbide-admin-cli attestation measured-boot report delete \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Delete {
     #[clap(help = "The report ID.")]
     pub report_id: MeasurementReportId,
@@ -119,6 +135,18 @@ pub struct Delete {
 /// with the ability to select which PCR registers to select from the
 /// report to use for creating the new bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Promote a report into an active bundle:
+    $ carbide-admin-cli attestation measured-boot report promote \
+    12345678-1234-5678-90ab-cdef01234567
+
+Promote a report using only specific PCR registers:
+    $ carbide-admin-cli attestation measured-boot report promote \
+    12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
+
+")]
 pub struct Promote {
     #[clap(help = "The report ID to promote.")]
     pub report_id: MeasurementReportId,
@@ -135,6 +163,18 @@ pub struct Promote {
 /// with the ability to select which PCR registers to select from the
 /// report to use for creating the new (and revoked) bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a revoked bundle from a report:
+    $ carbide-admin-cli attestation measured-boot report revoke \
+    12345678-1234-5678-90ab-cdef01234567
+
+Revoke using only specific PCR registers:
+    $ carbide-admin-cli attestation measured-boot report revoke \
+    12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
+
+")]
 pub struct Revoke {
     #[clap(help = "The report ID to revoke.")]
     pub report_id: MeasurementReportId,
@@ -149,6 +189,21 @@ pub struct Revoke {
 
 /// Show a report for an ID, reports for a machine, or all reports.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all reports:
+    $ carbide-admin-cli attestation measured-boot report show all
+
+Show one report by ID:
+    $ carbide-admin-cli attestation measured-boot report show id \
+    12345678-1234-5678-90ab-cdef01234567
+
+Show all reports for a machine:
+    $ carbide-admin-cli attestation measured-boot report show machine \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum ShowFor {
     #[clap(about = "Show a report ID.")]
     Id(ShowForId),
@@ -162,6 +217,14 @@ pub enum ShowFor {
 
 /// Show a report for the given ID.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show one report by ID:
+    $ carbide-admin-cli attestation measured-boot report show id \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ShowForId {
     #[clap(help = "The report ID.")]
     pub report_id: MeasurementReportId,
@@ -169,6 +232,14 @@ pub struct ShowForId {
 
 /// Show all reports for a machine.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all reports for a machine:
+    $ carbide-admin-cli attestation measured-boot report show machine \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ShowForMachine {
     #[clap(help = "The profile name.")]
     pub machine_id: String,
@@ -176,6 +247,17 @@ pub struct ShowForMachine {
 
 /// List provides a few ways to list things.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all reports:
+    $ carbide-admin-cli attestation measured-boot report list all
+
+List all reports for a machine:
+    $ carbide-admin-cli attestation measured-boot report list machines \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum List {
     #[clap(about = "List all reports", visible_alias = "a")]
     All(ListAll),
@@ -189,10 +271,25 @@ pub enum List {
 
 /// ListAll will list all profiles.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all reports:
+    $ carbide-admin-cli attestation measured-boot report list all
+
+")]
 pub struct ListAll {}
 
 /// ListMachines will list all machines matching this report.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all reports for a machine:
+    $ carbide-admin-cli attestation measured-boot report list machines \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct ListMachines {
     #[clap(help = "The machine ID.")]
     pub machine_id: MachineId,
@@ -200,6 +297,13 @@ pub struct ListMachines {
 
 /// Match is used for finding reports matching the provided PCR pairs.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Find reports matching a set of PCR register values:
+    $ carbide-admin-cli attestation measured-boot report match 0:abc123,7:def456
+
+")]
 pub struct Match {
     #[clap(
         required = true,

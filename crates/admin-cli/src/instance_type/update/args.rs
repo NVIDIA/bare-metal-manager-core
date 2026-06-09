@@ -18,6 +18,23 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Rename an instance type:
+    $ carbide-admin-cli instance-type update --id 12345678-1234-5678-90ab-cdef01234567 \
+    --name dgx-h100-640gb
+
+Replace labels and capability filters (both overwrite completely):
+    $ carbide-admin-cli instance-type update --id 12345678-1234-5678-90ab-cdef01234567 \
+    --labels '{\"tier\":\"premium\"}' \
+    --desired-capabilities '[{\"key\":\"gpu_count\",\"value\":\"8\"}]'
+
+Update with optimistic concurrency on the record version:
+    $ carbide-admin-cli instance-type update --id 12345678-1234-5678-90ab-cdef01234567 \
+    --description \"DGX H100 640GB\" --version 3
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "Instance type ID to update")]
     pub id: String,

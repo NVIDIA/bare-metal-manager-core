@@ -21,21 +21,50 @@ use clap::{ArgGroup, Parser};
 use libredfish::model::update_service::ComponentType;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Every redfish command targets a BMC: --address is required, --username
+and --password are optional, and all are given before the subcommand:
+
+Read the current power state:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword get-power-state
+
+Power a machine on:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword on
+
+Force a machine off (alias: off):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
+
+Set PXE first in the boot order:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword boot-pxe
+
+Update host firmware from a local package:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    update-firmware-multipart --filename ./host-fw.bin
+
+Browse an arbitrary Redfish URI:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    browse --uri /redfish/v1/Systems
+
+")]
 pub struct RedfishAction {
     #[clap(subcommand)]
     pub command: Cmd,
 
+    // A non-`Option` field is required by clap automatically, which renders
+    // `--address <ADDRESS>` (unbracketed) in the usage line and rejects a
+    // missing value as a clap error (exit 2) — no runtime validation needed.
     #[clap(
         long,
-        global = true,
         help = "IP:port of machine BMC. Port is optional and defaults to 443"
     )]
-    pub address: Option<String>,
+    pub address: String,
 
-    #[clap(long, global = true, help = "Username for machine BMC")]
+    #[clap(long, help = "Username for machine BMC")]
     pub username: Option<String>,
 
-    #[clap(long, global = true, help = "Password for machine BMC")]
+    #[clap(long, help = "Password for machine BMC")]
     pub password: Option<String>,
 }
 
@@ -80,19 +109,47 @@ pub enum Cmd {
     LockdownStatus,
     /// Force turn machine off
     #[clap(alias = "off", verbatim_doc_comment)]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Force a machine off (also accepted as the alias `off`):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
+
+")]
     ForceOff,
     /// Force restart. This is equivalent to pressing the reset button on the front panel.
     /// - Will not restart DPUs
     /// - Will apply pending BIOS/UEFI setting changes
     #[clap(alias = "reset", verbatim_doc_comment)]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Force-restart a machine (also accepted as the alias `reset`):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-restart
+
+")]
     ForceRestart,
     /// Graceful restart. Asks the OS to restart via ACPI
     /// - Might restart DPUs if no OS is running
     /// - Will not apply pending BIOS/UEFI setting changes
     #[clap(alias = "restart", verbatim_doc_comment)]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Gracefully restart a machine (also accepted as the alias `restart`):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-restart
+
+")]
     GracefulRestart,
     /// Graceful host shutdown
     #[clap(alias = "shutdown", verbatim_doc_comment)]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Gracefully shut a machine down (also accepted as the alias `shutdown`):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-shutdown
+
+")]
     GracefulShutdown,
     /// AC power cycle
     ACPowerCycle,
@@ -124,7 +181,7 @@ pub enum Cmd {
     DisableSecureBoot,
     /// List Chassis
     GetChassisAll,
-    // List Chassis Subsystem
+    /// List Chassis Subsystem
     GetChassis(Chassis),
     /// Show BMC's Ethernet interface information
     GetBmcEthernetInterfaces,
@@ -137,56 +194,108 @@ pub enum Cmd {
     /// Change password for a BMC user
     ChangeBmcPassword(BmcPassword),
     /// Change UEFI password
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Change the UEFI password (supply the current and new values):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    change-uefi-password --current-password mycurrentpassword --new-password mynewpassword
+
+")]
     ChangeUefiPassword(UefiPassword),
     #[clap(about = "DPU specific operations", subcommand)]
     Dpu(DpuOperations),
+    /// Get information about the managers
     GetManager,
     /// Update host firmware
     UpdateFirmwareMultipart(Multipart),
-    // Get detailed info on a Redfish task
+    /// Get detailed info on a Redfish task
     GetTask(Task),
-    // Get a list of Redfish tasks
+    /// Get a list of Redfish tasks
     GetTasks,
     /// Clear UEFI password
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Clear the UEFI password (supply the current one):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    clear-uefi-password --current-password mycurrentpassword --new-password ''
+
+")]
     ClearUefiPassword(UefiPassword),
-    // Is IPMI enabled over LAN
+    /// Is IPMI enabled over LAN
     IsIpmiOverLanEnabled,
-    // Enable IPMI over LAN
+    /// Enable IPMI over LAN
     EnableIpmiOverLan,
-    // Disable IPMI over LAN
+    /// Disable IPMI over LAN
     DisableIpmiOverLan,
-    // Get Base Mac Address (DPU only)
+    /// Get Base Mac Address (DPU only)
     GetBaseMacAddress,
-    // Clear Nvram (Viking only)
+    /// Clear Nvram (Viking only)
     ClearNvram,
-    // Redfish browser
-    Browse(UriInfo),
-    // Set BIOS options
+    /// Set BIOS options
     SetBios(SetBios),
+    /// Get DPU mode
     GetNicMode,
+    /// Is infinite boot enable
     IsInfiniteBootEnabled,
+    /// Enable infinite boot
     EnableInfiniteBoot,
-    SetNicMode,
+    /// Set DPU NIC mode
+    #[clap(visible_alias = "set-nic-mode")]
     SetDpuMode,
+    /// Power cycle a machine
     ChassisResetCard1Powercycle,
+    /// Set the DPU as the first boot target
+    /// Set the boot order so the DPU boots first
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Set the boot order so the DPU boots first:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    set-boot-order-dpu-first --boot-interface-mac 00:11:22:33:44:55
+
+")]
     SetBootOrderDpuFirst(SetBootOrderDpuFirstArgs),
+    /// Get status of the rshim process on DPU
     GetHostRshim,
+    /// Enable rshim on DPU
     EnableHostRshim,
+    /// Disable rshim on dpu
     DisableHostRshim,
+    /// Get the Boss Controller
     GetBossController,
-    DecomissionController(DecomissionControllerArgs),
+    /// Decommission a storage controller
+    DecommissionController(DecomissionControllerArgs),
+    /// Create a storage volume
     CreateVolume(CreateVolumeArgs),
+    /// Check if boot order is set correctly
+    /// Check whether the DPU-first boot order is already configured
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Check whether the DPU-first boot order is already configured:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    is-boot-order-setup --boot-interface-mac 00:11:22:33:44:55
+
+")]
     IsBootOrderSetup(SetBootOrderDpuFirstArgs),
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
-pub struct UriInfo {
-    #[clap(long, help = "Redfish URI")]
-    pub uri: String,
-}
-
-#[derive(Parser, Debug, PartialEq, Clone)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["all", "id"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all BIOS boot options:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    get-boot-option --all
+
+Show one boot option by ID:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    get-boot-option --id Boot0001
+
+")]
 pub struct BootOptionSelector {
     #[clap(long)]
     pub all: bool,
@@ -195,6 +304,18 @@ pub struct BootOptionSelector {
 }
 
 #[derive(clap::Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show DPU firmware versions:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware show --all
+
+Show DPU port information:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu ports
+
+")]
 pub enum DpuOperations {
     /// BMC's FW Commands
     #[clap(visible_alias = "fw", about = "BMC's FW Commands", subcommand)]
@@ -204,6 +325,22 @@ pub enum DpuOperations {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Print the DPU firmware update status:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware status
+
+Update the DPU BMC firmware from a package:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware update --package ./bmc-fw.fwpkg
+
+Show all discovered firmware versions:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware show --all
+
+")]
 pub enum FwCommand {
     /// Print FW update status
     Status,
@@ -214,6 +351,14 @@ pub enum FwCommand {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Install a DPU BMC firmware package:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware update --package ./bmc-fw.fwpkg
+
+")]
 pub struct FwPackage {
     #[clap(short, long, help = "FW package to install")]
     pub package: PathBuf,
@@ -228,6 +373,14 @@ pub struct UefiPassword {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Rename a BMC account:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    change-bmc-username --old-user svc-ops --new-user svc-platform
+
+")]
 pub struct BmcUsername {
     #[clap(long, help = "Old username")]
     pub old_user: String,
@@ -236,6 +389,14 @@ pub struct BmcUsername {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Change a BMC user's password:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    change-bmc-password --user svc-ops --new-password 'mynewpassword'
+
+")]
 pub struct BmcPassword {
     #[clap(long, help = "New BMC password")]
     pub new_password: String,
@@ -244,6 +405,18 @@ pub struct BmcPassword {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Update host firmware from a local file:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    update-firmware-multipart --filename ./host-fw.bin
+
+Update firmware and specify the component type:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    update-firmware-multipart --filename ./uefi.bin --component-type uefi
+
+")]
 pub struct Multipart {
     #[clap(long, help = "Local filename for the firmware to be installed")]
     pub filename: String,
@@ -255,18 +428,46 @@ pub struct Multipart {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get details for a Redfish task:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    get-task --taskid JID_123456789012
+
+")]
 pub struct Task {
     #[clap(long, help = "Task ID")]
     pub taskid: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show one chassis subsystem by ID:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    get-chassis --chassis-id Chassis-1
+
+")]
 pub struct Chassis {
     #[clap(long, help = "Chassis ID")]
     pub chassis_id: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a BMC user (defaults to the administrator role):
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    create-bmc-user --user svc-ops --new-password 'mynewpassword'
+
+Create a read-only BMC user:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    create-bmc-user --user auditor --new-password 'mynewpassword' --role-id readonly
+
+")]
 pub struct BmcUser {
     #[clap(long, help = "BMC password")]
     pub new_password: String,
@@ -274,18 +475,35 @@ pub struct BmcUser {
     pub user: String,
     #[clap(
         long,
-        help = "BMC role (administrator, operator, readonly, noaccess). Default to administrator"
+        value_enum,
+        help = "BMC role for the new account (default: administrator)"
     )]
-    pub role_id: Option<String>,
+    pub role_id: Option<crate::bmc_role::BmcRole>,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a BMC user by name:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    delete-bmc-user --user svc-ops
+
+")]
 pub struct DeleteBmcUser {
     #[clap(long, help = "BMC user")]
     pub user: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Run the standard machine setup:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    machine-setup --boot-interface-mac 00:11:22:33:44:55
+
+")]
 pub struct MachineSetupArgs {
     #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
@@ -296,6 +514,14 @@ pub struct MachineSetupArgs {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Check what machine-setup steps remain:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    machine-setup-status --boot-interface-mac 00:11:22:33:44:55
+
+")]
 pub struct MachineSetupStatusArgs {
     #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
@@ -308,12 +534,28 @@ pub struct SetBootOrderDpuFirstArgs {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Decommission a storage controller:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    decomission-controller --controller-id RAID.Slot.1-1
+
+")]
 pub struct DecomissionControllerArgs {
     #[clap(long, help = "controller_id")]
     pub controller_id: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a volume on a storage controller:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    create-volume --controller-id RAID.Slot.1-1 --volume-name data0
+
+")]
 pub struct CreateVolumeArgs {
     #[clap(long, help = "controller_id")]
     pub controller_id: String,
@@ -326,6 +568,22 @@ pub struct CreateVolumeArgs {
         ArgGroup::new("show_fw")
         .required(true)
         .args(&["all", "bmc", "dpu_os", "uefi", "fw"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all discovered firmware key/values:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware show --all
+
+Show just the DPU OS version:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware show --dpu-os
+
+Show a specific firmware type by name:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu firmware show DPU_NIC
+
+")]
 pub struct ShowFw {
     #[clap(
         short,
@@ -363,6 +621,18 @@ pub struct ShowFw {
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all DPU ports:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu ports
+
+Show a single port by name:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    dpu ports eth0
+
+")]
 pub struct ShowPort {
     #[clap(
         short,
@@ -381,6 +651,14 @@ pub struct ShowPort {
 }
 
 #[derive(Parser, Debug, Clone, PartialEq)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set one or more BIOS attributes from JSON:
+    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    set-bios --attributes '{\"OperatingModes_ChooseOperatingMode\": \"MaximumPerformance\"}'
+
+")]
 pub struct SetBios {
     #[clap(
         long,

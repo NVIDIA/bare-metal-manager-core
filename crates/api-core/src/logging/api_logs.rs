@@ -138,6 +138,7 @@ where
                 tracing::Level::INFO,
                 "request",
                 span_id,
+                carbide.trace_root = true,
                 http.url = %request.uri(),
                 http.response.status_code = tracing::field::Empty,
                 request = tracing::field::Empty,

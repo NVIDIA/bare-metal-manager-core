@@ -19,6 +19,16 @@ use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Force delete a switch:
+    $ carbide-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567
+
+Force delete a switch and its machine interfaces:
+    $ carbide-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
+
+")]
 pub struct Args {
     #[clap(help = "Switch ID to force delete.")]
     pub switch_id: SwitchId,
