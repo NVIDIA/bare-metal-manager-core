@@ -33,6 +33,14 @@ type APIRackTask struct {
 	Finished    *time.Time `json:"finished"`
 	Created     time.Time  `json:"created"`
 	Updated     time.Time  `json:"updated"`
+	// RuleID is the Operation Rule that Flow resolved for this task — either
+	// because the caller pinned one via `ruleId` on the originating request or
+	// because Flow's default rule resolution picked it. Nil if Flow has not
+	// yet recorded a resolution (e.g. very early in task life). Sourced from
+	// the proto field `Task.applied_rule_id`; we flatten the request/response
+	// vocabulary to `ruleId` on the REST surface since the field carries the
+	// same meaning on the way in and out.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 func (t *APIRackTask) FromProto(task *flowv1.Task) {
@@ -55,6 +63,10 @@ func (t *APIRackTask) FromProto(task *flowv1.Task) {
 	}
 	t.Created = task.GetCreatedAt().AsTime().UTC()
 	t.Updated = task.GetUpdatedAt().AsTime().UTC()
+	if id := task.GetAppliedRuleId(); id != nil && id.GetId() != "" {
+		v := id.GetId()
+		t.RuleID = &v
+	}
 }
 
 func NewAPIRackTask(task *flowv1.Task) *APIRackTask {

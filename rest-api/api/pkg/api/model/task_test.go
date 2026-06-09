@@ -9,6 +9,7 @@ import (
 
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -141,8 +142,36 @@ func TestNewAPIRackTask(t *testing.T) {
 			assert.Equal(t, tt.expected.Message, result.Message)
 			assert.Nil(t, result.Started)
 			assert.Nil(t, result.Finished)
+			assert.Nil(t, result.RuleID)
 		})
 	}
+}
+
+func TestNewAPIRackTask_RuleID(t *testing.T) {
+	t.Run("nil applied_rule_id leaves RuleID unset", func(t *testing.T) {
+		got := NewAPIRackTask(&flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-a"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+		})
+		assert.Nil(t, got.RuleID)
+	})
+	t.Run("empty-string id is treated as unset", func(t *testing.T) {
+		got := NewAPIRackTask(&flowv1.Task{
+			Id:            &flowv1.UUID{Id: "task-b"},
+			Status:        flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			AppliedRuleId: &flowv1.UUID{Id: ""},
+		})
+		assert.Nil(t, got.RuleID)
+	})
+	t.Run("non-empty id is surfaced", func(t *testing.T) {
+		got := NewAPIRackTask(&flowv1.Task{
+			Id:            &flowv1.UUID{Id: "task-c"},
+			Status:        flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			AppliedRuleId: &flowv1.UUID{Id: "550e8400-e29b-41d4-a716-446655440000"},
+		})
+		require.NotNil(t, got.RuleID)
+		assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", *got.RuleID)
+	})
 }
 
 func TestNewAPIRackTask_Timestamps(t *testing.T) {

@@ -17923,11 +17923,20 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Operation Rule that Flow resolved for this task — either because
+            the caller pinned one via `ruleId` on the originating request or
+            because Flow's default rule resolution picked it. Omitted if Flow
+            has not yet recorded a resolution.
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          ruleId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
     OperationRule:
       title: OperationRule
       type: object
