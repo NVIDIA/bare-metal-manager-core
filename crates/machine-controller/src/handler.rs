@@ -5047,7 +5047,13 @@ impl StateHandler for HostMachineStateHandler {
                     }
                 }
                 MachineState::WaitingForDiscovery => {
-                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none() {
+                    // Storage cleanup is a destructive disk wipe (NVMe/HDD) that scout runs after a
+                    // reset, so only a real, discovered host enters it. A predicted host waits for
+                    // discovery to promote it; the promoted host then does the cleanup.
+                    // (machine_scout.rs mirrors this on the scout side.)
+                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none()
+                        && host_machine_id.machine_type().is_host()
+                    {
                         return Ok(StateHandlerOutcome::transition(waiting_for_cleanup_state(
                             CleanupState::Init,
                             CleanupContext::InitialDiscovery,

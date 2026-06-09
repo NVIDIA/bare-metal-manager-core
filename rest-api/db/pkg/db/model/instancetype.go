@@ -187,15 +187,6 @@ func (it *InstanceType) FromProto(proto *cwssaws.InstanceType) {
 	}
 }
 
-// ToDeletionRequestProto builds the workflow request that asks a Site
-// to delete this InstanceType. Lives on the entity because the delete
-// handler has no API request body — the entity's ID is the only input.
-func (it *InstanceType) ToDeletionRequestProto() *cwssaws.DeleteInstanceTypeRequest {
-	return &cwssaws.DeleteInstanceTypeRequest{
-		Id: it.ID.String(),
-	}
-}
-
 var _ bun.BeforeAppendModelHook = (*InstanceType)(nil)
 
 // BeforeAppendModel is a hook that is called before the model is appended to the query
