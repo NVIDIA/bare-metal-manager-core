@@ -824,6 +824,27 @@ jobs:
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
+  proto-breaking-changes:
+    name: Proto Breaking Changes Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required: Buf needs the history to compare against main
+
+      - name: Install Buf CLI
+        run: |
+          sudo curl -sSL https://github.com/bufbuild/buf/releases/download/v1.70.0/buf-Linux-x86_64 -o /usr/local/bin/buf
+          sudo chmod +x /usr/local/bin/buf
+          buf --version
+
+      - name: Check for Breaking Changes
+        run: |
+          buf breaking crates/rpc/proto \
+            --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
+            --error-format=github-actions
+
   lint-police:
     needs:
       - prepare

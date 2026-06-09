@@ -19,19 +19,18 @@ use std::iter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_redfish::libredfish::conv::IntoModel;
+use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use itertools::Itertools;
-use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
 use model::machine::ManagedHostState;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-    EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
+    EthernetInterface, Inventory, Manager, NetworkAdapter, PCIeDevice, PowerState, Service,
+    UefiDevicePath,
 };
 
-use super::create_random_self_signed_cert;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::host::X86_INFO_JSON;
 use crate::tests::common::{ib_guid_pool, mac_address_pool};
@@ -123,14 +122,13 @@ impl ManagedHostConfig {
 
 impl Default for ManagedHostConfig {
     fn default() -> Self {
-        let random_cert = create_random_self_signed_cert();
         Self {
             serial: format!(
                 "VVG1{:05X}",
                 NEXT_HOST_SERIAL.fetch_add(1, Ordering::Relaxed)
             ),
             bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
-            tpm_ek_cert: TpmEkCertificate::from(random_cert),
+            tpm_ek_cert: TpmEkCertificate::from(create_random_self_signed_cert()),
             dpus: vec![DpuConfig::default()],
             non_dpu_macs: vec![mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL.allocate()],
             expected_state: ManagedHostState::Ready,
@@ -223,12 +221,6 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             .dpus
             .iter()
             .map(|dpu| PCIeDevice {
-                odata: OData {
-                    odata_id: "odata_id".to_string(),
-                    odata_type: "odata_type".to_string(),
-                    odata_etag: None,
-                    odata_context: None,
-                },
                 description: None,
                 firmware_version: None,
                 id: None,
@@ -238,8 +230,6 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 part_number: Some("900-9D3B6-00CV-A".to_string()),
                 serial_number: Some(dpu.serial.clone()),
                 status: None,
-                slot: None,
-                pcie_functions: None,
             })
             .collect::<Vec<_>>();
 
@@ -303,10 +293,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 serial_number: Some(value.serial.clone()),
                 ethernet_interfaces: systems_ethernet_interfaces,
                 attributes: ComputerSystemAttributes::default(),
-                pcie_devices: pcie_devices
-                    .into_iter()
-                    .map(IntoModel::into_model)
-                    .collect(),
+                pcie_devices,
                 base_mac: None,
                 power_state: PowerState::On,
                 sku: None,

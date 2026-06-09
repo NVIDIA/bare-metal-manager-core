@@ -15,14 +15,11 @@
  * limitations under the License.
  */
 
-#[cfg(test)]
-mod tests;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-pub mod config;
-
-pub mod defaults;
-
-pub mod downloader;
-
-pub use config::{FirmwareConfig, FirmwareConfigSnapshot};
-pub use downloader::FirmwareDownloader;
+pub async fn set_primary_interface(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    api_client.0.set_primary_interface(args).await?;
+    Ok(())
+}

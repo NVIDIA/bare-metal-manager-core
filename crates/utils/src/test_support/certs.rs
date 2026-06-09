@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-#[cfg(test)]
-mod tests;
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 
-pub mod config;
+/// Creates a DER-encoded self-signed certificate for test fixtures.
+pub fn create_random_self_signed_cert() -> Vec<u8> {
+    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
 
-pub mod defaults;
+    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names).expect(
+        "BUG: Keypair generation should not fail, subject alt names are static and must be valid",
+    );
 
-pub mod downloader;
-
-pub use config::{FirmwareConfig, FirmwareConfigSnapshot};
-pub use downloader::FirmwareDownloader;
+    cert.der().to_vec()
+}

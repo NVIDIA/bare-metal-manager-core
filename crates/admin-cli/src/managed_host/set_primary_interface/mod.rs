@@ -15,14 +15,18 @@
  * limitations under the License.
  */
 
-#[cfg(test)]
-mod tests;
+pub mod args;
+pub mod cmd;
 
-pub mod config;
+pub use args::Args;
 
-pub mod defaults;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-pub mod downloader;
-
-pub use config::{FirmwareConfig, FirmwareConfigSnapshot};
-pub use downloader::FirmwareDownloader;
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::set_primary_interface(&ctx.api_client, self).await?;
+        Ok(())
+    }
+}
