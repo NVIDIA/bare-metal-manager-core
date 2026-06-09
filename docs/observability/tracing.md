@@ -11,24 +11,22 @@ costs.
   document. **nico-dns** also emits traces, but with a separate simpler always-on setup.
   No other NICo component emits traces.
 - **nico-api traces are off by default**; two things must both be true before any spans are emitted:
-  - OTEL endpoint configured at deploy time by setting the env var `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
-      ```yaml
-      # Set OTEL endpoint in nico-api pod template
-      ...
-      env:
-        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-          value: http://<otel_endpoint_host>:4317 # gRPC (default port 4317)
-      ...
+  - An OTLP endpoint is configured at startup, either in the nico-api config TOML:
+      ```toml
+      [tracing]
+      otlp_endpoint = "http://<otel_endpoint_host>:4317" # gRPC (default port 4317)
       ```
-  - The runtime switch turned on with `nico-admin-cli set tracing-enabled true`
+      or with `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which overrides the TOML value.
+  - Tracing is enabled, either in the same config section with `enabled = true`, or at runtime
+    with `nico-admin-cli set tracing-enabled true` when `tracing.allow_runtime_changes = true`.
 - Tracing is **resource-intensive when on**, so turn it on for a debugging session and then off after.
     ```bash
-    # Once the endpoint is configured:
+    # Once the endpoint is configured and runtime changes are allowed:
     nico-admin-cli set tracing-enabled true     # start capturing
     # ... reproduce the issue, examine traces in your backend ...
     nico-admin-cli set tracing-enabled false    # stop capturing traces
     ```
-  Leaving the OTEL endpoint configured while the runtime switch is off costs almost nothing
+  Leaving the OTLP endpoint configured while tracing is disabled costs almost nothing.
 - Transport is **OTLP/gRPC, plaintext**; nico-api cannot do OTLP/HTTP or originate TLS
 
 ---
@@ -40,7 +38,7 @@ costs.
 Two binaries build an OTLP span exporter:
 
 - **nico-api** (`crates/api-core/src/logging/setup.rs`) - the rich, control-plane tracing this
-  document is mostly about, off by default behind the two-part enablement
+  document is mostly about, off by default behind endpoint plus enabled-flag configuration
 - **nico-dns** (`crates/dns/src/main.rs`) - a separate, much simpler **always-on** setup.
 
 The other binaries (nico-pxe, nico-dhcp, nico-bmc-proxy, nico-hardware-health, nico-ssh-console-rs,
@@ -76,7 +74,8 @@ backends, plus the database work underneath them - which maps directly to the EP
 nico-api uses a custom `CarbideSpanSampler` wrapped as **`ParentBased`**:
 
 - A **root span** is recorded only if both are true:
-  - the runtime `tracing-enabled` flag is on
+  - the in-process `tracing_enabled` flag is on, from `[tracing] enabled = true` at startup or
+    from the dynamic `tracing-enabled` setting
   - the span's `code.namespace` begins with `carbide::`
 - **Child spans inherit the root's decision** (that's what `ParentBased` means), so once a
   trace is sampled the whole call tree beneath it is captured - **except tokio spans, which are
@@ -86,8 +85,9 @@ nico-api uses a custom `CarbideSpanSampler` wrapped as **`ParentBased`**:
 ### 1.4 How traces leave nico-api
 
 nico-api pushes spans over **OTLP/gRPC** to a collector endpoint you configure. It does not
-discover or get injected with anything - it simply connects out to whatever
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points at. The transport details: gRPC-only, plaintext.
+discover or get injected with anything - it simply connects out to the endpoint from
+`[tracing] otlp_endpoint` or, if set, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. The environment
+variable overrides the TOML value. The transport details: gRPC-only, plaintext.
 
 ### 1.5 nico-dns tracing (separate and always-on)
 
@@ -110,18 +110,20 @@ nico-api's:
 
 ## 2. How to enable and disable tracing
 
-Enabling tracing has **two parts**: a one-time **deploy-time configuration** and a **runtime switch**.
-Both must be in place; satisfying only one produces no traces
+Enabling tracing has **two parts**: startup configuration for the exporter endpoint, and an enabled
+flag that can come from startup config or, when allowed, the runtime switch. An endpoint without the
+enabled flag emits no traces. The enabled flag without an endpoint also emits no traces because no
+OTLP exporter is built.
 
 ```
- Deploy-time configuration (once)                  Runtime switch (per debugging session)
+ Startup configuration                             Enable/disable policy
  ┌───────────────────────────────┐                  ┌─────────────────────────────────────┐
- │ a. a traces backend           │                  │ nico-admin-cli set tracing-enabled  │
- │ b. a collector to receive     │   ── then ──▶    │   true   → start emitting           │
- │    OTLP from nico-api         │                  │   false  → stop emitting            │
- │ c. OTEL_EXPORTER_OTLP_TRACES_ │                  │ (live, no restart needed)           │
- │    ENDPOINT set on nico-api   │                  └─────────────────────────────────────┘
- └───────────────────────────────┘
+ │ a. a traces backend           │                  │ [tracing] enabled = true|false      │
+ │ b. a collector to receive     │   ── then ──▶    │ and optionally:                     │
+ │    OTLP from nico-api         │                  │ nico-admin-cli set tracing-enabled  │
+ │ c. [tracing] otlp_endpoint    │                  │   true|false                        │
+ │    or OTEL_EXPORTER... env    │                  │ if allow_runtime_changes = true     │
+ └───────────────────────────────┘                  └─────────────────────────────────────┘
 ```
 
 ### 2.1 Deploy-time configuration
@@ -199,35 +201,55 @@ spec:
         - name: nico-api
           env:
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-              value: http://localhost:4317   # the injected sidecar shares the pod network
+              value: http://localhost:4317   # overrides [tracing] otlp_endpoint
 ```
 
-**(c) Point nico-api at the collector.** nico-api builds its OTLP span exporter **only if**
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set. If it is unset, no tracing layer is constructed at
-all and nothing is ever emitted - regardless of the runtime switch.
+**(c) Point nico-api at the collector.** nico-api builds its OTLP span exporter **only if** an
+endpoint is configured at startup. If no endpoint is configured, no tracing layer is constructed at
+all and nothing is ever emitted - regardless of the enabled flag.
+
+Preferred config-file form:
+
+```toml
+[tracing]
+# Option A (shared collector): the collector's Service
+otlp_endpoint = "http://otel-collector.observability.svc.cluster.local:4317"
+
+# Option B (injected sidecar): the in-pod collector on localhost
+# otlp_endpoint = "http://localhost:4317"
+```
+
+The deployment environment variable form is still supported and takes precedence over the TOML
+endpoint:
 
 ```yaml
 # nico-api container env (e.g. via the nico-api Helm values)
 env:
-  # Option A (shared collector): the collector's Service
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4317
-  # Option B (injected sidecar): the in-pod collector on localhost
-  # OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://localhost:4317
 ```
 
 Notes:
 
-- This is the **only** trace-related setting nico-api reads from the environment.
-  Other standard OTEL env vars are **ignored**.
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the **only** trace-related setting nico-api reads from
+  the environment. Other standard OTEL env vars are **ignored**.
 - The endpoint must be a **plaintext gRPC** target (`http://…`, h2c); 4317 is the default
   OTLP/gRPC port. Do not point it at a 4318 HTTP receiver and do not use `https://`.
-- This env var is intentionally not committed in NICo's manifests; adding it is the deliberate
-  "deploy tracing" step. It puts the plumbing in place but does **not** start emission on its own.
+- Configuring only the endpoint puts the plumbing in place but does **not** start emission on its
+  own. `enabled` must also be true.
 
-### 2.2 Runtime switch (enable / disable)
+### 2.2 Enable / Disable Policy
 
-With the endpoint configured, emission is still controlled by a runtime flag that defaults **off**.
-Toggle it live without a restart:
+With the endpoint configured, emission is controlled by `[tracing] enabled`, which defaults
+**off**:
+
+```toml
+[tracing]
+otlp_endpoint = "http://otel-collector.observability.svc.cluster.local:4317"
+enabled = true
+allow_runtime_changes = true  # default; permits nico-admin-cli set tracing-enabled
+```
+
+When `allow_runtime_changes = true`, toggle tracing live without a restart:
 
 ```bash
 # start capturing traces (e.g. while reproducing an issue)
@@ -238,8 +260,14 @@ nico-admin-cli set tracing-enabled false
 ```
 
 Under the hood this sets the dynamic config `ConfigSetting::TracingEnabled`, which flips the
-in-process `tracing_enabled` flag that `CarbideSpanSampler` reads. Leaving it **off** in steady
-state is the intended operating mode.
+in-process `tracing_enabled` flag that `CarbideSpanSampler` reads. If
+`allow_runtime_changes = false`, the `SetDynamicConfig` call is rejected with `PermissionDenied`;
+the startup value from `[tracing] enabled` remains authoritative until nico-api restarts with a new
+config.
+
+Leaving tracing **off** in steady state is the intended operating mode. If you need startup-only
+control, set `allow_runtime_changes = false` and change `[tracing] enabled` through the config file
+plus a pod roll.
 
 ### 2.3 Do I need to restart nico-api?
 
@@ -247,27 +275,31 @@ It depends on which part you are changing:
 
 | What you're doing | Restart needed? |
 |---|---|
-| Endpoint already set at startup, want traces now | **No** - `nico-admin-cli set tracing-enabled true` |
-| Turning tracing back off | **No** - `nico-admin-cli set tracing-enabled false` |
-| Adding `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` for the first time | **Yes** - roll the nico-api pod once |
+| Endpoint already set at startup and runtime changes allowed, want traces now | **No** - `nico-admin-cli set tracing-enabled true` |
+| Turning tracing back off when runtime changes are allowed | **No** - `nico-admin-cli set tracing-enabled false` |
+| Changing `[tracing] enabled` in config | **Yes** - startup config is read on process start |
+| Changing `tracing.allow_runtime_changes` | **Yes** - runtime policy is read on process start |
+| Adding or changing `[tracing] otlp_endpoint` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | **Yes** - roll the nico-api pod once |
 | Adding the OTEL sidecar-injection annotation | **Yes** - pod-spec change; injected only at admission |
 
-Why: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is read **exactly once, at process startup**
-(`crates/api-core/src/logging/setup.rs`). If it was unset when nico-api started, the OTLP
-exporter and tracing layer were never constructed and there is no way to add them at runtime -
-so the **first** time you set the endpoint you must restart/roll the pod. The runtime switch,
-by contrast, only flips an in-process flag and **never** needs a restart.
+Why: `[tracing] otlp_endpoint`, `[tracing] enabled`, `[tracing] allow_runtime_changes`, and
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` are read at process startup (`crates/api-core/src/logging/setup.rs`).
+If no endpoint was configured when nico-api started, the OTLP exporter and tracing layer were never
+constructed and there is no way to add them at runtime. The runtime switch, when allowed, only flips
+an in-process flag and **never** needs a restart.
 
-**Recommendation:** set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` at deploy time and leave it in place
-permanently - the plumbing is cheap while tracing is toggled off. Enabling/disabling then
-never requires a restart, which is the whole point of separating the configuration from the switch.
+**Recommendation:** set `[tracing] otlp_endpoint` at deploy time and leave it in place permanently -
+the plumbing is cheap while tracing is toggled off. Keep `enabled = false` and
+`allow_runtime_changes = true` for debug-on-demand environments, or set
+`allow_runtime_changes = false` when the config file should be the only control plane for tracing.
 
 ### 2.4 Verifying it works
 
-1. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the nico-api pod and points at the collector's
-   gRPC endpoint.
+1. `[tracing] otlp_endpoint` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on nico-api and points
+   at the collector's gRPC endpoint.
 2. The collector has a `traces` pipeline and its logs show the OTLP receiver listening on 4317.
-3. `nico-admin-cli set tracing-enabled true` has been run.
+3. `[tracing] enabled = true` is configured, or `nico-admin-cli set tracing-enabled true` has been
+   run while `tracing.allow_runtime_changes = true`.
 4. Exercise a traced operation (e.g. a machine power/firmware action), then look in your backend
    for spans with `service.name = carbide-api`.
 5. Watch `carbide_api_tracing_spans_open` to confirm spans are being opened.
@@ -282,15 +314,15 @@ which of three states nico-api is in:
 | State | nico-api overhead | I/O / network | Notes |
 |---|---|---|---|
 | Endpoint **unset** | **None** | None | No tracing layer is built at all. |
-| Endpoint **set**, switch **off** | **Near-zero** (small per-span bookkeeping) | None | Layer is installed but the sampler drops everything; nothing is recorded or exported. |
-| Endpoint set, switch **on** | **Significant** | Yes | Full recording + serialization + export. This is the "resource-intensive" mode. |
+| Endpoint **set**, tracing **disabled** | **Near-zero** (small per-span bookkeeping) | None | Layer is installed but the sampler drops everything; nothing is recorded or exported. |
+| Endpoint set, tracing **enabled** | **Significant** | Yes | Full recording + serialization + export. This is the "resource-intensive" mode. |
 
 ### 3.1 When tracing is ON
 
 This is the expensive mode the dev team warns about:
 
 - Because the sampler is `ParentBased`, a sampled root span pulls in its **entire child subtree**
-  (the component-manager, machine-a-tron, controller and DB spans beneath it). A single traced
+  (the component-manager, controller, and DB spans beneath it). A single traced
   operation can therefore produce many spans.
 - Costs land in several places: extra **CPU and memory** on nico-api, added **latency** on
   instrumented hot paths, **network egress** to the collector and **storage** in the backend.
@@ -299,8 +331,9 @@ This is the expensive mode the dev team warns about:
 
 ### 3.2 When the endpoint is set but tracing is OFF
 
-This is the common steady state if you follow the recommendation to leave the endpoint configured. The
-overhead here is **near-zero but not exactly zero**:
+This is the common steady state if you follow the recommendation to leave the endpoint configured
+with `[tracing] enabled = false`, or after disabling tracing dynamically. The overhead here is
+**near-zero but not exactly zero**:
 
 - At startup, because the endpoint is set, nico-api builds the OTLP exporter, a tracer provider
   with a batch span processor and installs the OpenTelemetry tracing layer into its subscriber
@@ -315,8 +348,8 @@ overhead here is **near-zero but not exactly zero**:
 
 ### 3.3 Practical guidance
 
-- Leave `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` configured and keep the runtime switch **off** in steady
-  state - cheap and avoids a pod roll when you need traces.
+- Leave `[tracing] otlp_endpoint` configured and keep tracing **off** in steady state - cheap and
+  avoids a pod roll when you need traces.
 - Treat "on" as a temporary debugging state. Turn it off when done; watch
   `carbide_api_tracing_spans_open` and nico-api CPU/latency while it is on.
 
@@ -337,12 +370,13 @@ annotation involved for traces
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| No traces at all, env var **is** set | Runtime switch is off | `nico-admin-cli set tracing-enabled true` |
-| No traces at all, switch **is** on | Endpoint not configured - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` unset, so no exporter was built | Set the env var on nico-api and roll the pod |
+| No traces at all, endpoint **is** set | Tracing is disabled | Set `[tracing] enabled = true` and roll nico-api, or run `nico-admin-cli set tracing-enabled true` if runtime changes are allowed |
+| `nico-admin-cli set tracing-enabled ...` returns `PermissionDenied` | `tracing.allow_runtime_changes = false` | Change `[tracing] enabled` in config and roll nico-api, or set `allow_runtime_changes = true` and roll once |
+| No traces at all, tracing **is** enabled | Endpoint not configured, so no exporter was built | Set `[tracing] otlp_endpoint` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and roll the pod |
 | nico-api can't connect / TLS errors | Endpoint uses `https://` or points at the 4318 HTTP port | Use plaintext `http://…:4317` (gRPC); nico-api has no TLS and no HTTP |
-| Sidecar injected but still no traces | Endpoint env var not set, or points somewhere other than `localhost:4317` | Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://localhost:4317` on nico-api |
+| Sidecar injected but still no traces | Endpoint not set, or points somewhere other than `localhost:4317` | Set `[tracing] otlp_endpoint = "http://localhost:4317"` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://localhost:4317` on nico-api |
 | Traces reach the collector but not the backend | Collector exporter endpoint/TLS wrong | Check the exporter config; for remote backends configure TLS/mTLS on the collector |
-| Sudden resource/latency spike on nico-api | Tracing left on | `nico-admin-cli set tracing-enabled false` |
+| Sudden resource/latency spike on nico-api | Tracing left on | `nico-admin-cli set tracing-enabled false`, or set `[tracing] enabled = false` and roll nico-api if runtime changes are disabled |
 | Spans arrive but request trees look sparse | The `carbide::` root-span nuance | Verify where the root span originates on a live environment |
 
 ---

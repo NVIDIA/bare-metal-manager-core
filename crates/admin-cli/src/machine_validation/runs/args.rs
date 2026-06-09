@@ -19,6 +19,17 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all validation runs:
+    $ carbide-admin-cli machine-validation runs show
+
+Show runs for one machine, including history:
+    $ carbide-admin-cli machine-validation runs show --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --history
+
+")]
 pub enum Args {
     #[clap(about = "Show Runs")]
     Show(ShowRunsOptions),

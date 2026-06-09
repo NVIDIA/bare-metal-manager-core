@@ -21,6 +21,16 @@ use rpc::{CredentialType, forge as forgerpc};
 use crate::credential::common::DEFAULT_IB_FABRIC_NAME;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Generate a UFM cert for the default fabric:
+    $ carbide-admin-cli credential generate-ufm-cert
+
+Generate a UFM cert for a named fabric:
+    $ carbide-admin-cli credential generate-ufm-cert --fabric default
+
+")]
 pub struct Args {
     #[clap(long, default_value_t = DEFAULT_IB_FABRIC_NAME.to_string(), help = "Infiniband fabric.")]
     pub fabric: String,

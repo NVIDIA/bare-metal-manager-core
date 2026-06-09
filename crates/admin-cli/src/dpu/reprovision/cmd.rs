@@ -74,7 +74,7 @@ async fn apply_health_report(
         }
         _ => {
             return Err(CarbideCliError::GenericError(format!(
-                "Invalid machine ID for reprevisioning, only Hosts and DPUs are supported: {update_message}"
+                "Invalid machine ID for reprovisioning, only Hosts and DPUs are supported: {id}"
             )));
         }
     };

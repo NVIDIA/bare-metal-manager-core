@@ -21,14 +21,44 @@ use clap::{ArgGroup, Parser};
 use crate::machine::HealthReportTemplates;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List the health report sources for a DPU:
+    $ carbide-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
+
+Add a health report source from a predefined template:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template internal-maintenance
+
+Remove a health report source from a DPU:
+    $ carbide-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    internal-maintenance
+
+")]
 pub enum Args {
     #[clap(about = "List health report sources for a DPU")]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+List the health report sources for a DPU:
+    $ carbide-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
+
+")]
     Show { dpu_id: MachineId },
     #[clap(about = "Insert a health report source for a DPU")]
     Add(HealthAddOptions),
     #[clap(about = "Print an empty health report template")]
     PrintEmptyTemplate,
     #[clap(about = "Remove a health report source from a DPU")]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Remove a health report source from a DPU:
+    $ carbide-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    internal-maintenance
+
+")]
     Remove {
         dpu_id: MachineId,
         report_source: String,
@@ -37,6 +67,30 @@ pub enum Args {
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("health_report_source").required(true).args(&["health_report", "template"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a health report source from a predefined template:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template internal-maintenance
+
+Add a template-based source with a custom message:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template out-for-repair --message \"awaiting replacement part\"
+
+Add a raw JSON health report source:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --health-report '{\"status\":\"Degraded\"}'
+
+Replace the DPU's health contribution with this source:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template internal-maintenance --replace
+
+Preview the report without sending it to carbide:
+    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    --template internal-maintenance --print-only
+
+")]
 pub struct HealthAddOptions {
     pub dpu_id: MachineId,
     #[clap(long, help = "New health report as json")]

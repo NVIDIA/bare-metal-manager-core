@@ -22,6 +22,22 @@ use clap::Parser;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a custom iPXE script for a machine interface:
+    $ carbide-admin-cli boot-override set 12345678-1234-5678-90ab-cdef01234567 \
+    --custom-pxe ./boot.ipxe
+
+Set custom user-data for a machine interface:
+    $ carbide-admin-cli boot-override set 12345678-1234-5678-90ab-cdef01234567 \
+    --custom-user-data ./user-data.yaml
+
+Set both a custom iPXE script and custom user-data:
+    $ carbide-admin-cli boot-override set 12345678-1234-5678-90ab-cdef01234567 \
+    --custom-pxe ./boot.ipxe --custom-user-data ./user-data.yaml
+
+")]
 pub struct Args {
     pub interface_id: MachineInterfaceId,
     #[clap(short = 'p', long)]
