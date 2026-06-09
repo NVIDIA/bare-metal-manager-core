@@ -677,6 +677,32 @@ pub struct CarbideConfig {
     /// per page to the browser.
     #[serde(default)]
     pub log_history: LogHistoryConfig,
+
+    #[serde(default)]
+    pub tracing: TracingConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TracingConfig {
+    /// Whether to enable OTLP tracing. Default: false
+    #[serde(default)]
+    pub enabled: bool,
+    /// Whether to allow enabling/disabling tracing at runtime. Default: true
+    #[serde(default = "default_to_true")]
+    pub allow_runtime_changes: bool,
+    /// Endpoint to send traces to. Can be overridden by the OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var.
+    #[serde(default)]
+    pub otlp_endpoint: Option<String>,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_runtime_changes: true,
+            otlp_endpoint: None,
+        }
+    }
 }
 
 impl CarbideConfig {
@@ -3398,6 +3424,59 @@ mod tests {
             ))
             .extract()
             .expect("legacy force_dpu_nic_mode in TOML must still parse");
+    }
+
+    #[test]
+    fn tracing_config_defaults_when_omitted() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        assert!(!config.tracing.enabled);
+        assert!(config.tracing.allow_runtime_changes);
+        assert_eq!(config.tracing.otlp_endpoint, None);
+    }
+
+    #[test]
+    fn tracing_config_deserializes_from_toml() {
+        let toml = r#"
+[tracing]
+enabled = true
+allow_runtime_changes = false
+otlp_endpoint = "http://otel-collector.observability.svc.cluster.local:4317"
+"#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        assert!(config.tracing.enabled);
+        assert!(!config.tracing.allow_runtime_changes);
+        assert_eq!(
+            config.tracing.otlp_endpoint.as_deref(),
+            Some("http://otel-collector.observability.svc.cluster.local:4317")
+        );
+    }
+
+    #[test]
+    fn tracing_config_defaults_runtime_changes_when_section_is_partial() {
+        let toml = r#"
+[tracing]
+enabled = true
+"#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        assert!(config.tracing.enabled);
+        assert!(config.tracing.allow_runtime_changes);
+        assert_eq!(config.tracing.otlp_endpoint, None);
     }
 
     #[test]

@@ -14,13 +14,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::sync::atomic::Ordering;
+
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
 use crate::setup::parse_carbide_config;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_test_env_with_overrides, get_config,
+    TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
+
+async fn create_env_with_tracing_config(
+    db_pool: sqlx::PgPool,
+    enabled: bool,
+    allow_runtime_changes: bool,
+) -> TestEnv {
+    let mut config = get_config();
+    config.tracing.enabled = enabled;
+    config.tracing.allow_runtime_changes = allow_runtime_changes;
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.create_network_segments = Some(false);
+    create_test_env_with_overrides(db_pool, overrides).await
+}
+
+async fn set_tracing_enabled(
+    env: &TestEnv,
+    enabled: bool,
+) -> Result<tonic::Response<()>, tonic::Status> {
+    env.api
+        .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
+            setting: ConfigSetting::TracingEnabled as i32,
+            value: enabled.to_string(),
+            expiry: None,
+        }))
+        .await
+}
 
 #[crate::sqlx_test]
 async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
@@ -54,6 +83,120 @@ async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<
             .expect("bmc_proxy should have gotten set")
             .to_string(),
         "test-host:1234"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_tracing_dynamic_config_runtime_changes_allowed(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_env_with_tracing_config(db_pool, false, true).await;
+    assert!(!env.config.tracing.enabled);
+    assert!(env.config.tracing.allow_runtime_changes);
+    assert!(
+        !env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    set_tracing_enabled(&env, true).await?;
+    assert!(
+        env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    set_tracing_enabled(&env, false).await?;
+    assert!(
+        !env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_tracing_config_enabled_can_be_disabled_when_runtime_changes_allowed(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_env_with_tracing_config(db_pool, true, true).await;
+    assert!(env.config.tracing.enabled);
+    assert!(env.config.tracing.allow_runtime_changes);
+    assert!(
+        env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    set_tracing_enabled(&env, false).await?;
+    assert!(
+        !env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_tracing_dynamic_config_rejected_when_runtime_changes_disabled(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_env_with_tracing_config(db_pool, true, false).await;
+    assert!(env.config.tracing.enabled);
+    assert!(!env.config.tracing.allow_runtime_changes);
+    assert!(
+        env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    let err = set_tracing_enabled(&env, false)
+        .await
+        .expect_err("runtime tracing change should be rejected");
+    assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    assert!(
+        env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_tracing_dynamic_config_rejected_from_disabled_startup_config(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_env_with_tracing_config(db_pool, false, false).await;
+    assert!(!env.config.tracing.enabled);
+    assert!(!env.config.tracing.allow_runtime_changes);
+    assert!(
+        !env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
+    );
+
+    let err = set_tracing_enabled(&env, true)
+        .await
+        .expect_err("runtime tracing change should be rejected");
+    assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    assert!(
+        !env.api
+            .dynamic_settings
+            .tracing_enabled
+            .load(Ordering::Relaxed)
     );
 
     Ok(())

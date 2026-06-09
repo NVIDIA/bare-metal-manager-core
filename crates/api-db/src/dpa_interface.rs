@@ -444,7 +444,7 @@ where
 
     let snapshot = match maybe_snapshot {
         Some(sn) => sn,
-        None => return Err(eyre!("machine {machine_id} snapshot found".to_string())),
+        None => return Err(eyre!("machine {machine_id} snapshot not found")),
     };
 
     let instance = match snapshot.instance {

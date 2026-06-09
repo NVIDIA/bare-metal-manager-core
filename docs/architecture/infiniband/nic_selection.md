@@ -1,4 +1,4 @@
-# Infiniband NIC and port selection
+# Infiniband NIC and Port Selection
 
 NVIDIA Infra Controller (NICo) supports multiple Infiniband enabled Network Interface Cards (NICs).
 Each of those NICs might feature 1-2 physical ports, where each port allows

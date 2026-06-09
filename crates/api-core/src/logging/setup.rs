@@ -23,7 +23,7 @@ use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TracerProvider};
 use opentelemetry::{Context, KeyValue, TraceId, Value};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{ExportConfig, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::{Sampler, ShouldSample};
@@ -37,6 +37,7 @@ use tracing_subscriber::{Layer, filter, reload};
 use super::level_filter::ActiveLevel;
 use super::stream::{LogStream, LogStreamLayer};
 use crate::api::metrics::ApiMetricsEmitter;
+use crate::cfg::file::TracingConfig;
 use crate::logging::level_filter::ReloadableFilter;
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +79,7 @@ pub fn setup_logging(
     extra_logfmt_event_fields: Vec<String>,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
     log_history_max_bytes: usize,
+    tracing_config: &TracingConfig,
 ) -> eyre::Result<Logging> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
@@ -113,7 +115,7 @@ pub fn setup_logging(
     // == Dynamic filter for tracing enabled/disabled ==
     // This doesn't track levels but instead just enabled/disabled (when we want tracing enabled, we
     // typically want a high level of verbosity.) Enabled by default if debug is enabled.
-    let tracing_enabled = Arc::new(AtomicBool::new(debug == 1));
+    let tracing_enabled = Arc::new(AtomicBool::new(debug == 1 || tracing_config.enabled));
     let trace_sampler = CarbideSpanSampler::new(tracing_enabled.clone());
     let trace_filter =
         filter::filter_fn(should_accept_span_or_event).with_max_level_hint(log_level);
@@ -124,13 +126,20 @@ pub fn setup_logging(
             .wrap_err("logging_subscriber.try_init()")?;
     } else {
         let maybe_otel_tracing_layer =
-            match std::env::var(opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) {
-                Err(_) => None,
-                Ok(_) => {
+            match std::env::var(opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)
+                .ok()
+                .or_else(|| tracing_config.otlp_endpoint.clone())
+            {
+                None => None,
+                Some(endpoint) => {
                     // Exporter reads from OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var for endpoint
                     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
                         .with_tonic()
                         .with_protocol(opentelemetry_otlp::Protocol::Grpc)
+                        .with_export_config(ExportConfig {
+                            endpoint: Some(endpoint),
+                            ..Default::default()
+                        })
                         .build()?;
 
                     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
