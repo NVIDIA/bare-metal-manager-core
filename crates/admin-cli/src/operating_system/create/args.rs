@@ -21,6 +21,17 @@ use clap::Parser;
 use crate::operating_system::common::parse_param;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create an OS definition:
+    $ carbide-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a
+
+Create one with a description, inactive, allowing parameter overrides:
+    $ carbide-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a \
+    --description \"Ubuntu 22.04 base\" --is-active false --allow-override
+
+")]
 pub struct Args {
     #[clap(short, long, help = "Name of the operating system definition.")]
     pub name: String,

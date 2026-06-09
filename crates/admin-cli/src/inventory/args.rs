@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Print the Ansible inventory to stdout:
+    $ carbide-admin-cli inventory
+
+Write the Ansible inventory to a file:
+    $ carbide-admin-cli inventory --filename ./inventory.ini
+
+")]
 pub struct Cmd {
     #[clap(short, long, help = "Write to file")]
     pub filename: Option<String>,

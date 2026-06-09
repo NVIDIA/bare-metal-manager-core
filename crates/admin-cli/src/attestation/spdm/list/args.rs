@@ -19,6 +19,13 @@ use carbide_uuid::machine::MachineId;
 use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all SPDM attestations recorded for a machine:
+    $ carbide-admin-cli attestation spdm list 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(long, help = "Machine ID", conflicts_with = "selector")]
     pub machine_id: Option<MachineId>,

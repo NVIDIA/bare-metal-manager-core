@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Update metadata for many SKUs from a CSV file:
+    $ carbide-admin-cli sku bulk-update-metadata ./sku-metadata.csv
+
+")]
 pub struct Args {
     #[clap(help = "The CSV file to use to update metadata for multiple skus")]
     pub filename: String,

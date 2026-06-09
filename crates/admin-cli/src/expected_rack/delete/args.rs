@@ -19,6 +19,13 @@ use carbide_uuid::rack::RackId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an expected rack by rack ID:
+    $ carbide-admin-cli expected-rack delete 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Rack ID of expected rack to delete.")]
     pub rack_id: RackId,
