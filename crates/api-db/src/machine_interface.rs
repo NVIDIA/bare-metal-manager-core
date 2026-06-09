@@ -17,7 +17,6 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_utils::redfish::BmcAccessInfo;
@@ -44,6 +43,7 @@ use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};
 use crate::db_read::DbReader;
+use crate::host_naming::{self, NamingContext};
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::machine_interface_address::{AddressAlreadyInUseError, MachineInterfaceAddressWithType};
 use crate::{DatabaseError, DatabaseResult, Transaction, network_segment as db_network_segment};
@@ -1031,24 +1031,34 @@ async fn create_inner(
     allocation_type: AllocationType,
     interface_type: InterfaceType,
 ) -> DatabaseResult<MachineInterfaceId> {
-    // Prefer IPv4 for hostname (more human-readable), fall back to
-    // an IPv6-derived hostname otherwise.
-    let hostname_address = allocated_addresses
-        .iter()
-        .find(|a| a.is_ipv4())
-        .or(allocated_addresses.first())
-        .ok_or_else(|| {
-            let prefixes: Vec<_> = segment
-                .prefixes
-                .iter()
-                .map(|p| p.prefix.to_string())
-                .collect();
-            crate::DatabaseError::ResourceExhausted(format!(
-                "No IP addresses left in network segment (prefixes: {})",
-                prefixes.join(", ")
-            ))
-        })?;
-    let hostname = address_to_hostname(hostname_address)?;
+    // Allocation must have produced at least one address for the new interface.
+    if allocated_addresses.is_empty() {
+        let prefixes: Vec<_> = segment
+            .prefixes
+            .iter()
+            .map(|p| p.prefix.to_string())
+            .collect();
+        return Err(crate::DatabaseError::ResourceExhausted(format!(
+            "No IP addresses left in network segment (prefixes: {})",
+            prefixes.join(", ")
+        )));
+    }
+    // A brand-new interface has no stored name yet, so the configured strategy
+    // assigns one (IP-derived, a new fun name, etc.).
+    let ctx = NamingContext {
+        mac_address: *macaddr,
+        addresses: allocated_addresses,
+        current_hostname: None,
+        // Brand-new interface: not yet bound to a machine, so serial naming
+        // (if configured) uses a temporary IP-based name and switches later.
+        machine_id: None,
+        is_primary: primary_interface,
+        interface_type,
+        // The row doesn't exist yet.
+        interface_id: None,
+        domain_id,
+    };
+    let hostname = host_naming::hostname_for(txn, &ctx).await?;
 
     let interface_id = insert_machine_interface(
         txn,
@@ -1297,31 +1307,6 @@ async fn insert_machine_interface_address(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
-}
-
-/// address_to_hostname converts an IpAddr address to a hostname,
-/// verifying the resulting hostname is actually a valid DNS name
-/// before returning it.
-///
-/// IPv4: replaces dots with dashes, e.g. `192.168.1.2` → `192-168-1-2`
-/// IPv6: expands to full form and replaces colons with dashes,
-///       e.g. `2001:db8::2` → `2001-0db8-0000-0000-0000-0000-0000-0002`
-fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
-    let hostname = match address {
-        IpAddr::V4(_) => address.to_string().replace('.', "-"),
-        IpAddr::V6(v6) => v6
-            .segments()
-            .iter()
-            .map(|s| format!("{s:04x}"))
-            .collect::<Vec<_>>()
-            .join("-"),
-    };
-    match domain::base::Name::<octseq::array::Array<255>>::from_str(hostname.as_str()).is_ok() {
-        true => Ok(hostname),
-        false => Err(DatabaseError::internal(format!(
-            "invalid address to hostname: {hostname}"
-        ))),
-    }
 }
 
 async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineInterfaceSnapshot>>(
@@ -1666,6 +1651,12 @@ pub async fn reconcile_admin_addresses_for_host(
                                 allocation_type: AllocationType::Dhcp,
                             }),
                     );
+                // The allocation also re-derives the hostname; refresh our local
+                // copy so the final naming pass below sees the row's real name.
+                interfaces[primary_index].hostname =
+                    find_one(txn.as_pgconn(), interfaces[primary_index].id)
+                        .await?
+                        .hostname;
                 active_config_changed = true;
             }
         }
@@ -1686,7 +1677,25 @@ pub async fn reconcile_admin_addresses_for_host(
         }
 
         if interface.addresses.is_empty() {
-            let hostname = dormant_admin_hostname(&interface.mac_address);
+            // This interface has lost all its IP addresses. The IP style parks
+            // it under a placeholder name; fun keeps the name it already has;
+            // serial renames it to its `serial-<mac>` form once the machine's
+            // serial is known. Either way we clear its domain so it drops out
+            // of DNS, since with no address there's nothing for a name to
+            // point at.
+            let ctx = NamingContext {
+                mac_address: interface.mac_address,
+                addresses: &[],
+                current_hostname: Some(&interface.hostname),
+                machine_id: Some(*host_machine_id),
+                // Non-primary: never takes the machine's (shared) serial.
+                is_primary: false,
+                // DPU-backed host links are data interfaces by definition.
+                interface_type: InterfaceType::Data,
+                interface_id: Some(interface.id),
+                domain_id: interface.domain_id,
+            };
+            let hostname = host_naming::hostname_for(txn.as_pgconn(), &ctx).await?;
             if interface.domain_id.is_some() || interface.hostname != hostname {
                 update_hostname_and_domain(txn.as_pgconn(), interface.id, &hostname, None).await?;
                 interface.hostname = hostname;
@@ -1698,25 +1707,38 @@ pub async fn reconcile_admin_addresses_for_host(
     if let Some(primary_segment) = primary_segment {
         // Finally, make the primary DPU-backed interface metadata match the address that
         // will be visible through DHCP, DNS, and DPU admin config.
-        let active_address = interfaces[primary_index]
+        let primary = &interfaces[primary_index];
+        if primary.addresses.is_empty() {
+            return Err(DatabaseError::internal(format!(
+                "Primary admin interface {} has no address after reconciliation",
+                primary.id
+            )));
+        }
+        let active_addresses: Vec<IpAddr> = primary
             .addresses
             .iter()
-            .find(|address| address.address.is_ipv4())
-            .or_else(|| interfaces[primary_index].addresses.first())
-            .ok_or_else(|| {
-                DatabaseError::internal(format!(
-                    "Primary admin interface {} has no address after reconciliation",
-                    interfaces[primary_index].id
-                ))
-            })?
-            .address;
-        let active_hostname = address_to_hostname(&active_address)?;
-        if interfaces[primary_index].hostname != active_hostname
-            || interfaces[primary_index].domain_id != primary_segment.config.subdomain_id
+            .map(|address| address.address)
+            .collect();
+        let ctx = NamingContext {
+            mac_address: primary.mac_address,
+            addresses: &active_addresses,
+            current_hostname: Some(&primary.hostname),
+            // The primary admin interface: where serial naming takes effect, once the
+            // machine's discovered serial is available.
+            machine_id: Some(*host_machine_id),
+            is_primary: true,
+            // The primary admin interface is a data interface by definition.
+            interface_type: InterfaceType::Data,
+            interface_id: Some(primary.id),
+            domain_id: primary.domain_id,
+        };
+        let active_hostname = host_naming::hostname_for(txn.as_pgconn(), &ctx).await?;
+        if primary.hostname != active_hostname
+            || primary.domain_id != primary_segment.config.subdomain_id
         {
             update_hostname_and_domain(
                 txn.as_pgconn(),
-                interfaces[primary_index].id,
+                primary.id,
                 &active_hostname,
                 primary_segment.config.subdomain_id,
             )
@@ -1976,32 +1998,28 @@ RETURNING id"#;
     Ok(updated.is_some())
 }
 
-/// Builds the deterministic hostname used for dormant addressless admin interfaces.
-fn dormant_admin_hostname(mac_address: &MacAddress) -> String {
-    format!("noip-{}", mac_address.to_string().replace(':', "-"))
-}
-
-/// Syncs a machine interface's hostname to its current address state after an address deletion.
-///
-/// - If the interface still has addresses, picks IPv4 (preferred) or the first remaining address
-///   and updates the hostname while preserving the existing domain_id.
-/// - If no addresses remain, resets to the dormant `noip-{mac}` placeholder and clears domain_id.
+/// Syncs a machine interface's hostname to its current address state after an
+/// address deletion, deferring to the configured naming strategy (the IP style
+/// re-derives from the remaining addresses or parks the interface under the
+/// dormant `noip-{mac}` placeholder; the other styles keep their names). When
+/// no addresses remain the domain is cleared so the interface drops out of DNS.
 pub async fn sync_hostname_after_address_change(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
-    mac_address: &MacAddress,
 ) -> DatabaseResult<()> {
-    let snapshot = find_one(&mut *txn, interface_id).await?;
-    let (hostname, domain_id) = if let Some(addr) = snapshot
-        .addresses
-        .iter()
-        .find(|a| a.is_ipv4())
-        .or(snapshot.addresses.first())
-    {
-        (address_to_hostname(addr)?, snapshot.domain_id)
+    let mut snapshot = find_one(&mut *txn, interface_id).await?;
+    // The snapshot aggregates addresses in no particular order; sort them so
+    // the derived name is stable across events.
+    snapshot.addresses.sort();
+    // With no addresses left, clear the domain so this interface drops out of
+    // DNS (a name needs an address to point at); otherwise keep its domain.
+    let domain_id = if snapshot.addresses.is_empty() {
+        None
     } else {
-        (dormant_admin_hostname(mac_address), None)
+        snapshot.domain_id
     };
+    let hostname =
+        host_naming::hostname_for(&mut *txn, &NamingContext::from_snapshot(&snapshot)).await?;
     update_hostname_and_domain(txn, interface_id, &hostname, domain_id).await?;
     Ok(())
 }
@@ -2173,17 +2191,23 @@ pub async fn allocate_address_for_family(
 
     fast_txn.commit().await?;
 
-    // Sync the hostname to the newly allocated address so it stays consistent
-    // with machine_interface_addresses. Prefer IPv4 (more human-readable).
-    if let Some(addr) = allocated_addresses
-        .iter()
-        .find(|a| a.is_ipv4())
-        .or(allocated_addresses.first())
-    {
-        let hostname = address_to_hostname(addr)?;
-        update_hostname_and_domain(txn, interface_id, &hostname, segment.config.subdomain_id)
-            .await?;
+    // Nothing allocated (no prefix for the requested family): leave the
+    // hostname and domain exactly as they were.
+    if allocated_addresses.is_empty() {
+        return Ok(allocated_addresses);
     }
+
+    // Sync the hostname/domain to the interface's current address set via the
+    // configured naming strategy. Read the interface back so the strategy sees
+    // the full set (e.g. an existing IPv4 still wins the name on a later IPv6
+    // allocation) and the name it already has.
+    let mut snapshot = find_one(&mut *txn, interface_id).await?;
+    // The snapshot aggregates addresses in no particular order; sort them so
+    // the derived name is stable across events.
+    snapshot.addresses.sort();
+    let hostname =
+        host_naming::hostname_for(&mut *txn, &NamingContext::from_snapshot(&snapshot)).await?;
+    update_hostname_and_domain(txn, interface_id, &hostname, segment.config.subdomain_id).await?;
 
     Ok(allocated_addresses)
 }
@@ -2350,30 +2374,5 @@ WHERE network_segments.id = $1::uuid";
             ip_networks.push(network);
         }
         Ok(ip_networks)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_address_to_hostname_v4() {
-        let address: IpAddr = "192.168.1.0".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("192-168-1-0", hostname);
-    }
-
-    #[test]
-    fn test_address_to_hostname_v6() {
-        let address: IpAddr = "2001:db8:abcd::2".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("2001-0db8-abcd-0000-0000-0000-0000-0002", hostname);
-    }
-
-    #[test]
-    fn test_address_to_hostname_v6_loopback() {
-        let address: IpAddr = "::1".parse().unwrap();
-        let hostname = address_to_hostname(&address).unwrap();
-        assert_eq!("0000-0000-0000-0000-0000-0000-0000-0001", hostname);
     }
 }
