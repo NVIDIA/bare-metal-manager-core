@@ -57,7 +57,8 @@ impl LastSentCache {
 
     fn evict_if_due(&mut self, evict_after: Duration) {
         if self.last_evicted.elapsed() >= evict_after {
-            self.entries.retain(|_, v| v.sent_at.elapsed() < evict_after);
+            self.entries
+                .retain(|_, v| v.sent_at.elapsed() < evict_after);
             self.last_evicted = Instant::now();
         }
     }
@@ -202,7 +203,13 @@ impl DataSink for HealthReportSink {
                         );
                         return;
                     }
-                    cache.entries.insert(key.clone(), LastSent { content_hash: hash, sent_at: Instant::now() });
+                    cache.entries.insert(
+                        key.clone(),
+                        LastSent {
+                            content_hash: hash,
+                            sent_at: Instant::now(),
+                        },
+                    );
                 } else {
                     // Clear the suppression entry so the first all-clear report
                     // after an alert is never throttled.
@@ -386,7 +393,10 @@ mod tests {
         assert!(sink.queue.pop().is_some(), "first send should go through");
 
         sink.handle_event(&ctx, &event);
-        assert!(sink.queue.pop().is_none(), "identical repeat within interval should be suppressed");
+        assert!(
+            sink.queue.pop().is_none(),
+            "identical repeat within interval should be suppressed"
+        );
     }
 
     #[test]
@@ -407,7 +417,10 @@ mod tests {
         assert!(sink.queue.pop().is_some(), "alert should not be suppressed");
 
         sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&success)));
-        assert!(sink.queue.pop().is_some(), "first success after alert should not be suppressed");
+        assert!(
+            sink.queue.pop().is_some(),
+            "first success after alert should not be suppressed"
+        );
     }
 
     #[test]
@@ -432,7 +445,10 @@ mod tests {
         });
         sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_b)));
 
-        assert!(sink.queue.pop().is_some(), "changed content should bypass suppression");
+        assert!(
+            sink.queue.pop().is_some(),
+            "changed content should bypass suppression"
+        );
     }
 
     #[test]
@@ -447,6 +463,9 @@ mod tests {
         sink.queue.pop();
         sink.handle_event(&ctx, &event);
 
-        assert!(sink.queue.pop().is_some(), "with suppression disabled all sends should go through");
+        assert!(
+            sink.queue.pop().is_some(),
+            "with suppression disabled all sends should go through"
+        );
     }
 }
