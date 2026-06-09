@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show the full network topology (all devices):
+    $ carbide-admin-cli network-device show
+
+Show one network device by MAC:
+    $ carbide-admin-cli network-device show mac=00:11:22:33:44:55
+
+")]
 pub struct Args {
     #[clap(
         short,

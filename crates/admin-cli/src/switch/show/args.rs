@@ -19,6 +19,16 @@ use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all switches:
+    $ carbide-admin-cli switch show
+
+Show details for one switch:
+    $ carbide-admin-cli switch show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),

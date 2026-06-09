@@ -20,6 +20,27 @@ use mac_address::MacAddress;
 use rpc::forge as forgerpc;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a BMC user, targeting the BMC by machine id:
+    $ carbide-admin-cli bmc-machine create-bmc-user \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --username admin --password mynewpassword
+
+Target the BMC by IP address:
+    $ carbide-admin-cli bmc-machine create-bmc-user \
+    --ip-address 192.0.2.20 --username admin --password mynewpassword
+
+Target the BMC by MAC address:
+    $ carbide-admin-cli bmc-machine create-bmc-user \
+    --mac-address 00:11:22:33:44:55 --username admin --password mynewpassword
+
+Create a read-only user by setting an explicit role:
+    $ carbide-admin-cli bmc-machine create-bmc-user \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --username admin --password mynewpassword \
+    --role-id readonly
+
+")]
 pub struct Args {
     #[clap(long, short, help = "IP of the BMC where we want to create a new user")]
     pub ip_address: Option<String>,
@@ -39,9 +60,10 @@ pub struct Args {
     #[clap(
         long,
         short,
-        help = "Role of new BMC account ('administrator', 'operator', 'readonly', 'noaccess')"
+        value_enum,
+        help = "Role of new BMC account (default: administrator)"
     )]
-    pub role_id: Option<String>,
+    pub role_id: Option<crate::bmc_role::BmcRole>,
 }
 
 impl From<Args> for forgerpc::CreateBmcUserRequest {
@@ -60,7 +82,7 @@ impl From<Args> for forgerpc::CreateBmcUserRequest {
             machine_id: args.machine,
             create_username: args.username,
             create_password: args.password,
-            create_role_id: args.role_id,
+            create_role_id: args.role_id.map(|role| role.as_api_str().to_string()),
         }
     }
 }

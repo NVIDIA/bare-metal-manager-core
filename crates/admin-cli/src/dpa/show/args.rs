@@ -19,6 +19,16 @@ use carbide_uuid::dpa_interface::DpaInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all DPA interfaces:
+    $ carbide-admin-cli dpa show
+
+Show details for one DPA interface:
+    $ carbide-admin-cli dpa show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "The DPA Interface ID to query, leave empty for all (default)")]
     pub id: Option<DpaInterfaceId>,

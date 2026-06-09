@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Default)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all resource pools with their stats:
+    $ carbide-admin-cli resource-pool list
+
+")]
 pub struct Args;
 
 impl From<Args> for ::rpc::forge::ListResourcePoolsRequest {

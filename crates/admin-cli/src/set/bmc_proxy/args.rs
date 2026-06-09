@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Enable the BMC proxy and point it at a host:port:
+    $ carbide-admin-cli set bmc-proxy --enabled true --proxy 192.0.2.10:8080
+
+Disable the BMC proxy:
+    $ carbide-admin-cli set bmc-proxy --enabled false
+
+")]
 pub struct Args {
     #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer bmc_proxy")]
     pub enabled: bool,

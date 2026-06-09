@@ -24,6 +24,16 @@ use rpc::protos::mlx_device as mlx_device_pb;
 
 // InfoCommand are the info subcommands.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get device info for one device on a machine:
+    $ carbide-admin-cli mlx info device 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
+
+Get the full device report for a machine:
+    $ carbide-admin-cli mlx info machine 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub enum InfoCommand {
     #[clap(about = "Get MlxDeviceInfo for a device on a machine")]
     Device(InfoDeviceCommand),
