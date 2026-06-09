@@ -82,7 +82,7 @@ func (a *RuleAPIService) CreateRuleExecute(r ApiCreateRuleRequest) (*OperationRu
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/rule"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/rule"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -225,7 +225,7 @@ func (a *RuleAPIService) DeleteRuleExecute(r ApiDeleteRuleRequest) (*http.Respon
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/rule/{id}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/rule/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -371,7 +371,7 @@ func (a *RuleAPIService) GetRuleExecute(r ApiGetRuleRequest) (*OperationRule, *h
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/rule/{id}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/rule/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -545,7 +545,7 @@ func (a *RuleAPIService) ListRulesExecute(r ApiListRulesRequest) ([]OperationRul
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/rule"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/rule"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -697,7 +697,7 @@ func (a *RuleAPIService) UpdateRuleExecute(r ApiUpdateRuleRequest) (*http.Respon
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/rule/{id}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/rule/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 

@@ -39,6 +39,8 @@ type RackTask struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Timestamp when the task was last updated.
 	Updated *time.Time `json:"updated,omitempty"`
+	// Operation Rule that Flow resolved for this task — either because the caller pinned one via `ruleId` on the originating request or because Flow's default rule resolution picked it. Omitted if Flow has not yet recorded a resolution.
+	RuleId *string `json:"ruleId,omitempty"`
 }
 
 // NewRackTask instantiates a new RackTask object
@@ -314,6 +316,38 @@ func (o *RackTask) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
+// GetRuleId returns the RuleId field value if set, zero value otherwise.
+func (o *RackTask) GetRuleId() string {
+	if o == nil || IsNil(o.RuleId) {
+		var ret string
+		return ret
+	}
+	return *o.RuleId
+}
+
+// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *RackTask) GetRuleIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RuleId) {
+		return nil, false
+	}
+	return o.RuleId, true
+}
+
+// HasRuleId returns a boolean if a field has been set.
+func (o *RackTask) HasRuleId() bool {
+	if o != nil && !IsNil(o.RuleId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+func (o *RackTask) SetRuleId(v string) {
+	o.RuleId = &v
+}
+
 func (o RackTask) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -347,6 +381,9 @@ func (o RackTask) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
+	}
+	if !IsNil(o.RuleId) {
+		toSerialize["ruleId"] = o.RuleId
 	}
 	return toSerialize, nil
 }
