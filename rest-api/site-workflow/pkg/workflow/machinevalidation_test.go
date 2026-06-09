@@ -5,13 +5,14 @@ package workflow
 
 import (
 	"errors"
-	iActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"testing"
+
+	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
-	"testing"
 )
 
 type EnableDisableMachineValidationTestTestSuite struct {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 )
 
@@ -23,7 +23,7 @@ func TestNewAPIInfrastructureProvider(t *testing.T) {
 		Name:           "test-infrastructure-provider",
 		DisplayName:    nil,
 		Org:            "test-org",
-		OrgDisplayName: cdb.GetStrPtr("Org Display name"),
+		OrgDisplayName: cutil.GetPtr("Org Display name"),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 	}
@@ -64,7 +64,7 @@ func TestNewAPIInfrastructureProviderSummary(t *testing.T) {
 		Name:           "test-infrastructure-provider",
 		DisplayName:    nil,
 		Org:            "test-org",
-		OrgDisplayName: cdb.GetStrPtr("Org Display name"),
+		OrgDisplayName: cutil.GetPtr("Org Display name"),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 	}

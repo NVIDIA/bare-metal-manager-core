@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/client"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/types"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/client"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 var ruleDisassociateCmd = &cobra.Command{

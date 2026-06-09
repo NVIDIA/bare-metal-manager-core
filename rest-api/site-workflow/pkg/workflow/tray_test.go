@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	tActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	tActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 // ~~~~~ GetTray Workflow Tests ~~~~~ //

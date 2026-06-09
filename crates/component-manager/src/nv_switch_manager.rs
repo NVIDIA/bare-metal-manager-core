@@ -9,6 +9,7 @@ use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 
 use crate::error::ComponentManagerError;
+use crate::types::FirmwareUpdateOptions;
 
 /// Physical network identifiers for an NV-Switch, used to register with and
 /// operate against the backend service (NSM).
@@ -37,6 +38,14 @@ pub struct SwitchFirmwareUpdateStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SwitchSlotAndTrayResult {
+    pub bmc_mac: MacAddress,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
+    pub error: Option<String>,
+}
+
 /// Backend trait for NV-Switch management operations.
 ///
 /// Implementations receive physical endpoint information (BMC + NVOS IPs/MACs)
@@ -46,6 +55,10 @@ pub struct SwitchFirmwareUpdateStatus {
 #[async_trait::async_trait]
 pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
+
+    fn supports_firmware_object_json(&self) -> bool {
+        false
+    }
 
     async fn power_control(
         &self,
@@ -58,6 +71,7 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         endpoints: &[SwitchEndpoint],
         bundle_version: &str,
         components: &[NvSwitchComponent],
+        options: &FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError>;
 
     async fn get_firmware_status(
@@ -66,4 +80,9 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     ) -> Result<Vec<SwitchFirmwareUpdateStatus>, ComponentManagerError>;
 
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError>;
+
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError>;
 }

@@ -9,15 +9,15 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/endpoint"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/clients/temporal"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/config"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor"
-	pkgcerts "github.com/NVIDIA/infra-controller-rest/flow/pkg/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/endpoint"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor"
+	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
 const (

@@ -4,7 +4,7 @@
 package model
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/metadata"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/metadata"
 )
 
 // APIMetadata is a data structure to capture NICo API system information

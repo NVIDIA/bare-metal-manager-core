@@ -8,17 +8,17 @@ import (
 	"reflect"
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"os"

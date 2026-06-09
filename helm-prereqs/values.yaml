@@ -133,6 +133,7 @@ postgresql:
   enabled: true
   instances: 3
   volumeSize: "10Gi"
+  storageClass: "local-path-persistent"
   ## DB_HOST in nico-system-nico-database-config ConfigMap.
   ## Points at the operator-managed Service in the postgres namespace.
   host: "nico-pg-cluster.postgres.svc.cluster.local"

@@ -22,6 +22,16 @@ use uuid::Uuid;
 use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an expected machine by BMC MAC address:
+    $ carbide-admin-cli expected-machine delete 00:11:22:33:44:55
+
+Delete an expected machine by id:
+    $ carbide-admin-cli expected-machine delete --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "BMC MAC address of the expected machine to delete.")]
     pub bmc_mac_address: Option<MacAddress>,
@@ -34,11 +44,8 @@ impl TryFrom<Args> for ::rpc::forge::ExpectedMachineRequest {
     type Error = CarbideCliError;
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         match (args.bmc_mac_address, args.id) {
-            (Some(_), Some(_)) => Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id")),
-            (None, None) => Err(CarbideCliError::RequireOneError(
-                "--bmc-mac-address",
-                "--id",
-            )),
+            (Some(_), Some(_)) => Err(CarbideCliError::ChooseOneError("bmc-mac-address", "--id")),
+            (None, None) => Err(CarbideCliError::RequireOneError("bmc-mac-address", "--id")),
             (None, Some(id)) => Ok(Self {
                 bmc_mac_address: String::new(),
                 id: Some(::rpc::common::Uuid {

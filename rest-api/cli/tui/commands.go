@@ -14,7 +14,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	cli "github.com/NVIDIA/infra-controller-rest/cli/pkg"
+	cli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 )
 
 // Command represents a registered interactive command.

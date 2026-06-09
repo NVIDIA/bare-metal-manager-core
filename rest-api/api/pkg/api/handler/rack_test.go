@@ -13,16 +13,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -124,9 +125,9 @@ func testRackBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string,
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("test@test.com"),
-			FirstName:   cdb.GetStrPtr("Test"),
-			LastName:    cdb.GetStrPtr("User"),
+			Email:       cutil.GetPtr("test@test.com"),
+			FirstName:   cutil.GetPtr("Test"),
+			LastName:    cutil.GetPtr("User"),
 			OrgData:     OrgData,
 		},
 	)
@@ -149,7 +150,7 @@ func TestGetRackHandler_Handle(t *testing.T) {
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -157,7 +158,7 @@ func TestGetRackHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -209,7 +210,7 @@ func TestGetRackHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			rackID: rackID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 			wantErr:        true,
@@ -331,7 +332,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -339,7 +340,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -405,7 +406,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testRacks, int32(len(testRacks))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testRacks),
-			expectedTotal:  cdb.GetIntPtr(len(testRacks)),
+			expectedTotal:  cutil.GetPtr(len(testRacks)),
 			wantErr:        false,
 		},
 		{
@@ -419,7 +420,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse([]*flowv1.Rack{testRacks[0]}, 1),
 			expectedStatus: http.StatusOK,
 			expectedCount:  1,
-			expectedTotal:  cdb.GetIntPtr(1),
+			expectedTotal:  cutil.GetPtr(1),
 			wantErr:        false,
 		},
 		{
@@ -433,7 +434,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse([]*flowv1.Rack{testRacks[2], testRacks[4]}, 2),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 			wantErr:        false,
 		},
 		{
@@ -447,7 +448,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse([]*flowv1.Rack{testRacks[0], testRacks[1]}, 2),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 			wantErr:        false,
 		},
 		{
@@ -462,7 +463,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse([]*flowv1.Rack{testRacks[0], testRacks[1]}, int32(len(testRacks))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(len(testRacks)),
+			expectedTotal:  cutil.GetPtr(len(testRacks)),
 			wantErr:        false,
 		},
 		{
@@ -476,7 +477,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testRacks, int32(len(testRacks))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testRacks),
-			expectedTotal:  cdb.GetIntPtr(len(testRacks)),
+			expectedTotal:  cutil.GetPtr(len(testRacks)),
 			wantErr:        false,
 		},
 		{
@@ -490,7 +491,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testRacks, int32(len(testRacks))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testRacks),
-			expectedTotal:  cdb.GetIntPtr(len(testRacks)),
+			expectedTotal:  cutil.GetPtr(len(testRacks)),
 			wantErr:        false,
 		},
 		{
@@ -498,7 +499,7 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			mockResponse:   nil,
 			expectedStatus: http.StatusPreconditionFailed,
@@ -630,7 +631,7 @@ func TestValidateRackHandler_Handle(t *testing.T) {
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -638,7 +639,7 @@ func TestValidateRackHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -713,7 +714,7 @@ func TestValidateRackHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			rackID: rackID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			mockResponse:   nil,
 			expectedStatus: http.StatusPreconditionFailed,
@@ -835,7 +836,7 @@ func TestValidateRacksHandler_Handle(t *testing.T) {
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -843,7 +844,7 @@ func TestValidateRacksHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-validate-racks", org, []string{authz.ProviderAdminRole})
@@ -948,7 +949,7 @@ func TestValidateRacksHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},

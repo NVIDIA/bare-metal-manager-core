@@ -11,15 +11,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 const (
@@ -77,7 +77,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 		cdbm.OperatingSystemSiteAssociationFilterInput{
 			SiteIDs: []uuid.UUID{site.ID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 		[]string{cdbm.OperatingSystemRelationName},
 	)
 	if err != nil {
@@ -134,7 +134,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 					nil,
 					cdbm.OperatingSystemSiteAssociationUpdateInput{
 						OperatingSystemSiteAssociationID: ossa.ID,
-						IsMissingOnSite:                  cdb.GetBoolPtr(false),
+						IsMissingOnSite:                  cwutil.GetPtr(false),
 					},
 				)
 				if serr != nil {
@@ -158,23 +158,23 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 
 			switch controllerOsImage.Status {
 			case cwssaws.OsImageStatus_ImageInProgress, cwssaws.OsImageStatus_ImageUninitialized, cwssaws.OsImageStatus_ImageDisabled:
-				ossaStatusMessage = cdb.GetStrPtr("OS Image is still syncing")
+				ossaStatusMessage = cwutil.GetPtr("OS Image is still syncing")
 			case cwssaws.OsImageStatus_ImageReady:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusSynced
-				ossaStatusMessage = cdb.GetStrPtr("OS Image is ready to use")
+				ossaStatusMessage = cwutil.GetPtr("OS Image is ready to use")
 			case cwssaws.OsImageStatus_ImageFailed:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusError
 				if ossaStatusMessage == nil || *ossaStatusMessage == "" {
-					ossaStatusMessage = cdb.GetStrPtr("OS Image failed to sync on Site")
+					ossaStatusMessage = cwutil.GetPtr("OS Image failed to sync on Site")
 				}
 			}
 
 			// if determined status is different that current
 			// only that case update
 			if ossaStatus != ossa.Status {
-				serr := mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(ossaStatus), ossaStatusMessage)
+				serr := mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cwutil.GetPtr(ossaStatus), ossaStatusMessage)
 				if serr != nil {
-					slogger.Error().Err(err).Msg("failed to update OS Image Site Association status detail in DB")
+					slogger.Error().Err(serr).Msg("failed to update OS Image Site Association status detail in DB")
 				}
 				updatedOperatingSystemMap[ossa.OperatingSystemID] = true
 			}
@@ -211,7 +211,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			// Trigger re-evaluation of Operating System status (delete if no association exists)
 			serr = mskg.UpdateOperatingSystemStatusInDB(ctx, ossa.OperatingSystemID)
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to trigger Operating System status update in DB")
+				slogger.Error().Err(serr).Msg("failed to trigger Operating System status update in DB")
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
@@ -225,7 +225,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 				nil,
 				cdbm.OperatingSystemSiteAssociationUpdateInput{
 					OperatingSystemSiteAssociationID: ossa.ID,
-					IsMissingOnSite:                  cdb.GetBoolPtr(true),
+					IsMissingOnSite:                  cwutil.GetPtr(true),
 				},
 			)
 			if serr != nil {
@@ -233,9 +233,9 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 				continue
 			}
 
-			serr = mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusError), cdb.GetStrPtr("Operating System is missing on Site"))
+			serr = mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cwutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusError), cwutil.GetPtr("Operating System is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update Operating System Site Association status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update Operating System Site Association status detail in DB")
 			}
 
 			updatedOperatingSystemMap[ossa.OperatingSystemID] = true
@@ -306,7 +306,7 @@ func (mskg ManageOsImage) UpdateOperatingSystemStatusInDB(ctx context.Context, o
 		cdbm.OperatingSystemSiteAssociationFilterInput{
 			OperatingSystemIDs: []uuid.UUID{osID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -351,8 +351,8 @@ func (mskg ManageOsImage) UpdateOperatingSystemStatusInDB(ctx context.Context, o
 		if os.Status == cdbm.OperatingSystemStatusReady {
 			return nil
 		}
-		osStatus = cdb.GetStrPtr(cdbm.OperatingSystemStatusReady)
-		osMessage = cdb.GetStrPtr("Operating System successfully synced to all Sites")
+		osStatus = cwutil.GetPtr(cdbm.OperatingSystemStatusReady)
+		osMessage = cwutil.GetPtr("Operating System successfully synced to all Sites")
 	} else {
 		statusCountMap := map[string]int{}
 		for _, dbossa := range ossas {
@@ -363,20 +363,20 @@ func (mskg ManageOsImage) UpdateOperatingSystemStatusInDB(ctx context.Context, o
 			if os.Status == cdbm.OperatingSystemStatusError {
 				return nil
 			}
-			osStatus = cdb.GetStrPtr(cdbm.OperatingSystemStatusError)
-			osMessage = cdb.GetStrPtr("Failed to sync Operating System to one or more Sites")
+			osStatus = cwutil.GetPtr(cdbm.OperatingSystemStatusError)
+			osMessage = cwutil.GetPtr("Failed to sync Operating System to one or more Sites")
 		} else if statusCountMap[cdbm.OperatingSystemSiteAssociationStatusSyncing] > 0 {
 			if os.Status == cdbm.OperatingSystemStatusSyncing {
 				return nil
 			}
-			osStatus = cdb.GetStrPtr(cdbm.OperatingSystemStatusSyncing)
-			osMessage = cdb.GetStrPtr("Operating System syncing to one or more Sites")
+			osStatus = cwutil.GetPtr(cdbm.OperatingSystemStatusSyncing)
+			osMessage = cwutil.GetPtr("Operating System syncing to one or more Sites")
 		} else {
 			if os.Status == cdbm.OperatingSystemStatusReady {
 				return nil
 			}
-			osStatus = cdb.GetStrPtr(cdbm.OperatingSystemStatusReady)
-			osMessage = cdb.GetStrPtr("Operating System successfully synced to all Sites")
+			osStatus = cwutil.GetPtr(cdbm.OperatingSystemStatusReady)
+			osMessage = cwutil.GetPtr("Operating System successfully synced to all Sites")
 		}
 	}
 

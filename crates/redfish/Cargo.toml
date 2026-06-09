@@ -11,7 +11,7 @@ name = "carbide_redfish"
 
 [features]
 default = []
-test-support = ["dep:chrono", "dep:serde_json", "dep:tokio"]
+test-support = ["dep:chrono", "dep:serde_json", "dep:tokio", "carbide-secrets/test-support"]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
@@ -38,3 +38,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

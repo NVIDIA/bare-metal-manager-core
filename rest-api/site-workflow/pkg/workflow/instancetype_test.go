@@ -14,10 +14,10 @@ import (
 
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	iActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/util"
+	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 )
 
 type UpdateInstanceTypeTestSuite struct {

@@ -9,12 +9,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/google/uuid"
-
 	"github.com/uptrace/bun"
+
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -176,6 +177,25 @@ type Instance struct {
 	CreatedBy                              uuid.UUID                               `bun:"created_by,type:uuid,notnull"`
 	// Not for display, used by the query that sorts on machine capability type, specifically InfiniBand type
 	MCType string `bun:"mc_type,scanonly"`
+}
+
+// GetSiteID returns the Instance ID to use when communicating with the
+// Site: ControllerInstanceID when present, otherwise the Instance's own
+// ID. The Site treats both as opaque identifiers.
+func (i *Instance) GetSiteID() *uuid.UUID {
+	if i.ControllerInstanceID != nil {
+		return i.ControllerInstanceID
+	}
+	return &i.ID
+}
+
+// ToReleaseRequestProto builds the workflow request that asks a Site to
+// release (delete) this Instance. The handler may further set the
+// optional Issue field for break-fix flows after calling this.
+func (i *Instance) ToReleaseRequestProto() *cwssaws.InstanceReleaseRequest {
+	return &cwssaws.InstanceReleaseRequest{
+		Id: &cwssaws.InstanceId{Value: i.GetSiteID().String()},
+	}
 }
 
 // InstanceCreateInput input parameters for Create method

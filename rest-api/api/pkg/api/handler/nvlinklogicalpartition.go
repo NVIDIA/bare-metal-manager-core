@@ -17,26 +17,26 @@ import (
 	temporalClient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	wfutil "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	wfutil "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -221,8 +221,8 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), *cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending),
-			cdb.GetStrPtr("received NVLink Logical Partition creation request, pending"))
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending),
+			cutil.GetPtr("received NVLink Logical Partition creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for NVLink Logical Partition", nil)
@@ -239,20 +239,7 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createRequest := &cwssaws.NVLinkLogicalPartitionCreationRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				Metadata: &cwssaws.Metadata{
-					Name: nvllp.Name,
-				},
-				TenantOrganizationId: orgTenant.Org,
-			},
-		}
-
-		// Include description if it is present
-		if nvllp.Description != nil {
-			createRequest.Config.Metadata.Description = *nvllp.Description
-		}
+		createRequest := apiRequest.ToProto(nvllp)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-create-" + nvllp.ID.String(),
@@ -317,10 +304,12 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	if protoNvllp != nil {
 		logger.Info().Msg("received NVLink Logical Partition info from workflow")
 
-		status, statusMessage := wfutil.GetNVLinkLogicalPartitionStatus(protoNvllp.Status.State)
-		// if status is nil, then default is pending and inventory will be updating status from workflow
-		if status != nil {
-			updatedNvllp, newSSD, err := wfutil.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, cibph.dbSession, nvllp.ID, status, statusMessage)
+		var status cdbm.NVLinkLogicalPartitionStatus
+		status.FromProto(protoNvllp.Status.State)
+		// if status is empty, then default is pending and inventory will be updating status from workflow
+		if status != "" {
+			message := status.Message()
+			updatedNvllp, newSSD, err := wfutil.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, cibph.dbSession, nvllp.ID, &status, &message)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to update NVLink Logical Partition status in DB")
 			} else {
@@ -476,7 +465,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	statusQuery := c.QueryParam("status")
 	if statusQuery != "" {
 		gaibph.tracerSpan.SetAttribute(handlerSpan, attribute.String("status", statusQuery), logger)
-		_, ok := cdbm.NVLinkLogicalPartitionStatusMap[statusQuery]
+		_, ok := cdbm.NVLinkLogicalPartitionStatusMap[cdbm.NVLinkLogicalPartitionStatus(statusQuery)]
 		if !ok {
 			logger.Warn().Msg(fmt.Sprintf("invalid value in status query: %v", statusQuery))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Status value in query", nil)
@@ -547,7 +536,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	nvlifcMap := map[uuid.UUID][]cdbm.NVLinkInterface{}
 	if includeInterfaces {
 		nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(gaibph.dbSession)
-		dbnvlifcs, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+		dbnvlifcs, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving NVLinkInterfaces from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Interfaces for NVLink Logical Partitions, DB error", nil)
@@ -562,7 +551,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	vpcMap := map[uuid.UUID][]cdbm.Vpc{}
 	if includeVpcs {
 		vpcDAO := cdbm.NewVpcDAO(gaibph.dbSession)
-		dbvpc, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+		dbvpc, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving VPCs from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPCs for NVLink Logical Partitions, DB error", nil)
@@ -966,7 +955,7 @@ func (uibph UpdateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 
 	// get status details for the response
 	sdDAO := cdbm.NewStatusDetailDAO(uibph.dbSession)
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, nvllp.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, nvllp.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Status Details for NVLink Logical Partition from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for NVLink Logical Partition", nil)
@@ -1030,21 +1019,11 @@ func (uibph UpdateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateRequest := &cwssaws.NVLinkLogicalPartitionUpdateRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: updated.ID.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				TenantOrganizationId: orgTenant.Org,
-				Metadata:             &cwssaws.Metadata{},
-			},
-		}
-
-		// Site Controller (NICo) requires metadata.name on every update. When the client
-		// sends only description, apiRequest.Name is nil but we must still send the
-		// current partition name from the DB.
-		updateRequest.Config.Metadata.Name = updated.Name
-		if updated.Description != nil {
-			updateRequest.Config.Metadata.Description = *updated.Description
-		}
+		// Site Controller (NICo) requires metadata.name on every update. When the
+		// client sends only description, apiRequest.Name is nil but we must still
+		// send the current partition name from the DB; ToProto reads it directly
+		// off the (already-updated) DB entity via the entity's ToProto().
+		updateRequest := apiRequest.ToProto(updated)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-update-" + updated.ID.String(),
@@ -1234,7 +1213,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(dibph.dbSession)
 	nvInterfaces, _, err := nvlifcDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{
 		NVLinkLogicalPartitionIDs: []uuid.UUID{nvllpID},
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving NVLink Interfaces from DB for NVLink Logical Partition")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Interfaces for NVLink Logical Partition", nil)
@@ -1270,12 +1249,13 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 	err = cdb.WithTx(ctx, dibph.dbSession, func(tx *cdb.Tx) error {
 		// Update NVLink Logical Partition and set status to Deleting
+		deletingStatus := cdbm.NVLinkLogicalPartitionStatusDeleting
 		if _, derr := nvllpDAO.Update(
 			ctx,
 			tx,
 			cdbm.NVLinkLogicalPartitionUpdateInput{
 				NVLinkLogicalPartitionID: nvllpID,
-				Status:                   cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusDeleting),
+				Status:                   &deletingStatus,
 			},
 		); derr != nil {
 			logger.Error().Err(derr).Msg("error updating NVLink Logical Partition in DB")
@@ -1283,8 +1263,8 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		ssd, derr := sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), *cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusDeleting),
-			cdb.GetStrPtr("Received request for deletion, pending processing"))
+		ssd, derr := sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(deletingStatus),
+			cutil.GetPtr("Received request for deletion, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for NVLink Logical Partition deletion", nil)
@@ -1301,9 +1281,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteNvllpRequest := &cwssaws.NVLinkLogicalPartitionDeletionRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
-		}
+		deleteNvllpRequest := nvllp.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-delete-" + nvllp.ID.String(),

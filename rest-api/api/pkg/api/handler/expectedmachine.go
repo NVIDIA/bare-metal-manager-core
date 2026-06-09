@@ -15,17 +15,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -188,7 +188,7 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 		BmcMacAddresses: []string{apiRequest.BmcMacAddress},
 		SiteIDs:         []uuid.UUID{site.ID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 
 	if err != nil {
@@ -321,38 +321,12 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 
 	filterInput := cdbm.ExpectedMachineFilterInput{}
 
-	// Get Site ID from query param if specified
-	siteIDStr := c.QueryParam("siteId")
-	if siteIDStr != "" {
-		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gaemh.dbSession)
-		if err != nil {
-			if errors.Is(err, cdb.ErrDoesNotExist) {
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data does not exist", nil)
-			}
-			logger.Error().Err(err).Msg("error retrieving Site from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
-		}
-
-		// Validate ProviderTenantSite relationship and site state
-		hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, gaemh.dbSession, site, infrastructureProvider, tenant)
-		if apiError != nil {
-			return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-		}
-
-		if !hasAccess {
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
-		}
-
-		filterInput.SiteIDs = []uuid.UUID{site.ID}
-	} else if tenant != nil {
-		// Tenants must specify a Site ID
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site ID must be specified in query when retrieving Expected Machines as a Tenant", nil)
-	} else {
+	if infrastructureProvider != nil {
 		// Get all Sites for the org's Infrastructure Provider
 		siteDAO := cdbm.NewSiteDAO(gaemh.dbSession)
 		sites, _, err := siteDAO.GetAll(ctx, nil,
 			cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{infrastructureProvider.ID}},
-			paginator.PageInput{Limit: cdb.GetIntPtr(math.MaxInt)},
+			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
 			nil,
 		)
 		if err != nil {
@@ -365,6 +339,56 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			siteIDs = append(siteIDs, site.ID)
 		}
 		filterInput.SiteIDs = siteIDs
+	}
+
+	if tenant != nil {
+		// Check if Tenant is privileged
+		if tenant.Config.TargetedInstanceCreation {
+			// Get IDs for all Sites the privileged Tenant has an access with
+			tenantSiteDAO := cdbm.NewTenantSiteDAO(gaemh.dbSession)
+			tenantSites, _, err := tenantSiteDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)}, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("error retrieving Tenant Sites from DB")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites due to DB error", nil)
+			}
+
+			for _, tenantSite := range tenantSites {
+				filterInput.SiteIDs = append(filterInput.SiteIDs, tenantSite.SiteID)
+			}
+		}
+	}
+
+	siteIDStr := c.QueryParam("siteId")
+	if siteIDStr != "" {
+		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gaemh.dbSession)
+		if err != nil {
+			if errors.Is(err, cdb.ErrDoesNotExist) {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data does not exist", nil)
+			}
+			logger.Error().Err(err).Msg("error retrieving Site from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+		}
+
+		// Validate Site association with org
+		isAssociated := false
+		if infrastructureProvider != nil {
+			// Check if Site belongs to org's Infrastructure Provider
+			if site.InfrastructureProviderID == infrastructureProvider.ID {
+				isAssociated = true
+			}
+		}
+
+		if !isAssociated && tenant != nil {
+			// We've already populated the filter with Providers the Tenant has an account with
+			isAssociated = slices.Contains(filterInput.SiteIDs, site.ID)
+		}
+
+		if isAssociated {
+			filterInput.SiteIDs = []uuid.UUID{site.ID}
+		} else {
+			logger.Error().Msg("Site is not associated with org")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
+		}
 	}
 
 	// Get and validate includeRelation params
@@ -1001,7 +1025,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 	existingMachinesOnSite, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(paginator.TotalLimit), // we want ALL records on site
+		Limit: cutil.GetPtr(paginator.TotalLimit), // we want ALL records on site
 	}, []string{})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Expected Machines from DB")
@@ -1020,7 +1044,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 	existingSkus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(len(requestedSkuIDs)),
+		Limit: cutil.GetPtr(len(requestedSkuIDs)),
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving SKUs from DB")
@@ -1335,7 +1359,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	requestedExpectedMachine, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		ExpectedMachineIDs: slices.Collect(maps.Keys(idMap)),
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(paginator.TotalLimit),
+		Limit: cutil.GetPtr(paginator.TotalLimit),
 	}, []string{cdbm.SiteRelationName})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Expected Machines from DB")
@@ -1408,7 +1432,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	expectedMachinesOnSite, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(paginator.TotalLimit), // we want ALL records on site
+		Limit: cutil.GetPtr(paginator.TotalLimit), // we want ALL records on site
 	}, []string{})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Expected Machines from DB")
@@ -1426,7 +1450,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	skus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(len(requestedSkuIDs)),
+		Limit: cutil.GetPtr(len(requestedSkuIDs)),
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving SKUs from DB")

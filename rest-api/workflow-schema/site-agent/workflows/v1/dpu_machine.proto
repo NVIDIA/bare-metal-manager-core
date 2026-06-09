@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "nico_nico.proto";
 import "machine_discovery_nico.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 package workflows.v1.machine;
 

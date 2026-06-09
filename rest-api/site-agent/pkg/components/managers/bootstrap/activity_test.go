@@ -23,13 +23,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	cloudutils "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	Manager "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/managerapi"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/conftypes"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/elektratypes"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes"
-	bootstraptypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/bootstrap"
-	workflowtypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/workflow"
+	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	Manager "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/managerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/conftypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/elektratypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes"
+	bootstraptypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/bootstrap"
+	workflowtypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/workflow"
 
 	tmocks "go.temporal.io/sdk/mocks"
 )

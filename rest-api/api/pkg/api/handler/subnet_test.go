@@ -14,18 +14,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -130,14 +131,14 @@ func TestSubnetHandler_Create(t *testing.T) {
 
 	tenant1 := testMachineBuildTenant(t, dbSession, tnOrg1, "t1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
-	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc2 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc3 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc4 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusPending, nil)
-	vpc5 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site3, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc6 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc7 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc8 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc2 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc3 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc4 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusPending, nil)
+	vpc5 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site3, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc6 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc7 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc8 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -201,7 +202,7 @@ func TestSubnetHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref4)
 
-	okBodyTimeout, err := json.Marshal(model.APISubnetCreateRequest{Name: "oktimeout", Description: cdb.GetStrPtr(""), VpcID: vpc7.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb4.ID.String()), PrefixLength: 24})
+	okBodyTimeout, err := json.Marshal(model.APISubnetCreateRequest{Name: "oktimeout", Description: cutil.GetPtr(""), VpcID: vpc7.ID.String(), IPv4BlockID: cutil.GetPtr(ipb4.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
 	ipbFG := testIPBlockBuildIPBlock(t, dbSession, "testipbfg", site, ip, &tenant1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.170.0.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, ipu)
@@ -209,55 +210,55 @@ func TestSubnetHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPrefFG)
 	prefixLen := 24
-	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	errBodyIPBlockSize, err := json.Marshal(model.APISubnetCreateRequest{Name: "okipb", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), IPBlockSize: &prefixLen})
+	errBodyIPBlockSize, err := json.Marshal(model.APISubnetCreateRequest{Name: "okipb", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), IPBlockSize: &prefixLen})
 	assert.Nil(t, err)
 
 	prefixLen = 16
-	okBodyFG, err := json.Marshal(model.APISubnetCreateRequest{Name: "okFG", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
+	okBodyFG, err := json.Marshal(model.APISubnetCreateRequest{Name: "okFG", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	prefixLen = 30
-	okBodySlash30, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok31", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBodySlash30, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok31", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	prefixLen = 31
-	errBodySlash31, err := json.Marshal(model.APISubnetCreateRequest{Name: "err32", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodySlash31, err := json.Marshal(model.APISubnetCreateRequest{Name: "err32", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	prefixLen = 24
-	okBodyNameClash, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc2.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb3.ID.String()), PrefixLength: prefixLen})
+	okBodyNameClash, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc2.ID.String(), IPv4BlockID: cutil.GetPtr(ipb3.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyNameClash, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyNameClash, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	errBodyDoesntValidate, err := json.Marshal(struct{ Name string }{Name: "test"})
 	assert.Nil(t, err)
-	errBodyBadVpcID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: uuid.New().String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyBadVpcID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: uuid.New().String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyBadVpcTenantMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc6.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyBadVpcTenantMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc6.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyBadVpctype, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc8.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyBadVpctype, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc8.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyBadIPv4BlockID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefixLen})
+	errBodyBadIPv4BlockID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyNoIPv4, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), PrefixLength: prefixLen})
+	errBodyNoIPv4, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), PrefixLength: prefixLen})
 	assert.Nil(t, err)
-	errBodyBadIPv6BlockID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv6BlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefixLen})
-	assert.Nil(t, err)
-
-	errBodyBadIPv4BlockIDTenantMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb2.ID.String()), PrefixLength: prefixLen})
+	errBodyBadIPv6BlockID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv6BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	errBodyBadIPv4BlockIDSiteMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc3.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyBadIPv4BlockIDTenantMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb2.ID.String()), PrefixLength: prefixLen})
+	assert.Nil(t, err)
+
+	errBodyBadIPv4BlockIDSiteMismatch, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc3.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	prefixLen = 15
-	errBodyIpamFail, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errBodyIpamFail, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	prefixLen = 24
-	errVpcNotReady, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok4", Description: cdb.GetStrPtr(""), VpcID: vpc4.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errVpcNotReady, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok4", Description: cutil.GetPtr(""), VpcID: vpc4.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	errSiteNotReady, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok5", Description: cdb.GetStrPtr(""), VpcID: vpc5.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	errSiteNotReady, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok5", Description: cutil.GetPtr(""), VpcID: vpc5.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -653,10 +654,10 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg1, tenant1.ID, site.ID, tnu.ID)
 	assert.NotNil(t, ts1)
 
-	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc2 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc2 := testSubnetBuildVpc(t, dbSession, ip, tenant2, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 	assert.NotNil(t, vpc2)
-	vpc3 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc3 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 	assert.NotNil(t, vpc3)
 
 	cfg := common.GetTestConfig()
@@ -698,7 +699,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			ipbID = ipb2.ID
 		}
 		prefixLen := 24
-		subnetBody, err := json.Marshal(model.APISubnetCreateRequest{Name: fmt.Sprintf("subnet-%02d", i), Description: cdb.GetStrPtr(""), VpcID: vpcID.String(), IPv4BlockID: cdb.GetStrPtr(ipbID.String()), PrefixLength: prefixLen})
+		subnetBody, err := json.Marshal(model.APISubnetCreateRequest{Name: fmt.Sprintf("subnet-%02d", i), Description: cutil.GetPtr(""), VpcID: vpcID.String(), IPv4BlockID: cutil.GetPtr(ipbID.String()), PrefixLength: prefixLen})
 		assert.Nil(t, err)
 		apiSubnet := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(subnetBody))
 		assert.NotNil(t, apiSubnet)
@@ -706,7 +707,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 		sid, _ := uuid.Parse(apiSubnet.ID)
 		s, err := sDAO.GetByID(ctx, nil, sid, nil)
 		assert.Nil(t, err)
-		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.SubnetStatusReady, cdb.GetStrPtr("Subnet has been provisioned on Site"))
+		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.SubnetStatusReady, cutil.GetPtr("Subnet has been provisioned on Site"))
 		ss = append(ss, *s)
 	}
 
@@ -764,7 +765,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "error when siteId not valid uuid",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr("non-uuid"),
+			querySiteID:    cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -772,7 +773,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "error when siteId in query does not exist",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(uuid.New().String()),
+			querySiteID:    cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -780,17 +781,17 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "error when tenant doesn't have access to siteId in query",
 			reqOrgName:     tnOrg2,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site2.ID.String()),
+			querySiteID:    cutil.GetPtr(site2.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "error when vpcId not valid uuid",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr("non-uuid"),
+			queryVpcID:     cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -798,7 +799,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "error when vpcId in query does not exist",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(uuid.New().String()),
+			queryVpcID:     cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -806,7 +807,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "error when vpc's tenant does not match org's tenant",
 			reqOrgName:     tnOrg2,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(vpc1.ID.String()),
+			queryVpcID:     cutil.GetPtr(vpc1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -814,21 +815,21 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "success when site id is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
-			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:           "success when vpc id is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(vpc1.ID.String()),
+			queryVpcID:     cutil.GetPtr(vpc1.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
-			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:               "success when vpc id is not specified",
@@ -844,9 +845,9 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:               "success when pagination params are specified",
 			reqOrgName:         tnOrg1,
 			user:               tnu,
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
@@ -857,9 +858,9 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -872,7 +873,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations4: cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryIncludeRelations4: cutil.GetPtr(cdbm.SiteRelationName),
 			expectedSiteName:       &site.Name,
 		},
 		{
@@ -883,7 +884,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.VpcRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.VpcRelationName),
 			expectedVpcName:        &vpc1.Name,
 		},
 		{
@@ -894,24 +895,24 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.IPv4BlockRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.IPv4BlockRelationName),
 			expectetIPv4Name:       &ipb1.Name,
 		},
 		{
 			name:           "success when query search unexisted name specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when query search name specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("subnet"),
+			querySearch:    cutil.GetPtr("subnet"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -921,7 +922,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "success when query search status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("pending"),
+			querySearch:    cutil.GetPtr("pending"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -931,7 +932,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "success when query search name and status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("notexisted pending"),
+			querySearch:    cutil.GetPtr("notexisted pending"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -941,7 +942,7 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "success when Pending status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr(cdbm.SubnetStatusPending),
+			queryStatus:    cutil.GetPtr(cdbm.SubnetStatusPending),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -951,11 +952,11 @@ func TestSubnetHandler_GetAll(t *testing.T) {
 			name:           "success when BadStatus status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr("BadStatus"),
+			queryStatus:    cutil.GetPtr("BadStatus"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 	}
 	for _, tc := range tests {
@@ -1120,7 +1121,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 	tenant1 := testMachineBuildTenant(t, dbSession, tnOrg1, "t1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 	assert.NotNil(t, tenant2)
-	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	_ = common.TestBuildTenantSite(t, dbSession, tenant1, site, tnu)
 
@@ -1143,23 +1144,23 @@ func TestSubnetHandler_Get(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref1)
 	prefixLen := 24
-	parentIpbBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	parentIpbBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	subnet := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(parentIpbBody))
 
 	ifaceSubnetBody, err := json.Marshal(model.APISubnetCreateRequest{
-		Name: "iface-subnet-usage", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(),
-		IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+		Name: "iface-subnet-usage", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(),
+		IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	require.NoError(t, err)
 	subnetWithIfaceWorkload := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(ifaceSubnetBody))
 	var wantUsageAcquiredPrefixes0 uint64
 	wantUsageAcquiredPrefixes1 := uint64(0)
 
 	alWorkload := common.TestBuildAllocation(t, dbSession, site, tenant1, "get-subnet-usage-iface-alloc", ipu)
-	itWorkload := common.TestBuildInstanceType(t, dbSession, "get-subnet-iface-it", cdb.GetUUIDPtr(uuid.New()), site, nil, ipu)
+	itWorkload := common.TestBuildInstanceType(t, dbSession, "get-subnet-iface-it", cutil.GetPtr(uuid.New()), site, nil, ipu)
 	common.TestBuildAllocationConstraint(t, dbSession, alWorkload, itWorkload, nil, 5, ipu)
-	mWorkload := common.TestBuildMachine(t, dbSession, ip, site, &itWorkload.ID, cdb.GetStrPtr("get-subnet-iface-mt"), cdbm.MachineStatusReady)
+	mWorkload := common.TestBuildMachine(t, dbSession, ip, site, &itWorkload.ID, cutil.GetPtr("get-subnet-iface-mt"), cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, mWorkload, itWorkload)
 	osWorkload := common.TestBuildOperatingSystem(t, dbSession, "get-subnet-iface-os", tenant1, cdbm.OperatingSystemStatusReady, tnu)
 
@@ -1169,8 +1170,8 @@ func TestSubnetHandler_Get(t *testing.T) {
 	cidrWorkload := testSubnetCIDREntity(t, snEnt)
 	chosenIfaceIPv4 := testIPv4NthUsableInCIDR(t, cidrWorkload, 20)
 
-	instWorkload := common.TestBuildInstance(t, dbSession, "get-subnet-iface-inst", tenant1.ID, ip.ID, site.ID, itWorkload.ID, vpc1.ID, cdb.GetStrPtr(mWorkload.ID), osWorkload.ID)
-	ifWorkload := common.TestBuildInterface(t, dbSession, instWorkload.ID, &snWorkloadUUID, nil, true, nil, nil, nil, cdb.GetStrPtr(cdbm.InterfaceStatusReady), tnu)
+	instWorkload := common.TestBuildInstance(t, dbSession, "get-subnet-iface-inst", tenant1.ID, ip.ID, site.ID, itWorkload.ID, vpc1.ID, cutil.GetPtr(mWorkload.ID), osWorkload.ID)
+	ifWorkload := common.TestBuildInterface(t, dbSession, instWorkload.ID, &snWorkloadUUID, nil, true, nil, nil, nil, cutil.GetPtr(cdbm.InterfaceStatusReady), tnu)
 	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
 		InterfaceID: ifWorkload.ID,
 		IpAddresses: []string{chosenIfaceIPv4},
@@ -1261,7 +1262,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 			id:                     subnet.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.VpcRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.VpcRelationName),
 			expectedVpcName:        &vpc1.Name,
 			verifyChildSpanner:     true,
 		},
@@ -1272,7 +1273,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 			id:                     subnet.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.IPv4BlockRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.IPv4BlockRelationName),
 			expectetIPv4Name:       &ipb1.Name,
 		},
 		{
@@ -1282,7 +1283,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 			id:                     subnet.ID,
 			expectedErr:            true,
 			expectedStatus:         http.StatusBadRequest,
-			queryIncludeUsageStats: cdb.GetStrPtr("not-a-bool"),
+			queryIncludeUsageStats: cutil.GetPtr("not-a-bool"),
 		},
 		{
 			name:                   "success when includeUsageStats true and no ethernet interfaces",
@@ -1291,7 +1292,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 			id:                     subnet.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeUsageStats: cdb.GetStrPtr("true"),
+			queryIncludeUsageStats: cutil.GetPtr("true"),
 			expectUsageStatsNonNil: true,
 			wantAcquiredPrefixes:   &wantUsageAcquiredPrefixes0,
 		},
@@ -1302,7 +1303,7 @@ func TestSubnetHandler_Get(t *testing.T) {
 			id:                     subnetWithIfaceWorkload.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeUsageStats: cdb.GetStrPtr("true"),
+			queryIncludeUsageStats: cutil.GetPtr("true"),
 			expectUsageStatsNonNil: true,
 			wantAcquiredPrefixes:   &wantUsageAcquiredPrefixes1,
 		},
@@ -1436,7 +1437,7 @@ func TestSubnetHandler_Update(t *testing.T) {
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 	assert.NotNil(t, tenant2)
 
-	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -1457,10 +1458,10 @@ func TestSubnetHandler_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref1)
 	prefixLen := 24
-	subnetBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "test-subnet-1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	subnetBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "test-subnet-1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	subnetBody2, err := json.Marshal(model.APISubnetCreateRequest{Name: "test-subnet-2", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	subnetBody2, err := json.Marshal(model.APISubnetCreateRequest{Name: "test-subnet-2", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	subnet := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(subnetBody))
@@ -1468,17 +1469,17 @@ func TestSubnetHandler_Update(t *testing.T) {
 	subnet2 := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(subnetBody2))
 	assert.NotNil(t, subnet2)
 
-	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyNameClash, err := json.Marshal(model.APISubnetUpdateRequest{Name: cdb.GetStrPtr("test-subnet-2")})
+	errBodyNameClash, err := json.Marshal(model.APISubnetUpdateRequest{Name: cutil.GetPtr("test-subnet-2")})
 	assert.Nil(t, err)
 
-	okBody1, err := json.Marshal(model.APISubnetUpdateRequest{Name: cdb.GetStrPtr("test-subnet-updated-1")})
+	okBody1, err := json.Marshal(model.APISubnetUpdateRequest{Name: cutil.GetPtr("test-subnet-updated-1")})
 	assert.Nil(t, err)
-	okBody2, err := json.Marshal(model.APISubnetUpdateRequest{Name: cdb.GetStrPtr("test-subnet-updated-2"), Description: cdb.GetStrPtr("Updated Description 2")})
+	okBody2, err := json.Marshal(model.APISubnetUpdateRequest{Name: cutil.GetPtr("test-subnet-updated-2"), Description: cutil.GetPtr("Updated Description 2")})
 	assert.Nil(t, err)
-	okBody3, err := json.Marshal(model.APISubnetUpdateRequest{Name: cdb.GetStrPtr("test-subnet-2")})
+	okBody3, err := json.Marshal(model.APISubnetUpdateRequest{Name: cutil.GetPtr("test-subnet-2")})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -1593,7 +1594,7 @@ func TestSubnetHandler_Update(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedName:       "test-subnet-updated-2",
-			expectedDesc:       cdb.GetStrPtr("Updated Description 2"),
+			expectedDesc:       cutil.GetPtr("Updated Description 2"),
 			verifyChildSpanner: true,
 		},
 		{
@@ -1693,7 +1694,7 @@ func TestSubnetHandler_Delete(t *testing.T) {
 	tenant1 := testMachineBuildTenant(t, dbSession, tnOrg1, "t1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 
-	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testSubnetBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
@@ -1776,13 +1777,13 @@ func TestSubnetHandler_Delete(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPrefFG)
 	prefixLen := 24
-	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	okBody2, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok2", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBody2, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok2", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	okBodyFG, err := json.Marshal(model.APISubnetCreateRequest{Name: "okFG", Description: cdb.GetStrPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cdb.GetStrPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
+	okBodyFG, err := json.Marshal(model.APISubnetCreateRequest{Name: "okFG", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	subnet := testCreateSubnet(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBody))
@@ -1794,14 +1795,14 @@ func TestSubnetHandler_Delete(t *testing.T) {
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 3; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
 	}
 
 	acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 2}
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
 	aIT := testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg1, string(okBodyIT))
 	_ = uuid.MustParse(aIT.ID)
@@ -1817,7 +1818,7 @@ func TestSubnetHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},
@@ -1833,7 +1834,7 @@ func TestSubnetHandler_Delete(t *testing.T) {
 			SiteID:                   site.ID,
 			InstanceTypeID:           &it1.ID,
 			VpcID:                    vpc1.ID,
-			OperatingSystemID:        cdb.GetUUIDPtr(os1.ID),
+			OperatingSystemID:        cutil.GetPtr(os1.ID),
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
 		},

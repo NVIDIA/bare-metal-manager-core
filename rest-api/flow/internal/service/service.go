@@ -15,19 +15,20 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/migrations"
-	inventorymanager "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/manager"
-	inventorystore "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/store"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/jobs/inventorysync"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/jobs/leakdetection"
-	taskschedule "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/taskschedule"
-	schedtypes "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/types"
-	taskmanager "github.com/NVIDIA/infra-controller-rest/flow/internal/task/manager"
-	taskstore "github.com/NVIDIA/infra-controller-rest/flow/internal/task/store"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/migrations"
+	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
+	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/inventorysync"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/leakdetection"
+	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	schedtypes "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/types"
+	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
+	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 // Service is the top-level Flow service. It owns the gRPC server, database
@@ -196,7 +197,10 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 	s.taskScheduleDispatcher = dispatcher
 	log.Info().Msg("Task schedule dispatcher started")
 
-	s.grpcServer = grpc.NewServer(certOpt)
+	s.grpcServer = grpc.NewServer(
+		certOpt,
+		grpc.ChainUnaryInterceptor(grpclog.UnaryServerInterceptor()),
+	)
 
 	log.Info().Msg("gRPC server is running")
 
@@ -300,7 +304,6 @@ func (s *Service) startScheduler(ctx context.Context) error {
 		&s.conf.DBConf,
 		s.conf.ProviderRegistry,
 		s.conf.FlowConfig,
-		s.conf.CMConfig,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create inventory sync job: %w", err)

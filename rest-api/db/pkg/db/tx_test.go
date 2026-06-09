@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -358,7 +360,7 @@ func TestTxTryAcquireAdvisoryLock(t *testing.T) {
 					time.Sleep(150 * time.Millisecond)
 					tx1.Rollback()
 				}()
-				err = tx2.TryAcquireAdvisoryLock(ctx, lockID, &LockRetryOptions{Retries: GetIntPtr(5)})
+				err = tx2.TryAcquireAdvisoryLock(ctx, lockID, &LockRetryOptions{Retries: cutil.GetPtr(5)})
 				assert.Nil(t, err)
 				tx2.Rollback()
 			}

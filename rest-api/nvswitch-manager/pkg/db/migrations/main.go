@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db/postgres"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db/postgres"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"

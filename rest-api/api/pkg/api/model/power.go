@@ -8,7 +8,7 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 const (

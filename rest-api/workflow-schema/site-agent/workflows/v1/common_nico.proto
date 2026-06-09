@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package common;
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 message MachineId {
   string id = 1;
@@ -100,6 +100,27 @@ message NVLinkDomainId {
 }
 
 message ComputeAllocationId {
+  string value = 1;
+}
+
+
+message SpxPartitionId {
+  string value = 1;
+}
+
+message OperatingSystemId {
+  string value = 1;
+}
+
+message IpxeTemplateId {
+  string value = 1;
+}
+
+message RackHardwareType {
+  string value = 1;
+}
+
+message MachineValidationId {
   string value = 1;
 }
 

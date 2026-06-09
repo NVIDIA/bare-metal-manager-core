@@ -10,8 +10,9 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 )
 
 const (
@@ -64,16 +65,16 @@ func (pr *PageRequest) Validate(orderByFields []string) error {
 	}
 
 	if pr.PageNumber == nil || *pr.PageNumber == 0 {
-		pr.PageNumber = cdb.GetIntPtr(1)
+		pr.PageNumber = cutil.GetPtr(1)
 	}
 
 	if pr.PageSize == nil || *pr.PageSize == 0 {
-		pr.PageSize = cdb.GetIntPtr(cdbp.DefaultLimit)
+		pr.PageSize = cutil.GetPtr(cdbp.DefaultLimit)
 	}
 
 	offset := (*pr.PageNumber - 1) * *pr.PageSize
 
-	pr.Offset = cdb.GetIntPtr(offset)
+	pr.Offset = cutil.GetPtr(offset)
 	pr.Limit = pr.PageSize
 
 	if pr.OrderByStr != nil {

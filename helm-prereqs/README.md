@@ -47,22 +47,63 @@ helm-prereqs/
 └── keycloak/                   # Dev Keycloak deployment and token helper scripts
 ```
 
+## Pre-setup checklist
+
+Before running `setup.sh`, walk through these in order. Each step links to the
+config it edits.
+
+1. **Pick your IP plan.** Carve out two CIDR blocks reachable from the
+   provisioning network: an *external* pool for `nico-api` and an *internal*
+   pool for `nico-dhcp`, `nico-dns`, `nico-pxe`, `nico-ntp`, `nico-ssh-console-rs`.
+   Reserve specific VIPs from those blocks for each service plus one per
+   `nico-ntp` / `nico-dns` replica.
+   → `values/metallb-config.yaml` IPAddressPool blocks.
+2. **Wire MetalLB to your network.** Set per-node `BGPPeer` ASNs / addresses
+   (BGP mode), or switch to `L2Advertisement` for non-BGP environments.
+   → `values/metallb-config.yaml` BGPPeer / BGPAdvertisement / L2Advertisement.
+3. **Fill in site identity.** `siteName` (top-level) plus the TOML block under
+   `nico-api.siteConfig.nicoApiSiteConfig`: sitename, initial_domain_name,
+   site_fabric_prefixes, deny_prefixes, pools, networks.
+   → `values.yaml` and `values/nico-core.yaml`.
+4. **Pin per-service VIPs into nico-core.** Each chart's
+   `externalService.annotations.metallb.universe.tf/loadBalancerIPs` (or
+   `perPodAnnotations` for `nico-ntp` / `nico-dns`) must match a VIP from the
+   pools you carved out in step 1.
+   → `values/nico-core.yaml`.
+5. **Set the DHCP hook parameters.** `nico-dhcp.config.kea.hookParameters`
+   (`nameservers`, `ntpServer`, `provisioningServer`) tells DHCP clients
+   where to find DNS / NTP / PXE. These must equal the VIPs you set in step 4.
+   The chart default is `127.0.0.1` — leaving it there silently breaks DPU
+   bring-up.
+   → `values/nico-core.yaml`.
+6. **Decide how the `.forge` compatibility zone is served.** Built-in unbound
+   (enable in `values/nico-core.yaml`) or your external DNS. Required for
+   existing DPUs that look up `carbide-api.forge`, `carbide-pxe.forge`,
+   `carbide-ntp.forge`, etc. See *DPU compatibility DNS* below.
+7. **Export the runtime env vars** (registry, image tags, optional pull
+   secret) — see *Environment variables* below.
+
+Once the above is done, run `./setup.sh -y`.
+
 ## Configuration reference
 
-Before running `setup.sh`, the following values files must be configured for your site. For detailed instructions on each field, see the [Quick Start Guide — Step 3](https://nvidia.github.io/ncx-infra-controller-core/documentation/getting-started/quick-start-guide#step-3--configure-the-site).
+Detailed field-by-field instructions for each values file live in the
+[Quick Start Guide — Step 3](https://nvidia.github.io/ncx-infra-controller-core/documentation/getting-started/quick-start-guide#step-3--configure-the-site).
+The tables below summarize the keys that must be set per site.
 
 ### Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `KUBECONFIG` | No | Path to your cluster kubeconfig. Optional when the current kubectl context already points at the target cluster. |
-| `REGISTRY_PULL_SECRET` | No | NGC API key or pull secret for authenticated image registries. Leave unset for public, preloaded, or externally managed image pulls. |
-| `REGISTRY_PULL_USERNAME` | No | Username for generated pull secrets. Defaults to `$oauthtoken`. |
+| `REGISTRY_PULL_SECRET` | No | **Raw** NGC API key or registry password (e.g. `nvapi-...`). This value is passed verbatim as the docker password — do **not** point it at a file path or a JSON dockerconfig. Leave unset for public, preloaded, or externally managed image pulls. |
+| `REGISTRY_PULL_USERNAME` | No | Username for generated pull secrets. Defaults to `$oauthtoken` (correct for `nvcr.io` API-key auth). |
 | `NICO_IMAGE_REGISTRY` | Yes, unless `--skip-core --skip-rest` | Base image registry for all NICo images (e.g. `my-registry.example.com/nico`) |
 | `NICO_CORE_IMAGE_TAG` | Yes, unless `--skip-core` | NICo Core image tag (e.g. `v2025.12.30-rc1`) |
 | `NICO_REST_IMAGE_TAG` | Yes, unless `--skip-rest` | NICo REST image tag (e.g. `v1.0.4`) |
-| `NICO_REST_REPO` | Required unless `--skip-rest` | Path to local clone of `infra-controller-rest`. Auto-detected from sibling directories. `NICO_REPO` is accepted as a deprecated alias. |
 | `NICO_SITE_UUID` | No | Stable UUID for this site. Defaults to `a1b2c3d4-e5f6-4000-8000-000000000001`. |
+| `NICO_MANAGE_DEFAULT_STORAGE_CLASS` | No | Whether `setup.sh` marks `local-path` as the default StorageClass. Defaults to `true`. Set to `false` when the cluster already has an operator-managed default StorageClass. |
+| `NICO_STORAGE_CLASS` | No | StorageClass used by Vault data/audit PVCs. Defaults to `local-path-persistent`. |
 | `PREFLIGHT_CHECK_IMAGE` | No | Image used for preflight per-node checks. Defaults to `busybox:1.36`; set to a local mirror for air-gapped clusters. |
 
 ### `values.yaml`
@@ -76,6 +117,7 @@ Before running `setup.sh`, the following values files must be configured for you
 | `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
+| `postgresql.storageClass` | `"local-path-persistent"` | No | StorageClass for the nico-prereqs PostgreSQL PVCs. Override through Helm values when using a non-local StorageClass. |
 
 ### `values/nico-core.yaml`
 
@@ -93,7 +135,11 @@ Before running `setup.sh`, the following values files must be configured for you
 | `siteConfig.[pools.vni]` ranges | `{ start = "1024500", end = "1024800" }` | **Yes** | VXLAN Network Identifier range |
 | `siteConfig.[networks.admin]` | example values | **Yes** | Admin/OOB network: `prefix` (CIDR), `gateway`, `mtu`, `reserve_first`. `prefix` and `gateway` must not be empty — nico-api crashes on startup if they are. |
 | `siteConfig.[networks.<underlay>]` | `[networks.RNO1-M04-D04-IPMITOR-01]` | **Yes** | One block per underlay data-plane L3 segment: `type = "underlay"`, `prefix`, `gateway`, `mtu`, `reserve_first`. Rename the block to match your site segment name. Add additional blocks for each underlay segment. |
-| Per-service `loadBalancerIPs` | example IPs | **Yes** | Stable VIPs for DHCP, DNS, PXE, SSH console, NTP |
+| `nico-api / nico-dhcp / nico-dns / nico-pxe / nico-ssh-console-rs .externalService.annotations.metallb.universe.tf/loadBalancerIPs` | example IPs | **Yes** | Single MetalLB VIP per service. Must be inside the matching IPAddressPool from `metallb-config.yaml` (external pool for `nico-api`, internal pool for the rest). |
+| `nico-ntp.externalService.perPodAnnotations` | 3-element example list | **Yes** | `nico-ntp` is a StatefulSet — one MetalLB VIP per replica (3 by default). List entry `[0]` goes on the LB Service for pod `nico-ntp-0`, `[1]` on `nico-ntp-1`, etc. These three VIPs are what DPUs sync clocks against. |
+| `nico-dhcp.config.kea.hookParameters.nameservers` | `"127.0.0.1"` (chart default) | **Yes** | IP(s) advertised to DHCP clients as their DNS resolver. Must be the `nico-dns` VIP (or whichever DNS the DPUs should use). Leaving the `127.0.0.1` chart default silently breaks DPU name resolution. |
+| `nico-dhcp.config.kea.hookParameters.ntpServer` | `"127.0.0.1"` (chart default) | **Yes** | Comma-separated IPs advertised to DHCP clients as their NTP servers. Must match the three `nico-ntp.externalService.perPodAnnotations` VIPs. DPU pre-ingestion fails on clock divergence if this is left at the default. |
+| `nico-dhcp.config.kea.hookParameters.provisioningServer` | `"127.0.0.1"` (chart default) | **Yes** | IP advertised as the PXE / provisioning server. Must be the `nico-pxe` VIP. |
 
 ### `values/nico-rest.yaml`
 
@@ -157,6 +203,15 @@ vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
 nico-prereqs            (this Helm chart - nico-system namespace)
 NICo Core      (../helm - nico-core.yaml values)
+  ├── nico-api              (Deployment - gRPC/REST API, requires PostgreSQL + Vault)
+  ├── nico-bmc-proxy        (Deployment - authenticating Redfish proxy)
+  ├── nico-dhcp             (Deployment - Kea DHCP, advertises hook params to DPUs)
+  ├── nico-dns              (StatefulSet - authoritative DNS, per-pod LB VIPs)
+  ├── nico-hardware-health  (Deployment - hardware health collector)
+  ├── nico-ntp              (StatefulSet - chrony, per-pod LB VIPs, on by default)
+  ├── nico-pxe              (Deployment - HTTP PXE boot)
+  ├── nico-ssh-console-rs   (Deployment - SSH console proxy)
+  └── unbound               (Deployment - .forge zone DNS, opt-in)
 NICo REST      (infra-controller-rest/helm/charts/nico-rest)
   ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
@@ -165,6 +220,76 @@ NICo REST      (infra-controller-rest/helm/charts/nico-rest)
   ├── nico-rest          (API, cert-manager, workflow, site-manager)
   └── nico-rest-site-agent (StatefulSet, bootstrap via site-manager)
 ```
+
+## DPU compatibility DNS (`.forge` zone) — REQUIRED for DPU bring-up
+
+Existing DPU agent binaries deployed in the field are hardcoded to resolve a
+handful of legacy hostnames in the `.forge` zone:
+
+| Hostname | Port | Used by | Points at |
+|---|---|---|---|
+| `carbide-api.forge` | 443 | DPU agents, CLI, PXE, DHCP — gRPC/TLS to NICo API | `nico-api` external VIP |
+| `carbide-pxe.forge` | 80 | DPU agents (hardcoded in agent binary) — HTTP boot artifacts | `nico-pxe` VIP |
+| `carbide-static-pxe.forge` | 80 | Host PXE loader (hardcoded in boot images) | `nico-pxe` VIP |
+| `carbide-ntp.forge` | 123 | DPU agents (hardcoded in agent binary) — NTP/UDP | `nico-ntp` VIPs (one per replica) |
+| `unbound.forge` | 53 | DPUs (distributed via DHCP option 6) — DNS | unbound VIP |
+| `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
+| `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
+
+Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
+these names stay hardcoded in the binary for now. The deployment is responsible
+for resolving them. Two ways to do that:
+
+### Option A — built-in unbound (recommended for new sites)
+
+1. In `values/nico-core.yaml`, enable the `unbound` block and uncomment the
+   `localData:` example. Each entry takes a `name` and an `addresses` list —
+   fill the addresses with the VIPs you've already assigned to the
+   corresponding service above (those live in the same file under each
+   chart's `externalService.annotations.metallb.universe.tf/loadBalancerIPs`).
+2. Assign a MetalLB VIP to unbound itself (so DPUs can reach it via DHCP
+   option 6). Add it as another `externalService` entry the same way.
+3. Re-run `setup.sh`. The chart deploys unbound with the `.forge` zone
+   pre-populated; DPUs reach it via DHCP-served DNS.
+4. Verify with `helm-prereqs/health-check.sh` — the `.forge DNS Endpoint
+   Reference` section reports per-record status.
+
+### Option B — external DNS
+
+If your site already has DNS infrastructure for the OOB management network,
+serve the `.forge` zone there. Point each hostname at the corresponding
+MetalLB VIP in `values/nico-core.yaml`. The cluster has no opinion on which
+DNS server provides the records; only that the DPUs can resolve them.
+
+Without one of these in place, DPU bring-up will hang on PXE / NTP / API
+lookups even though every cluster-side helm chart shows healthy.
+
+### TLS cert SAN coverage (paired with the DNS records above)
+
+Once DNS resolves `carbide-api.forge` to the nico-api VIP, the TLS handshake
+still has to validate the server cert against that hostname. The chart's
+default cert SAN list only covers `nico-api.<release-ns>.svc.cluster.local`
+and the short DNS name — connections to `carbide-api.forge` would fail TLS
+verification. To accept the legacy hostnames, add them to
+`certificate.extraDnsNames` for each affected chart in
+`values/nico-core.yaml`:
+
+| Chart | Required extraDnsNames |
+|---|---|
+| `nico-api` | `carbide-api.forge`, `carbide-api.forge-system.svc.cluster.local`, plus the external hostname clients use (matches `nico-api.hostname`) |
+| `nico-pxe` | `carbide-pxe.forge`, `carbide-static-pxe.forge`, `carbide-pxe.forge-system.svc.cluster.local` |
+
+The example `values/nico-core.yaml` in this directory has these entries
+pre-populated under each chart's `certificate.extraDnsNames` block. They're
+issued by `vault-nico-issuer` (set up by `nico-prereqs` in Phase 5) and
+rotated on the usual cert-manager schedule.
+
+If you're migrating from an existing forged-kustomize site and want the
+DPUs already in the field (which have certs in the `forge.local` trust
+domain) to keep authenticating, also override
+`global.spiffe.trustDomain` to `forge.local` in your values. See the
+[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
+for the in-place upgrade caveats.
 
 ## Health check
 

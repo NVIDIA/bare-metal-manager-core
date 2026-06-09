@@ -10,9 +10,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // CreateVpcPrefix is a workflow to create an VpcPrefix using CreateVpcPrefixOnSite activity

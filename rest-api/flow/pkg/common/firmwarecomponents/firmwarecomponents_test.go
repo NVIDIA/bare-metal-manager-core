@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nicopb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nsmapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/psmapi"
+	nicopb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 )
 
 func TestParseNICoNVSwitch(t *testing.T) {
@@ -72,32 +70,6 @@ func TestParseNICoComputeTray(t *testing.T) {
 	}, got)
 
 	_, err = ParseNICoComputeTray([]string{"nvos"})
-	require.Error(t, err)
-}
-
-func TestParseNSMNVSwitch(t *testing.T) {
-	got, err := ParseNSMNVSwitch([]string{"bmc", "cpld", "bios", "nvos"})
-	require.NoError(t, err)
-	assert.Equal(t, []nsmapi.NVSwitchComponent{
-		nsmapi.NVSwitchComponentBMC,
-		nsmapi.NVSwitchComponentCPLD,
-		nsmapi.NVSwitchComponentBIOS,
-		nsmapi.NVSwitchComponentNVOS,
-	}, got)
-
-	_, err = ParseNSMNVSwitch([]string{"psu"})
-	require.Error(t, err)
-}
-
-func TestParsePSMPowerShelf(t *testing.T) {
-	got, err := ParsePSMPowerShelf([]string{"pmc", "psu"})
-	require.NoError(t, err)
-	assert.Equal(t, []psmapi.PowershelfComponent{
-		psmapi.PowershelfComponentPMC,
-		psmapi.PowershelfComponentPSU,
-	}, got)
-
-	_, err = ParsePSMPowerShelf([]string{"bmc"})
 	require.Error(t, err)
 }
 

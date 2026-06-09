@@ -23,7 +23,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use forge_secrets::credentials::{CredentialReader, TestCredentialManager};
+use forge_secrets::credentials::CredentialReader;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use libredfish::model::certificate::Certificate;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
 use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
@@ -218,6 +219,16 @@ impl RedfishSimActions {
     }
 }
 
+/// Stringifies a [`libredfish::BootInterfaceRef`] for recording in
+/// [`RedfishSimAction`], so tests can assert on the targeted boot interface
+/// regardless of which variant was used.
+fn boot_interface_ref_to_string(boot_interface: libredfish::BootInterfaceRef<'_>) -> String {
+    match boot_interface {
+        libredfish::BootInterfaceRef::Mac(mac) => mac.to_string(),
+        libredfish::BootInterfaceRef::InterfaceId(id) => id.to_string(),
+    }
+}
+
 struct RedfishSimClient {
     state: Arc<Mutex<RedfishSimState>>,
     _host: String,
@@ -277,7 +288,7 @@ impl Redfish for RedfishSimClient {
 
     fn machine_setup<'a>(
         &'a self,
-        _boot_interface_mac: Option<&'a str>,
+        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
         _bios_profiles: &'a HashMap<
             libredfish::model::service_root::RedfishVendor,
             HashMap<
@@ -306,7 +317,7 @@ impl Redfish for RedfishSimClient {
 
     fn machine_setup_status<'a>(
         &'a self,
-        _boot_interface_mac: Option<&'a str>,
+        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<libredfish::MachineSetupStatus, RedfishError>> {
         Box::pin(async move {
             Ok(libredfish::MachineSetupStatus {
@@ -1163,7 +1174,7 @@ impl Redfish for RedfishSimClient {
 
     fn set_boot_order_dpu_first<'a>(
         &'a self,
-        mac_address: &'a str,
+        boot_interface: libredfish::BootInterfaceRef<'a>,
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
@@ -1171,7 +1182,7 @@ impl Redfish for RedfishSimClient {
             host_state
                 .actions
                 .push(RedfishSimAction::SetBootOrderDpuFirst {
-                    boot_interface_mac: mac_address.to_string(),
+                    boot_interface_mac: boot_interface_ref_to_string(boot_interface),
                 });
             Ok(None)
         })
@@ -1339,13 +1350,13 @@ impl Redfish for RedfishSimClient {
 
     fn is_boot_order_setup<'a>(
         &'a self,
-        boot_interface_mac: &'a str,
+        boot_interface: libredfish::BootInterfaceRef<'a>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
             let host_state = state.hosts.get_mut(&self._host).unwrap();
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
-                boot_interface_mac: boot_interface_mac.to_string(),
+                boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
             Ok(true)
         })
@@ -1353,7 +1364,7 @@ impl Redfish for RedfishSimClient {
 
     fn is_bios_setup<'a>(
         &'a self,
-        _: Option<&'a str>,
+        _: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move { Ok(self.state.lock().unwrap().is_bios_setup.unwrap_or(true)) })
     }

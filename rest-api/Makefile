@@ -226,22 +226,13 @@ core-proto-clean:
 	rm -rf workflow-schema/site-agent/workflows/v1/*_nico.proto
 	rm -rf workflow-schema/schema/site-agent/workflows/v1/*.pb.go
 
-core-proto-repo ?= NVIDIA/infra-controller-core
-core-proto-repo-ssh:=ssh://git@github.com/$(core-proto-repo).git
-core-proto-ref ?= origin/main
 core-proto-fetch:
-	@echo "Fetching Core protobuf files from $(core-proto-repo-ssh) at $(core-proto-ref). Customize with make core-proto-repo=your-repo core-proto-ref=your-ref"
-	if [ -d "nico-core" ]; then rm -rf nico-core; fi
-	git clone $(core-proto-repo-ssh) nico-core;
-	cd nico-core && git fetch $(core-proto-repo-ssh) && git reset --hard $(core-proto-ref);
-	ls nico-core/crates/rpc/proto
-	@for file in nico-core/crates/rpc/proto/*.proto; do \
+	@for file in ../crates/rpc/proto/*.proto; do \
 		cp "$$file" "workflow-schema/site-agent/workflows/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
 	mv workflow-schema/site-agent/workflows/v1/forge_nico.proto workflow-schema/site-agent/workflows/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
-	rm -rf nico-core
 
 core-proto-fmt:
 	@echo "Formatting Core protobuf files"
@@ -258,7 +249,7 @@ flow-proto:
 	for file in "$${FLOW_DIR}"/proto/v1/*.proto; do \
 		cp "$$file" "workflow-schema/flow/proto/v1/"; \
 		echo "Copied: $$file"; \
-		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow"; \
+		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow"; \
 	done
 
 flow-protogen:

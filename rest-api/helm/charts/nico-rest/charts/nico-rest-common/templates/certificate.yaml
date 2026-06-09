@@ -24,5 +24,9 @@ spec:
     - client auth
   dnsNames:
     {{- toYaml .Values.certificate.temporalClientCloud.dnsNames | nindent 4 }}
+  {{- if .Values.certificate.temporalClientCloud.uris }}
+  uris:
+    {{- toYaml .Values.certificate.temporalClientCloud.uris | nindent 4 }}
+  {{- end }}
   issuerRef:
     {{- toYaml .Values.global.certificate.issuerRef | nindent 4 }}

@@ -159,20 +159,53 @@ pub async fn find_ids(
     Ok(ids)
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VpcRowLock {
+    #[default]
+    None,
+    /// Coordinates parent VPC mutations with VPC-attached child mutations.
+    ///
+    /// Callers that need this lock to protect later statements must use a
+    /// connection from an explicit transaction and keep the transaction open until
+    /// the coordinated mutation is committed or rolled back.
+    Mutation,
+}
+
 // Note: Following find function should not be used to search based on vpc labels.
 // Recommended approach to filter by labels is to first find VPC ids.
-pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
+async fn find_by_inner<'a, C: ColumnInfo<'a, TableType = Vpc>>(
     txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'a, C>,
+    row_lock: VpcRowLock,
 ) -> Result<Vec<Vpc>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM vpcs").filter(&filter);
 
+    query.push(" AND deleted IS NULL");
+    if matches!(row_lock, VpcRowLock::Mutation) {
+        query.push(" FOR NO KEY UPDATE");
+    }
     query
-        .push(" AND deleted IS NULL")
         .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))
+}
+
+// Note: Following find function should not be used to search based on vpc labels.
+// Recommended approach to filter by labels is to first find VPC ids.
+pub async fn find_by_with_lock<'a, C: ColumnInfo<'a, TableType = Vpc>>(
+    txn: &mut PgConnection,
+    filter: ObjectColumnFilter<'a, C>,
+    row_lock: VpcRowLock,
+) -> Result<Vec<Vpc>, DatabaseError> {
+    find_by_inner(&mut *txn, filter, row_lock).await
+}
+
+pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Vpc>>(
+    txn: impl DbReader<'_>,
+    filter: ObjectColumnFilter<'a, C>,
+) -> Result<Vec<Vpc>, DatabaseError> {
+    find_by_inner(txn, filter, VpcRowLock::None).await
 }
 
 pub async fn find_by_vni(txn: &mut PgConnection, vni: i32) -> Result<Vec<Vpc>, DatabaseError> {
@@ -224,14 +257,34 @@ pub async fn find_by_segment(
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
-/// Tries to deletes a VPC
+/// Tries to delete a VPC.
 ///
-/// If the VPC existed at the point of deletion this returns the last known information about the VPC
-/// If the VPC already had been delete, this returns Ok(`None`)
+/// If the VPC existed at the point of deletion, this returns the last known information about the VPC.
+/// If the VPC was already deleted, this returns Ok(`None`), even if historical orphaned
+/// VPC-prefix rows still reference it.
+///
+/// Callers that coordinate VPC-attached child mutations must acquire
+/// [`VpcRowLock::Mutation`] on this VPC before calling this function.
 pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>, DatabaseError> {
-    // TODO: Should this update the version?
+    // Block deletion of active VPCs while any active or soft-deleted prefix row still references
+    // them. The EXISTS clause preserves the existing Ok(None) behavior for already-deleted VPCs,
+    // including legacy cases where old prefix rows may still reference the deleted parent.
+    let vpc_prefix_count_query = "SELECT count(*) FROM network_vpc_prefixes
+        WHERE vpc_id=$1
+        AND EXISTS (SELECT 1 FROM vpcs WHERE id=$1 AND deleted IS NULL)";
+    let (vpc_prefix_count,): (i64,) = sqlx::query_as(vpc_prefix_count_query)
+        .bind(id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(vpc_prefix_count_query, e))?;
+    if vpc_prefix_count > 0 {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "VPC {id} cannot be deleted while {vpc_prefix_count} VPC prefixes still exist or are pending deletion"
+        )));
+    }
+
     let query =
-        "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted is null RETURNING *";
+        "UPDATE vpcs SET updated=NOW(), deleted=NOW() WHERE id=$1 AND deleted IS NULL RETURNING *";
     match sqlx::query_as(query).bind(id).fetch_one(txn).await {
         Ok(vpc) => Ok(Some(vpc)),
         Err(sqlx::Error::RowNotFound) => Ok(None),
@@ -377,8 +430,7 @@ pub async fn increment_vpc_version(
 ) -> Result<ConfigVersion, DatabaseError> {
     let next_version = expected_version.increment();
 
-    let update_query =
-        "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 RETURNING version";
+    let update_query = "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 AND deleted IS NULL RETURNING version";
     let updated: Result<(ConfigVersion,), _> = sqlx::query_as(update_query)
         .bind(next_version)
         .bind(id)

@@ -5,9 +5,10 @@ package model
 
 import (
 	"fmt"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAPIMachineValidationTestCreateRequest_Validate(t *testing.T) {
@@ -56,7 +57,7 @@ func TestAPIMachineValidationExternalConfigCreateRequest_Validate(t *testing.T) 
 	}{
 		{
 			desc:      "no error",
-			obj:       APIMachineValidationExternalConfigCreateRequest{Name: "test-1", Description: cdb.GetStrPtr("test description"), Config: []byte{0, 1, 12}},
+			obj:       APIMachineValidationExternalConfigCreateRequest{Name: "test-1", Description: cutil.GetPtr("test description"), Config: []byte{0, 1, 12}},
 			expectErr: false,
 		},
 		{

@@ -10,7 +10,7 @@ This is a **prescriptive, BYO-Kubernetes bring-up guide** for the NICo REST clou
 
 NICo REST can be deployed in two ways:
 
-- **Co-located:** The REST layer and [NVIDIA Infrastructure Controller Core](https://github.com/NVIDIA/infra-controller-core) run together in the same datacenter cluster.
+- **Co-located:** The REST layer and Core services run together in the same datacenter cluster.
 - **Cloud-hosted:** The REST layer runs anywhere (cloud, remote DC) and Site Agents running at each datacenter connect back to it. Multiple NVIDIA Infrastructure Controller Core instances in different datacenters can each connect through their own Site Agent.
 
 This guide covers the cloud-hosted topology — deploying the REST control plane components on a Kubernetes cluster that site agents will connect to from remote sites.
@@ -202,7 +202,7 @@ kubectl rollout status statefulset/postgres -n postgres
 
 Keycloak is the **reference OIDC identity provider** for the NICo REST API. It handles authentication and issues JWTs that the API validates on every request. It is pre-loaded with the `nico-dev` realm via an imported realm ConfigMap, which includes the `nico-api` client, realm roles, and a set of pre-seeded dev users.
 
-Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/NVIDIA/infra-controller-rest/tree/main/auth) for more details.
+Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth) for more details.
 
 ### Manifests
 
@@ -702,7 +702,7 @@ The site agent bootstrap flow is:
 
 | Variable | Default | Description |
 |---|---|---|
-| `NICO_ADDRESS` | `nico-rest-mock-core:11079` | NICo/NICo gRPC endpoint — **set this to your [NVIDIA Infrastructure Controller Core](https://github.com/NVIDIA/infra-controller-core) address in production** |
+| `NICO_ADDRESS` | `nico-rest-mock-core:11079` | NICo/NICo gRPC endpoint — **set this to your Core gRPC server address in production** |
 | `CLUSTER_ID` | `00000000-0000-4000-8000-000000000001` | Site UUID — **must match a registered site** |
 | `TEMPORAL_HOST` | `temporal-frontend.temporal` | Temporal frontend host |
 | `TEMPORAL_PORT` | `7233` | Temporal frontend port |

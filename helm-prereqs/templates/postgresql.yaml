@@ -32,7 +32,7 @@ spec:
   teamId: nico
   volume:
     size: {{ .Values.postgresql.volumeSize }}
-    storageClass: local-path-persistent
+    storageClass: {{ .Values.postgresql.storageClass | quote }}
   numberOfInstances: {{ .Values.postgresql.instances }}
   resources:
     limits:

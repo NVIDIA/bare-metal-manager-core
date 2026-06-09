@@ -23,6 +23,13 @@ use super::super::common::CreateSkuOptions;
 // specific newtype to allow sharing of CreateSkuOptions, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Replace a SKU's component list from a file:
+    $ carbide-admin-cli sku replace ./skus.json --id DGX-H100-640GB
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: CreateSkuOptions,

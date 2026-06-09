@@ -27,6 +27,21 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Start maintenance on a full rack (all activities, all components):
+    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567
+
+Run only a firmware upgrade on specific machines:
+    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
+    --machine-ids m1,m2 --activities firmware-upgrade
+
+Firmware upgrade from a SOT JSON file, forcing the update:
+    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
+    --activities firmware-upgrade --sot-json-file ./sot.json --access-token \"$TOKEN\" --force-update
+
+")]
 pub struct MaintenanceOptions {
     #[clap(short, long, help = "Rack ID to start maintenance on")]
     pub rack: RackId,
@@ -78,7 +93,7 @@ pub struct MaintenanceOptions {
 
     #[clap(
         long = "access-token",
-        help = "Artifact access token; required with --sot-json-file"
+        help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
     pub access_token: Option<String>,
 

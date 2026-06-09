@@ -29,8 +29,8 @@
 //!
 //! - **scheme_version** `1`: AES-256-GCM; key material is 32 bytes from base64-decoding the
 //!   configured encryption secret (`openssl rand -base64 32`).
-//! - **key_id**: map key under `machine_identity.encryption_keys` (e.g. `kv1`), must match site
-//!   `current_encryption_key_id` (from a secrets file, env-backed credentials, or another store).
+//! - **key_id**: map key under `machine_identity.encryption_keys` (e.g. `kv1`). Decrypt loads
+//!   credentials by this envelope field. Encrypt uses site `current_encryption_key_id`.
 
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
@@ -85,6 +85,13 @@ struct EncryptionEnvelopeV1 {
     ciphertext: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+struct ParsedEnvelopeV1 {
+    key_id: String,
+    nonce: [u8; 12],
+    ciphertext: Vec<u8>,
+}
+
 fn envelope_json_bytes(
     key_id: impl AsRef<str>,
     nonce: &[u8; 12],
@@ -106,7 +113,7 @@ fn envelope_json_bytes(
     serde_json::to_vec(&env).map_err(|e| KeyEncryptionError::Encrypt(e.to_string()))
 }
 
-fn parse_envelope_json(data: &[u8]) -> Result<([u8; 12], Vec<u8>), KeyEncryptionError> {
+fn parse_envelope(data: &[u8]) -> Result<ParsedEnvelopeV1, KeyEncryptionError> {
     let env: EncryptionEnvelopeV1 =
         serde_json::from_slice(data).map_err(|e| KeyEncryptionError::Decrypt(e.to_string()))?;
     if env.scheme_version != SCHEME_VERSION_V1 {
@@ -114,7 +121,30 @@ fn parse_envelope_json(data: &[u8]) -> Result<([u8; 12], Vec<u8>), KeyEncryption
             "unsupported scheme_version".into(),
         ));
     }
-    Ok((env.nonce, env.ciphertext))
+    if env.key_id.is_empty() || env.key_id.len() > 255 {
+        return Err(KeyEncryptionError::Decrypt(
+            "envelope key_id must be 1..=255 UTF-8 bytes".into(),
+        ));
+    }
+    Ok(ParsedEnvelopeV1 {
+        key_id: env.key_id,
+        nonce: env.nonce,
+        ciphertext: env.ciphertext,
+    })
+}
+
+fn parse_envelope_from_base64(
+    encrypted_base64: &str,
+) -> Result<ParsedEnvelopeV1, KeyEncryptionError> {
+    let combined = BASE64
+        .decode(encrypted_base64.trim())
+        .map_err(|e| KeyEncryptionError::Decrypt(e.to_string()))?;
+    parse_envelope(&combined)
+}
+
+/// Returns the `key_id` embedded in a stored envelope (standard base64 of JSON v1).
+pub fn envelope_key_id(encrypted_base64: &str) -> Result<String, KeyEncryptionError> {
+    Ok(parse_envelope_from_base64(encrypted_base64)?.key_id)
 }
 
 /// Encrypts plaintext with AES-256-GCM using envelope v1.
@@ -147,16 +177,12 @@ pub fn decrypt(
     encrypted_base64: &str,
     encryption_secret: &Aes256Key,
 ) -> Result<Vec<u8>, KeyEncryptionError> {
-    let combined = BASE64
-        .decode(encrypted_base64.trim())
-        .map_err(|e| KeyEncryptionError::Decrypt(e.to_string()))?;
-
-    let (nonce, ciphertext) = parse_envelope_json(&combined)?;
+    let envelope = parse_envelope_from_base64(encrypted_base64)?;
     let cipher = Aes256Gcm::new_from_slice(encryption_secret)
         .map_err(|e| KeyEncryptionError::Decrypt(e.to_string()))?;
-    let nonce_ga = aes_gcm::aead::generic_array::GenericArray::from_slice(&nonce);
+    let nonce_ga = aes_gcm::aead::generic_array::GenericArray::from_slice(&envelope.nonce);
     cipher
-        .decrypt(nonce_ga, ciphertext.as_slice())
+        .decrypt(nonce_ga, envelope.ciphertext.as_slice())
         .map_err(|e| KeyEncryptionError::Decrypt(e.to_string()))
 }
 
@@ -220,5 +246,12 @@ mod tests {
         let key = test_aes256_key();
         let plaintext_json = r#"{"client_id":"c","client_secret":"s"}"#;
         assert!(decrypt(plaintext_json, &key).is_err());
+    }
+
+    #[test]
+    fn envelope_key_id_reads_embedded_key_id() {
+        let key = test_aes256_key();
+        let encrypted = encrypt(b"secret", &key, "kv2").unwrap();
+        assert_eq!(envelope_key_id(&encrypted).unwrap(), "kv2");
     }
 }

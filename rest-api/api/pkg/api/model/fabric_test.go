@@ -9,8 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestMachine_NewAPIFabric(t *testing.T) {
@@ -37,7 +38,7 @@ func TestMachine_NewAPIFabric(t *testing.T) {
 	dbf.Site = &cdbm.Site{
 		ID:                       dbf.SiteID,
 		Name:                     "test-site",
-		Description:              cdb.GetStrPtr("Test Description"),
+		Description:              cutil.GetPtr("Test Description"),
 		InfrastructureProviderID: dbf.InfrastructureProviderID,
 		Status:                   cdbm.SiteStatusRegistered,
 		Created:                  cdb.GetCurTime(),

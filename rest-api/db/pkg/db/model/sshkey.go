@@ -8,9 +8,10 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -356,7 +357,7 @@ func (sksd SSHKeySQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) er
 	_, err := sksd.GetByID(ctx, tx, id, nil)
 	if err == nil {
 		// clear the publicKey column upon soft-delete
-		_, err := sksd.Update(ctx, tx, SSHKeyUpdateInput{SSHKeyID: id, PublicKey: db.GetStrPtr("")})
+		_, err := sksd.Update(ctx, tx, SSHKeyUpdateInput{SSHKeyID: id, PublicKey: cutil.GetPtr("")})
 		if err != nil {
 			return err
 		}

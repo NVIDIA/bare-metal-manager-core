@@ -6,8 +6,9 @@ package credentials
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
 	"net"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 
 	log "github.com/sirupsen/logrus"
 )

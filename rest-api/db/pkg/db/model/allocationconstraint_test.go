@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -63,7 +64,7 @@ func testAllocationConstraintBuildInfrastructureProvider(t *testing.T, dbSession
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -76,13 +77,13 @@ func testAllocationConstraintBuildSite(t *testing.T, dbSession *db.Session,
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -106,10 +107,10 @@ func testAllocationConstraintBuildUser(t *testing.T, dbSession *db.Session,
 	starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -121,7 +122,7 @@ func testAllocationConstraintBuildAllocation(t *testing.T, dbSession *db.Session
 	alloc := &Allocation{
 		ID:                       uuid.New(),
 		Name:                     "test1",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ipID,
 		TenantID:                 tenantID,
 		SiteID:                   siteID,
@@ -137,9 +138,9 @@ func testAllocationConstraintBuildInstanceType(t *testing.T, dbSession *db.Sessi
 	insType := &InstanceType{
 		ID:                       uuid.New(),
 		Name:                     name,
-		DisplayName:              db.GetStrPtr("display name"),
-		Description:              db.GetStrPtr("description"),
-		ControllerMachineType:    db.GetStrPtr("controllerMachineType"),
+		DisplayName:              cutil.GetPtr("display name"),
+		Description:              cutil.GetPtr("description"),
+		ControllerMachineType:    cutil.GetPtr("controllerMachineType"),
 		InfrastructureProviderID: ipID,
 		SiteID:                   &siteID,
 		Status:                   InstanceTypeStatusPending,
@@ -409,7 +410,7 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 	for i := 0; i < totalCount/2; i++ {
 		asc2, err := asd.CreateFromParams(
 			ctx, nil, alloc2.ID, AllocationResourceTypeIPBlock,
-			ipv4Block.ID, AllocationConstraintTypeReserved, 10, db.GetUUIDPtr(uuid.New()), user.ID)
+			ipv4Block.ID, AllocationConstraintTypeReserved, 10, cutil.GetPtr(uuid.New()), user.ID)
 		assert.Nil(t, err)
 		assert.NotNil(t, asc2)
 		asc2ipb = append(asc2ipb, *asc2)
@@ -458,7 +459,7 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:           "GetAll with Resource Type filter returns objects",
 			allocationIDs:  nil,
-			resourceType:   db.GetStrPtr(AllocationResourceTypeIPBlock),
+			resourceType:   cutil.GetPtr(AllocationResourceTypeIPBlock),
 			resourceTypeID: nil,
 			constraintType: nil,
 			expectedCount:  totalCount / 2,
@@ -487,7 +488,7 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 			desc:           "GetAll with invalid Resource Type ID filter returns no objects",
 			allocationIDs:  nil,
 			resourceType:   nil,
-			resourceTypeID: db.GetUUIDPtr(uuid.New()),
+			resourceTypeID: cutil.GetPtr(uuid.New()),
 			constraintType: nil,
 			expectedCount:  0,
 			expectedError:  false,
@@ -495,9 +496,9 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:           "GetAll with Constraint Type filter returns objects",
 			allocationIDs:  nil,
-			resourceType:   db.GetStrPtr(AllocationResourceTypeIPBlock),
+			resourceType:   cutil.GetPtr(AllocationResourceTypeIPBlock),
 			resourceTypeID: nil,
-			constraintType: db.GetStrPtr(AllocationConstraintTypeReserved),
+			constraintType: cutil.GetPtr(AllocationConstraintTypeReserved),
 			expectedCount:  totalCount / 2,
 			expectedError:  false,
 		},
@@ -507,10 +508,10 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 			resourceType:   nil,
 			resourceTypeID: nil,
 			constraintType: nil,
-			offset:         db.GetIntPtr(0),
-			limit:          db.GetIntPtr(5),
+			offset:         cutil.GetPtr(0),
+			limit:          cutil.GetPtr(5),
 			expectedCount:  5,
-			expectedTotal:  db.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 			expectedError:  false,
 		},
 		{
@@ -519,9 +520,9 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 			resourceType:   nil,
 			resourceTypeID: nil,
 			constraintType: nil,
-			offset:         db.GetIntPtr(5),
+			offset:         cutil.GetPtr(5),
 			expectedCount:  10,
-			expectedTotal:  db.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 			expectedError:  false,
 		},
 		{
@@ -536,31 +537,31 @@ func TestAllocationConstraintSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &asc1it[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with resource Type filter returns none objects",
 			allocationIDs: []uuid.UUID{alloc1.ID},
-			resourceType:  db.GetStrPtr(AllocationResourceTypeIPBlock),
+			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with resource Type filter returns objects",
 			allocationIDs: []uuid.UUID{alloc2.ID},
-			resourceType:  db.GetStrPtr(AllocationResourceTypeIPBlock),
+			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with resource Type filter with mixed allocation uuids returns objects",
 			allocationIDs: []uuid.UUID{alloc1.ID, alloc2.ID},
-			resourceType:  db.GetStrPtr(AllocationResourceTypeIPBlock),
+			resourceType:  cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 	}
@@ -660,9 +661,9 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc1.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeInstanceType),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeInstanceType),
 			expectedResourceTypeID:    &insType.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypeReserved),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypeReserved),
 			expectedConstraintValue:   &constraintValue,
 			expectedDerivedResourceID: &derivedResourceID,
 			expectedUpdate:            false,
@@ -679,9 +680,9 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc1.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeInstanceType),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeInstanceType),
 			expectedResourceTypeID:    &insType.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypeReserved),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypeReserved),
 			expectedConstraintValue:   &constraintValue,
 			expectedDerivedResourceID: &derivedResourceID,
 			expectedUpdate:            true,
@@ -689,7 +690,7 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 		{
 			desc:                   "can update AllocationID ResourceType n ID",
 			paramAllocationID:      &alloc2.ID,
-			paramResourceType:      db.GetStrPtr(AllocationResourceTypeIPBlock),
+			paramResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
 			paramResourceTypeID:    &ipv4Block.ID,
 			paramConstraintType:    nil,
 			paramConstraintValue:   nil,
@@ -697,9 +698,9 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc2.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeIPBlock),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedResourceTypeID:    &ipv4Block.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypeReserved),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypeReserved),
 			expectedConstraintValue:   &constraintValue,
 			expectedDerivedResourceID: &derivedResourceID,
 			expectedUpdate:            true,
@@ -709,15 +710,15 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			paramAllocationID:      nil,
 			paramResourceType:      nil,
 			paramResourceTypeID:    nil,
-			paramConstraintType:    db.GetStrPtr(AllocationConstraintTypePreemptible),
+			paramConstraintType:    cutil.GetPtr(AllocationConstraintTypePreemptible),
 			paramConstraintValue:   &constraintValue2,
 			paramDerivedResourceID: &derivedResourceID2,
 
 			expectedError:             false,
 			expectedAllocationID:      &alloc2.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeIPBlock),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedResourceTypeID:    &ipv4Block.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypePreemptible),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypePreemptible),
 			expectedConstraintValue:   &constraintValue2,
 			expectedDerivedResourceID: &derivedResourceID2,
 			expectedUpdate:            true,
@@ -727,15 +728,15 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 			paramAllocationID:      nil,
 			paramResourceType:      nil,
 			paramResourceTypeID:    nil,
-			paramConstraintType:    db.GetStrPtr(" "),
+			paramConstraintType:    cutil.GetPtr(" "),
 			paramConstraintValue:   nil,
 			paramDerivedResourceID: nil,
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc2.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeIPBlock),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedResourceTypeID:    &ipv4Block.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypePreemptible),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypePreemptible),
 			expectedConstraintValue:   &constraintValue2,
 			expectedDerivedResourceID: &derivedResourceID2,
 			expectedUpdate:            true,
@@ -743,7 +744,7 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 		{
 			desc:                   "invalid Constraint Type",
 			paramAllocationID:      nil,
-			paramResourceType:      db.GetStrPtr(" "),
+			paramResourceType:      cutil.GetPtr(" "),
 			paramResourceTypeID:    nil,
 			paramConstraintType:    nil,
 			paramConstraintValue:   nil,
@@ -751,9 +752,9 @@ func TestAllocationConstraintSQLDAO_UpdateFromParams(t *testing.T) {
 
 			expectedError:             true,
 			expectedAllocationID:      &alloc2.ID,
-			expectedResourceType:      db.GetStrPtr(AllocationResourceTypeIPBlock),
+			expectedResourceType:      cutil.GetPtr(AllocationResourceTypeIPBlock),
 			expectedResourceTypeID:    &ipv4Block.ID,
-			expectedConstraintType:    db.GetStrPtr(AllocationConstraintTypePreemptible),
+			expectedConstraintType:    cutil.GetPtr(AllocationConstraintTypePreemptible),
 			expectedConstraintValue:   &constraintValue2,
 			expectedDerivedResourceID: &derivedResourceID2,
 			expectedUpdate:            true,

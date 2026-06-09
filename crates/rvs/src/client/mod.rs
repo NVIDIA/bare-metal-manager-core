@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
-pub use io::NiccClient;
+pub use io::NicoClient;
 use rpc::forge::{Machine, Rack};
 
 use crate::error::RvsError;
@@ -112,4 +112,16 @@ impl TryFrom<Rack> for RackData {
             state: value.rack_state,
         })
     }
+}
+
+/// Parsed SOT JSON document used for JSONPath artifact resolution.
+///
+/// Produced from a local file today (`cfg.sot_path`); see that field's TODO
+/// for why the SOT has no API source post-#1861.
+#[derive(Debug)]
+pub struct RackFirmwareData {
+    /// Identifier for this SOT record (e.g. "override").
+    pub id: String,
+    /// Parsed SOT JSON -- used for JSONPath artifact resolution.
+    pub config: serde_json::Value,
 }

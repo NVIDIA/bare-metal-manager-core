@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	subnetActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	subnetActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type DeleteSubnetTestSuite struct {

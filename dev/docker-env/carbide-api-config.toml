@@ -88,5 +88,10 @@ network_segment_drain_time = "60s"
 [network_segment_state_controller.controller]
 iteration_time = "2s"
 
+[vpc_prefix_state_controller]
+vpc_prefix_drain_time = "60s"
+[vpc_prefix_state_controller.controller]
+iteration_time = "2s"
+
 [ib_partition_state_controller.controller]
 iteration_time = "60s" # Not supported in docker anyway

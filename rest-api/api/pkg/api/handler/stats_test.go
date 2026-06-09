@@ -17,13 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 )
 
 // ~~~~~ Test Helpers ~~~~~ //
@@ -50,10 +51,10 @@ func testStatsBuildUser(t *testing.T, dbSession *cdb.Session, orgs []string, rol
 		}
 	}
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
-		StarfleetID: cdb.GetStrPtr(uuid.NewString()),
-		Email:       cdb.GetStrPtr("stats-test@test.com"),
-		FirstName:   cdb.GetStrPtr("Stats"),
-		LastName:    cdb.GetStrPtr("Tester"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("stats-test@test.com"),
+		FirstName:   cutil.GetPtr("Stats"),
+		LastName:    cutil.GetPtr("Tester"),
 		OrgData:     OrgData,
 	})
 	assert.Nil(t, err)
@@ -77,10 +78,10 @@ func testStatsBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastru
 		Name:                        name,
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
 		Status:                      cdbm.SiteStatusRegistered,
 		CreatedBy:                   uuid.New(),
@@ -107,7 +108,7 @@ func testStatsBuildInstanceType(t *testing.T, dbSession *cdb.Session, ip *cdbm.I
 		ID:                       uuid.New(),
 		Name:                     name,
 		InfrastructureProviderID: ip.ID,
-		SiteID:                   cdb.GetUUIDPtr(site.ID),
+		SiteID:                   cutil.GetPtr(site.ID),
 		Status:                   cdbm.InstanceTypeStatusReady,
 		CreatedBy:                uuid.New(),
 		Version:                  "1.0",
@@ -125,7 +126,7 @@ func testStatsBuildMachine(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infras
 		SiteID:                   site.ID,
 		InstanceTypeID:           itID,
 		ControllerMachineID:      mid,
-		DefaultMacAddress:        cdb.GetStrPtr("00:1B:44:11:3A:B7"),
+		DefaultMacAddress:        cutil.GetPtr("00:1B:44:11:3A:B7"),
 		IsAssigned:               itID != nil,
 		IsNetworkDegraded:        isNetworkDegraded,
 		Status:                   status,

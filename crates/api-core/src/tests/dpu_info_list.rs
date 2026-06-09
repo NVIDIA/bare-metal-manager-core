@@ -14,9 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use chrono::Utc;
 use common::api_fixtures::dpu::loopback_ip;
 use common::api_fixtures::{create_managed_host, create_test_env};
+use rpc::Timestamp;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{DpuNetworkStatus, FabricInterfaceData, LinkData};
 
 use crate::tests::common;
 
@@ -25,6 +28,53 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let dpu_machine_id_1 = create_managed_host(&env).await.dpu().id;
     let dpu_machine_id_2 = create_managed_host(&env).await.dpu().id;
+
+    let observed_at = Utc::now();
+    let heartbeat_timestamp = Timestamp::from(observed_at);
+    let fabric_interface =
+        |interface_name: &str, carrier_up: Option<bool>, state: &str| FabricInterfaceData {
+            interface_name: interface_name.to_string(),
+            link_data: Some(LinkData {
+                link_type: Some("ethernet".to_string()),
+                state: Some(state.to_string()),
+                carrier_up,
+                mtu: Some(1500),
+                carrier_up_count: None,
+                carrier_down_count: None,
+            }),
+        };
+
+    // Persist a current network status with fabric interface data for one DPU.
+    env.api
+        .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
+            dpu_machine_id: Some(dpu_machine_id_1),
+            dpu_agent_version: Some("test".to_string()),
+            observed_at: Some(heartbeat_timestamp),
+            dpu_health: Some(rpc::health::HealthReport {
+                source: "forge-dpu-agent".to_string(),
+                triggered_by: None,
+                observed_at: None,
+                successes: vec![],
+                alerts: vec![],
+            }),
+            network_config_version: None,
+            instance_id: None,
+            instance_config_version: None,
+            instance_network_config_version: None,
+            interfaces: vec![],
+            network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
+            fabric_interfaces: vec![
+                fabric_interface("pf0vf0_if_r", Some(false), "down"),
+                fabric_interface("pf0dpu0", Some(true), "up"),
+                fabric_interface("p0_if", Some(true), "up"),
+            ],
+            last_dhcp_requests: vec![],
+            dpu_extension_service_version: None,
+            dpu_extension_services: vec![],
+        }))
+        .await
+        .unwrap();
 
     // Make RPC call to get list of DPU information
     let dpu_list = env
@@ -58,4 +108,44 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     dpu_loopback_ips.sort();
     exp_loopback_ips.sort();
     assert_eq!(dpu_loopback_ips, exp_loopback_ips);
+
+    // Check that operational fields are populated from persisted DPU state.
+    let dpu_1 = dpu_list
+        .iter()
+        .find(|dpu| dpu.id == dpu_machine_id_1.to_string())
+        .unwrap();
+    let observed_status = dpu_1.observed_status.as_ref().unwrap();
+    assert_eq!(
+        observed_status
+            .os_operational_state
+            .as_ref()
+            .map(|state| state.state_detail.as_str()),
+        Some("Ready")
+    );
+    assert_eq!(
+        observed_status.firmware_version.as_deref(),
+        Some("24.42.1000")
+    );
+    assert_eq!(observed_status.last_heartbeat, Some(heartbeat_timestamp));
+    assert_eq!(observed_status.representors.len(), 2);
+    let pf0dpu0 = observed_status
+        .representors
+        .iter()
+        .find(|representor| representor.name == "pf0dpu0")
+        .unwrap();
+    assert_eq!(pf0dpu0.carrier_up, Some(true));
+    assert_eq!(pf0dpu0.state.as_deref(), Some("up"));
+    let pf0vf0_if_r = observed_status
+        .representors
+        .iter()
+        .find(|representor| representor.name == "pf0vf0_if_r")
+        .unwrap();
+    assert_eq!(pf0vf0_if_r.carrier_up, Some(false));
+    assert_eq!(pf0vf0_if_r.state.as_deref(), Some("down"));
+    assert!(
+        !observed_status
+            .representors
+            .iter()
+            .any(|representor| representor.name == "p0_if")
+    );
 }

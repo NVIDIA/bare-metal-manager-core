@@ -19,7 +19,7 @@ use std::str::FromStr;
 
 use carbide_uuid::vpc::VpcPrefixId;
 use ipnet::IpNet;
-use rpc::forge::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
+use rpc::forge::{DeletedFilter, PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
 
 use crate::errors::CarbideCliError;
 use crate::errors::CarbideCliError::GenericError;
@@ -32,12 +32,18 @@ pub enum VpcPrefixSelector {
 }
 
 impl VpcPrefixSelector {
-    pub async fn fetch(self, api_client: &ApiClient) -> Result<VpcPrefix, CarbideCliError> {
+    pub async fn fetch(
+        self,
+        api_client: &ApiClient,
+        deleted: DeletedFilter,
+    ) -> Result<VpcPrefix, CarbideCliError> {
         match self {
-            VpcPrefixSelector::Id(id) => get_one_by_id(api_client, id).await,
+            VpcPrefixSelector::Id(id) => get_one_by_id(api_client, id, deleted).await,
             VpcPrefixSelector::Prefix(prefix) => {
                 let id = {
-                    let uuids = search(api_client, prefix_match_exact(&prefix)).await?;
+                    let mut query = prefix_match_exact(&prefix);
+                    query.deleted = deleted as i32;
+                    let uuids = search(api_client, query).await?;
                     let uuid = match Quantity::from(uuids) {
                         Quantity::One(uuid) => Ok(uuid),
                         Quantity::Zero => Err(GenericError(format!(
@@ -54,7 +60,7 @@ impl VpcPrefixSelector {
                         })
                     })
                 }?;
-                get_one_by_id(api_client, id).await
+                get_one_by_id(api_client, id, deleted).await
             }
         }
     }
@@ -105,11 +111,13 @@ pub async fn get_by_ids(
     api_client: &ApiClient,
     batch_size: usize,
     ids: &[VpcPrefixId],
+    deleted: i32,
 ) -> Result<Vec<VpcPrefix>, CarbideCliError> {
     let mut vpc_prefixes = Vec::with_capacity(ids.len());
     for ids in ids.chunks(batch_size) {
         let vpc_id_list = rpc::forge::VpcPrefixGetRequest {
             vpc_prefix_ids: ids.to_owned(),
+            deleted,
         };
         let prefixes_batch = api_client
             .0
@@ -124,8 +132,9 @@ pub async fn get_by_ids(
 pub async fn get_one_by_id(
     api_client: &ApiClient,
     id: VpcPrefixId,
+    deleted: DeletedFilter,
 ) -> Result<VpcPrefix, CarbideCliError> {
-    let mut prefixes = get_by_ids(api_client, 1, &[id]).await?;
+    let mut prefixes = get_by_ids(api_client, 1, &[id], deleted as i32).await?;
     match (prefixes.len(), prefixes.pop()) {
         (1, Some(prefix)) => Ok(prefix),
         (0, None) => Err(CarbideCliError::GenericError(format!(

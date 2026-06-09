@@ -31,6 +31,18 @@ env:
   BROKEN_DNSSEC: "1"
   UNBOUND_CONTROL_DIR: /etc/unbound/keys
 
+# Local DNS A records served to managed hosts and DPUs. Rendered into a
+# local_data.conf file that unbound includes from local.conf.d. Names and IPs
+# are environment-specific, so this is empty by default — populate per site.
+localData: []
+# localData:
+#   - name: nico-api.nico
+#     addresses: ["10.0.0.1"]
+#   - name: carbide-api.forge        # legacy alias → same address
+#     addresses: ["10.0.0.1"]
+#   - name: nico-ntp.nico            # multiple addresses are supported
+#     addresses: ["10.0.0.2", "10.0.0.3", "10.0.0.4"]
+
 # Local config files for unbound
 localConfig:
   access_control.conf: |

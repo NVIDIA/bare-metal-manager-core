@@ -15,12 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nvswitchmanager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/psm"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 type customProviderConfig struct {
@@ -111,33 +109,21 @@ func TestParseConfigWithExplicitProviders(t *testing.T) {
 	config, err := parseConfigWithBuiltins(t, `
 component_managers:
   compute: nico
-  nvswitch: nvswitchmanager
-  powershelf: psm
+  nvswitch: nico
+  powershelf: nico
 providers:
   nico:
     timeout: 45s
-  psm:
-    timeout: 20s
-  nvswitchmanager:
-    timeout: 90s
 `)
 	require.NoError(t, err)
 
 	assert.Equal(t, nico.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeCompute])
-	assert.Equal(t, nvswitchmanager.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeNVSwitch])
-	assert.Equal(t, psm.ProviderName, config.ComponentManagers[devicetypes.ComponentTypePowerShelf])
+	assert.Equal(t, nico.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeNVSwitch])
+	assert.Equal(t, nico.ProviderName, config.ComponentManagers[devicetypes.ComponentTypePowerShelf])
 
 	nicoConfig, ok := config.ProviderConfigs[nico.ProviderName].(*nico.Config)
 	require.True(t, ok)
 	assert.Equal(t, 45*time.Second, nicoConfig.Timeout)
-
-	psmConfig, ok := config.ProviderConfigs[psm.ProviderName].(*psm.Config)
-	require.True(t, ok)
-	assert.Equal(t, 20*time.Second, psmConfig.Timeout)
-
-	nsmConfig, ok := config.ProviderConfigs[nvswitchmanager.ProviderName].(*nvswitchmanager.Config)
-	require.True(t, ok)
-	assert.Equal(t, 90*time.Second, nsmConfig.Timeout)
 }
 
 func TestParseConfigDerivesProviders(t *testing.T) {
@@ -165,30 +151,14 @@ component_managers:
 			wantEnabled: []string{nico.ProviderName},
 		},
 		{
-			name: "psm",
-			configYAML: `
-component_managers:
-  powershelf: psm
-`,
-			wantEnabled: []string{psm.ProviderName},
-		},
-		{
-			name: "nvswitchmanager",
-			configYAML: `
-component_managers:
-  nvswitch: nvswitchmanager
-`,
-			wantEnabled: []string{nvswitchmanager.ProviderName},
-		},
-		{
 			name: "deduplicates providers",
 			configYAML: `
 component_managers:
   compute: nico
   nvswitch: nico
-  powershelf: psm
+  powershelf: nico
 `,
-			wantEnabled: []string{nico.ProviderName, psm.ProviderName},
+			wantEnabled: []string{nico.ProviderName},
 		},
 	}
 
@@ -205,23 +175,18 @@ func TestParseConfigCompletesMissingExplicitProviders(t *testing.T) {
 	config, err := parseConfigWithBuiltins(t, `
 component_managers:
   compute: nico
-  powershelf: psm
+  powershelf: nico
 providers:
-  psm:
+  nico:
     timeout: 20s
 `)
 	require.NoError(t, err)
 
 	assert.True(t, config.HasProvider(nico.ProviderName))
-	assert.True(t, config.HasProvider(psm.ProviderName))
 
 	nicoConfig, ok := config.ProviderConfigs[nico.ProviderName].(*nico.Config)
 	require.True(t, ok)
-	assert.Equal(t, nico.DefaultTimeout, nicoConfig.Timeout)
-
-	psmConfig, ok := config.ProviderConfigs[psm.ProviderName].(*psm.Config)
-	require.True(t, ok)
-	assert.Equal(t, 20*time.Second, psmConfig.Timeout)
+	assert.Equal(t, 20*time.Second, nicoConfig.Timeout)
 }
 
 func TestParseConfigCompletesEmptyProviders(t *testing.T) {
@@ -323,36 +288,6 @@ providers:
 				assertInvalidProviderConfigField(t, err, nico.ProviderName, "timeout")
 			},
 		},
-		{
-			name: "invalid psm timeout",
-			configYAML: `
-component_managers:
-  compute: mock
-providers:
-  psm:
-    timeout: nope
-`,
-			wantErr: providerapi.ErrInvalidProviderConfigField,
-			checkErr: func(t *testing.T, err error) {
-				t.Helper()
-				assertInvalidProviderConfigField(t, err, psm.ProviderName, "timeout")
-			},
-		},
-		{
-			name: "invalid nvswitchmanager timeout",
-			configYAML: `
-component_managers:
-  compute: mock
-providers:
-  nvswitchmanager:
-    timeout: nope
-`,
-			wantErr: providerapi.ErrInvalidProviderConfigField,
-			checkErr: func(t *testing.T, err error) {
-				t.Helper()
-				assertInvalidProviderConfigField(t, err, nvswitchmanager.ProviderName, "timeout")
-			},
-		},
 	}
 
 	for _, tc := range tests {
@@ -451,12 +386,13 @@ manager_configs:
 }
 
 func TestParseConfigRejectsManagerConfigUnknownImplementation(t *testing.T) {
+	const unknownImpl = "unknown-impl"
 	_, err := ParseConfig([]byte(`
 component_managers:
-  compute: psm
+  compute: unknown-impl
 manager_configs:
   compute:
-    psm:
+    unknown-impl:
       value: configured
 `), serviceProviderConfigDecoderRegistry(t), testCatalog(t), NewManagerConfigDecoderRegistry())
 
@@ -466,7 +402,7 @@ manager_configs:
 	var implErr cmcatalog.UnknownComponentManagerImplementationError
 	require.True(t, errors.As(err, &implErr))
 	assert.Equal(t, devicetypes.ComponentTypeCompute, implErr.ComponentType)
-	assert.Equal(t, psm.ProviderName, implErr.Implementation)
+	assert.Equal(t, unknownImpl, implErr.Implementation)
 	assert.Contains(t, implErr.Available, nico.ProviderName)
 }
 
@@ -661,7 +597,7 @@ func TestHasProviderUsesProviderConfigs(t *testing.T) {
 	}
 
 	assert.True(t, config.HasProvider(nico.ProviderName))
-	assert.False(t, config.HasProvider(psm.ProviderName))
+	assert.False(t, config.HasProvider("unregistered-provider"))
 }
 
 func TestNewConfigDerivesDefaultProviderConfigs(t *testing.T) {
@@ -762,20 +698,6 @@ func testCatalog(t *testing.T) cmcatalog.Catalog {
 		},
 		{
 			DescriptorIdentity: cmcatalog.DescriptorIdentity{
-				Type:           devicetypes.ComponentTypePowerShelf,
-				Implementation: psm.ProviderName,
-			},
-			RequiredProviders: []string{psm.ProviderName},
-		},
-		{
-			DescriptorIdentity: cmcatalog.DescriptorIdentity{
-				Type:           devicetypes.ComponentTypeNVSwitch,
-				Implementation: nvswitchmanager.ProviderName,
-			},
-			RequiredProviders: []string{nvswitchmanager.ProviderName},
-		},
-		{
-			DescriptorIdentity: cmcatalog.DescriptorIdentity{
 				Type:           devicetypes.ComponentTypeCompute,
 				Implementation: "custom-manager",
 			},
@@ -807,8 +729,6 @@ func serviceProviderConfigDecoderRegistry(t *testing.T) *providerapi.ProviderCon
 	t.Helper()
 	registry := providerapi.NewProviderConfigDecoderRegistry()
 	require.NoError(t, registry.Register(nico.ConfigDecoder{}))
-	require.NoError(t, registry.Register(psm.ConfigDecoder{}))
-	require.NoError(t, registry.Register(nvswitchmanager.ConfigDecoder{}))
 	return registry
 }
 

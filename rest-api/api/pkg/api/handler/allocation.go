@@ -21,20 +21,20 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -311,8 +311,8 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 				}
 
 				// Create a status detail record for the child IPBlock
-				_, serr = sdDAO.CreateFromParams(ctx, tx, childIPBlock.ID.String(), *cdb.GetStrPtr(cdbm.IPBlockStatusReady),
-					cdb.GetStrPtr("Child IP Block is ready for use"))
+				_, serr = sdDAO.CreateFromParams(ctx, tx, childIPBlock.ID.String(), *cutil.GetPtr(cdbm.IPBlockStatusReady),
+					cutil.GetPtr("Child IP Block is ready for use"))
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail DB entry for IP Block in Allocation Constraint")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail ipblock entry for Allocation Constraint", nil)
@@ -343,8 +343,8 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 		a = newA
 
 		// Create a status detail record for the Allocation
-		newSsd, serr := sdDAO.CreateFromParams(ctx, tx, a.ID.String(), *cdb.GetStrPtr(cdbm.AllocationStatusRegistered),
-			cdb.GetStrPtr("received allocation creation request, registered"))
+		newSsd, serr := sdDAO.CreateFromParams(ctx, tx, a.ID.String(), *cutil.GetPtr(cdbm.AllocationStatusRegistered),
+			cutil.GetPtr("received allocation creation request, registered"))
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Allocation", nil)
@@ -690,7 +690,7 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 		providerFilter := sharedFilter
 		providerFilter.InfrastructureProviderID = &provider.ID
 		providerFilter.TenantIDs = filterTenantIDs
-		providerAllocations, _, err := aDAO.GetAll(ctx, nil, providerFilter, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		providerAllocations, _, err := aDAO.GetAll(ctx, nil, providerFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting Allocations from Provider perspective")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations, DB error", nil)
@@ -703,7 +703,7 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 	if tenant != nil {
 		tenantFilter := sharedFilter
 		tenantFilter.TenantIDs = []uuid.UUID{tenant.ID}
-		tenantAllocations, _, err := aDAO.GetAll(ctx, nil, tenantFilter, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		tenantAllocations, _, err := aDAO.GetAll(ctx, nil, tenantFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting Allocations from Tenant perspective")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations, DB error", nil)
@@ -750,7 +750,7 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 
 	// Get allocation constraints based on allocation filter by resource type
 	acDAO := cdbm.NewAllocationConstraintDAO(gaah.dbSession)
-	alcs, _, err := acDAO.GetAll(ctx, nil, aids, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	alcs, _, err := acDAO.GetAll(ctx, nil, aids, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Allocation Constraints for Allocations from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to populate Constraints for Allocations", nil)
@@ -1059,7 +1059,7 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 			// If this was an IP Block allocation, then update the derived resource name
 			// Get IP Block Allocation Constraints, if any
 			acDAO := cdbm.NewAllocationConstraintDAO(uah.dbSession)
-			ipbAcs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, cdb.GetStrPtr(cdbm.AllocationResourceTypeIPBlock), nil, nil, nil, nil, nil, nil, nil)
+			ipbAcs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock), nil, nil, nil, nil, nil, nil, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Allocation Constraints for Allocation from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Allocation", nil)
@@ -1089,7 +1089,7 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(uah.dbSession)
-		retSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, a.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		retSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, a.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for Allocation from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Allocation", nil)
@@ -1233,7 +1233,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 
 		// check dependent objects (instances or subnets for the tenant) in allocation constraints for the allocation
 		acDAO := cdbm.NewAllocationConstraintDAO(dah.dbSession)
-		acs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		acs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if derr != nil && derr != cdb.ErrDoesNotExist {
 			logger.Error().Err(derr).Msg("error retrieving Allocation Constraints from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Error getting allocation constraints for allocation", nil)
@@ -1282,7 +1282,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 						SiteIDs:                   []uuid.UUID{a.SiteID},
 						InstanceTypeIDs:           []uuid.UUID{ac.ResourceTypeID},
 					},
-					cdbp.PageInput{Limit: cdb.GetIntPtr(0)},
+					cdbp.PageInput{Limit: cutil.GetPtr(0)},
 					nil,
 				)
 				if serr != nil {
@@ -1300,7 +1300,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 
 				// Calculate the tenant/site aggregate capacity for the instance type.
 				totalConstraintValue, serr := common.GetTotalAllocationConstraintValueForInstanceType(
-					ctx, tx, dah.dbSession, allocationIDs, &ac.ResourceTypeID, cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
+					ctx, tx, dah.dbSession, allocationIDs, &ac.ResourceTypeID, cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 				)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error getting total Allocation Constraint value for Instance Type")
@@ -1309,7 +1309,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 
 				// Calculate how much capacity would be removed by deleting this allocation.
 				deletedConstraintValue, serr := common.GetTotalAllocationConstraintValueForInstanceType(
-					ctx, tx, dah.dbSession, []uuid.UUID{a.ID}, &ac.ResourceTypeID, cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
+					ctx, tx, dah.dbSession, []uuid.UUID{a.ID}, &ac.ResourceTypeID, cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 				)
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error getting Allocation Constraint value for Allocation being deleted")
@@ -1387,7 +1387,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 						}
 
 						// Get count of subnets for the IP Block
-						_, sbCount, sserr := sDAO.GetAll(ctx, tx, subnetFilter, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, []string{})
+						_, sbCount, sserr := sDAO.GetAll(ctx, tx, subnetFilter, cdbp.PageInput{Limit: cutil.GetPtr(0)}, []string{})
 						if sserr != nil {
 							logger.Error().Err(sserr).Str("Constraint ID", ac.DerivedResourceID.String()).Msg("error getting Subnets for Allocation Constraint's IP Block")
 							return cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Subnets for Allocation's IP Block'", nil)
@@ -1398,7 +1398,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 						}
 
 						// Get count of Vpc Prefixes for the IP Block
-						_, vpCount, sserr := vpDAO.GetAll(ctx, tx, vpcPrefixFilter, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, []string{})
+						_, vpCount, sserr := vpDAO.GetAll(ctx, tx, vpcPrefixFilter, cdbp.PageInput{Limit: cutil.GetPtr(0)}, []string{})
 						if sserr != nil {
 							logger.Error().Err(sserr).Str("Constraint ID", ac.DerivedResourceID.String()).Msg("error getting Vpc Prefixes for Allocation Constraint's IP Block")
 							return cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Vpc Prefixes for Allocation's IP Block'", nil)

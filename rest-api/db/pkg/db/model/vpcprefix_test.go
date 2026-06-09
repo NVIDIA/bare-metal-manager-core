@@ -9,15 +9,116 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestVpcPrefix_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vpcID := uuid.New()
+	vp := &VpcPrefix{ID: prefixID, Name: "prefix-a", Prefix: "10.0.0.0/16"}
+	vpc := &Vpc{ID: vpcID}
+
+	t.Run("populates wire fields and translates VpcId via the parent VPC", func(t *testing.T) {
+		proto := vp.ToProto(vpc)
+		require.NotNil(t, proto)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, prefixID.String(), proto.Id.Value)
+		require.NotNil(t, proto.VpcId)
+		assert.Equal(t, vpcID.String(), proto.VpcId.Value)
+		require.NotNil(t, proto.Config)
+		assert.Equal(t, "10.0.0.0/16", proto.Config.Prefix)
+		require.NotNil(t, proto.Metadata)
+		assert.Equal(t, "prefix-a", proto.Metadata.Name)
+	})
+
+	t.Run("leaves VpcId nil when parent VPC is not provided", func(t *testing.T) {
+		proto := vp.ToProto(nil)
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.VpcId)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, prefixID.String(), proto.Id.Value)
+	})
+}
+
+func TestVpcPrefix_FromProto(t *testing.T) {
+	t.Run("nil proto is a no-op", func(t *testing.T) {
+		original := VpcPrefix{ID: uuid.New(), Name: "original", Prefix: "10.0.0.0/16"}
+		vp := original
+		vp.FromProto(nil)
+		assert.Equal(t, original, vp)
+	})
+
+	t.Run("populates fields from proto Metadata and Config", func(t *testing.T) {
+		prefixID := uuid.New()
+		vpcID := uuid.New()
+		vp := &VpcPrefix{}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id:       &cwssaws.VpcPrefixId{Value: prefixID.String()},
+			VpcId:    &cwssaws.VpcId{Value: vpcID.String()},
+			Config:   &cwssaws.VpcPrefixConfig{Prefix: "10.0.0.0/16"},
+			Metadata: &cwssaws.Metadata{Name: "prefix-a"},
+		})
+		assert.Equal(t, prefixID, vp.ID)
+		assert.Equal(t, vpcID, vp.VpcID)
+		assert.Equal(t, "prefix-a", vp.Name)
+		assert.Equal(t, "10.0.0.0/16", vp.Prefix)
+	})
+
+	t.Run("falls back to deprecated top-level Name and Prefix", func(t *testing.T) {
+		prefixID := uuid.New()
+		vp := &VpcPrefix{}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id:     &cwssaws.VpcPrefixId{Value: prefixID.String()},
+			Name:   "prefix-legacy",
+			Prefix: "10.1.0.0/16",
+		})
+		assert.Equal(t, "prefix-legacy", vp.Name)
+		assert.Equal(t, "10.1.0.0/16", vp.Prefix)
+	})
+
+	t.Run("preserves ID when proto Id is unparseable", func(t *testing.T) {
+		preserved := uuid.New()
+		vp := &VpcPrefix{ID: preserved}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id: &cwssaws.VpcPrefixId{Value: "not-a-uuid"},
+		})
+		assert.Equal(t, preserved, vp.ID)
+	})
+
+	t.Run("clears VpcID when proto omits VpcId", func(t *testing.T) {
+		vp := &VpcPrefix{VpcID: uuid.New()}
+		vp.FromProto(&cwssaws.VpcPrefix{})
+		assert.Equal(t, uuid.Nil, vp.VpcID)
+	})
+
+	t.Run("clears VpcID when proto VpcId is unparseable", func(t *testing.T) {
+		vp := &VpcPrefix{VpcID: uuid.New()}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			VpcId: &cwssaws.VpcId{Value: "not-a-uuid"},
+		})
+		assert.Equal(t, uuid.Nil, vp.VpcID)
+	})
+}
+
+func TestVpcPrefix_ToDeletionRequestProto(t *testing.T) {
+	prefixID := uuid.New()
+	vp := &VpcPrefix{ID: prefixID}
+	req := vp.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, prefixID.String(), req.Id.Value)
+}
 
 func testVpcPrefixInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
@@ -65,7 +166,7 @@ func testVpcPrefixBuildInfrastructureProvider(t *testing.T, dbSession *db.Sessio
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -77,13 +178,13 @@ func testVpcPrefixBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastruct
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -137,10 +238,10 @@ func testVpcPrefixBuildIPBlock(t *testing.T, dbSession *db.Session, siteID, infr
 func testVpcPrefixBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -459,18 +560,18 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with limit returns objects",
 			vpcIDs:        []uuid.UUID{vpc1.ID},
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with offset returns objects",
 			vpcIDs:        []uuid.UUID{vpc1.ID},
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -482,12 +583,12 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &vps[4], // 5th entry is "VpcPrefix-8" and would appear first on descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with name search query returns objects",
-			searchQuery:   db.GetStrPtr("VpcPrefix-"),
+			searchQuery:   cutil.GetPtr("VpcPrefix-"),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -508,7 +609,7 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with status search query returns objects",
-			searchQuery:   db.GetStrPtr(VpcPrefixStatusReady),
+			searchQuery:   cutil.GetPtr(VpcPrefixStatusReady),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -516,7 +617,7 @@ func TestVpcPrefixSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with empty search query returns objects",
 			vpcIDs:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -650,26 +751,26 @@ func TestVpcPrefixSQLDAO_Update(t *testing.T) {
 		{
 			desc:                 "can update all fields",
 			id:                   VpcPrefix1.ID,
-			paramName:            db.GetStrPtr("updatedName"),
-			paramOrg:             db.GetStrPtr("updatedOrg"),
+			paramName:            cutil.GetPtr("updatedName"),
+			paramOrg:             cutil.GetPtr("updatedOrg"),
 			paramVpcID:           &vpc2.ID,
 			paramTenantID:        &tenant2.ID,
 			paramIPBlockID:       &ipBlock2.ID,
-			paramPrefix:          db.GetStrPtr(newPrefix),
+			paramPrefix:          cutil.GetPtr(newPrefix),
 			paramPrefixLength:    &newPrefixLength,
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			paramIsMissingOnSite: db.GetBoolPtr(true),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			paramIsMissingOnSite: cutil.GetPtr(true),
 
 			expectedError:           false,
-			expectedName:            db.GetStrPtr("updatedName"),
-			expectedOrg:             db.GetStrPtr("updatedOrg"),
+			expectedName:            cutil.GetPtr("updatedName"),
+			expectedOrg:             cutil.GetPtr("updatedOrg"),
 			expectedVpcID:           &vpc2.ID,
 			expectedTenantID:        &tenant2.ID,
 			expectedIPBlockID:       &ipBlock2.ID,
-			expectedprefix:          db.GetStrPtr(newPrefix),
+			expectedprefix:          cutil.GetPtr(newPrefix),
 			expectedPrefixLength:    &newPrefixLength,
-			expectedStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			expectedIsMissingOnSite: db.GetBoolPtr(true),
+			expectedStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			expectedIsMissingOnSite: cutil.GetPtr(true),
 			verifyChildSpanner:      true,
 		},
 		{
@@ -678,26 +779,26 @@ func TestVpcPrefixSQLDAO_Update(t *testing.T) {
 			paramName:            nil,
 			paramVpcID:           &vpc.ID,
 			paramPrefixLength:    nil,
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
 			paramIsMissingOnSite: nil,
 
 			expectedError:           false,
-			expectedName:            db.GetStrPtr("updatedName"),
+			expectedName:            cutil.GetPtr("updatedName"),
 			expectedVpcID:           &vpc.ID,
-			expectedprefix:          db.GetStrPtr(newPrefix),
+			expectedprefix:          cutil.GetPtr(newPrefix),
 			expectedPrefixLength:    &newPrefixLength,
-			expectedStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			expectedIsMissingOnSite: db.GetBoolPtr(true),
+			expectedStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			expectedIsMissingOnSite: cutil.GetPtr(true),
 		},
 		{
 			desc:      "error updating when Vpc foreign key violated",
 			id:        VpcPrefix1.ID,
-			paramName: db.GetStrPtr("updatedName"),
+			paramName: cutil.GetPtr("updatedName"),
 
 			paramVpcID:           &dummyUUID,
-			paramPrefix:          db.GetStrPtr(newPrefix),
-			paramStatus:          db.GetStrPtr(VpcPrefixStatusReady),
-			paramIsMissingOnSite: db.GetBoolPtr(true),
+			paramPrefix:          cutil.GetPtr(newPrefix),
+			paramStatus:          cutil.GetPtr(VpcPrefixStatusReady),
+			paramIsMissingOnSite: cutil.GetPtr(true),
 
 			expectedError: true,
 		},

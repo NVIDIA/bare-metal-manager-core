@@ -14,11 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	svc "github.com/NVIDIA/infra-controller-rest/powershelf-manager/internal/service"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/credentials"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/powershelfmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	svc "github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/internal/service"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/credentials"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/powershelfmanager"
 )
 
 // getEnvOrDefault returns the value of an environment variable or a default value.

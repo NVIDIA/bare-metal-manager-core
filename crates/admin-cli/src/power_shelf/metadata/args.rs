@@ -33,12 +33,27 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show a power shelf's metadata:
+    $ carbide-admin-cli power-shelf metadata show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct PowerShelfMetadataCommandShow {
     #[clap(help = "The power shelf which should get its metadata displayed")]
     pub power_shelf: PowerShelfId,
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a power shelf's name and description:
+    $ carbide-admin-cli power-shelf metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    --name ps-01 --description \"Rack 4 power shelf\"
+
+")]
 pub struct PowerShelfMetadataCommandSet {
     #[clap(help = "The power shelf which should get updated metadata")]
     pub power_shelf: PowerShelfId,
@@ -49,6 +64,17 @@ pub struct PowerShelfMetadataCommandSet {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a key-only label:
+    $ carbide-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+
+Add a key/value label:
+    $ carbide-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    --key row --value C
+
+")]
 pub struct PowerShelfMetadataCommandAddLabel {
     #[clap(help = "The power shelf which should get updated metadata")]
     pub power_shelf: PowerShelfId,
@@ -59,6 +85,14 @@ pub struct PowerShelfMetadataCommandAddLabel {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove one or more labels by key:
+    $ carbide-admin-cli power-shelf metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    --keys row --keys edge
+
+")]
 pub struct PowerShelfMetadataCommandRemoveLabels {
     #[clap(help = "The power shelf which should get updated metadata")]
     pub power_shelf: PowerShelfId,
@@ -67,6 +101,17 @@ pub struct PowerShelfMetadataCommandRemoveLabels {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Fill in missing metadata from the expected-power-shelf (leaving existing values intact):
+    $ carbide-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567
+
+Overwrite the power shelf's metadata with the expected-power-shelf's values:
+    $ carbide-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567 \
+    --replace-all
+
+")]
 pub struct PowerShelfMetadataCommandFromExpectedPowerShelf {
     #[clap(help = "The power shelf which should get updated metadata")]
     pub power_shelf: PowerShelfId,

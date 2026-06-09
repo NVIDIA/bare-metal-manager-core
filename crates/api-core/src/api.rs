@@ -236,6 +236,13 @@ impl Forge for Api {
         crate::handlers::vpc_prefix::delete(self, request).await
     }
 
+    async fn find_vpc_prefix_state_histories(
+        &self,
+        request: Request<rpc::VpcPrefixStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::vpc_prefix::find_state_histories(self, request).await
+    }
+
     async fn create_vpc_peering(
         &self,
         request: Request<rpc::VpcPeeringCreationRequest>,
@@ -651,6 +658,27 @@ impl Forge for Api {
         request: Request<rpc::RemovePowerShelfHealthReportRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::power_shelf::remove_power_shelf_health_report(self, request).await
+    }
+
+    async fn list_nv_link_domain_health_reports(
+        &self,
+        request: Request<rpc::ListNvLinkDomainHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::nvlink_domain::list_nv_link_domain_health_reports(self, request).await
+    }
+
+    async fn insert_nv_link_domain_health_report(
+        &self,
+        request: Request<rpc::InsertNvLinkDomainHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_domain::insert_nv_link_domain_health_report(self, request).await
+    }
+
+    async fn remove_nv_link_domain_health_report(
+        &self,
+        request: Request<rpc::RemoveNvLinkDomainHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_domain::remove_nv_link_domain_health_report(self, request).await
     }
 
     async fn get_all_domain_metadata(
@@ -1221,6 +1249,13 @@ impl Forge for Api {
         request: Request<rpc::DeleteRackRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::rack::delete_rack(self, request).await
+    }
+
+    async fn admin_force_delete_rack(
+        &self,
+        request: Request<rpc::AdminForceDeleteRackRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteRackResponse>, Status> {
+        crate::handlers::rack::admin_force_delete_rack(self, request).await
     }
 
     async fn get_rack_profile(
@@ -2941,25 +2976,18 @@ impl Forge for Api {
         crate::handlers::attestation::cancel_machine_attestation(self, request).await
     }
 
-    async fn list_attestations_for_machine_id(
+    async fn list_attestation_machines(
         &self,
-        request: tonic::Request<MachineId>,
-    ) -> Result<tonic::Response<rpc::SpdmListAttestationsResponse>, Status> {
-        crate::handlers::attestation::list_attestations_for_machine_id(self, request).await
+        request: tonic::Request<rpc::SpdmListAttestationMachinesRequest>,
+    ) -> Result<Response<rpc::SpdmListAttestationMachinesResponse>, Status> {
+        crate::handlers::attestation::list_attestation_machines(self, request).await
     }
 
-    async fn find_machine_ids_under_attestation(
-        &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
-        crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
-    }
-
-    async fn get_machine_attestation_status(
+    async fn get_attestation_machine(
         &self,
         request: tonic::Request<MachineId>,
-    ) -> Result<Response<rpc::SpdmMachineAttestationStatusResponse>, Status> {
-        crate::handlers::attestation::get_machine_attestations_status(self, request).await
+    ) -> Result<Response<rpc::SpdmGetAttestationMachineResponse>, Status> {
+        crate::handlers::attestation::get_attestation_machine(self, request).await
     }
 
     async fn sign_machine_identity(
@@ -3009,6 +3037,14 @@ impl Forge for Api {
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::tenant_identity_config::delete_token_delegation(self, request).await
+    }
+
+    async fn reencrypt_tenant_identity_secrets(
+        &self,
+        request: Request<rpc::ReencryptTenantIdentitySecretsRequest>,
+    ) -> Result<Response<rpc::ReencryptTenantIdentitySecretsResponse>, Status> {
+        crate::handlers::tenant_identity_config::reencrypt_tenant_identity_secrets(self, request)
+            .await
     }
 
     async fn get_jwks(

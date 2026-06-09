@@ -26,6 +26,32 @@ use crate::component_manager::common::{
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Queue firmware on NVLink switches from a target version:
+    $ carbide-admin-cli component-manager update-firmware switch \
+    --switch-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
+
+Update only specific switch components, forcing the update:
+    $ carbide-admin-cli component-manager update-firmware switch \
+    --switch-id 12345678-1234-5678-90ab-cdef01234567 --component bmc,bios --force-update \
+    --target-version fw-1.2.3
+
+Queue firmware on compute trays from an RMS SOT JSON file:
+    $ carbide-admin-cli component-manager update-firmware compute-tray \
+    --machine-id 12345678-1234-5678-90ab-cdef01234567 --sot-json-file ./sot.json \
+    --access-token mytoken
+
+Queue firmware on power shelves:
+    $ carbide-admin-cli component-manager update-firmware power-shelf \
+    --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
+
+Queue firmware on all eligible devices in a rack:
+    $ carbide-admin-cli component-manager update-firmware rack \
+    --rack-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
+
+")]
 pub struct Args {
     #[clap(subcommand)]
     pub target: Target,
@@ -64,6 +90,12 @@ pub struct SwitchArgs {
         help = "NVLink switch components to update; omit to update all supported components"
     )]
     pub components: Vec<NvSwitchComponentArg>,
+
+    #[clap(
+        long = "bypass-state-controller",
+        help = "Bypass the state controller and dispatch directly to the component backend"
+    )]
+    pub bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
@@ -84,6 +116,12 @@ pub struct PowerShelfArgs {
         help = "Power shelf components to update; omit to update all supported components"
     )]
     pub components: Vec<PowerShelfComponentArg>,
+
+    #[clap(
+        long = "bypass-state-controller",
+        help = "Bypass the state controller and dispatch directly to the component backend"
+    )]
+    pub bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
@@ -104,6 +142,12 @@ pub struct ComputeTrayArgs {
         help = "Compute tray components to update; omit to update all supported components"
     )]
     pub components: Vec<ComputeTrayComponentArg>,
+
+    #[clap(
+        long = "bypass-state-controller",
+        help = "Bypass the state controller and dispatch directly to the component backend"
+    )]
+    pub bypass_state_controller: bool,
 }
 
 #[derive(ClapArgs, Debug)]
@@ -135,7 +179,7 @@ pub struct FirmwareSourceArgs {
 
     #[clap(
         long = "access-token",
-        help = "Artifact access token; required with --sot-json-file"
+        help = "Artifact access token for RMS SOT JSON downloads; omit or pass empty for NOAUTH"
     )]
     pub access_token: Option<String>,
 }
@@ -169,20 +213,17 @@ fn resolve_firmware_source(
             }
         }
         (None, Some(sot_json_file), access_token) => {
-            let token = access_token.ok_or_else(|| {
-                CarbideCliError::GenericError(
-                    "--access-token is required with --sot-json-file".to_string(),
-                )
-            })?;
-            if token.trim().is_empty() {
-                return Err(CarbideCliError::GenericError(
-                    "--access-token must not be empty".to_string(),
-                ));
-            }
+            let token = access_token.and_then(|token| {
+                if token.trim().is_empty() {
+                    None
+                } else {
+                    Some(token)
+                }
+            });
 
             let config_json = std::fs::read_to_string(sot_json_file)?;
             serde_json::from_str::<serde_json::Value>(&config_json)?;
-            Ok((config_json, Some(token)))
+            Ok((config_json, token))
         }
     }
 }
@@ -199,6 +240,7 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                     target_version,
                     access_token,
                     force_update: target.force_update,
+                    bypass_state_controller: target.bypass_state_controller,
                     target: Some(
                         rpc::forge::update_component_firmware_request::Target::Switches(
                             rpc::forge::UpdateSwitchFirmwareTarget {
@@ -219,6 +261,7 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                 target_version: target.target_version,
                 access_token: None,
                 force_update: target.force_update,
+                bypass_state_controller: target.bypass_state_controller,
                 target: Some(
                     rpc::forge::update_component_firmware_request::Target::PowerShelves(
                         rpc::forge::UpdatePowerShelfFirmwareTarget {
@@ -241,6 +284,7 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                     target_version,
                     access_token,
                     force_update: target.force_update,
+                    bypass_state_controller: target.bypass_state_controller,
                     target: Some(
                         rpc::forge::update_component_firmware_request::Target::ComputeTrays(
                             rpc::forge::UpdateComputeTrayFirmwareTarget {
@@ -264,6 +308,7 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                     target_version,
                     access_token,
                     force_update: target.force_update,
+                    bypass_state_controller: false,
                     target: Some(
                         rpc::forge::update_component_firmware_request::Target::Racks(
                             rpc::forge::UpdateFirmwareObjectTarget {
@@ -320,6 +365,37 @@ mod tests {
 
         assert_eq!(target_version, r#"{"Id":"fw-object"}"#);
         assert_eq!(access_token.as_deref(), Some("token"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sot_json_source_allows_missing_access_token() {
+        let path = temp_sot_file(r#"{"Id":"fw-object"}"#);
+
+        let (target_version, access_token) = resolve_firmware_source(FirmwareSourceArgs {
+            target_version: None,
+            sot_json_file: Some(path.clone()),
+            access_token: None,
+        })
+        .expect("SOT source should resolve without an access token");
+
+        assert_eq!(target_version, r#"{"Id":"fw-object"}"#);
+        assert_eq!(access_token, None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sot_json_source_treats_empty_access_token_as_missing() {
+        let path = temp_sot_file(r#"{"Id":"fw-object"}"#);
+
+        let (_, access_token) = resolve_firmware_source(FirmwareSourceArgs {
+            target_version: None,
+            sot_json_file: Some(path.clone()),
+            access_token: Some(String::new()),
+        })
+        .expect("SOT source should resolve with an empty access token");
+
+        assert_eq!(access_token, None);
         let _ = std::fs::remove_file(path);
     }
 

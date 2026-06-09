@@ -19,6 +19,17 @@ use clap::Parser;
 use rpc::forge::AdminForceDeleteMachineRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Force delete a machine (by UUID, IPv4, MAC, or hostname):
+    $ carbide-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567
+
+Force delete a machine and its interfaces (redeploy kea afterward):
+    $ carbide-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-interfaces
+
+")]
 pub struct Args {
     #[clap(
         long,
@@ -56,6 +67,13 @@ pub struct Args {
         help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
     )]
     pub allow_delete_with_instance: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete machine even if DPF CRDs exist and DPF is disabled at the site level. This flag acknowledges that orphaned DPF resources may remain"
+    )]
+    pub allow_delete_with_orphaned_dpf_crds: bool,
 }
 
 impl From<&Args> for AdminForceDeleteMachineRequest {
@@ -65,6 +83,7 @@ impl From<&Args> for AdminForceDeleteMachineRequest {
             delete_interfaces: args.delete_interfaces,
             delete_bmc_interfaces: args.delete_bmc_interfaces,
             delete_bmc_credentials: args.delete_bmc_credentials,
+            allow_delete_with_orphaned_dpf_crds: args.allow_delete_with_orphaned_dpf_crds,
         }
     }
 }

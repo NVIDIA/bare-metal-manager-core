@@ -8,11 +8,14 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	ipam "github.com/NVIDIA/infra-controller-rest/ipam"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 )
 
 func TestAPIVpcPrefixCreateRequest_Validate(t *testing.T) {
@@ -27,27 +30,27 @@ func TestAPIVpcPrefixCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "error when Name is not provided",
-			obj:       APIVpcPrefixCreateRequest{VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIVpcPrefixCreateRequest{Name: "a", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "a", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "error when VpcID is not valid uuid",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: "baduuid", IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: "baduuid", IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
 			desc:      "error when IPv4Block is not valid uuid",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr("bad"), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr("bad"), PrefixLength: prefix24},
 			expectErr: true,
 		},
 		{
@@ -57,32 +60,32 @@ func TestAPIVpcPrefixCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "error when prefixLength is not valid < min",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix7},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix7},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not valid > max",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix31},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix31},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when all fields are specified",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when only IPBlockID is specified",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix24},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix24},
 			expectErr: false,
 		},
 		{
 			desc:      "error when /32 VpcPrefix is created",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: prefix32},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefix32},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not specified",
-			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APIVpcPrefixCreateRequest{Name: "ab", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(uuid.New().String())},
 			expectErr: true,
 		},
 	}
@@ -106,32 +109,32 @@ func TestAPIVpcPrefixUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when Name is not provided",
-			obj:       APIVpcPrefixUpdateRequest{IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: cdb.GetIntPtr(prefix24)},
+			obj:       APIVpcPrefixUpdateRequest{IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: cutil.GetPtr(prefix24)},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when ipbock is not provided",
-			obj:       APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("ab")},
+			obj:       APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when Name is provided but is empty",
-			obj:       APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("")},
+			obj:       APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("a")},
+			obj:       APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("a")},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when ipblock provided but not prefix length",
-			obj:       APIVpcPrefixUpdateRequest{IPBlockID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APIVpcPrefixUpdateRequest{IPBlockID: cutil.GetPtr(uuid.New().String())},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when prefix length provided but not ipblock",
-			obj:       APIVpcPrefixUpdateRequest{PrefixLength: cdb.GetIntPtr(prefix24)},
+			obj:       APIVpcPrefixUpdateRequest{PrefixLength: cutil.GetPtr(prefix24)},
 			expectErr: true,
 		},
 	}
@@ -152,7 +155,7 @@ func TestAPIVpcPrefixNew(t *testing.T) {
 		Name:                     "test",
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
 		RoutingType:              cdbm.IPBlockRoutingTypePublic,
 		Prefix:                   "192.168.0.0",
 		PrefixLength:             16,
@@ -190,7 +193,7 @@ func TestAPIVpcPrefixNew(t *testing.T) {
 		{
 			desc:   "test creating API VpcPrefix only IPv4",
 			dbObj:  dbObj1,
-			prefix: cdb.GetStrPtr("192.168.0.0"),
+			prefix: cutil.GetPtr("192.168.0.0"),
 			sdObj:  dbsds,
 		},
 	}
@@ -214,7 +217,7 @@ func TestNewAPIVpcPrefix_UsageStats(t *testing.T) {
 		Name:         "vpc-prefix-stats",
 		SiteID:       uuid.New(),
 		VpcID:        uuid.New(),
-		IPBlockID:    cdb.GetUUIDPtr(uuid.New()),
+		IPBlockID:    cutil.GetPtr(uuid.New()),
 		Prefix:       "10.1.0.0",
 		PrefixLength: 24,
 		Created:      cdb.GetCurTime(),
@@ -273,4 +276,46 @@ func TestNewAPIVpcPrefix_UsageStats(t *testing.T) {
 			req.Equal(tc.want.AcquiredPrefixes, got.UsageStats.AcquiredPrefixes)
 		})
 	}
+}
+
+func TestAPIVpcPrefixCreateRequest_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vpcID := uuid.New()
+	vp := &cdbm.VpcPrefix{ID: prefixID, Name: "prefix-a", Prefix: "10.0.0.0/16"}
+	vpc := &cdbm.Vpc{ID: vpcID}
+
+	t.Run("sources canonical fields from the entity's ToProto", func(t *testing.T) {
+		apiReq := APIVpcPrefixCreateRequest{
+			Name:         "prefix-a",
+			VpcID:        vpcID.String(),
+			IPBlockID:    cutil.GetPtr(uuid.New().String()),
+			PrefixLength: 24,
+		}
+		req := apiReq.ToProto(vp, vpc)
+
+		require.NotNil(t, req)
+		require.NotNil(t, req.Id)
+		assert.Equal(t, prefixID.String(), req.Id.Value)
+		require.NotNil(t, req.VpcId)
+		assert.Equal(t, vpcID.String(), req.VpcId.Value)
+		require.NotNil(t, req.Config)
+		assert.Equal(t, "10.0.0.0/16", req.Config.Prefix)
+		require.NotNil(t, req.Metadata)
+		assert.Equal(t, "prefix-a", req.Metadata.Name)
+	})
+}
+
+func TestAPIVpcPrefixUpdateRequest_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vp := &cdbm.VpcPrefix{ID: prefixID, Name: "prefix-a"}
+
+	t.Run("sources Id and Metadata.Name from the post-merge entity", func(t *testing.T) {
+		apiReq := APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("prefix-a")}
+		req := apiReq.ToProto(vp)
+		require.NotNil(t, req)
+		require.NotNil(t, req.Id)
+		assert.Equal(t, prefixID.String(), req.Id.Value)
+		require.NotNil(t, req.Metadata)
+		assert.Equal(t, "prefix-a", req.Metadata.Name)
+	})
 }

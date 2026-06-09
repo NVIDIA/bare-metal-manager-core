@@ -11,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -54,13 +55,13 @@ func testIPBlockBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastructur
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -73,7 +74,7 @@ func testIPBlockBuildInfrastructureProvider(t *testing.T, dbSession *db.Session,
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -147,7 +148,7 @@ func TestIPBlockSQLDAO_Create(t *testing.T) {
 					nil,
 					IPBlockCreateInput{
 						Name:                     i.Name,
-						Description:              db.GetStrPtr("description"),
+						Description:              cutil.GetPtr("description"),
 						SiteID:                   site.ID,
 						InfrastructureProviderID: ip.ID,
 						TenantID:                 &tenant.ID,
@@ -193,7 +194,7 @@ func TestIPBlockSQLDAO_GetByID(t *testing.T) {
 		nil,
 		IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -212,7 +213,7 @@ func TestIPBlockSQLDAO_GetByID(t *testing.T) {
 	ipb2, err := ipsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test2",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			RoutingType:              IPBlockRoutingTypePublic,
@@ -362,7 +363,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 	ipb, err := ipsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -381,7 +382,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 	ipb2, err := ipsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test2",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			RoutingType:              IPBlockRoutingTypePublic,
@@ -432,7 +433,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 				IPBlockStatusProvisioning: 2,
 				"total":                   2,
 			},
-			reqIP:              db.GetUUIDPtr(ip.ID),
+			reqIP:              cutil.GetPtr(ip.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -454,7 +455,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 				IPBlockStatusProvisioning: 2,
 				"total":                   2,
 			},
-			reqSite: db.GetUUIDPtr(site1.ID),
+			reqSite: cutil.GetPtr(site1.ID),
 		},
 		{
 			name: "get ipblock status count by tenant with ipblock returns success",
@@ -475,7 +476,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 				IPBlockStatusProvisioning: 1,
 				"total":                   1,
 			},
-			reqTenant: db.GetUUIDPtr(tenant.ID),
+			reqTenant: cutil.GetPtr(tenant.ID),
 		},
 		{
 			name: "get ipblock status count by unexisted infrastructure provider with no ipblock returns success",
@@ -488,7 +489,7 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 			wantErr:   nil,
 			wantEmpty: true,
 			wantCount: 0,
-			reqIP:     db.GetUUIDPtr(uuid.New()),
+			reqIP:     cutil.GetPtr(uuid.New()),
 		},
 		{
 			name: "get ipblock status count with no filter ipblock returns success",
@@ -565,7 +566,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			_, err := ipbsd.Create(
 				ctx, nil, IPBlockCreateInput{
 					Name:                     fmt.Sprintf("test-%v", i),
-					Description:              db.GetStrPtr("description"),
+					Description:              cutil.GetPtr("description"),
 					SiteID:                   site1.ID,
 					InfrastructureProviderID: ip.ID,
 					RoutingType:              IPBlockRoutingTypePublic,
@@ -582,7 +583,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			ipb, err := ipbsd.Create(
 				ctx, nil, IPBlockCreateInput{
 					Name:                     fmt.Sprintf("test-%v", i),
-					Description:              db.GetStrPtr("description"),
+					Description:              cutil.GetPtr("description"),
 					SiteID:                   site2.ID,
 					InfrastructureProviderID: ip.ID,
 					TenantID:                 &tenant.ID,
@@ -759,7 +760,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 []uuid.UUID{tenant.ID},
 			routingTypes:              nil,
 			ipbNames:                  []string{"test-0"},
-			fullGrant:                 db.GetBoolPtr(false),
+			fullGrant:                 cutil.GetPtr(false),
 			expectedCount:             1,
 			expectedError:             false,
 		},
@@ -770,10 +771,10 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			offset:                    db.GetIntPtr(0),
-			limit:                     db.GetIntPtr(5),
+			offset:                    cutil.GetPtr(0),
+			limit:                     cutil.GetPtr(5),
 			expectedCount:             5,
-			expectedTotal:             db.GetIntPtr(totalCount / 2),
+			expectedTotal:             cutil.GetPtr(totalCount / 2),
 			expectedError:             false,
 		},
 		{
@@ -783,9 +784,9 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			offset:                    db.GetIntPtr(5),
+			offset:                    cutil.GetPtr(5),
 			expectedCount:             10,
-			expectedTotal:             db.GetIntPtr(totalCount / 2),
+			expectedTotal:             cutil.GetPtr(totalCount / 2),
 			expectedError:             false,
 		},
 		{
@@ -801,7 +802,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &site2ipbs[4], // 5th entry is "test-8" and would appear first in descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -811,7 +812,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			searchQuery:               db.GetStrPtr("test-"),
+			searchQuery:               cutil.GetPtr("test-"),
 			expectedCount:             paginator.DefaultLimit,
 			expectedTotal:             &totalCount,
 			expectedError:             false,
@@ -823,7 +824,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			searchQuery:               db.GetStrPtr("description"),
+			searchQuery:               cutil.GetPtr("description"),
 			expectedCount:             paginator.DefaultLimit,
 			expectedTotal:             &totalCount,
 			expectedError:             false,
@@ -835,7 +836,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			searchQuery:               db.GetStrPtr(IPBlockStatusProvisioning),
+			searchQuery:               cutil.GetPtr(IPBlockStatusProvisioning),
 			expectedCount:             paginator.DefaultLimit,
 			expectedTotal:             &totalCount,
 			expectedError:             false,
@@ -847,7 +848,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:                 nil,
 			routingTypes:              nil,
 			ipbNames:                  nil,
-			searchQuery:               db.GetStrPtr(""),
+			searchQuery:               cutil.GetPtr(""),
 			expectedCount:             paginator.DefaultLimit,
 			expectedTotal:             &totalCount,
 			expectedError:             false,
@@ -877,7 +878,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 				site2ipbs[2].ID,
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -894,7 +895,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			},
 			statuses:      []string{IPBlockStatusProvisioning},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -911,7 +912,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			},
 			statuses:      []string{IPBlockStatusError},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
@@ -923,7 +924,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			ipbNames:                  nil,
 			statuses:                  []string{IPBlockStatusError},
 			expectedCount:             0,
-			expectedTotal:             db.GetIntPtr(0),
+			expectedTotal:             cutil.GetPtr(0),
 			expectedError:             false,
 		},
 		{
@@ -937,7 +938,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			prefixLengths:             []int{10},
 			statuses:                  nil,
 			expectedCount:             1,
-			expectedTotal:             db.GetIntPtr(1),
+			expectedTotal:             cutil.GetPtr(1),
 			expectedError:             false,
 		},
 		{
@@ -951,7 +952,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			prefixLengths:             []int{10},
 			statuses:                  nil,
 			expectedCount:             0,
-			expectedTotal:             db.GetIntPtr(0),
+			expectedTotal:             cutil.GetPtr(0),
 			expectedError:             false,
 		},
 	}
@@ -1030,7 +1031,7 @@ func TestIPBlockSQLDAO_Update(t *testing.T) {
 	ipb, err := ipbsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -1084,29 +1085,29 @@ func TestIPBlockSQLDAO_Update(t *testing.T) {
 			desc: "can update string, bool fields: name, description, routingtype, prefix, protocolversion, status",
 			ipb:  ipb,
 
-			paramName:                     db.GetStrPtr("updatedName"),
-			paramDescription:              db.GetStrPtr("updatedDescription"),
+			paramName:                     cutil.GetPtr("updatedName"),
+			paramDescription:              cutil.GetPtr("updatedDescription"),
 			paramSiteID:                   nil,
 			paramInfrastructureProviderID: nil,
 			paramTenantID:                 nil,
-			paramRoutingType:              db.GetStrPtr("updatedRoutingType"),
-			paramPrefix:                   db.GetStrPtr("updatedPrefix"),
+			paramRoutingType:              cutil.GetPtr("updatedRoutingType"),
+			paramPrefix:                   cutil.GetPtr("updatedPrefix"),
 			paramBlockSize:                nil,
-			paramProtocolVersion:          db.GetStrPtr("updatedProtocolVersion"),
-			paramFullGrant:                db.GetBoolPtr(true),
-			paramStatus:                   db.GetStrPtr(IPBlockStatusProvisioning),
+			paramProtocolVersion:          cutil.GetPtr("updatedProtocolVersion"),
+			paramFullGrant:                cutil.GetPtr(true),
+			paramStatus:                   cutil.GetPtr(IPBlockStatusProvisioning),
 
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedSiteID:                   &ipb.SiteID,
 			expectedInfrastructureProviderID: &ipb.InfrastructureProviderID,
 			expectedTenantID:                 ipb.TenantID,
-			expectedRoutingType:              db.GetStrPtr("updatedRoutingType"),
-			expectedPrefix:                   db.GetStrPtr("updatedPrefix"),
+			expectedRoutingType:              cutil.GetPtr("updatedRoutingType"),
+			expectedPrefix:                   cutil.GetPtr("updatedPrefix"),
 			expectedBlockSize:                &ipb.PrefixLength,
-			expectedProtocolVersion:          db.GetStrPtr("updatedProtocolVersion"),
-			expectedFullGrant:                db.GetBoolPtr(true),
-			expectedStatus:                   db.GetStrPtr(IPBlockStatusProvisioning),
+			expectedProtocolVersion:          cutil.GetPtr("updatedProtocolVersion"),
+			expectedFullGrant:                cutil.GetPtr(true),
+			expectedStatus:                   cutil.GetPtr(IPBlockStatusProvisioning),
 			verifyChildSpanner:               true,
 		},
 		{
@@ -1124,16 +1125,16 @@ func TestIPBlockSQLDAO_Update(t *testing.T) {
 			paramProtocolVersion:          nil,
 			paramStatus:                   nil,
 
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedSiteID:                   &site2.ID,
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedTenantID:                 &tenant2.ID,
-			expectedRoutingType:              db.GetStrPtr("updatedRoutingType"),
-			expectedPrefix:                   db.GetStrPtr("updatedPrefix"),
+			expectedRoutingType:              cutil.GetPtr("updatedRoutingType"),
+			expectedPrefix:                   cutil.GetPtr("updatedPrefix"),
 			expectedBlockSize:                &ipb.PrefixLength,
-			expectedProtocolVersion:          db.GetStrPtr("updatedProtocolVersion"),
-			expectedStatus:                   db.GetStrPtr(IPBlockStatusProvisioning),
+			expectedProtocolVersion:          cutil.GetPtr("updatedProtocolVersion"),
+			expectedStatus:                   cutil.GetPtr(IPBlockStatusProvisioning),
 		},
 		{
 			desc: "can update int fields: blocksize",
@@ -1150,16 +1151,16 @@ func TestIPBlockSQLDAO_Update(t *testing.T) {
 			paramProtocolVersion:          nil,
 			paramStatus:                   nil,
 
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedSiteID:                   &site2.ID,
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedTenantID:                 &tenant2.ID,
-			expectedRoutingType:              db.GetStrPtr("updatedRoutingType"),
-			expectedPrefix:                   db.GetStrPtr("updatedPrefix"),
+			expectedRoutingType:              cutil.GetPtr("updatedRoutingType"),
+			expectedPrefix:                   cutil.GetPtr("updatedPrefix"),
 			expectedBlockSize:                &newBlockSize,
-			expectedProtocolVersion:          db.GetStrPtr("updatedProtocolVersion"),
-			expectedStatus:                   db.GetStrPtr(IPBlockStatusProvisioning),
+			expectedProtocolVersion:          cutil.GetPtr("updatedProtocolVersion"),
+			expectedStatus:                   cutil.GetPtr(IPBlockStatusProvisioning),
 		},
 	}
 	for _, tc := range tests {
@@ -1237,7 +1238,7 @@ func TestIPBlockSQLDAO_Clear(t *testing.T) {
 	ipb, err := ipbsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -1256,7 +1257,7 @@ func TestIPBlockSQLDAO_Clear(t *testing.T) {
 	ipb2, err := ipbsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test2",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site1.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -1275,7 +1276,7 @@ func TestIPBlockSQLDAO_Clear(t *testing.T) {
 	ipb3, err := ipbsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site2.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,
@@ -1322,7 +1323,7 @@ func TestIPBlockSQLDAO_Clear(t *testing.T) {
 			paramDescription:    false,
 			paramTenantID:       true,
 			expectedUpdate:      true,
-			expectedDescription: db.GetStrPtr("description"),
+			expectedDescription: cutil.GetPtr("description"),
 			expectedTenantID:    nil,
 			expectedError:       false,
 		},
@@ -1394,7 +1395,7 @@ func TestIPBlockSQLDAO_Delete(t *testing.T) {
 	ipb, err := ipbsd.Create(
 		ctx, nil, IPBlockCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("description"),
+			Description:              cutil.GetPtr("description"),
 			SiteID:                   site.ID,
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 &tenant.ID,

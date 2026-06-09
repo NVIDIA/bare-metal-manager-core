@@ -7,7 +7,7 @@
 package componentmanager
 
 import (
-	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
+	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
 )
 
 // ComponentManager defines the common identity and metadata every component

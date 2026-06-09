@@ -33,10 +33,10 @@ use crate::errors::CarbideCliError;
 ///
 /// Examples:
 ///   # Update only SKU, preserve all other fields including metadata
-///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
+///   carbide-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
 ///
 ///   # Update only labels, preserve name and description
-///   forge-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
+///   carbide-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
 ///     --sku-id sku123 --label env:prod --label team:platform
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(verbatim_doc_comment)]
@@ -48,7 +48,28 @@ use crate::errors::CarbideCliError;
 "sku_id",
 "bmc_ip_address",
 "dpu_mode",
+"dpf_enabled",
 ])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Patch only the SKU of a machine, selected by BMC MAC address:
+    $ carbide-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --sku-id DGX-H100-640GB
+
+Patch a machine selected by id:
+    $ carbide-admin-cli expected-machine patch --id 12345678-1234-5678-90ab-cdef01234567 \
+    --sku-id DGX-H100-640GB
+
+Rotate the BMC credentials (username and password must be set together):
+    $ carbide-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mynewpassword
+
+Change the per-host DPU mode:
+    $ carbide-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --dpu-mode no-dpu
+
+")]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
     pub bmc_mac_address: Option<MacAddress>,
@@ -195,10 +216,11 @@ impl Args {
             && self.fallback_dpu_serial_numbers.is_none()
             && self.sku_id.is_none()
             && self.rack_id.is_none()
+            && self.dpf_enabled.is_none()
             && self.bmc_ip_address.is_none()
             && self.dpu_mode.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or dpf-enabled".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

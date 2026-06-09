@@ -28,18 +28,21 @@ type ProtoMsgMajorVersion int32
 
 const (
 	ProtoMsgMajorVersion_PROTO_MSG_MAJOR_VERSION_UNDEFINED ProtoMsgMajorVersion = 0
-	ProtoMsgMajorVersion_PROTO_MSG_MAJOR_VERSION           ProtoMsgMajorVersion = 1
+	ProtoMsgMajorVersion_PROTO_MSG_MAJOR_VERSION_OBSOLETE1 ProtoMsgMajorVersion = 1
+	ProtoMsgMajorVersion_PROTO_MSG_MAJOR_VERSION           ProtoMsgMajorVersion = 2
 )
 
 // Enum value maps for ProtoMsgMajorVersion.
 var (
 	ProtoMsgMajorVersion_name = map[int32]string{
 		0: "PROTO_MSG_MAJOR_VERSION_UNDEFINED",
-		1: "PROTO_MSG_MAJOR_VERSION",
+		1: "PROTO_MSG_MAJOR_VERSION_OBSOLETE1",
+		2: "PROTO_MSG_MAJOR_VERSION",
 	}
 	ProtoMsgMajorVersion_value = map[string]int32{
 		"PROTO_MSG_MAJOR_VERSION_UNDEFINED": 0,
-		"PROTO_MSG_MAJOR_VERSION":           1,
+		"PROTO_MSG_MAJOR_VERSION_OBSOLETE1": 1,
+		"PROTO_MSG_MAJOR_VERSION":           2,
 	}
 )
 
@@ -77,24 +80,24 @@ const (
 	ProtoMsgMinorVersion_PROTO_MSG_MINOR_VERSION_OBSOLETE1 ProtoMsgMinorVersion = 1
 	ProtoMsgMinorVersion_PROTO_MSG_MINOR_VERSION_OBSOLETE2 ProtoMsgMinorVersion = 2
 	ProtoMsgMinorVersion_PROTO_MSG_MINOR_VERSION_OBSOLETE3 ProtoMsgMinorVersion = 3
-	ProtoMsgMinorVersion_PROTO_MSG_MINOR_VERSION           ProtoMsgMinorVersion = 4
+	ProtoMsgMinorVersion_PROTO_MSG_MINOR_VERSION           ProtoMsgMinorVersion = 20
 )
 
 // Enum value maps for ProtoMsgMinorVersion.
 var (
 	ProtoMsgMinorVersion_name = map[int32]string{
-		0: "PROTO_MSG_MINOR_VERSION_UNDEFINED",
-		1: "PROTO_MSG_MINOR_VERSION_OBSOLETE1",
-		2: "PROTO_MSG_MINOR_VERSION_OBSOLETE2",
-		3: "PROTO_MSG_MINOR_VERSION_OBSOLETE3",
-		4: "PROTO_MSG_MINOR_VERSION",
+		0:  "PROTO_MSG_MINOR_VERSION_UNDEFINED",
+		1:  "PROTO_MSG_MINOR_VERSION_OBSOLETE1",
+		2:  "PROTO_MSG_MINOR_VERSION_OBSOLETE2",
+		3:  "PROTO_MSG_MINOR_VERSION_OBSOLETE3",
+		20: "PROTO_MSG_MINOR_VERSION",
 	}
 	ProtoMsgMinorVersion_value = map[string]int32{
 		"PROTO_MSG_MINOR_VERSION_UNDEFINED": 0,
 		"PROTO_MSG_MINOR_VERSION_OBSOLETE1": 1,
 		"PROTO_MSG_MINOR_VERSION_OBSOLETE2": 2,
 		"PROTO_MSG_MINOR_VERSION_OBSOLETE3": 3,
-		"PROTO_MSG_MINOR_VERSION":           4,
+		"PROTO_MSG_MINOR_VERSION":           20,
 	}
 )
 
@@ -125,115 +128,127 @@ func (ProtoMsgMinorVersion) EnumDescriptor() ([]byte, []int) {
 	return file_nmx_c_nico_proto_rawDescGZIP(), []int{1}
 }
 
-type STReturnCode int32
+type StReturnCode int32
 
 const (
-	STReturnCode_NMX_ST_UNDEFINED                  STReturnCode = 0
-	STReturnCode_NMX_ST_SUCCESS                    STReturnCode = 1
-	STReturnCode_NMX_ST_BADPARAM                   STReturnCode = 2
-	STReturnCode_NMX_ST_GENERIC_ERROR              STReturnCode = 3
-	STReturnCode_NMX_ST_NOT_SUPPORTED              STReturnCode = 4
-	STReturnCode_NMX_ST_UNINITIALIZED              STReturnCode = 5
-	STReturnCode_NMX_ST_TIMEOUT                    STReturnCode = 6
-	STReturnCode_NMX_ST_VERSION_MISMATCH           STReturnCode = 7
-	STReturnCode_NMX_ST_IN_USE                     STReturnCode = 8
-	STReturnCode_NMX_ST_NOT_CONFIGURED             STReturnCode = 9
-	STReturnCode_NMX_ST_CONNECTION_NOT_VALID       STReturnCode = 10
-	STReturnCode_NMX_ST_NVLINK_ERROR               STReturnCode = 11
-	STReturnCode_NMX_ST_RESOURCE_BAD               STReturnCode = 12
-	STReturnCode_NMX_ST_RESOURCE_IN_USE            STReturnCode = 13
-	STReturnCode_NMX_ST_RESOURCE_NOT_IN_USE        STReturnCode = 14
-	STReturnCode_NMX_ST_RESOURCE_EXHAUSTED         STReturnCode = 15
-	STReturnCode_NMX_ST_RESOURCE_NOT_READY         STReturnCode = 16
-	STReturnCode_NMX_ST_PARTITION_EXISTS           STReturnCode = 17
-	STReturnCode_NMX_ST_PARTITION_ID_IN_USE        STReturnCode = 18
-	STReturnCode_NMX_ST_PARTITION_ID_NOT_IN_USE    STReturnCode = 19
-	STReturnCode_NMX_ST_PARTITION_NAME_IN_USE      STReturnCode = 20
-	STReturnCode_NMX_ST_PARTITION_NAME_NOT_IN_USE  STReturnCode = 21
-	STReturnCode_NMX_ST_PARTITION_ID_NAME_MISMATCH STReturnCode = 22
-	STReturnCode_NMX_ST_NOT_READY                  STReturnCode = 23
+	StReturnCode_NMX_ST_UNDEFINED                          StReturnCode = 0
+	StReturnCode_NMX_ST_SUCCESS                            StReturnCode = 1
+	StReturnCode_NMX_ST_BADPARAM                           StReturnCode = 2
+	StReturnCode_NMX_ST_GENERIC_ERROR                      StReturnCode = 3
+	StReturnCode_NMX_ST_NOT_SUPPORTED                      StReturnCode = 4
+	StReturnCode_NMX_ST_UNINITIALIZED                      StReturnCode = 5
+	StReturnCode_NMX_ST_TIMEOUT                            StReturnCode = 6
+	StReturnCode_NMX_ST_VERSION_MISMATCH                   StReturnCode = 7
+	StReturnCode_NMX_ST_IN_USE                             StReturnCode = 8
+	StReturnCode_NMX_ST_NOT_CONFIGURED                     StReturnCode = 9
+	StReturnCode_NMX_ST_CONNECTION_NOT_VALID               StReturnCode = 10
+	StReturnCode_NMX_ST_NVLINK_ERROR                       StReturnCode = 11
+	StReturnCode_NMX_ST_RESOURCE_BAD                       StReturnCode = 12
+	StReturnCode_NMX_ST_RESOURCE_IN_USE                    StReturnCode = 13
+	StReturnCode_NMX_ST_RESOURCE_NOT_IN_USE                StReturnCode = 14
+	StReturnCode_NMX_ST_RESOURCE_EXHAUSTED                 StReturnCode = 15
+	StReturnCode_NMX_ST_RESOURCE_NOT_READY                 StReturnCode = 16
+	StReturnCode_NMX_ST_PARTITION_EXISTS                   StReturnCode = 17
+	StReturnCode_NMX_ST_PARTITION_ID_IN_USE                StReturnCode = 18
+	StReturnCode_NMX_ST_PARTITION_ID_NOT_IN_USE            StReturnCode = 19
+	StReturnCode_NMX_ST_PARTITION_NAME_IN_USE              StReturnCode = 20
+	StReturnCode_NMX_ST_PARTITION_NAME_NOT_IN_USE          StReturnCode = 21
+	StReturnCode_NMX_ST_PARTITION_ID_NAME_MISMATCH         StReturnCode = 22
+	StReturnCode_NMX_ST_NOT_READY                          StReturnCode = 23
+	StReturnCode_NMX_ST_NMX_CONTROLLER_INTERNAL_ERROR      StReturnCode = 500
+	StReturnCode_NMX_ST_NMX_CONTROLLER_DB_ERROR            StReturnCode = 501
+	StReturnCode_NMX_ST_NMX_CONTROLLER_DB_CORRUPTION       StReturnCode = 502
+	StReturnCode_NMX_ST_NMX_CONTROLLER_INVALID_CONFIG_FILE StReturnCode = 503
 )
 
-// Enum value maps for STReturnCode.
+// Enum value maps for StReturnCode.
 var (
-	STReturnCode_name = map[int32]string{
-		0:  "NMX_ST_UNDEFINED",
-		1:  "NMX_ST_SUCCESS",
-		2:  "NMX_ST_BADPARAM",
-		3:  "NMX_ST_GENERIC_ERROR",
-		4:  "NMX_ST_NOT_SUPPORTED",
-		5:  "NMX_ST_UNINITIALIZED",
-		6:  "NMX_ST_TIMEOUT",
-		7:  "NMX_ST_VERSION_MISMATCH",
-		8:  "NMX_ST_IN_USE",
-		9:  "NMX_ST_NOT_CONFIGURED",
-		10: "NMX_ST_CONNECTION_NOT_VALID",
-		11: "NMX_ST_NVLINK_ERROR",
-		12: "NMX_ST_RESOURCE_BAD",
-		13: "NMX_ST_RESOURCE_IN_USE",
-		14: "NMX_ST_RESOURCE_NOT_IN_USE",
-		15: "NMX_ST_RESOURCE_EXHAUSTED",
-		16: "NMX_ST_RESOURCE_NOT_READY",
-		17: "NMX_ST_PARTITION_EXISTS",
-		18: "NMX_ST_PARTITION_ID_IN_USE",
-		19: "NMX_ST_PARTITION_ID_NOT_IN_USE",
-		20: "NMX_ST_PARTITION_NAME_IN_USE",
-		21: "NMX_ST_PARTITION_NAME_NOT_IN_USE",
-		22: "NMX_ST_PARTITION_ID_NAME_MISMATCH",
-		23: "NMX_ST_NOT_READY",
+	StReturnCode_name = map[int32]string{
+		0:   "NMX_ST_UNDEFINED",
+		1:   "NMX_ST_SUCCESS",
+		2:   "NMX_ST_BADPARAM",
+		3:   "NMX_ST_GENERIC_ERROR",
+		4:   "NMX_ST_NOT_SUPPORTED",
+		5:   "NMX_ST_UNINITIALIZED",
+		6:   "NMX_ST_TIMEOUT",
+		7:   "NMX_ST_VERSION_MISMATCH",
+		8:   "NMX_ST_IN_USE",
+		9:   "NMX_ST_NOT_CONFIGURED",
+		10:  "NMX_ST_CONNECTION_NOT_VALID",
+		11:  "NMX_ST_NVLINK_ERROR",
+		12:  "NMX_ST_RESOURCE_BAD",
+		13:  "NMX_ST_RESOURCE_IN_USE",
+		14:  "NMX_ST_RESOURCE_NOT_IN_USE",
+		15:  "NMX_ST_RESOURCE_EXHAUSTED",
+		16:  "NMX_ST_RESOURCE_NOT_READY",
+		17:  "NMX_ST_PARTITION_EXISTS",
+		18:  "NMX_ST_PARTITION_ID_IN_USE",
+		19:  "NMX_ST_PARTITION_ID_NOT_IN_USE",
+		20:  "NMX_ST_PARTITION_NAME_IN_USE",
+		21:  "NMX_ST_PARTITION_NAME_NOT_IN_USE",
+		22:  "NMX_ST_PARTITION_ID_NAME_MISMATCH",
+		23:  "NMX_ST_NOT_READY",
+		500: "NMX_ST_NMX_CONTROLLER_INTERNAL_ERROR",
+		501: "NMX_ST_NMX_CONTROLLER_DB_ERROR",
+		502: "NMX_ST_NMX_CONTROLLER_DB_CORRUPTION",
+		503: "NMX_ST_NMX_CONTROLLER_INVALID_CONFIG_FILE",
 	}
-	STReturnCode_value = map[string]int32{
-		"NMX_ST_UNDEFINED":                  0,
-		"NMX_ST_SUCCESS":                    1,
-		"NMX_ST_BADPARAM":                   2,
-		"NMX_ST_GENERIC_ERROR":              3,
-		"NMX_ST_NOT_SUPPORTED":              4,
-		"NMX_ST_UNINITIALIZED":              5,
-		"NMX_ST_TIMEOUT":                    6,
-		"NMX_ST_VERSION_MISMATCH":           7,
-		"NMX_ST_IN_USE":                     8,
-		"NMX_ST_NOT_CONFIGURED":             9,
-		"NMX_ST_CONNECTION_NOT_VALID":       10,
-		"NMX_ST_NVLINK_ERROR":               11,
-		"NMX_ST_RESOURCE_BAD":               12,
-		"NMX_ST_RESOURCE_IN_USE":            13,
-		"NMX_ST_RESOURCE_NOT_IN_USE":        14,
-		"NMX_ST_RESOURCE_EXHAUSTED":         15,
-		"NMX_ST_RESOURCE_NOT_READY":         16,
-		"NMX_ST_PARTITION_EXISTS":           17,
-		"NMX_ST_PARTITION_ID_IN_USE":        18,
-		"NMX_ST_PARTITION_ID_NOT_IN_USE":    19,
-		"NMX_ST_PARTITION_NAME_IN_USE":      20,
-		"NMX_ST_PARTITION_NAME_NOT_IN_USE":  21,
-		"NMX_ST_PARTITION_ID_NAME_MISMATCH": 22,
-		"NMX_ST_NOT_READY":                  23,
+	StReturnCode_value = map[string]int32{
+		"NMX_ST_UNDEFINED":                          0,
+		"NMX_ST_SUCCESS":                            1,
+		"NMX_ST_BADPARAM":                           2,
+		"NMX_ST_GENERIC_ERROR":                      3,
+		"NMX_ST_NOT_SUPPORTED":                      4,
+		"NMX_ST_UNINITIALIZED":                      5,
+		"NMX_ST_TIMEOUT":                            6,
+		"NMX_ST_VERSION_MISMATCH":                   7,
+		"NMX_ST_IN_USE":                             8,
+		"NMX_ST_NOT_CONFIGURED":                     9,
+		"NMX_ST_CONNECTION_NOT_VALID":               10,
+		"NMX_ST_NVLINK_ERROR":                       11,
+		"NMX_ST_RESOURCE_BAD":                       12,
+		"NMX_ST_RESOURCE_IN_USE":                    13,
+		"NMX_ST_RESOURCE_NOT_IN_USE":                14,
+		"NMX_ST_RESOURCE_EXHAUSTED":                 15,
+		"NMX_ST_RESOURCE_NOT_READY":                 16,
+		"NMX_ST_PARTITION_EXISTS":                   17,
+		"NMX_ST_PARTITION_ID_IN_USE":                18,
+		"NMX_ST_PARTITION_ID_NOT_IN_USE":            19,
+		"NMX_ST_PARTITION_NAME_IN_USE":              20,
+		"NMX_ST_PARTITION_NAME_NOT_IN_USE":          21,
+		"NMX_ST_PARTITION_ID_NAME_MISMATCH":         22,
+		"NMX_ST_NOT_READY":                          23,
+		"NMX_ST_NMX_CONTROLLER_INTERNAL_ERROR":      500,
+		"NMX_ST_NMX_CONTROLLER_DB_ERROR":            501,
+		"NMX_ST_NMX_CONTROLLER_DB_CORRUPTION":       502,
+		"NMX_ST_NMX_CONTROLLER_INVALID_CONFIG_FILE": 503,
 	}
 )
 
-func (x STReturnCode) Enum() *STReturnCode {
-	p := new(STReturnCode)
+func (x StReturnCode) Enum() *StReturnCode {
+	p := new(StReturnCode)
 	*p = x
 	return p
 }
 
-func (x STReturnCode) String() string {
+func (x StReturnCode) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (STReturnCode) Descriptor() protoreflect.EnumDescriptor {
+func (StReturnCode) Descriptor() protoreflect.EnumDescriptor {
 	return file_nmx_c_nico_proto_enumTypes[2].Descriptor()
 }
 
-func (STReturnCode) Type() protoreflect.EnumType {
+func (StReturnCode) Type() protoreflect.EnumType {
 	return &file_nmx_c_nico_proto_enumTypes[2]
 }
 
-func (x STReturnCode) Number() protoreflect.EnumNumber {
+func (x StReturnCode) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use STReturnCode.Descriptor instead.
-func (STReturnCode) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use StReturnCode.Descriptor instead.
+func (StReturnCode) EnumDescriptor() ([]byte, []int) {
 	return file_nmx_c_nico_proto_rawDescGZIP(), []int{2}
 }
 
@@ -1226,7 +1241,7 @@ type ResiliencyMode int32
 const (
 	ResiliencyMode_NMX_RESILIENCY_MODE_UNDEFINED            ResiliencyMode = 0 //!< Undefined resiliency mode
 	ResiliencyMode_NMX_RESILIENCY_MODE_FULL_BANDWIDTH       ResiliencyMode = 1 //!< Full bandwidth mode
-	ResiliencyMode_NMX_RESILIENCY_MODE_ADAPTIVE_BANDWIDTH   ResiliencyMode = 2 //!< Adapative bandwidth mode
+	ResiliencyMode_NMX_RESILIENCY_MODE_ADAPTIVE_BANDWIDTH   ResiliencyMode = 2 //!< Adaptive bandwidth mode
 	ResiliencyMode_NMX_RESILIENCY_MODE_USER_ACTION_REQUIRED ResiliencyMode = 3 //!< User action required mode
 )
 
@@ -1276,10 +1291,11 @@ func (ResiliencyMode) EnumDescriptor() ([]byte, []int) {
 type NmxControllerHealth int32
 
 const (
-	NmxControllerHealth_NMX_CONTROLLER_HEALTH_UNKNOWN   NmxControllerHealth = 0
-	NmxControllerHealth_NMX_CONTROLLER_HEALTH_HEALTHY   NmxControllerHealth = 1
-	NmxControllerHealth_NMX_CONTROLLER_HEALTH_DEGRADED  NmxControllerHealth = 2
-	NmxControllerHealth_NMX_CONTROLLER_HEALTH_UNHEALTHY NmxControllerHealth = 3
+	NmxControllerHealth_NMX_CONTROLLER_HEALTH_UNKNOWN                NmxControllerHealth = 0
+	NmxControllerHealth_NMX_CONTROLLER_HEALTH_HEALTHY                NmxControllerHealth = 1
+	NmxControllerHealth_NMX_CONTROLLER_HEALTH_DEGRADED               NmxControllerHealth = 2
+	NmxControllerHealth_NMX_CONTROLLER_HEALTH_UNHEALTHY              NmxControllerHealth = 3
+	NmxControllerHealth_NMX_CONTROLLER_HEALTH_UNHEALTHY_DB_CORRUPTED NmxControllerHealth = 4
 )
 
 // Enum value maps for NmxControllerHealth.
@@ -1289,12 +1305,14 @@ var (
 		1: "NMX_CONTROLLER_HEALTH_HEALTHY",
 		2: "NMX_CONTROLLER_HEALTH_DEGRADED",
 		3: "NMX_CONTROLLER_HEALTH_UNHEALTHY",
+		4: "NMX_CONTROLLER_HEALTH_UNHEALTHY_DB_CORRUPTED",
 	}
 	NmxControllerHealth_value = map[string]int32{
-		"NMX_CONTROLLER_HEALTH_UNKNOWN":   0,
-		"NMX_CONTROLLER_HEALTH_HEALTHY":   1,
-		"NMX_CONTROLLER_HEALTH_DEGRADED":  2,
-		"NMX_CONTROLLER_HEALTH_UNHEALTHY": 3,
+		"NMX_CONTROLLER_HEALTH_UNKNOWN":                0,
+		"NMX_CONTROLLER_HEALTH_HEALTHY":                1,
+		"NMX_CONTROLLER_HEALTH_DEGRADED":               2,
+		"NMX_CONTROLLER_HEALTH_UNHEALTHY":              3,
+		"NMX_CONTROLLER_HEALTH_UNHEALTHY_DB_CORRUPTED": 4,
 	}
 )
 
@@ -1375,6 +1393,55 @@ func (x AdminState) Number() protoreflect.EnumNumber {
 // Deprecated: Use AdminState.Descriptor instead.
 func (AdminState) EnumDescriptor() ([]byte, []int) {
 	return file_nmx_c_nico_proto_rawDescGZIP(), []int{23}
+}
+
+type ReportType int32
+
+const (
+	ReportType_NMX_REPORT_TYPE_UNKNOWN    ReportType = 0
+	ReportType_NMX_REPORT_TYPE_TOPOLOGY   ReportType = 1
+	ReportType_NMX_REPORT_TYPE_PARTITIONS ReportType = 2
+)
+
+// Enum value maps for ReportType.
+var (
+	ReportType_name = map[int32]string{
+		0: "NMX_REPORT_TYPE_UNKNOWN",
+		1: "NMX_REPORT_TYPE_TOPOLOGY",
+		2: "NMX_REPORT_TYPE_PARTITIONS",
+	}
+	ReportType_value = map[string]int32{
+		"NMX_REPORT_TYPE_UNKNOWN":    0,
+		"NMX_REPORT_TYPE_TOPOLOGY":   1,
+		"NMX_REPORT_TYPE_PARTITIONS": 2,
+	}
+)
+
+func (x ReportType) Enum() *ReportType {
+	p := new(ReportType)
+	*p = x
+	return p
+}
+
+func (x ReportType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ReportType) Descriptor() protoreflect.EnumDescriptor {
+	return file_nmx_c_nico_proto_enumTypes[24].Descriptor()
+}
+
+func (ReportType) Type() protoreflect.EnumType {
+	return &file_nmx_c_nico_proto_enumTypes[24]
+}
+
+func (x ReportType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ReportType.Descriptor instead.
+func (ReportType) EnumDescriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{24}
 }
 
 type ReturnCode struct {
@@ -1478,7 +1545,7 @@ type ServerHeader struct {
 	DomainUuid    string                 `protobuf:"bytes,1,opt,name=domain_uuid,json=domainUuid,proto3" json:"domain_uuid,omitempty"`
 	AppUuid       string                 `protobuf:"bytes,2,opt,name=app_uuid,json=appUuid,proto3" json:"app_uuid,omitempty"`
 	AppVer        string                 `protobuf:"bytes,3,opt,name=app_ver,json=appVer,proto3" json:"app_ver,omitempty"`
-	ReturnCode    STReturnCode           `protobuf:"varint,4,opt,name=return_code,json=returnCode,proto3,enum=nmx_c.STReturnCode" json:"return_code,omitempty"`
+	ReturnCode    StReturnCode           `protobuf:"varint,4,opt,name=return_code,json=returnCode,proto3,enum=nmx_c.StReturnCode" json:"return_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1534,11 +1601,11 @@ func (x *ServerHeader) GetAppVer() string {
 	return ""
 }
 
-func (x *ServerHeader) GetReturnCode() STReturnCode {
+func (x *ServerHeader) GetReturnCode() StReturnCode {
 	if x != nil {
 		return x.ReturnCode
 	}
-	return STReturnCode_NMX_ST_UNDEFINED
+	return StReturnCode_NMX_ST_UNDEFINED
 }
 
 type ClientHello struct {
@@ -1887,6 +1954,50 @@ func (*FmEvent_FmEventTopologyChange) isFmEvent_Event() {}
 
 func (*FmEvent_FmEventPartitionChange) isFmEvent_Event() {}
 
+type InitDone struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServerHeader  *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InitDone) Reset() {
+	*x = InitDone{}
+	mi := &file_nmx_c_nico_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InitDone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InitDone) ProtoMessage() {}
+
+func (x *InitDone) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InitDone.ProtoReflect.Descriptor instead.
+func (*InitDone) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *InitDone) GetServerHeader() *ServerHeader {
+	if x != nil {
+		return x.ServerHeader
+	}
+	return nil
+}
+
 type ServerNotification struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Notification:
@@ -1899,6 +2010,8 @@ type ServerNotification struct {
 	//	*ServerNotification_FmEvent
 	//	*ServerNotification_HealthStateChanged
 	//	*ServerNotification_SetAdminStateResponse
+	//	*ServerNotification_DomainStateInfo
+	//	*ServerNotification_InitDone
 	Notification  isServerNotification_Notification `protobuf_oneof:"notification"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1906,7 +2019,7 @@ type ServerNotification struct {
 
 func (x *ServerNotification) Reset() {
 	*x = ServerNotification{}
-	mi := &file_nmx_c_nico_proto_msgTypes[8]
+	mi := &file_nmx_c_nico_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1918,7 +2031,7 @@ func (x *ServerNotification) String() string {
 func (*ServerNotification) ProtoMessage() {}
 
 func (x *ServerNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[8]
+	mi := &file_nmx_c_nico_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1931,7 +2044,7 @@ func (x *ServerNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerNotification.ProtoReflect.Descriptor instead.
 func (*ServerNotification) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{8}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServerNotification) GetNotification() isServerNotification_Notification {
@@ -2013,6 +2126,24 @@ func (x *ServerNotification) GetSetAdminStateResponse() *SetAdminStateResponse {
 	return nil
 }
 
+func (x *ServerNotification) GetDomainStateInfo() *DomainStateInfo {
+	if x != nil {
+		if x, ok := x.Notification.(*ServerNotification_DomainStateInfo); ok {
+			return x.DomainStateInfo
+		}
+	}
+	return nil
+}
+
+func (x *ServerNotification) GetInitDone() *InitDone {
+	if x != nil {
+		if x, ok := x.Notification.(*ServerNotification_InitDone); ok {
+			return x.InitDone
+		}
+	}
+	return nil
+}
+
 type isServerNotification_Notification interface {
 	isServerNotification_Notification()
 }
@@ -2042,11 +2173,19 @@ type ServerNotification_FmEvent struct {
 }
 
 type ServerNotification_HealthStateChanged struct {
-	HealthStateChanged *HealthStateChanged `protobuf:"bytes,8,opt,name=health_state_changed,json=healthStateChanged,proto3,oneof"`
+	HealthStateChanged *HealthStateChanged `protobuf:"bytes,8,opt,name=health_state_changed,json=healthStateChanged,proto3,oneof"` // sent to all subscribed clients
 }
 
 type ServerNotification_SetAdminStateResponse struct {
-	SetAdminStateResponse *SetAdminStateResponse `protobuf:"bytes,9,opt,name=set_admin_state_response,json=setAdminStateResponse,proto3,oneof"`
+	SetAdminStateResponse *SetAdminStateResponse `protobuf:"bytes,9,opt,name=set_admin_state_response,json=setAdminStateResponse,proto3,oneof"` // sent to all subscribed clients, except requesting client
+}
+
+type ServerNotification_DomainStateInfo struct {
+	DomainStateInfo *DomainStateInfo `protobuf:"bytes,10,opt,name=domain_state_info,json=domainStateInfo,proto3,oneof"` // sent to clients that requested heartbeat at requested interval
+}
+
+type ServerNotification_InitDone struct {
+	InitDone *InitDone `protobuf:"bytes,11,opt,name=init_done,json=initDone,proto3,oneof"` // sent to all subscribed clients
 }
 
 func (*ServerNotification_SubscriptionResponse) isServerNotification_Notification() {}
@@ -2065,6 +2204,10 @@ func (*ServerNotification_HealthStateChanged) isServerNotification_Notification(
 
 func (*ServerNotification_SetAdminStateResponse) isServerNotification_Notification() {}
 
+func (*ServerNotification_DomainStateInfo) isServerNotification_Notification() {}
+
+func (*ServerNotification_InitDone) isServerNotification_Notification() {}
+
 type ConfigFileContent struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	ConfigFileName    string                 `protobuf:"bytes,1,opt,name=config_file_name,json=configFileName,proto3" json:"config_file_name,omitempty"`
@@ -2075,7 +2218,7 @@ type ConfigFileContent struct {
 
 func (x *ConfigFileContent) Reset() {
 	*x = ConfigFileContent{}
-	mi := &file_nmx_c_nico_proto_msgTypes[9]
+	mi := &file_nmx_c_nico_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2087,7 +2230,7 @@ func (x *ConfigFileContent) String() string {
 func (*ConfigFileContent) ProtoMessage() {}
 
 func (x *ConfigFileContent) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[9]
+	mi := &file_nmx_c_nico_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2100,7 +2243,7 @@ func (x *ConfigFileContent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigFileContent.ProtoReflect.Descriptor instead.
 func (*ConfigFileContent) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{9}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ConfigFileContent) GetConfigFileName() string {
@@ -2126,7 +2269,7 @@ type ConfigFileContents struct {
 
 func (x *ConfigFileContents) Reset() {
 	*x = ConfigFileContents{}
-	mi := &file_nmx_c_nico_proto_msgTypes[10]
+	mi := &file_nmx_c_nico_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2138,7 +2281,7 @@ func (x *ConfigFileContents) String() string {
 func (*ConfigFileContents) ProtoMessage() {}
 
 func (x *ConfigFileContents) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[10]
+	mi := &file_nmx_c_nico_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2151,7 +2294,7 @@ func (x *ConfigFileContents) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigFileContents.ProtoReflect.Descriptor instead.
 func (*ConfigFileContents) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{10}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ConfigFileContents) GetConfigFileContent() []*ConfigFileContent {
@@ -2170,7 +2313,7 @@ type ConfigFile struct {
 
 func (x *ConfigFile) Reset() {
 	*x = ConfigFile{}
-	mi := &file_nmx_c_nico_proto_msgTypes[11]
+	mi := &file_nmx_c_nico_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2182,7 +2325,7 @@ func (x *ConfigFile) String() string {
 func (*ConfigFile) ProtoMessage() {}
 
 func (x *ConfigFile) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[11]
+	mi := &file_nmx_c_nico_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2195,7 +2338,7 @@ func (x *ConfigFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigFile.ProtoReflect.Descriptor instead.
 func (*ConfigFile) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{11}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ConfigFile) GetConfigFileName() string {
@@ -2214,7 +2357,7 @@ type ConfigFiles struct {
 
 func (x *ConfigFiles) Reset() {
 	*x = ConfigFiles{}
-	mi := &file_nmx_c_nico_proto_msgTypes[12]
+	mi := &file_nmx_c_nico_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2226,7 +2369,7 @@ func (x *ConfigFiles) String() string {
 func (*ConfigFiles) ProtoMessage() {}
 
 func (x *ConfigFiles) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[12]
+	mi := &file_nmx_c_nico_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2239,7 +2382,7 @@ func (x *ConfigFiles) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigFiles.ProtoReflect.Descriptor instead.
 func (*ConfigFiles) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{12}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ConfigFiles) GetConfigFile() []*ConfigFile {
@@ -2260,7 +2403,7 @@ type ConfigKeyVal struct {
 
 func (x *ConfigKeyVal) Reset() {
 	*x = ConfigKeyVal{}
-	mi := &file_nmx_c_nico_proto_msgTypes[13]
+	mi := &file_nmx_c_nico_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2415,7 @@ func (x *ConfigKeyVal) String() string {
 func (*ConfigKeyVal) ProtoMessage() {}
 
 func (x *ConfigKeyVal) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[13]
+	mi := &file_nmx_c_nico_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +2428,7 @@ func (x *ConfigKeyVal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigKeyVal.ProtoReflect.Descriptor instead.
 func (*ConfigKeyVal) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{13}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ConfigKeyVal) GetConfigFileName() string {
@@ -2318,7 +2461,7 @@ type ConfigKeyVals struct {
 
 func (x *ConfigKeyVals) Reset() {
 	*x = ConfigKeyVals{}
-	mi := &file_nmx_c_nico_proto_msgTypes[14]
+	mi := &file_nmx_c_nico_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2330,7 +2473,7 @@ func (x *ConfigKeyVals) String() string {
 func (*ConfigKeyVals) ProtoMessage() {}
 
 func (x *ConfigKeyVals) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[14]
+	mi := &file_nmx_c_nico_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2343,7 +2486,7 @@ func (x *ConfigKeyVals) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigKeyVals.ProtoReflect.Descriptor instead.
 func (*ConfigKeyVals) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{14}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ConfigKeyVals) GetConfigKeyVal() []*ConfigKeyVal {
@@ -2363,7 +2506,7 @@ type ConfigKey struct {
 
 func (x *ConfigKey) Reset() {
 	*x = ConfigKey{}
-	mi := &file_nmx_c_nico_proto_msgTypes[15]
+	mi := &file_nmx_c_nico_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2375,7 +2518,7 @@ func (x *ConfigKey) String() string {
 func (*ConfigKey) ProtoMessage() {}
 
 func (x *ConfigKey) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[15]
+	mi := &file_nmx_c_nico_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2388,7 +2531,7 @@ func (x *ConfigKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigKey.ProtoReflect.Descriptor instead.
 func (*ConfigKey) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{15}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ConfigKey) GetConfigFileName() string {
@@ -2414,7 +2557,7 @@ type ConfigKeys struct {
 
 func (x *ConfigKeys) Reset() {
 	*x = ConfigKeys{}
-	mi := &file_nmx_c_nico_proto_msgTypes[16]
+	mi := &file_nmx_c_nico_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2426,7 +2569,7 @@ func (x *ConfigKeys) String() string {
 func (*ConfigKeys) ProtoMessage() {}
 
 func (x *ConfigKeys) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[16]
+	mi := &file_nmx_c_nico_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2439,7 +2582,7 @@ func (x *ConfigKeys) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigKeys.ProtoReflect.Descriptor instead.
 func (*ConfigKeys) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{16}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ConfigKeys) GetConfigKey() []*ConfigKey {
@@ -2459,7 +2602,7 @@ type Context struct {
 
 func (x *Context) Reset() {
 	*x = Context{}
-	mi := &file_nmx_c_nico_proto_msgTypes[17]
+	mi := &file_nmx_c_nico_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2471,7 +2614,7 @@ func (x *Context) String() string {
 func (*Context) ProtoMessage() {}
 
 func (x *Context) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[17]
+	mi := &file_nmx_c_nico_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2484,7 +2627,7 @@ func (x *Context) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Context.ProtoReflect.Descriptor instead.
 func (*Context) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{17}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Context) GetContext() string {
@@ -2509,7 +2652,7 @@ type GetStaticConfigRequest struct {
 
 func (x *GetStaticConfigRequest) Reset() {
 	*x = GetStaticConfigRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[18]
+	mi := &file_nmx_c_nico_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2521,7 +2664,7 @@ func (x *GetStaticConfigRequest) String() string {
 func (*GetStaticConfigRequest) ProtoMessage() {}
 
 func (x *GetStaticConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[18]
+	mi := &file_nmx_c_nico_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2534,7 +2677,7 @@ func (x *GetStaticConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStaticConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetStaticConfigRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{18}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetStaticConfigRequest) GetContext() *Context {
@@ -2602,7 +2745,7 @@ type SetStaticConfigRequest struct {
 
 func (x *SetStaticConfigRequest) Reset() {
 	*x = SetStaticConfigRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[19]
+	mi := &file_nmx_c_nico_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2614,7 +2757,7 @@ func (x *SetStaticConfigRequest) String() string {
 func (*SetStaticConfigRequest) ProtoMessage() {}
 
 func (x *SetStaticConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[19]
+	mi := &file_nmx_c_nico_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2627,7 +2770,7 @@ func (x *SetStaticConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetStaticConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetStaticConfigRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{19}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SetStaticConfigRequest) GetGatewayId() string {
@@ -2654,7 +2797,7 @@ type StaticConfigResponse struct {
 
 func (x *StaticConfigResponse) Reset() {
 	*x = StaticConfigResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[20]
+	mi := &file_nmx_c_nico_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2666,7 +2809,7 @@ func (x *StaticConfigResponse) String() string {
 func (*StaticConfigResponse) ProtoMessage() {}
 
 func (x *StaticConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[20]
+	mi := &file_nmx_c_nico_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2679,7 +2822,7 @@ func (x *StaticConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StaticConfigResponse.ProtoReflect.Descriptor instead.
 func (*StaticConfigResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{20}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *StaticConfigResponse) GetServerHeader() *ServerHeader {
@@ -2710,7 +2853,7 @@ type StaticConfig struct {
 
 func (x *StaticConfig) Reset() {
 	*x = StaticConfig{}
-	mi := &file_nmx_c_nico_proto_msgTypes[21]
+	mi := &file_nmx_c_nico_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2722,7 +2865,7 @@ func (x *StaticConfig) String() string {
 func (*StaticConfig) ProtoMessage() {}
 
 func (x *StaticConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[21]
+	mi := &file_nmx_c_nico_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2735,7 +2878,7 @@ func (x *StaticConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StaticConfig.ProtoReflect.Descriptor instead.
 func (*StaticConfig) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{21}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *StaticConfig) GetContext() *Context {
@@ -2795,7 +2938,7 @@ type SlotId struct {
 
 func (x *SlotId) Reset() {
 	*x = SlotId{}
-	mi := &file_nmx_c_nico_proto_msgTypes[22]
+	mi := &file_nmx_c_nico_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2807,7 +2950,7 @@ func (x *SlotId) String() string {
 func (*SlotId) ProtoMessage() {}
 
 func (x *SlotId) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[22]
+	mi := &file_nmx_c_nico_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2820,7 +2963,7 @@ func (x *SlotId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlotId.ProtoReflect.Descriptor instead.
 func (*SlotId) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{22}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SlotId) GetSlotId() uint32 {
@@ -2839,7 +2982,7 @@ type PartitionId struct {
 
 func (x *PartitionId) Reset() {
 	*x = PartitionId{}
-	mi := &file_nmx_c_nico_proto_msgTypes[23]
+	mi := &file_nmx_c_nico_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2851,7 +2994,7 @@ func (x *PartitionId) String() string {
 func (*PartitionId) ProtoMessage() {}
 
 func (x *PartitionId) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[23]
+	mi := &file_nmx_c_nico_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2864,7 +3007,7 @@ func (x *PartitionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PartitionId.ProtoReflect.Descriptor instead.
 func (*PartitionId) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{23}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PartitionId) GetPartitionId() uint32 {
@@ -2885,7 +3028,7 @@ type Location struct {
 
 func (x *Location) Reset() {
 	*x = Location{}
-	mi := &file_nmx_c_nico_proto_msgTypes[24]
+	mi := &file_nmx_c_nico_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2897,7 +3040,7 @@ func (x *Location) String() string {
 func (*Location) ProtoMessage() {}
 
 func (x *Location) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[24]
+	mi := &file_nmx_c_nico_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2910,7 +3053,7 @@ func (x *Location) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Location.ProtoReflect.Descriptor instead.
 func (*Location) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{24}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Location) GetChassisId() uint64 {
@@ -2937,7 +3080,7 @@ func (x *Location) GetHostId() uint64 {
 type LocationInfo struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	ChassisSerialNumber string                 `protobuf:"bytes,2,opt,name=chassis_serial_number,json=chassisSerialNumber,proto3" json:"chassis_serial_number,omitempty"`
-	SlotIndex           uint64                 `protobuf:"varint,4,opt,name=slot_index,json=slotIndex,proto3" json:"slot_index,omitempty"`
+	TrayIndex           uint64                 `protobuf:"varint,4,opt,name=tray_index,json=trayIndex,proto3" json:"tray_index,omitempty"`
 	Location            *Location              `protobuf:"bytes,6,opt,name=location,proto3" json:"location,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -2945,7 +3088,7 @@ type LocationInfo struct {
 
 func (x *LocationInfo) Reset() {
 	*x = LocationInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[25]
+	mi := &file_nmx_c_nico_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2957,7 +3100,7 @@ func (x *LocationInfo) String() string {
 func (*LocationInfo) ProtoMessage() {}
 
 func (x *LocationInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[25]
+	mi := &file_nmx_c_nico_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2970,7 +3113,7 @@ func (x *LocationInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocationInfo.ProtoReflect.Descriptor instead.
 func (*LocationInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{25}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *LocationInfo) GetChassisSerialNumber() string {
@@ -2980,9 +3123,9 @@ func (x *LocationInfo) GetChassisSerialNumber() string {
 	return ""
 }
 
-func (x *LocationInfo) GetSlotIndex() uint64 {
+func (x *LocationInfo) GetTrayIndex() uint64 {
 	if x != nil {
-		return x.SlotIndex
+		return x.TrayIndex
 	}
 	return 0
 }
@@ -3003,13 +3146,15 @@ type DomainProperties struct {
 	MaxComputeNodesPerChassis uint32 `protobuf:"varint,11,opt,name=max_compute_nodes_per_chassis,json=maxComputeNodesPerChassis,proto3" json:"max_compute_nodes_per_chassis,omitempty"` //!< Max Compute nodes per Chassis
 	MaxGpusPerComputeNode     uint32 `protobuf:"varint,12,opt,name=max_gpus_per_compute_node,json=maxGpusPerComputeNode,proto3" json:"max_gpus_per_compute_node,omitempty"`             //!< Max GPUs per Compute Node
 	MaxGpuNvLinks             uint32 `protobuf:"varint,13,opt,name=max_gpu_nv_links,json=maxGpuNvLinks,proto3" json:"max_gpu_nv_links,omitempty"`                                       //!< Max links per GPU
-	LineRateMbps              uint32 `protobuf:"varint,14,opt,name=line_rate_mbps,json=lineRateMbps,proto3" json:"line_rate_mbps,omitempty"`                                            //!< Line Rate in MBps
+	LineRateMbps              uint32 `protobuf:"varint,14,opt,name=line_rate_mbps,json=lineRateMbps,proto3" json:"line_rate_mbps,omitempty"`                                            //!< Max line Rate in MBps
 	// Switch Node Specific Information
 	MaxSwitchNodes           uint32 `protobuf:"varint,20,opt,name=max_switch_nodes,json=maxSwitchNodes,proto3" json:"max_switch_nodes,omitempty"`                                   //!< Max Switch nodes in the NVLink Domain
 	MaxSwitchNodesPerChassis uint32 `protobuf:"varint,21,opt,name=max_switch_nodes_per_chassis,json=maxSwitchNodesPerChassis,proto3" json:"max_switch_nodes_per_chassis,omitempty"` //!< Max Switch nodes per Chassis
 	MaxSwitchesPerSwitchNode uint32 `protobuf:"varint,22,opt,name=max_switches_per_switch_node,json=maxSwitchesPerSwitchNode,proto3" json:"max_switches_per_switch_node,omitempty"` //!< Max switches per Switch Node
 	MaxSwitchNvLinks         uint32 `protobuf:"varint,23,opt,name=max_switch_nv_links,json=maxSwitchNvLinks,proto3" json:"max_switch_nv_links,omitempty"`                           //!< Max links per switch
 	// GPU Partition Specific Information
+	//
+	// Deprecated: Marked as deprecated in nmx_c_nico.proto.
 	MinGpusPerPartition uint32 `protobuf:"varint,30,opt,name=min_gpus_per_partition,json=minGpusPerPartition,proto3" json:"min_gpus_per_partition,omitempty"` //!< Min GPUs in a partition
 	MaxNumPartitions    uint32 `protobuf:"varint,31,opt,name=max_num_partitions,json=maxNumPartitions,proto3" json:"max_num_partitions,omitempty"`            //!< Maximum number of partitions
 	MaxNumAlids         uint32 `protobuf:"varint,32,opt,name=max_num_alids,json=maxNumAlids,proto3" json:"max_num_alids,omitempty"`                           //!< Maximum number of ALids
@@ -3022,7 +3167,7 @@ type DomainProperties struct {
 
 func (x *DomainProperties) Reset() {
 	*x = DomainProperties{}
-	mi := &file_nmx_c_nico_proto_msgTypes[26]
+	mi := &file_nmx_c_nico_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3034,7 +3179,7 @@ func (x *DomainProperties) String() string {
 func (*DomainProperties) ProtoMessage() {}
 
 func (x *DomainProperties) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[26]
+	mi := &file_nmx_c_nico_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3047,7 +3192,7 @@ func (x *DomainProperties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DomainProperties.ProtoReflect.Descriptor instead.
 func (*DomainProperties) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{26}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *DomainProperties) GetServerHeader() *ServerHeader {
@@ -3127,6 +3272,7 @@ func (x *DomainProperties) GetMaxSwitchNvLinks() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in nmx_c_nico.proto.
 func (x *DomainProperties) GetMinGpusPerPartition() uint32 {
 	if x != nil {
 		return x.MinGpusPerPartition
@@ -3176,7 +3322,7 @@ type DomainStateInfo struct {
 
 func (x *DomainStateInfo) Reset() {
 	*x = DomainStateInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[27]
+	mi := &file_nmx_c_nico_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3188,7 +3334,7 @@ func (x *DomainStateInfo) String() string {
 func (*DomainStateInfo) ProtoMessage() {}
 
 func (x *DomainStateInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[27]
+	mi := &file_nmx_c_nico_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3201,7 +3347,7 @@ func (x *DomainStateInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DomainStateInfo.ProtoReflect.Descriptor instead.
 func (*DomainStateInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{27}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DomainStateInfo) GetServerHeader() *ServerHeader {
@@ -3255,7 +3401,7 @@ type FmEventControlPlaneStateChange struct {
 
 func (x *FmEventControlPlaneStateChange) Reset() {
 	*x = FmEventControlPlaneStateChange{}
-	mi := &file_nmx_c_nico_proto_msgTypes[28]
+	mi := &file_nmx_c_nico_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3267,7 +3413,7 @@ func (x *FmEventControlPlaneStateChange) String() string {
 func (*FmEventControlPlaneStateChange) ProtoMessage() {}
 
 func (x *FmEventControlPlaneStateChange) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[28]
+	mi := &file_nmx_c_nico_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3280,7 +3426,7 @@ func (x *FmEventControlPlaneStateChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmEventControlPlaneStateChange.ProtoReflect.Descriptor instead.
 func (*FmEventControlPlaneStateChange) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{28}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *FmEventControlPlaneStateChange) GetContext() *Context {
@@ -3299,7 +3445,7 @@ type FmEventTopologyChange struct {
 
 func (x *FmEventTopologyChange) Reset() {
 	*x = FmEventTopologyChange{}
-	mi := &file_nmx_c_nico_proto_msgTypes[29]
+	mi := &file_nmx_c_nico_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3311,7 +3457,7 @@ func (x *FmEventTopologyChange) String() string {
 func (*FmEventTopologyChange) ProtoMessage() {}
 
 func (x *FmEventTopologyChange) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[29]
+	mi := &file_nmx_c_nico_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3324,7 +3470,7 @@ func (x *FmEventTopologyChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmEventTopologyChange.ProtoReflect.Descriptor instead.
 func (*FmEventTopologyChange) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{29}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *FmEventTopologyChange) GetContext() *Context {
@@ -3344,7 +3490,7 @@ type FmEventPartitionChange struct {
 
 func (x *FmEventPartitionChange) Reset() {
 	*x = FmEventPartitionChange{}
-	mi := &file_nmx_c_nico_proto_msgTypes[30]
+	mi := &file_nmx_c_nico_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3356,7 +3502,7 @@ func (x *FmEventPartitionChange) String() string {
 func (*FmEventPartitionChange) ProtoMessage() {}
 
 func (x *FmEventPartitionChange) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[30]
+	mi := &file_nmx_c_nico_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3369,7 +3515,7 @@ func (x *FmEventPartitionChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmEventPartitionChange.ProtoReflect.Descriptor instead.
 func (*FmEventPartitionChange) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{30}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *FmEventPartitionChange) GetContext() *Context {
@@ -3407,14 +3553,15 @@ type PortTopoInfo struct {
 	ContainAndDrain   bool                   `protobuf:"varint,27,opt,name=contain_and_drain,json=containAndDrain,proto3" json:"contain_and_drain,omitempty"`
 	Rail              uint32                 `protobuf:"varint,28,opt,name=rail,proto3" json:"rail,omitempty"`
 	Plane             uint32                 `protobuf:"varint,29,opt,name=plane,proto3" json:"plane,omitempty"`
-	PortAdminState    AdminState             `protobuf:"varint,30,opt,name=port_admin_state,json=portAdminState,proto3,enum=nmx_c.AdminState" json:"port_admin_state,omitempty"`
+	LinkRateMbps      uint32                 `protobuf:"varint,30,opt,name=link_rate_mbps,json=linkRateMbps,proto3" json:"link_rate_mbps,omitempty"`
+	PortAdminState    AdminState             `protobuf:"varint,31,opt,name=port_admin_state,json=portAdminState,proto3,enum=nmx_c.AdminState" json:"port_admin_state,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PortTopoInfo) Reset() {
 	*x = PortTopoInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[31]
+	mi := &file_nmx_c_nico_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3426,7 +3573,7 @@ func (x *PortTopoInfo) String() string {
 func (*PortTopoInfo) ProtoMessage() {}
 
 func (x *PortTopoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[31]
+	mi := &file_nmx_c_nico_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3439,7 +3586,7 @@ func (x *PortTopoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortTopoInfo.ProtoReflect.Descriptor instead.
 func (*PortTopoInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{31}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PortTopoInfo) GetPortType() PortType {
@@ -3575,6 +3722,13 @@ func (x *PortTopoInfo) GetPlane() uint32 {
 	return 0
 }
 
+func (x *PortTopoInfo) GetLinkRateMbps() uint32 {
+	if x != nil {
+		return x.LinkRateMbps
+	}
+	return 0
+}
+
 func (x *PortTopoInfo) GetPortAdminState() AdminState {
 	if x != nil {
 		return x.PortAdminState
@@ -3587,11 +3741,11 @@ type SwitchTopoInfo struct {
 	Loc           *LocationInfo          `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
 	TopologyId    uint64                 `protobuf:"varint,2,opt,name=topology_id,json=topologyId,proto3" json:"topology_id,omitempty"`
 	DeviceUid     uint64                 `protobuf:"varint,3,opt,name=device_uid,json=deviceUid,proto3" json:"device_uid,omitempty"`
-	DeviceIndex   uint32                 `protobuf:"varint,4,opt,name=device_index,json=deviceIndex,proto3" json:"device_index,omitempty"`
+	DeviceId      uint32                 `protobuf:"varint,4,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	NumPorts      uint64                 `protobuf:"varint,5,opt,name=num_ports,json=numPorts,proto3" json:"num_ports,omitempty"`
 	SystemUid     uint64                 `protobuf:"varint,6,opt,name=system_uid,json=systemUid,proto3" json:"system_uid,omitempty"`
 	VendorId      uint32                 `protobuf:"varint,7,opt,name=vendor_id,json=vendorId,proto3" json:"vendor_id,omitempty"`
-	DeviceId      uint64                 `protobuf:"varint,8,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DevicePcieId  uint64                 `protobuf:"varint,8,opt,name=device_pcie_id,json=devicePcieId,proto3" json:"device_pcie_id,omitempty"`
 	Description   string                 `protobuf:"bytes,9,opt,name=description,proto3" json:"description,omitempty"`
 	PartitionId   []*PartitionId         `protobuf:"bytes,10,rep,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
 	DeviceHealth  SwitchHealth           `protobuf:"varint,11,opt,name=device_health,json=deviceHealth,proto3,enum=nmx_c.SwitchHealth" json:"device_health,omitempty"`
@@ -3602,7 +3756,7 @@ type SwitchTopoInfo struct {
 
 func (x *SwitchTopoInfo) Reset() {
 	*x = SwitchTopoInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[32]
+	mi := &file_nmx_c_nico_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3614,7 +3768,7 @@ func (x *SwitchTopoInfo) String() string {
 func (*SwitchTopoInfo) ProtoMessage() {}
 
 func (x *SwitchTopoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[32]
+	mi := &file_nmx_c_nico_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3627,7 +3781,7 @@ func (x *SwitchTopoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchTopoInfo.ProtoReflect.Descriptor instead.
 func (*SwitchTopoInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{32}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SwitchTopoInfo) GetLoc() *LocationInfo {
@@ -3651,9 +3805,9 @@ func (x *SwitchTopoInfo) GetDeviceUid() uint64 {
 	return 0
 }
 
-func (x *SwitchTopoInfo) GetDeviceIndex() uint32 {
+func (x *SwitchTopoInfo) GetDeviceId() uint32 {
 	if x != nil {
-		return x.DeviceIndex
+		return x.DeviceId
 	}
 	return 0
 }
@@ -3679,9 +3833,9 @@ func (x *SwitchTopoInfo) GetVendorId() uint32 {
 	return 0
 }
 
-func (x *SwitchTopoInfo) GetDeviceId() uint64 {
+func (x *SwitchTopoInfo) GetDevicePcieId() uint64 {
 	if x != nil {
-		return x.DeviceId
+		return x.DevicePcieId
 	}
 	return 0
 }
@@ -3719,11 +3873,11 @@ type GpuTopoInfo struct {
 	Loc           *LocationInfo          `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
 	TopologyId    uint64                 `protobuf:"varint,2,opt,name=topology_id,json=topologyId,proto3" json:"topology_id,omitempty"`
 	DeviceUid     uint64                 `protobuf:"varint,3,opt,name=device_uid,json=deviceUid,proto3" json:"device_uid,omitempty"`
-	DeviceIndex   uint32                 `protobuf:"varint,4,opt,name=device_index,json=deviceIndex,proto3" json:"device_index,omitempty"`
+	DeviceId      uint32                 `protobuf:"varint,4,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	NumPorts      uint64                 `protobuf:"varint,5,opt,name=num_ports,json=numPorts,proto3" json:"num_ports,omitempty"`
 	SystemUid     uint64                 `protobuf:"varint,6,opt,name=system_uid,json=systemUid,proto3" json:"system_uid,omitempty"`
 	VendorId      uint32                 `protobuf:"varint,7,opt,name=vendor_id,json=vendorId,proto3" json:"vendor_id,omitempty"`
-	DeviceId      uint64                 `protobuf:"varint,8,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	DevicePcieId  uint64                 `protobuf:"varint,8,opt,name=device_pcie_id,json=devicePcieId,proto3" json:"device_pcie_id,omitempty"`
 	ALids         []uint64               `protobuf:"varint,9,rep,packed,name=a_lids,json=aLids,proto3" json:"a_lids,omitempty"`
 	Description   string                 `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
 	PartitionId   []*PartitionId         `protobuf:"bytes,12,rep,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
@@ -3735,7 +3889,7 @@ type GpuTopoInfo struct {
 
 func (x *GpuTopoInfo) Reset() {
 	*x = GpuTopoInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[33]
+	mi := &file_nmx_c_nico_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3747,7 +3901,7 @@ func (x *GpuTopoInfo) String() string {
 func (*GpuTopoInfo) ProtoMessage() {}
 
 func (x *GpuTopoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[33]
+	mi := &file_nmx_c_nico_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3760,7 +3914,7 @@ func (x *GpuTopoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuTopoInfo.ProtoReflect.Descriptor instead.
 func (*GpuTopoInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{33}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GpuTopoInfo) GetLoc() *LocationInfo {
@@ -3784,9 +3938,9 @@ func (x *GpuTopoInfo) GetDeviceUid() uint64 {
 	return 0
 }
 
-func (x *GpuTopoInfo) GetDeviceIndex() uint32 {
+func (x *GpuTopoInfo) GetDeviceId() uint32 {
 	if x != nil {
-		return x.DeviceIndex
+		return x.DeviceId
 	}
 	return 0
 }
@@ -3812,9 +3966,9 @@ func (x *GpuTopoInfo) GetVendorId() uint32 {
 	return 0
 }
 
-func (x *GpuTopoInfo) GetDeviceId() uint64 {
+func (x *GpuTopoInfo) GetDevicePcieId() uint64 {
 	if x != nil {
-		return x.DeviceId
+		return x.DevicePcieId
 	}
 	return 0
 }
@@ -3867,7 +4021,7 @@ type DeviceTopoInfo struct {
 
 func (x *DeviceTopoInfo) Reset() {
 	*x = DeviceTopoInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[34]
+	mi := &file_nmx_c_nico_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3879,7 +4033,7 @@ func (x *DeviceTopoInfo) String() string {
 func (*DeviceTopoInfo) ProtoMessage() {}
 
 func (x *DeviceTopoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[34]
+	mi := &file_nmx_c_nico_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3892,7 +4046,7 @@ func (x *DeviceTopoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceTopoInfo.ProtoReflect.Descriptor instead.
 func (*DeviceTopoInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{34}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *DeviceTopoInfo) GetDevice() isDeviceTopoInfo_Device {
@@ -3946,7 +4100,7 @@ type GetTopologyInfoRequest struct {
 
 func (x *GetTopologyInfoRequest) Reset() {
 	*x = GetTopologyInfoRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[35]
+	mi := &file_nmx_c_nico_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3958,7 +4112,7 @@ func (x *GetTopologyInfoRequest) String() string {
 func (*GetTopologyInfoRequest) ProtoMessage() {}
 
 func (x *GetTopologyInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[35]
+	mi := &file_nmx_c_nico_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3971,7 +4125,7 @@ func (x *GetTopologyInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTopologyInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetTopologyInfoRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{35}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *GetTopologyInfoRequest) GetContext() *Context {
@@ -3999,7 +4153,7 @@ type FmTopologyInfo struct {
 
 func (x *FmTopologyInfo) Reset() {
 	*x = FmTopologyInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[36]
+	mi := &file_nmx_c_nico_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4011,7 +4165,7 @@ func (x *FmTopologyInfo) String() string {
 func (*FmTopologyInfo) ProtoMessage() {}
 
 func (x *FmTopologyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[36]
+	mi := &file_nmx_c_nico_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4024,7 +4178,7 @@ func (x *FmTopologyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmTopologyInfo.ProtoReflect.Descriptor instead.
 func (*FmTopologyInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{36}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *FmTopologyInfo) GetServerHeader() *ServerHeader {
@@ -4061,7 +4215,7 @@ type GetComputeNodeCountRequest struct {
 
 func (x *GetComputeNodeCountRequest) Reset() {
 	*x = GetComputeNodeCountRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[37]
+	mi := &file_nmx_c_nico_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4073,7 +4227,7 @@ func (x *GetComputeNodeCountRequest) String() string {
 func (*GetComputeNodeCountRequest) ProtoMessage() {}
 
 func (x *GetComputeNodeCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[37]
+	mi := &file_nmx_c_nico_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4086,7 +4240,7 @@ func (x *GetComputeNodeCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputeNodeCountRequest.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeCountRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{37}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetComputeNodeCountRequest) GetContext() *Context {
@@ -4135,7 +4289,7 @@ type GetComputeNodeCountResponse struct {
 
 func (x *GetComputeNodeCountResponse) Reset() {
 	*x = GetComputeNodeCountResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[38]
+	mi := &file_nmx_c_nico_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4147,7 +4301,7 @@ func (x *GetComputeNodeCountResponse) String() string {
 func (*GetComputeNodeCountResponse) ProtoMessage() {}
 
 func (x *GetComputeNodeCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[38]
+	mi := &file_nmx_c_nico_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4160,7 +4314,7 @@ func (x *GetComputeNodeCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputeNodeCountResponse.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeCountResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{38}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *GetComputeNodeCountResponse) GetServerHeader() *ServerHeader {
@@ -4198,7 +4352,7 @@ type GetComputeNodeLocationListRequest struct {
 
 func (x *GetComputeNodeLocationListRequest) Reset() {
 	*x = GetComputeNodeLocationListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[39]
+	mi := &file_nmx_c_nico_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4210,7 +4364,7 @@ func (x *GetComputeNodeLocationListRequest) String() string {
 func (*GetComputeNodeLocationListRequest) ProtoMessage() {}
 
 func (x *GetComputeNodeLocationListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[39]
+	mi := &file_nmx_c_nico_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4223,7 +4377,7 @@ func (x *GetComputeNodeLocationListRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetComputeNodeLocationListRequest.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeLocationListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{39}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *GetComputeNodeLocationListRequest) GetContext() *Context {
@@ -4279,7 +4433,7 @@ type GetComputeNodeLocationListResponse struct {
 
 func (x *GetComputeNodeLocationListResponse) Reset() {
 	*x = GetComputeNodeLocationListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[40]
+	mi := &file_nmx_c_nico_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4291,7 +4445,7 @@ func (x *GetComputeNodeLocationListResponse) String() string {
 func (*GetComputeNodeLocationListResponse) ProtoMessage() {}
 
 func (x *GetComputeNodeLocationListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[40]
+	mi := &file_nmx_c_nico_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4304,7 +4458,7 @@ func (x *GetComputeNodeLocationListResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use GetComputeNodeLocationListResponse.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeLocationListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{40}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetComputeNodeLocationListResponse) GetServerHeader() *ServerHeader {
@@ -4339,7 +4493,7 @@ type GetComputeNodeInfoListRequest struct {
 
 func (x *GetComputeNodeInfoListRequest) Reset() {
 	*x = GetComputeNodeInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[41]
+	mi := &file_nmx_c_nico_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4351,7 +4505,7 @@ func (x *GetComputeNodeInfoListRequest) String() string {
 func (*GetComputeNodeInfoListRequest) ProtoMessage() {}
 
 func (x *GetComputeNodeInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[41]
+	mi := &file_nmx_c_nico_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4364,7 +4518,7 @@ func (x *GetComputeNodeInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputeNodeInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{41}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetComputeNodeInfoListRequest) GetContext() *Context {
@@ -4400,7 +4554,7 @@ type ComputeNodeInfo struct {
 
 func (x *ComputeNodeInfo) Reset() {
 	*x = ComputeNodeInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[42]
+	mi := &file_nmx_c_nico_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4412,7 +4566,7 @@ func (x *ComputeNodeInfo) String() string {
 func (*ComputeNodeInfo) ProtoMessage() {}
 
 func (x *ComputeNodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[42]
+	mi := &file_nmx_c_nico_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4425,7 +4579,7 @@ func (x *ComputeNodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputeNodeInfo.ProtoReflect.Descriptor instead.
 func (*ComputeNodeInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{42}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ComputeNodeInfo) GetLoc() *LocationInfo {
@@ -4467,7 +4621,7 @@ type GetComputeNodeInfoListResponse struct {
 
 func (x *GetComputeNodeInfoListResponse) Reset() {
 	*x = GetComputeNodeInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[43]
+	mi := &file_nmx_c_nico_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4479,7 +4633,7 @@ func (x *GetComputeNodeInfoListResponse) String() string {
 func (*GetComputeNodeInfoListResponse) ProtoMessage() {}
 
 func (x *GetComputeNodeInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[43]
+	mi := &file_nmx_c_nico_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4492,7 +4646,7 @@ func (x *GetComputeNodeInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputeNodeInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetComputeNodeInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{43}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *GetComputeNodeInfoListResponse) GetServerHeader() *ServerHeader {
@@ -4531,7 +4685,7 @@ type GetGpuInfoListRequest struct {
 
 func (x *GetGpuInfoListRequest) Reset() {
 	*x = GetGpuInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[44]
+	mi := &file_nmx_c_nico_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4543,7 +4697,7 @@ func (x *GetGpuInfoListRequest) String() string {
 func (*GetGpuInfoListRequest) ProtoMessage() {}
 
 func (x *GetGpuInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[44]
+	mi := &file_nmx_c_nico_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4556,7 +4710,7 @@ func (x *GetGpuInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGpuInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetGpuInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{44}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GetGpuInfoListRequest) GetContext() *Context {
@@ -4611,7 +4765,7 @@ func (x *GetGpuInfoListRequest) GetGpuHealth() GpuHealth {
 type GpuInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Loc           *LocationInfo          `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
-	GpuIndex      uint32                 `protobuf:"varint,2,opt,name=gpu_index,json=gpuIndex,proto3" json:"gpu_index,omitempty"`
+	GpuId         uint32                 `protobuf:"varint,2,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`
 	GpuUid        uint64                 `protobuf:"varint,3,opt,name=gpu_uid,json=gpuUid,proto3" json:"gpu_uid,omitempty"`
 	GpuHealth     GpuHealth              `protobuf:"varint,4,opt,name=gpu_health,json=gpuHealth,proto3,enum=nmx_c.GpuHealth" json:"gpu_health,omitempty"`
 	PartitionId   *PartitionId           `protobuf:"bytes,5,opt,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
@@ -4621,7 +4775,7 @@ type GpuInfo struct {
 
 func (x *GpuInfo) Reset() {
 	*x = GpuInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[45]
+	mi := &file_nmx_c_nico_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4633,7 +4787,7 @@ func (x *GpuInfo) String() string {
 func (*GpuInfo) ProtoMessage() {}
 
 func (x *GpuInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[45]
+	mi := &file_nmx_c_nico_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4646,7 +4800,7 @@ func (x *GpuInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuInfo.ProtoReflect.Descriptor instead.
 func (*GpuInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{45}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *GpuInfo) GetLoc() *LocationInfo {
@@ -4656,9 +4810,9 @@ func (x *GpuInfo) GetLoc() *LocationInfo {
 	return nil
 }
 
-func (x *GpuInfo) GetGpuIndex() uint32 {
+func (x *GpuInfo) GetGpuId() uint32 {
 	if x != nil {
-		return x.GpuIndex
+		return x.GpuId
 	}
 	return 0
 }
@@ -4695,7 +4849,7 @@ type GetGpuInfoListResponse struct {
 
 func (x *GetGpuInfoListResponse) Reset() {
 	*x = GetGpuInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[46]
+	mi := &file_nmx_c_nico_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4707,7 +4861,7 @@ func (x *GetGpuInfoListResponse) String() string {
 func (*GetGpuInfoListResponse) ProtoMessage() {}
 
 func (x *GetGpuInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[46]
+	mi := &file_nmx_c_nico_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4720,7 +4874,7 @@ func (x *GetGpuInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGpuInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetGpuInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{46}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GetGpuInfoListResponse) GetServerHeader() *ServerHeader {
@@ -4757,7 +4911,7 @@ type GetSwitchNodeCountRequest struct {
 
 func (x *GetSwitchNodeCountRequest) Reset() {
 	*x = GetSwitchNodeCountRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[47]
+	mi := &file_nmx_c_nico_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4769,7 +4923,7 @@ func (x *GetSwitchNodeCountRequest) String() string {
 func (*GetSwitchNodeCountRequest) ProtoMessage() {}
 
 func (x *GetSwitchNodeCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[47]
+	mi := &file_nmx_c_nico_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4782,7 +4936,7 @@ func (x *GetSwitchNodeCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchNodeCountRequest.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeCountRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{47}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetSwitchNodeCountRequest) GetContext() *Context {
@@ -4831,7 +4985,7 @@ type GetSwitchNodeCountResponse struct {
 
 func (x *GetSwitchNodeCountResponse) Reset() {
 	*x = GetSwitchNodeCountResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[48]
+	mi := &file_nmx_c_nico_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4843,7 +4997,7 @@ func (x *GetSwitchNodeCountResponse) String() string {
 func (*GetSwitchNodeCountResponse) ProtoMessage() {}
 
 func (x *GetSwitchNodeCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[48]
+	mi := &file_nmx_c_nico_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4856,7 +5010,7 @@ func (x *GetSwitchNodeCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchNodeCountResponse.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeCountResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{48}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GetSwitchNodeCountResponse) GetServerHeader() *ServerHeader {
@@ -4893,7 +5047,7 @@ type GetSwitchNodeLocationListRequest struct {
 
 func (x *GetSwitchNodeLocationListRequest) Reset() {
 	*x = GetSwitchNodeLocationListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[49]
+	mi := &file_nmx_c_nico_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4905,7 +5059,7 @@ func (x *GetSwitchNodeLocationListRequest) String() string {
 func (*GetSwitchNodeLocationListRequest) ProtoMessage() {}
 
 func (x *GetSwitchNodeLocationListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[49]
+	mi := &file_nmx_c_nico_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4918,7 +5072,7 @@ func (x *GetSwitchNodeLocationListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchNodeLocationListRequest.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeLocationListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{49}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetSwitchNodeLocationListRequest) GetContext() *Context {
@@ -4967,7 +5121,7 @@ type GetSwitchNodeLocationListResponse struct {
 
 func (x *GetSwitchNodeLocationListResponse) Reset() {
 	*x = GetSwitchNodeLocationListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[50]
+	mi := &file_nmx_c_nico_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4979,7 +5133,7 @@ func (x *GetSwitchNodeLocationListResponse) String() string {
 func (*GetSwitchNodeLocationListResponse) ProtoMessage() {}
 
 func (x *GetSwitchNodeLocationListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[50]
+	mi := &file_nmx_c_nico_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4992,7 +5146,7 @@ func (x *GetSwitchNodeLocationListResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetSwitchNodeLocationListResponse.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeLocationListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{50}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *GetSwitchNodeLocationListResponse) GetServerHeader() *ServerHeader {
@@ -5027,7 +5181,7 @@ type GetSwitchNodeInfoListRequest struct {
 
 func (x *GetSwitchNodeInfoListRequest) Reset() {
 	*x = GetSwitchNodeInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[51]
+	mi := &file_nmx_c_nico_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5039,7 +5193,7 @@ func (x *GetSwitchNodeInfoListRequest) String() string {
 func (*GetSwitchNodeInfoListRequest) ProtoMessage() {}
 
 func (x *GetSwitchNodeInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[51]
+	mi := &file_nmx_c_nico_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5052,7 +5206,7 @@ func (x *GetSwitchNodeInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchNodeInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{51}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *GetSwitchNodeInfoListRequest) GetContext() *Context {
@@ -5088,7 +5242,7 @@ type SwitchNodeInfo struct {
 
 func (x *SwitchNodeInfo) Reset() {
 	*x = SwitchNodeInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[52]
+	mi := &file_nmx_c_nico_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5100,7 +5254,7 @@ func (x *SwitchNodeInfo) String() string {
 func (*SwitchNodeInfo) ProtoMessage() {}
 
 func (x *SwitchNodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[52]
+	mi := &file_nmx_c_nico_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5113,7 +5267,7 @@ func (x *SwitchNodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchNodeInfo.ProtoReflect.Descriptor instead.
 func (*SwitchNodeInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{52}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *SwitchNodeInfo) GetLoc() *LocationInfo {
@@ -5155,7 +5309,7 @@ type GetSwitchNodeInfoListResponse struct {
 
 func (x *GetSwitchNodeInfoListResponse) Reset() {
 	*x = GetSwitchNodeInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[53]
+	mi := &file_nmx_c_nico_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5167,7 +5321,7 @@ func (x *GetSwitchNodeInfoListResponse) String() string {
 func (*GetSwitchNodeInfoListResponse) ProtoMessage() {}
 
 func (x *GetSwitchNodeInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[53]
+	mi := &file_nmx_c_nico_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5180,7 +5334,7 @@ func (x *GetSwitchNodeInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchNodeInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetSwitchNodeInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{53}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetSwitchNodeInfoListResponse) GetServerHeader() *ServerHeader {
@@ -5216,7 +5370,7 @@ type GetSwitchInfoListRequest struct {
 
 func (x *GetSwitchInfoListRequest) Reset() {
 	*x = GetSwitchInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[54]
+	mi := &file_nmx_c_nico_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5228,7 +5382,7 @@ func (x *GetSwitchInfoListRequest) String() string {
 func (*GetSwitchInfoListRequest) ProtoMessage() {}
 
 func (x *GetSwitchInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[54]
+	mi := &file_nmx_c_nico_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5241,7 +5395,7 @@ func (x *GetSwitchInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetSwitchInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{54}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *GetSwitchInfoListRequest) GetContext() *Context {
@@ -5275,7 +5429,7 @@ func (x *GetSwitchInfoListRequest) GetGatewayId() string {
 type SwitchInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Loc           *Location              `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
-	SwitchIndex   uint32                 `protobuf:"varint,2,opt,name=switch_index,json=switchIndex,proto3" json:"switch_index,omitempty"`
+	SwitchId      uint32                 `protobuf:"varint,2,opt,name=switch_id,json=switchId,proto3" json:"switch_id,omitempty"`
 	SwitchUid     uint64                 `protobuf:"varint,3,opt,name=switch_uid,json=switchUid,proto3" json:"switch_uid,omitempty"`
 	NumPorts      uint32                 `protobuf:"varint,4,opt,name=num_ports,json=numPorts,proto3" json:"num_ports,omitempty"`
 	Health        SwitchHealth           `protobuf:"varint,5,opt,name=health,proto3,enum=nmx_c.SwitchHealth" json:"health,omitempty"`
@@ -5285,7 +5439,7 @@ type SwitchInfo struct {
 
 func (x *SwitchInfo) Reset() {
 	*x = SwitchInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[55]
+	mi := &file_nmx_c_nico_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5297,7 +5451,7 @@ func (x *SwitchInfo) String() string {
 func (*SwitchInfo) ProtoMessage() {}
 
 func (x *SwitchInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[55]
+	mi := &file_nmx_c_nico_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5310,7 +5464,7 @@ func (x *SwitchInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchInfo.ProtoReflect.Descriptor instead.
 func (*SwitchInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{55}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *SwitchInfo) GetLoc() *Location {
@@ -5320,9 +5474,9 @@ func (x *SwitchInfo) GetLoc() *Location {
 	return nil
 }
 
-func (x *SwitchInfo) GetSwitchIndex() uint32 {
+func (x *SwitchInfo) GetSwitchId() uint32 {
 	if x != nil {
-		return x.SwitchIndex
+		return x.SwitchId
 	}
 	return 0
 }
@@ -5359,7 +5513,7 @@ type GetSwitchInfoListResponse struct {
 
 func (x *GetSwitchInfoListResponse) Reset() {
 	*x = GetSwitchInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[56]
+	mi := &file_nmx_c_nico_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5371,7 +5525,7 @@ func (x *GetSwitchInfoListResponse) String() string {
 func (*GetSwitchInfoListResponse) ProtoMessage() {}
 
 func (x *GetSwitchInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[56]
+	mi := &file_nmx_c_nico_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5384,7 +5538,7 @@ func (x *GetSwitchInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSwitchInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetSwitchInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{56}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *GetSwitchInfoListResponse) GetServerHeader() *ServerHeader {
@@ -5422,7 +5576,7 @@ type GetPartitionCountRequest struct {
 
 func (x *GetPartitionCountRequest) Reset() {
 	*x = GetPartitionCountRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[57]
+	mi := &file_nmx_c_nico_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5434,7 +5588,7 @@ func (x *GetPartitionCountRequest) String() string {
 func (*GetPartitionCountRequest) ProtoMessage() {}
 
 func (x *GetPartitionCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[57]
+	mi := &file_nmx_c_nico_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5447,7 +5601,7 @@ func (x *GetPartitionCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionCountRequest.ProtoReflect.Descriptor instead.
 func (*GetPartitionCountRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{57}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *GetPartitionCountRequest) GetContext() *Context {
@@ -5503,7 +5657,7 @@ type GetPartitionCountResponse struct {
 
 func (x *GetPartitionCountResponse) Reset() {
 	*x = GetPartitionCountResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[58]
+	mi := &file_nmx_c_nico_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5515,7 +5669,7 @@ func (x *GetPartitionCountResponse) String() string {
 func (*GetPartitionCountResponse) ProtoMessage() {}
 
 func (x *GetPartitionCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[58]
+	mi := &file_nmx_c_nico_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5528,7 +5682,7 @@ func (x *GetPartitionCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionCountResponse.ProtoReflect.Descriptor instead.
 func (*GetPartitionCountResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{58}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GetPartitionCountResponse) GetServerHeader() *ServerHeader {
@@ -5567,7 +5721,7 @@ type GetPartitionIdListRequest struct {
 
 func (x *GetPartitionIdListRequest) Reset() {
 	*x = GetPartitionIdListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[59]
+	mi := &file_nmx_c_nico_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5579,7 +5733,7 @@ func (x *GetPartitionIdListRequest) String() string {
 func (*GetPartitionIdListRequest) ProtoMessage() {}
 
 func (x *GetPartitionIdListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[59]
+	mi := &file_nmx_c_nico_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5592,7 +5746,7 @@ func (x *GetPartitionIdListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionIdListRequest.ProtoReflect.Descriptor instead.
 func (*GetPartitionIdListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{59}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetPartitionIdListRequest) GetContext() *Context {
@@ -5654,7 +5808,7 @@ type Partition struct {
 
 func (x *Partition) Reset() {
 	*x = Partition{}
-	mi := &file_nmx_c_nico_proto_msgTypes[60]
+	mi := &file_nmx_c_nico_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5666,7 +5820,7 @@ func (x *Partition) String() string {
 func (*Partition) ProtoMessage() {}
 
 func (x *Partition) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[60]
+	mi := &file_nmx_c_nico_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5679,7 +5833,7 @@ func (x *Partition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Partition.ProtoReflect.Descriptor instead.
 func (*Partition) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{60}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *Partition) GetPartitionId() *PartitionId {
@@ -5707,7 +5861,7 @@ type GetPartitionIdListResponse struct {
 
 func (x *GetPartitionIdListResponse) Reset() {
 	*x = GetPartitionIdListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[61]
+	mi := &file_nmx_c_nico_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5719,7 +5873,7 @@ func (x *GetPartitionIdListResponse) String() string {
 func (*GetPartitionIdListResponse) ProtoMessage() {}
 
 func (x *GetPartitionIdListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[61]
+	mi := &file_nmx_c_nico_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5732,7 +5886,7 @@ func (x *GetPartitionIdListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionIdListResponse.ProtoReflect.Descriptor instead.
 func (*GetPartitionIdListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{61}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *GetPartitionIdListResponse) GetServerHeader() *ServerHeader {
@@ -5768,7 +5922,7 @@ type GetPartitionInfoListRequest struct {
 
 func (x *GetPartitionInfoListRequest) Reset() {
 	*x = GetPartitionInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[62]
+	mi := &file_nmx_c_nico_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5780,7 +5934,7 @@ func (x *GetPartitionInfoListRequest) String() string {
 func (*GetPartitionInfoListRequest) ProtoMessage() {}
 
 func (x *GetPartitionInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[62]
+	mi := &file_nmx_c_nico_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5793,7 +5947,7 @@ func (x *GetPartitionInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetPartitionInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{62}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *GetPartitionInfoListRequest) GetContext() *Context {
@@ -5834,7 +5988,7 @@ type PartitionAttr struct {
 
 func (x *PartitionAttr) Reset() {
 	*x = PartitionAttr{}
-	mi := &file_nmx_c_nico_proto_msgTypes[63]
+	mi := &file_nmx_c_nico_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5846,7 +6000,7 @@ func (x *PartitionAttr) String() string {
 func (*PartitionAttr) ProtoMessage() {}
 
 func (x *PartitionAttr) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[63]
+	mi := &file_nmx_c_nico_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5859,7 +6013,7 @@ func (x *PartitionAttr) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PartitionAttr.ProtoReflect.Descriptor instead.
 func (*PartitionAttr) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{63}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *PartitionAttr) GetResiliencyMode() ResiliencyMode {
@@ -5893,7 +6047,7 @@ type PartitionInfo struct {
 
 func (x *PartitionInfo) Reset() {
 	*x = PartitionInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[64]
+	mi := &file_nmx_c_nico_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5905,7 +6059,7 @@ func (x *PartitionInfo) String() string {
 func (*PartitionInfo) ProtoMessage() {}
 
 func (x *PartitionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[64]
+	mi := &file_nmx_c_nico_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5918,7 +6072,7 @@ func (x *PartitionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PartitionInfo.ProtoReflect.Descriptor instead.
 func (*PartitionInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{64}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *PartitionInfo) GetPartitionId() *PartitionId {
@@ -5995,7 +6149,7 @@ type GetPartitionInfoListResponse struct {
 
 func (x *GetPartitionInfoListResponse) Reset() {
 	*x = GetPartitionInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[65]
+	mi := &file_nmx_c_nico_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6007,7 +6161,7 @@ func (x *GetPartitionInfoListResponse) String() string {
 func (*GetPartitionInfoListResponse) ProtoMessage() {}
 
 func (x *GetPartitionInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[65]
+	mi := &file_nmx_c_nico_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6020,7 +6174,7 @@ func (x *GetPartitionInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPartitionInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetPartitionInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{65}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *GetPartitionInfoListResponse) GetServerHeader() *ServerHeader {
@@ -6047,14 +6201,14 @@ func (x *GetPartitionInfoListResponse) GetPartitionInfoList() []*PartitionInfo {
 type GpuLocation struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Loc           *Location              `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
-	GpuIndex      uint32                 `protobuf:"varint,2,opt,name=gpu_index,json=gpuIndex,proto3" json:"gpu_index,omitempty"`
+	GpuId         uint32                 `protobuf:"varint,2,opt,name=gpu_id,json=gpuId,proto3" json:"gpu_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GpuLocation) Reset() {
 	*x = GpuLocation{}
-	mi := &file_nmx_c_nico_proto_msgTypes[66]
+	mi := &file_nmx_c_nico_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6066,7 +6220,7 @@ func (x *GpuLocation) String() string {
 func (*GpuLocation) ProtoMessage() {}
 
 func (x *GpuLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[66]
+	mi := &file_nmx_c_nico_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6079,7 +6233,7 @@ func (x *GpuLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuLocation.ProtoReflect.Descriptor instead.
 func (*GpuLocation) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{66}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *GpuLocation) GetLoc() *Location {
@@ -6089,9 +6243,9 @@ func (x *GpuLocation) GetLoc() *Location {
 	return nil
 }
 
-func (x *GpuLocation) GetGpuIndex() uint32 {
+func (x *GpuLocation) GetGpuId() uint32 {
 	if x != nil {
-		return x.GpuIndex
+		return x.GpuId
 	}
 	return 0
 }
@@ -6109,7 +6263,7 @@ type GpuResourceId struct {
 
 func (x *GpuResourceId) Reset() {
 	*x = GpuResourceId{}
-	mi := &file_nmx_c_nico_proto_msgTypes[67]
+	mi := &file_nmx_c_nico_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6121,7 +6275,7 @@ func (x *GpuResourceId) String() string {
 func (*GpuResourceId) ProtoMessage() {}
 
 func (x *GpuResourceId) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[67]
+	mi := &file_nmx_c_nico_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6134,7 +6288,7 @@ func (x *GpuResourceId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuResourceId.ProtoReflect.Descriptor instead.
 func (*GpuResourceId) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{67}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *GpuResourceId) GetResourceId() isGpuResourceId_ResourceId {
@@ -6192,7 +6346,7 @@ type CreatePartitionRequest struct {
 
 func (x *CreatePartitionRequest) Reset() {
 	*x = CreatePartitionRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[68]
+	mi := &file_nmx_c_nico_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6204,7 +6358,7 @@ func (x *CreatePartitionRequest) String() string {
 func (*CreatePartitionRequest) ProtoMessage() {}
 
 func (x *CreatePartitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[68]
+	mi := &file_nmx_c_nico_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6217,7 +6371,7 @@ func (x *CreatePartitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePartitionRequest.ProtoReflect.Descriptor instead.
 func (*CreatePartitionRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{68}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *CreatePartitionRequest) GetContext() *Context {
@@ -6273,7 +6427,7 @@ type CreatePartitionResponse struct {
 
 func (x *CreatePartitionResponse) Reset() {
 	*x = CreatePartitionResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[69]
+	mi := &file_nmx_c_nico_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6285,7 +6439,7 @@ func (x *CreatePartitionResponse) String() string {
 func (*CreatePartitionResponse) ProtoMessage() {}
 
 func (x *CreatePartitionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[69]
+	mi := &file_nmx_c_nico_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6298,7 +6452,7 @@ func (x *CreatePartitionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePartitionResponse.ProtoReflect.Descriptor instead.
 func (*CreatePartitionResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{69}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *CreatePartitionResponse) GetServerHeader() *ServerHeader {
@@ -6334,7 +6488,7 @@ type DeletePartitionRequest struct {
 
 func (x *DeletePartitionRequest) Reset() {
 	*x = DeletePartitionRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[70]
+	mi := &file_nmx_c_nico_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6346,7 +6500,7 @@ func (x *DeletePartitionRequest) String() string {
 func (*DeletePartitionRequest) ProtoMessage() {}
 
 func (x *DeletePartitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[70]
+	mi := &file_nmx_c_nico_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6359,7 +6513,7 @@ func (x *DeletePartitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePartitionRequest.ProtoReflect.Descriptor instead.
 func (*DeletePartitionRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{70}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *DeletePartitionRequest) GetContext() *Context {
@@ -6401,7 +6555,7 @@ type DeletePartitionResponse struct {
 
 func (x *DeletePartitionResponse) Reset() {
 	*x = DeletePartitionResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[71]
+	mi := &file_nmx_c_nico_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6413,7 +6567,7 @@ func (x *DeletePartitionResponse) String() string {
 func (*DeletePartitionResponse) ProtoMessage() {}
 
 func (x *DeletePartitionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[71]
+	mi := &file_nmx_c_nico_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6426,7 +6580,7 @@ func (x *DeletePartitionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePartitionResponse.ProtoReflect.Descriptor instead.
 func (*DeletePartitionResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{71}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *DeletePartitionResponse) GetServerHeader() *ServerHeader {
@@ -6465,7 +6619,7 @@ type UpdatePartitionRequest struct {
 
 func (x *UpdatePartitionRequest) Reset() {
 	*x = UpdatePartitionRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[72]
+	mi := &file_nmx_c_nico_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6477,7 +6631,7 @@ func (x *UpdatePartitionRequest) String() string {
 func (*UpdatePartitionRequest) ProtoMessage() {}
 
 func (x *UpdatePartitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[72]
+	mi := &file_nmx_c_nico_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6490,7 +6644,7 @@ func (x *UpdatePartitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePartitionRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePartitionRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{72}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *UpdatePartitionRequest) GetContext() *Context {
@@ -6553,7 +6707,7 @@ type UpdatePartitionResponse struct {
 
 func (x *UpdatePartitionResponse) Reset() {
 	*x = UpdatePartitionResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[73]
+	mi := &file_nmx_c_nico_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6565,7 +6719,7 @@ func (x *UpdatePartitionResponse) String() string {
 func (*UpdatePartitionResponse) ProtoMessage() {}
 
 func (x *UpdatePartitionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[73]
+	mi := &file_nmx_c_nico_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6578,7 +6732,7 @@ func (x *UpdatePartitionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePartitionResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePartitionResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{73}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *UpdatePartitionResponse) GetServerHeader() *ServerHeader {
@@ -6615,7 +6769,7 @@ type GetConnCountRequest struct {
 
 func (x *GetConnCountRequest) Reset() {
 	*x = GetConnCountRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[74]
+	mi := &file_nmx_c_nico_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6627,7 +6781,7 @@ func (x *GetConnCountRequest) String() string {
 func (*GetConnCountRequest) ProtoMessage() {}
 
 func (x *GetConnCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[74]
+	mi := &file_nmx_c_nico_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6640,7 +6794,7 @@ func (x *GetConnCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnCountRequest.ProtoReflect.Descriptor instead.
 func (*GetConnCountRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{74}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *GetConnCountRequest) GetContext() *Context {
@@ -6690,7 +6844,7 @@ type GetConnCountResponse struct {
 
 func (x *GetConnCountResponse) Reset() {
 	*x = GetConnCountResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[75]
+	mi := &file_nmx_c_nico_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6702,7 +6856,7 @@ func (x *GetConnCountResponse) String() string {
 func (*GetConnCountResponse) ProtoMessage() {}
 
 func (x *GetConnCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[75]
+	mi := &file_nmx_c_nico_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6715,7 +6869,7 @@ func (x *GetConnCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnCountResponse.ProtoReflect.Descriptor instead.
 func (*GetConnCountResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{75}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *GetConnCountResponse) GetServerHeader() *ServerHeader {
@@ -6760,7 +6914,7 @@ type GetConnInfoListRequest struct {
 
 func (x *GetConnInfoListRequest) Reset() {
 	*x = GetConnInfoListRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[76]
+	mi := &file_nmx_c_nico_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6772,7 +6926,7 @@ func (x *GetConnInfoListRequest) String() string {
 func (*GetConnInfoListRequest) ProtoMessage() {}
 
 func (x *GetConnInfoListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[76]
+	mi := &file_nmx_c_nico_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6785,7 +6939,7 @@ func (x *GetConnInfoListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnInfoListRequest.ProtoReflect.Descriptor instead.
 func (*GetConnInfoListRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{76}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *GetConnInfoListRequest) GetContext() *Context {
@@ -6833,7 +6987,7 @@ func (x *GetConnInfoListRequest) GetGatewayId() string {
 type LinkEndPoint struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Loc              *Location              `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
-	SwitchOrGpuIndex uint32                 `protobuf:"varint,2,opt,name=switch_or_gpu_index,json=switchOrGpuIndex,proto3" json:"switch_or_gpu_index,omitempty"`
+	SwitchOrgpuId    uint32                 `protobuf:"varint,2,opt,name=switch_orgpu_id,json=switchOrgpuId,proto3" json:"switch_orgpu_id,omitempty"`
 	CageNum          uint32                 `protobuf:"varint,3,opt,name=cage_num,json=cageNum,proto3" json:"cage_num,omitempty"`
 	CagePortNum      uint32                 `protobuf:"varint,4,opt,name=cage_port_num,json=cagePortNum,proto3" json:"cage_port_num,omitempty"`
 	CagePortSplitNum uint32                 `protobuf:"varint,5,opt,name=cage_port_split_num,json=cagePortSplitNum,proto3" json:"cage_port_split_num,omitempty"`
@@ -6844,7 +6998,7 @@ type LinkEndPoint struct {
 
 func (x *LinkEndPoint) Reset() {
 	*x = LinkEndPoint{}
-	mi := &file_nmx_c_nico_proto_msgTypes[77]
+	mi := &file_nmx_c_nico_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6856,7 +7010,7 @@ func (x *LinkEndPoint) String() string {
 func (*LinkEndPoint) ProtoMessage() {}
 
 func (x *LinkEndPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[77]
+	mi := &file_nmx_c_nico_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6869,7 +7023,7 @@ func (x *LinkEndPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinkEndPoint.ProtoReflect.Descriptor instead.
 func (*LinkEndPoint) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{77}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *LinkEndPoint) GetLoc() *Location {
@@ -6879,9 +7033,9 @@ func (x *LinkEndPoint) GetLoc() *Location {
 	return nil
 }
 
-func (x *LinkEndPoint) GetSwitchOrGpuIndex() uint32 {
+func (x *LinkEndPoint) GetSwitchOrgpuId() uint32 {
 	if x != nil {
-		return x.SwitchOrGpuIndex
+		return x.SwitchOrgpuId
 	}
 	return 0
 }
@@ -6926,7 +7080,7 @@ type ConnInfo struct {
 
 func (x *ConnInfo) Reset() {
 	*x = ConnInfo{}
-	mi := &file_nmx_c_nico_proto_msgTypes[78]
+	mi := &file_nmx_c_nico_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6938,7 +7092,7 @@ func (x *ConnInfo) String() string {
 func (*ConnInfo) ProtoMessage() {}
 
 func (x *ConnInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[78]
+	mi := &file_nmx_c_nico_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6951,7 +7105,7 @@ func (x *ConnInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnInfo.ProtoReflect.Descriptor instead.
 func (*ConnInfo) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{78}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *ConnInfo) GetEndPointA() *LinkEndPoint {
@@ -6991,7 +7145,7 @@ type ConnInfoList struct {
 
 func (x *ConnInfoList) Reset() {
 	*x = ConnInfoList{}
-	mi := &file_nmx_c_nico_proto_msgTypes[79]
+	mi := &file_nmx_c_nico_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7003,7 +7157,7 @@ func (x *ConnInfoList) String() string {
 func (*ConnInfoList) ProtoMessage() {}
 
 func (x *ConnInfoList) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[79]
+	mi := &file_nmx_c_nico_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7016,7 +7170,7 @@ func (x *ConnInfoList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnInfoList.ProtoReflect.Descriptor instead.
 func (*ConnInfoList) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{79}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *ConnInfoList) GetConnInfoList() []*ConnInfo {
@@ -7038,7 +7192,7 @@ type GetConnInfoListResponse struct {
 
 func (x *GetConnInfoListResponse) Reset() {
 	*x = GetConnInfoListResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[80]
+	mi := &file_nmx_c_nico_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7050,7 +7204,7 @@ func (x *GetConnInfoListResponse) String() string {
 func (*GetConnInfoListResponse) ProtoMessage() {}
 
 func (x *GetConnInfoListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[80]
+	mi := &file_nmx_c_nico_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7063,7 +7217,7 @@ func (x *GetConnInfoListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnInfoListResponse.ProtoReflect.Descriptor instead.
 func (*GetConnInfoListResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{80}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *GetConnInfoListResponse) GetServerHeader() *ServerHeader {
@@ -7098,13 +7252,14 @@ type SubscribeRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	GatewayId          string                 `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
 	NotifyOnSelfChange bool                   `protobuf:"varint,2,opt,name=notify_on_self_change,json=notifyOnSelfChange,proto3" json:"notify_on_self_change,omitempty"`
+	HeartBeatRate      uint32                 `protobuf:"varint,3,opt,name=heart_beat_rate,json=heartBeatRate,proto3" json:"heart_beat_rate,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SubscribeRequest) Reset() {
 	*x = SubscribeRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[81]
+	mi := &file_nmx_c_nico_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7116,7 +7271,7 @@ func (x *SubscribeRequest) String() string {
 func (*SubscribeRequest) ProtoMessage() {}
 
 func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[81]
+	mi := &file_nmx_c_nico_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7129,7 +7284,7 @@ func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{81}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *SubscribeRequest) GetGatewayId() string {
@@ -7146,6 +7301,13 @@ func (x *SubscribeRequest) GetNotifyOnSelfChange() bool {
 	return false
 }
 
+func (x *SubscribeRequest) GetHeartBeatRate() uint32 {
+	if x != nil {
+		return x.HeartBeatRate
+	}
+	return 0
+}
+
 type GetDomainPropertiesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Context       *Context               `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
@@ -7156,7 +7318,7 @@ type GetDomainPropertiesRequest struct {
 
 func (x *GetDomainPropertiesRequest) Reset() {
 	*x = GetDomainPropertiesRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[82]
+	mi := &file_nmx_c_nico_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7168,7 +7330,7 @@ func (x *GetDomainPropertiesRequest) String() string {
 func (*GetDomainPropertiesRequest) ProtoMessage() {}
 
 func (x *GetDomainPropertiesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[82]
+	mi := &file_nmx_c_nico_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7181,7 +7343,7 @@ func (x *GetDomainPropertiesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDomainPropertiesRequest.ProtoReflect.Descriptor instead.
 func (*GetDomainPropertiesRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{82}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *GetDomainPropertiesRequest) GetContext() *Context {
@@ -7208,7 +7370,7 @@ type GetDomainStateInfoRequest struct {
 
 func (x *GetDomainStateInfoRequest) Reset() {
 	*x = GetDomainStateInfoRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[83]
+	mi := &file_nmx_c_nico_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7220,7 +7382,7 @@ func (x *GetDomainStateInfoRequest) String() string {
 func (*GetDomainStateInfoRequest) ProtoMessage() {}
 
 func (x *GetDomainStateInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[83]
+	mi := &file_nmx_c_nico_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7233,7 +7395,7 @@ func (x *GetDomainStateInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDomainStateInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetDomainStateInfoRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{83}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *GetDomainStateInfoRequest) GetContext() *Context {
@@ -7259,7 +7421,7 @@ type FactoryResetRequest struct {
 
 func (x *FactoryResetRequest) Reset() {
 	*x = FactoryResetRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[84]
+	mi := &file_nmx_c_nico_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7271,7 +7433,7 @@ func (x *FactoryResetRequest) String() string {
 func (*FactoryResetRequest) ProtoMessage() {}
 
 func (x *FactoryResetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[84]
+	mi := &file_nmx_c_nico_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7284,7 +7446,7 @@ func (x *FactoryResetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactoryResetRequest.ProtoReflect.Descriptor instead.
 func (*FactoryResetRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{84}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *FactoryResetRequest) GetGatewayId() string {
@@ -7304,7 +7466,7 @@ type GetConnInfoCombinedRequest struct {
 
 func (x *GetConnInfoCombinedRequest) Reset() {
 	*x = GetConnInfoCombinedRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[85]
+	mi := &file_nmx_c_nico_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7316,7 +7478,7 @@ func (x *GetConnInfoCombinedRequest) String() string {
 func (*GetConnInfoCombinedRequest) ProtoMessage() {}
 
 func (x *GetConnInfoCombinedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[85]
+	mi := &file_nmx_c_nico_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7329,7 +7491,7 @@ func (x *GetConnInfoCombinedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConnInfoCombinedRequest.ProtoReflect.Descriptor instead.
 func (*GetConnInfoCombinedRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{85}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *GetConnInfoCombinedRequest) GetContext() *Context {
@@ -7357,7 +7519,7 @@ type ConnInfoCombined struct {
 
 func (x *ConnInfoCombined) Reset() {
 	*x = ConnInfoCombined{}
-	mi := &file_nmx_c_nico_proto_msgTypes[86]
+	mi := &file_nmx_c_nico_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7369,7 +7531,7 @@ func (x *ConnInfoCombined) String() string {
 func (*ConnInfoCombined) ProtoMessage() {}
 
 func (x *ConnInfoCombined) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[86]
+	mi := &file_nmx_c_nico_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7382,7 +7544,7 @@ func (x *ConnInfoCombined) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnInfoCombined.ProtoReflect.Descriptor instead.
 func (*ConnInfoCombined) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{86}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *ConnInfoCombined) GetServerHeader() *ServerHeader {
@@ -7406,34 +7568,34 @@ func (x *ConnInfoCombined) GetUnexpectedConnList() *ConnInfoList {
 	return nil
 }
 
-type CageIdentifier struct {
+type TransceiverIdentifier struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to ChassisInfo:
 	//
-	//	*CageIdentifier_ChassisSerialNumber
-	//	*CageIdentifier_ChassisId
-	ChassisInfo   isCageIdentifier_ChassisInfo `protobuf_oneof:"chassisInfo"`
-	SlotId        uint64                       `protobuf:"varint,3,opt,name=slot_id,json=slotId,proto3" json:"slot_id,omitempty"`
-	CageNum       uint32                       `protobuf:"varint,4,opt,name=cage_num,json=cageNum,proto3" json:"cage_num,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	//	*TransceiverIdentifier_ChassisSerialNumber
+	//	*TransceiverIdentifier_ChassisId
+	ChassisInfo    isTransceiverIdentifier_ChassisInfo `protobuf_oneof:"chassisInfo"`
+	SlotId         uint64                              `protobuf:"varint,3,opt,name=slot_id,json=slotId,proto3" json:"slot_id,omitempty"`
+	TransceiverNum uint32                              `protobuf:"varint,4,opt,name=transceiver_num,json=transceiverNum,proto3" json:"transceiver_num,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
-func (x *CageIdentifier) Reset() {
-	*x = CageIdentifier{}
-	mi := &file_nmx_c_nico_proto_msgTypes[87]
+func (x *TransceiverIdentifier) Reset() {
+	*x = TransceiverIdentifier{}
+	mi := &file_nmx_c_nico_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CageIdentifier) String() string {
+func (x *TransceiverIdentifier) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CageIdentifier) ProtoMessage() {}
+func (*TransceiverIdentifier) ProtoMessage() {}
 
-func (x *CageIdentifier) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[87]
+func (x *TransceiverIdentifier) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7444,65 +7606,65 @@ func (x *CageIdentifier) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CageIdentifier.ProtoReflect.Descriptor instead.
-func (*CageIdentifier) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{87}
+// Deprecated: Use TransceiverIdentifier.ProtoReflect.Descriptor instead.
+func (*TransceiverIdentifier) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{88}
 }
 
-func (x *CageIdentifier) GetChassisInfo() isCageIdentifier_ChassisInfo {
+func (x *TransceiverIdentifier) GetChassisInfo() isTransceiverIdentifier_ChassisInfo {
 	if x != nil {
 		return x.ChassisInfo
 	}
 	return nil
 }
 
-func (x *CageIdentifier) GetChassisSerialNumber() string {
+func (x *TransceiverIdentifier) GetChassisSerialNumber() string {
 	if x != nil {
-		if x, ok := x.ChassisInfo.(*CageIdentifier_ChassisSerialNumber); ok {
+		if x, ok := x.ChassisInfo.(*TransceiverIdentifier_ChassisSerialNumber); ok {
 			return x.ChassisSerialNumber
 		}
 	}
 	return ""
 }
 
-func (x *CageIdentifier) GetChassisId() uint64 {
+func (x *TransceiverIdentifier) GetChassisId() uint64 {
 	if x != nil {
-		if x, ok := x.ChassisInfo.(*CageIdentifier_ChassisId); ok {
+		if x, ok := x.ChassisInfo.(*TransceiverIdentifier_ChassisId); ok {
 			return x.ChassisId
 		}
 	}
 	return 0
 }
 
-func (x *CageIdentifier) GetSlotId() uint64 {
+func (x *TransceiverIdentifier) GetSlotId() uint64 {
 	if x != nil {
 		return x.SlotId
 	}
 	return 0
 }
 
-func (x *CageIdentifier) GetCageNum() uint32 {
+func (x *TransceiverIdentifier) GetTransceiverNum() uint32 {
 	if x != nil {
-		return x.CageNum
+		return x.TransceiverNum
 	}
 	return 0
 }
 
-type isCageIdentifier_ChassisInfo interface {
-	isCageIdentifier_ChassisInfo()
+type isTransceiverIdentifier_ChassisInfo interface {
+	isTransceiverIdentifier_ChassisInfo()
 }
 
-type CageIdentifier_ChassisSerialNumber struct {
+type TransceiverIdentifier_ChassisSerialNumber struct {
 	ChassisSerialNumber string `protobuf:"bytes,1,opt,name=chassis_serial_number,json=chassisSerialNumber,proto3,oneof"`
 }
 
-type CageIdentifier_ChassisId struct {
+type TransceiverIdentifier_ChassisId struct {
 	ChassisId uint64 `protobuf:"varint,2,opt,name=chassis_id,json=chassisId,proto3,oneof"`
 }
 
-func (*CageIdentifier_ChassisSerialNumber) isCageIdentifier_ChassisInfo() {}
+func (*TransceiverIdentifier_ChassisSerialNumber) isTransceiverIdentifier_ChassisInfo() {}
 
-func (*CageIdentifier_ChassisId) isCageIdentifier_ChassisInfo() {}
+func (*TransceiverIdentifier_ChassisId) isTransceiverIdentifier_ChassisInfo() {}
 
 type GetAdminStateRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -7510,7 +7672,7 @@ type GetAdminStateRequest struct {
 	GatewayId string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
 	// Types that are valid to be assigned to AdminStateEntity:
 	//
-	//	*GetAdminStateRequest_CageIdentifier
+	//	*GetAdminStateRequest_TransceiverIdentifier
 	AdminStateEntity isGetAdminStateRequest_AdminStateEntity `protobuf_oneof:"adminStateEntity"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -7518,7 +7680,7 @@ type GetAdminStateRequest struct {
 
 func (x *GetAdminStateRequest) Reset() {
 	*x = GetAdminStateRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[88]
+	mi := &file_nmx_c_nico_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7530,7 +7692,7 @@ func (x *GetAdminStateRequest) String() string {
 func (*GetAdminStateRequest) ProtoMessage() {}
 
 func (x *GetAdminStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[88]
+	mi := &file_nmx_c_nico_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7543,7 +7705,7 @@ func (x *GetAdminStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAdminStateRequest.ProtoReflect.Descriptor instead.
 func (*GetAdminStateRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{88}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *GetAdminStateRequest) GetContext() *Context {
@@ -7567,10 +7729,10 @@ func (x *GetAdminStateRequest) GetAdminStateEntity() isGetAdminStateRequest_Admi
 	return nil
 }
 
-func (x *GetAdminStateRequest) GetCageIdentifier() *CageIdentifier {
+func (x *GetAdminStateRequest) GetTransceiverIdentifier() *TransceiverIdentifier {
 	if x != nil {
-		if x, ok := x.AdminStateEntity.(*GetAdminStateRequest_CageIdentifier); ok {
-			return x.CageIdentifier
+		if x, ok := x.AdminStateEntity.(*GetAdminStateRequest_TransceiverIdentifier); ok {
+			return x.TransceiverIdentifier
 		}
 	}
 	return nil
@@ -7580,24 +7742,98 @@ type isGetAdminStateRequest_AdminStateEntity interface {
 	isGetAdminStateRequest_AdminStateEntity()
 }
 
-type GetAdminStateRequest_CageIdentifier struct {
-	CageIdentifier *CageIdentifier `protobuf:"bytes,3,opt,name=cage_identifier,json=cageIdentifier,proto3,oneof"`
+type GetAdminStateRequest_TransceiverIdentifier struct {
+	TransceiverIdentifier *TransceiverIdentifier `protobuf:"bytes,3,opt,name=transceiver_identifier,json=transceiverIdentifier,proto3,oneof"`
 }
 
-func (*GetAdminStateRequest_CageIdentifier) isGetAdminStateRequest_AdminStateEntity() {}
+func (*GetAdminStateRequest_TransceiverIdentifier) isGetAdminStateRequest_AdminStateEntity() {}
+
+type AdminStateEntry struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	AdminState AdminState             `protobuf:"varint,1,opt,name=admin_state,json=adminState,proto3,enum=nmx_c.AdminState" json:"admin_state,omitempty"`
+	// Types that are valid to be assigned to AdminStateEntity:
+	//
+	//	*AdminStateEntry_TransceiverIdentifier
+	AdminStateEntity isAdminStateEntry_AdminStateEntity `protobuf_oneof:"adminStateEntity"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AdminStateEntry) Reset() {
+	*x = AdminStateEntry{}
+	mi := &file_nmx_c_nico_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminStateEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminStateEntry) ProtoMessage() {}
+
+func (x *AdminStateEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminStateEntry.ProtoReflect.Descriptor instead.
+func (*AdminStateEntry) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{90}
+}
+
+func (x *AdminStateEntry) GetAdminState() AdminState {
+	if x != nil {
+		return x.AdminState
+	}
+	return AdminState_NMX_ADMIN_STATE_UNKNOWN
+}
+
+func (x *AdminStateEntry) GetAdminStateEntity() isAdminStateEntry_AdminStateEntity {
+	if x != nil {
+		return x.AdminStateEntity
+	}
+	return nil
+}
+
+func (x *AdminStateEntry) GetTransceiverIdentifier() *TransceiverIdentifier {
+	if x != nil {
+		if x, ok := x.AdminStateEntity.(*AdminStateEntry_TransceiverIdentifier); ok {
+			return x.TransceiverIdentifier
+		}
+	}
+	return nil
+}
+
+type isAdminStateEntry_AdminStateEntity interface {
+	isAdminStateEntry_AdminStateEntity()
+}
+
+type AdminStateEntry_TransceiverIdentifier struct {
+	TransceiverIdentifier *TransceiverIdentifier `protobuf:"bytes,2,opt,name=transceiver_identifier,json=transceiverIdentifier,proto3,oneof"`
+}
+
+func (*AdminStateEntry_TransceiverIdentifier) isAdminStateEntry_AdminStateEntity() {}
 
 type GetAdminStateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerHeader  *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
-	Context       *Context               `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
-	AdminState    AdminState             `protobuf:"varint,3,opt,name=admin_state,json=adminState,proto3,enum=nmx_c.AdminState" json:"admin_state,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServerHeader    *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
+	Context         *Context               `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
+	AdminStateEntry []*AdminStateEntry     `protobuf:"bytes,3,rep,name=admin_state_entry,json=adminStateEntry,proto3" json:"admin_state_entry,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetAdminStateResponse) Reset() {
 	*x = GetAdminStateResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[89]
+	mi := &file_nmx_c_nico_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7609,7 +7845,7 @@ func (x *GetAdminStateResponse) String() string {
 func (*GetAdminStateResponse) ProtoMessage() {}
 
 func (x *GetAdminStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[89]
+	mi := &file_nmx_c_nico_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7622,7 +7858,7 @@ func (x *GetAdminStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAdminStateResponse.ProtoReflect.Descriptor instead.
 func (*GetAdminStateResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{89}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *GetAdminStateResponse) GetServerHeader() *ServerHeader {
@@ -7639,29 +7875,25 @@ func (x *GetAdminStateResponse) GetContext() *Context {
 	return nil
 }
 
-func (x *GetAdminStateResponse) GetAdminState() AdminState {
+func (x *GetAdminStateResponse) GetAdminStateEntry() []*AdminStateEntry {
 	if x != nil {
-		return x.AdminState
+		return x.AdminStateEntry
 	}
-	return AdminState_NMX_ADMIN_STATE_UNKNOWN
+	return nil
 }
 
 type SetAdminStateRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Context    *Context               `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
-	GatewayId  string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
-	AdminState AdminState             `protobuf:"varint,3,opt,name=admin_state,json=adminState,proto3,enum=nmx_c.AdminState" json:"admin_state,omitempty"`
-	// Types that are valid to be assigned to AdminStateEntity:
-	//
-	//	*SetAdminStateRequest_CageIdentifier
-	AdminStateEntity isSetAdminStateRequest_AdminStateEntity `protobuf_oneof:"adminStateEntity"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Context         *Context               `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	GatewayId       string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	AdminStateEntry *AdminStateEntry       `protobuf:"bytes,3,opt,name=admin_state_entry,json=adminStateEntry,proto3" json:"admin_state_entry,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SetAdminStateRequest) Reset() {
 	*x = SetAdminStateRequest{}
-	mi := &file_nmx_c_nico_proto_msgTypes[90]
+	mi := &file_nmx_c_nico_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7673,7 +7905,7 @@ func (x *SetAdminStateRequest) String() string {
 func (*SetAdminStateRequest) ProtoMessage() {}
 
 func (x *SetAdminStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[90]
+	mi := &file_nmx_c_nico_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7686,7 +7918,7 @@ func (x *SetAdminStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAdminStateRequest.ProtoReflect.Descriptor instead.
 func (*SetAdminStateRequest) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{90}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *SetAdminStateRequest) GetContext() *Context {
@@ -7703,55 +7935,25 @@ func (x *SetAdminStateRequest) GetGatewayId() string {
 	return ""
 }
 
-func (x *SetAdminStateRequest) GetAdminState() AdminState {
+func (x *SetAdminStateRequest) GetAdminStateEntry() *AdminStateEntry {
 	if x != nil {
-		return x.AdminState
-	}
-	return AdminState_NMX_ADMIN_STATE_UNKNOWN
-}
-
-func (x *SetAdminStateRequest) GetAdminStateEntity() isSetAdminStateRequest_AdminStateEntity {
-	if x != nil {
-		return x.AdminStateEntity
+		return x.AdminStateEntry
 	}
 	return nil
 }
-
-func (x *SetAdminStateRequest) GetCageIdentifier() *CageIdentifier {
-	if x != nil {
-		if x, ok := x.AdminStateEntity.(*SetAdminStateRequest_CageIdentifier); ok {
-			return x.CageIdentifier
-		}
-	}
-	return nil
-}
-
-type isSetAdminStateRequest_AdminStateEntity interface {
-	isSetAdminStateRequest_AdminStateEntity()
-}
-
-type SetAdminStateRequest_CageIdentifier struct {
-	CageIdentifier *CageIdentifier `protobuf:"bytes,4,opt,name=cage_identifier,json=cageIdentifier,proto3,oneof"`
-}
-
-func (*SetAdminStateRequest_CageIdentifier) isSetAdminStateRequest_AdminStateEntity() {}
 
 type SetAdminStateResponse struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	ServerHeader *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
-	Context      *Context               `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
-	// Types that are valid to be assigned to AdminStateEntity:
-	//
-	//	*SetAdminStateResponse_CageIdentifier
-	AdminStateEntity isSetAdminStateResponse_AdminStateEntity `protobuf_oneof:"adminStateEntity"`
-	AdminState       AdminState                               `protobuf:"varint,4,opt,name=admin_state,json=adminState,proto3,enum=nmx_c.AdminState" json:"admin_state,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServerHeader    *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
+	Context         *Context               `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
+	AdminStateEntry *AdminStateEntry       `protobuf:"bytes,3,opt,name=admin_state_entry,json=adminStateEntry,proto3" json:"admin_state_entry,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SetAdminStateResponse) Reset() {
 	*x = SetAdminStateResponse{}
-	mi := &file_nmx_c_nico_proto_msgTypes[91]
+	mi := &file_nmx_c_nico_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7763,7 +7965,7 @@ func (x *SetAdminStateResponse) String() string {
 func (*SetAdminStateResponse) ProtoMessage() {}
 
 func (x *SetAdminStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nmx_c_nico_proto_msgTypes[91]
+	mi := &file_nmx_c_nico_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7776,7 +7978,7 @@ func (x *SetAdminStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAdminStateResponse.ProtoReflect.Descriptor instead.
 func (*SetAdminStateResponse) Descriptor() ([]byte, []int) {
-	return file_nmx_c_nico_proto_rawDescGZIP(), []int{91}
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *SetAdminStateResponse) GetServerHeader() *ServerHeader {
@@ -7793,38 +7995,362 @@ func (x *SetAdminStateResponse) GetContext() *Context {
 	return nil
 }
 
-func (x *SetAdminStateResponse) GetAdminStateEntity() isSetAdminStateResponse_AdminStateEntity {
+func (x *SetAdminStateResponse) GetAdminStateEntry() *AdminStateEntry {
 	if x != nil {
-		return x.AdminStateEntity
+		return x.AdminStateEntry
 	}
 	return nil
 }
 
-func (x *SetAdminStateResponse) GetCageIdentifier() *CageIdentifier {
+type PartitionGpu struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceUid     uint64                 `protobuf:"varint,1,opt,name=device_uid,json=deviceUid,proto3" json:"device_uid,omitempty"`
+	LocationInfo  *LocationInfo          `protobuf:"bytes,2,opt,name=location_info,json=locationInfo,proto3" json:"location_info,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PartitionGpu) Reset() {
+	*x = PartitionGpu{}
+	mi := &file_nmx_c_nico_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartitionGpu) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionGpu) ProtoMessage() {}
+
+func (x *PartitionGpu) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[94]
 	if x != nil {
-		if x, ok := x.AdminStateEntity.(*SetAdminStateResponse_CageIdentifier); ok {
-			return x.CageIdentifier
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionGpu.ProtoReflect.Descriptor instead.
+func (*PartitionGpu) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *PartitionGpu) GetDeviceUid() uint64 {
+	if x != nil {
+		return x.DeviceUid
+	}
+	return 0
+}
+
+func (x *PartitionGpu) GetLocationInfo() *LocationInfo {
+	if x != nil {
+		return x.LocationInfo
+	}
+	return nil
+}
+
+type PartitionReport struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PartitionId   *PartitionId           `protobuf:"bytes,1,opt,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
+	Gpus          []*PartitionGpu        `protobuf:"bytes,2,rep,name=gpus,proto3" json:"gpus,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PartitionReport) Reset() {
+	*x = PartitionReport{}
+	mi := &file_nmx_c_nico_proto_msgTypes[95]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartitionReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionReport) ProtoMessage() {}
+
+func (x *PartitionReport) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[95]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionReport.ProtoReflect.Descriptor instead.
+func (*PartitionReport) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{95}
+}
+
+func (x *PartitionReport) GetPartitionId() *PartitionId {
+	if x != nil {
+		return x.PartitionId
+	}
+	return nil
+}
+
+func (x *PartitionReport) GetGpus() []*PartitionGpu {
+	if x != nil {
+		return x.Gpus
+	}
+	return nil
+}
+
+type GetStateReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *Context               `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	GatewayId     string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	ReportType    ReportType             `protobuf:"varint,3,opt,name=report_type,json=reportType,proto3,enum=nmx_c.ReportType" json:"report_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStateReportRequest) Reset() {
+	*x = GetStateReportRequest{}
+	mi := &file_nmx_c_nico_proto_msgTypes[96]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStateReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStateReportRequest) ProtoMessage() {}
+
+func (x *GetStateReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[96]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStateReportRequest.ProtoReflect.Descriptor instead.
+func (*GetStateReportRequest) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{96}
+}
+
+func (x *GetStateReportRequest) GetContext() *Context {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *GetStateReportRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GetStateReportRequest) GetReportType() ReportType {
+	if x != nil {
+		return x.ReportType
+	}
+	return ReportType_NMX_REPORT_TYPE_UNKNOWN
+}
+
+type TopologyInfo struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	DeviceTopoInfo []*DeviceTopoInfo      `protobuf:"bytes,1,rep,name=device_topo_info,json=deviceTopoInfo,proto3" json:"device_topo_info,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TopologyInfo) Reset() {
+	*x = TopologyInfo{}
+	mi := &file_nmx_c_nico_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TopologyInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TopologyInfo) ProtoMessage() {}
+
+func (x *TopologyInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TopologyInfo.ProtoReflect.Descriptor instead.
+func (*TopologyInfo) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *TopologyInfo) GetDeviceTopoInfo() []*DeviceTopoInfo {
+	if x != nil {
+		return x.DeviceTopoInfo
+	}
+	return nil
+}
+
+type PartitionsReport struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Partitions    []*PartitionReport     `protobuf:"bytes,1,rep,name=partitions,proto3" json:"partitions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PartitionsReport) Reset() {
+	*x = PartitionsReport{}
+	mi := &file_nmx_c_nico_proto_msgTypes[98]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartitionsReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionsReport) ProtoMessage() {}
+
+func (x *PartitionsReport) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[98]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionsReport.ProtoReflect.Descriptor instead.
+func (*PartitionsReport) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{98}
+}
+
+func (x *PartitionsReport) GetPartitions() []*PartitionReport {
+	if x != nil {
+		return x.Partitions
+	}
+	return nil
+}
+
+type GetStateReportResponse struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	ServerHeader *ServerHeader          `protobuf:"bytes,1,opt,name=server_header,json=serverHeader,proto3" json:"server_header,omitempty"`
+	Context      *Context               `protobuf:"bytes,2,opt,name=context,proto3" json:"context,omitempty"`
+	// Types that are valid to be assigned to Report:
+	//
+	//	*GetStateReportResponse_DeviceTopoInfo
+	//	*GetStateReportResponse_Partitions
+	Report        isGetStateReportResponse_Report `protobuf_oneof:"report"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStateReportResponse) Reset() {
+	*x = GetStateReportResponse{}
+	mi := &file_nmx_c_nico_proto_msgTypes[99]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStateReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStateReportResponse) ProtoMessage() {}
+
+func (x *GetStateReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_nmx_c_nico_proto_msgTypes[99]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStateReportResponse.ProtoReflect.Descriptor instead.
+func (*GetStateReportResponse) Descriptor() ([]byte, []int) {
+	return file_nmx_c_nico_proto_rawDescGZIP(), []int{99}
+}
+
+func (x *GetStateReportResponse) GetServerHeader() *ServerHeader {
+	if x != nil {
+		return x.ServerHeader
+	}
+	return nil
+}
+
+func (x *GetStateReportResponse) GetContext() *Context {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *GetStateReportResponse) GetReport() isGetStateReportResponse_Report {
+	if x != nil {
+		return x.Report
+	}
+	return nil
+}
+
+func (x *GetStateReportResponse) GetDeviceTopoInfo() *TopologyInfo {
+	if x != nil {
+		if x, ok := x.Report.(*GetStateReportResponse_DeviceTopoInfo); ok {
+			return x.DeviceTopoInfo
 		}
 	}
 	return nil
 }
 
-func (x *SetAdminStateResponse) GetAdminState() AdminState {
+func (x *GetStateReportResponse) GetPartitions() *PartitionsReport {
 	if x != nil {
-		return x.AdminState
+		if x, ok := x.Report.(*GetStateReportResponse_Partitions); ok {
+			return x.Partitions
+		}
 	}
-	return AdminState_NMX_ADMIN_STATE_UNKNOWN
+	return nil
 }
 
-type isSetAdminStateResponse_AdminStateEntity interface {
-	isSetAdminStateResponse_AdminStateEntity()
+type isGetStateReportResponse_Report interface {
+	isGetStateReportResponse_Report()
 }
 
-type SetAdminStateResponse_CageIdentifier struct {
-	CageIdentifier *CageIdentifier `protobuf:"bytes,3,opt,name=cage_identifier,json=cageIdentifier,proto3,oneof"`
+type GetStateReportResponse_DeviceTopoInfo struct {
+	DeviceTopoInfo *TopologyInfo `protobuf:"bytes,3,opt,name=device_topo_info,json=deviceTopoInfo,proto3,oneof"`
 }
 
-func (*SetAdminStateResponse_CageIdentifier) isSetAdminStateResponse_AdminStateEntity() {}
+type GetStateReportResponse_Partitions struct {
+	Partitions *PartitionsReport `protobuf:"bytes,4,opt,name=partitions,proto3,oneof"`
+}
+
+func (*GetStateReportResponse_DeviceTopoInfo) isGetStateReportResponse_Report() {}
+
+func (*GetStateReportResponse_Partitions) isGetStateReportResponse_Report() {}
 
 var File_nmx_c_nico_proto protoreflect.FileDescriptor
 
@@ -7843,7 +8369,7 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"domainUuid\x12\x19\n" +
 	"\bapp_uuid\x18\x02 \x01(\tR\aappUuid\x12\x17\n" +
 	"\aapp_ver\x18\x03 \x01(\tR\x06appVer\x124\n" +
-	"\vreturn_code\x18\x04 \x01(\x0e2\x13.nmx_c.STReturnCodeR\n" +
+	"\vreturn_code\x18\x04 \x01(\x0e2\x13.nmx_c.StReturnCodeR\n" +
 	"returnCode\"\xb0\x01\n" +
 	"\vClientHello\x12\x1d\n" +
 	"\n" +
@@ -7867,7 +8393,9 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"#fm_event_control_plane_state_change\x18\x03 \x01(\v2%.nmx_c.FmEventControlPlaneStateChangeH\x00R\x1efmEventControlPlaneStateChange\x12W\n" +
 	"\x18fm_event_topology_change\x18\x04 \x01(\v2\x1c.nmx_c.FmEventTopologyChangeH\x00R\x15fmEventTopologyChange\x12Z\n" +
 	"\x19fm_event_partition_change\x18\x05 \x01(\v2\x1d.nmx_c.FmEventPartitionChangeH\x00R\x16fmEventPartitionChangeB\a\n" +
-	"\x05event\"\xbc\x05\n" +
+	"\x05event\"D\n" +
+	"\bInitDone\x128\n" +
+	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\"\xb2\x06\n" +
 	"\x12ServerNotification\x12R\n" +
 	"\x15subscription_response\x18\x01 \x01(\v2\x1b.nmx_c.SubscriptionResponseH\x00R\x14subscriptionResponse\x12S\n" +
 	"\x16static_config_response\x18\x03 \x01(\v2\x1b.nmx_c.StaticConfigResponseH\x00R\x14staticConfigResponse\x12\\\n" +
@@ -7876,7 +8404,10 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x19update_partition_response\x18\x06 \x01(\v2\x1e.nmx_c.UpdatePartitionResponseH\x00R\x17updatePartitionResponse\x12+\n" +
 	"\bfm_event\x18\a \x01(\v2\x0e.nmx_c.FmEventH\x00R\afmEvent\x12M\n" +
 	"\x14health_state_changed\x18\b \x01(\v2\x19.nmx_c.HealthStateChangedH\x00R\x12healthStateChanged\x12W\n" +
-	"\x18set_admin_state_response\x18\t \x01(\v2\x1c.nmx_c.SetAdminStateResponseH\x00R\x15setAdminStateResponseB\x0e\n" +
+	"\x18set_admin_state_response\x18\t \x01(\v2\x1c.nmx_c.SetAdminStateResponseH\x00R\x15setAdminStateResponse\x12D\n" +
+	"\x11domain_state_info\x18\n" +
+	" \x01(\v2\x16.nmx_c.DomainStateInfoH\x00R\x0fdomainStateInfo\x12.\n" +
+	"\tinit_done\x18\v \x01(\v2\x0f.nmx_c.InitDoneH\x00R\binitDoneB\x0e\n" +
 	"\fnotification\"m\n" +
 	"\x11ConfigFileContent\x12(\n" +
 	"\x10config_file_name\x18\x01 \x01(\tR\x0econfigFileName\x12.\n" +
@@ -7936,8 +8467,8 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\fLocationInfo\x122\n" +
 	"\x15chassis_serial_number\x18\x02 \x01(\tR\x13chassisSerialNumber\x12\x1d\n" +
 	"\n" +
-	"slot_index\x18\x04 \x01(\x04R\tslotIndex\x12+\n" +
-	"\blocation\x18\x06 \x01(\v2\x0f.nmx_c.LocationR\blocation\"\xc1\x06\n" +
+	"tray_index\x18\x04 \x01(\x04R\ttrayIndex\x12+\n" +
+	"\blocation\x18\x06 \x01(\v2\x0f.nmx_c.LocationR\blocation\"\xc5\x06\n" +
 	"\x10DomainProperties\x128\n" +
 	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
 	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12*\n" +
@@ -7950,8 +8481,8 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x10max_switch_nodes\x18\x14 \x01(\rR\x0emaxSwitchNodes\x12>\n" +
 	"\x1cmax_switch_nodes_per_chassis\x18\x15 \x01(\rR\x18maxSwitchNodesPerChassis\x12>\n" +
 	"\x1cmax_switches_per_switch_node\x18\x16 \x01(\rR\x18maxSwitchesPerSwitchNode\x12-\n" +
-	"\x13max_switch_nv_links\x18\x17 \x01(\rR\x10maxSwitchNvLinks\x123\n" +
-	"\x16min_gpus_per_partition\x18\x1e \x01(\rR\x13minGpusPerPartition\x12,\n" +
+	"\x13max_switch_nv_links\x18\x17 \x01(\rR\x10maxSwitchNvLinks\x127\n" +
+	"\x16min_gpus_per_partition\x18\x1e \x01(\rB\x02\x18\x01R\x13minGpusPerPartition\x12,\n" +
 	"\x12max_num_partitions\x18\x1f \x01(\rR\x10maxNumPartitions\x12\"\n" +
 	"\rmax_num_alids\x18  \x01(\rR\vmaxNumAlids\x120\n" +
 	"\x14max_multicast_groups\x18( \x01(\rR\x12maxMulticastGroups\x12\"\n" +
@@ -7970,7 +8501,7 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\"y\n" +
 	"\x16FmEventPartitionChange\x12(\n" +
 	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\x125\n" +
-	"\fpartition_id\x18\x02 \x01(\v2\x12.nmx_c.PartitionIdR\vpartitionId\"\xca\a\n" +
+	"\fpartition_id\x18\x02 \x01(\v2\x12.nmx_c.PartitionIdR\vpartitionId\"\xf0\a\n" +
 	"\fPortTopoInfo\x12,\n" +
 	"\tport_type\x18\x01 \x01(\x0e2\x0f.nmx_c.PortTypeR\bportType\x12\x19\n" +
 	"\bport_uid\x18\x02 \x01(\x04R\aportUid\x12\x19\n" +
@@ -7991,43 +8522,44 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x10compute_port_num\x18\x1a \x01(\x04H\x05R\x0ecomputePortNum\x88\x01\x01\x12*\n" +
 	"\x11contain_and_drain\x18\x1b \x01(\bR\x0fcontainAndDrain\x12\x12\n" +
 	"\x04rail\x18\x1c \x01(\rR\x04rail\x12\x14\n" +
-	"\x05plane\x18\x1d \x01(\rR\x05plane\x12;\n" +
-	"\x10port_admin_state\x18\x1e \x01(\x0e2\x11.nmx_c.AdminStateR\x0eportAdminStateB\v\n" +
+	"\x05plane\x18\x1d \x01(\rR\x05plane\x12$\n" +
+	"\x0elink_rate_mbps\x18\x1e \x01(\rR\flinkRateMbps\x12;\n" +
+	"\x10port_admin_state\x18\x1f \x01(\x0e2\x11.nmx_c.AdminStateR\x0eportAdminStateB\v\n" +
 	"\t_cage_numB\x10\n" +
 	"\x0e_cage_port_numB\x16\n" +
 	"\x14_cage_split_port_numB\v\n" +
 	"\t_base_lidB\x12\n" +
 	"\x10_system_port_numB\x13\n" +
-	"\x11_compute_port_numJ\x04\b\v\x10\x15\"\xde\x03\n" +
+	"\x11_compute_port_numJ\x04\b\v\x10\x15\"\xe1\x03\n" +
 	"\x0eSwitchTopoInfo\x12%\n" +
 	"\x03loc\x18\x01 \x01(\v2\x13.nmx_c.LocationInfoR\x03loc\x12\x1f\n" +
 	"\vtopology_id\x18\x02 \x01(\x04R\n" +
 	"topologyId\x12\x1d\n" +
 	"\n" +
-	"device_uid\x18\x03 \x01(\x04R\tdeviceUid\x12!\n" +
-	"\fdevice_index\x18\x04 \x01(\rR\vdeviceIndex\x12\x1b\n" +
+	"device_uid\x18\x03 \x01(\x04R\tdeviceUid\x12\x1b\n" +
+	"\tdevice_id\x18\x04 \x01(\rR\bdeviceId\x12\x1b\n" +
 	"\tnum_ports\x18\x05 \x01(\x04R\bnumPorts\x12\x1d\n" +
 	"\n" +
 	"system_uid\x18\x06 \x01(\x04R\tsystemUid\x12\x1b\n" +
-	"\tvendor_id\x18\a \x01(\rR\bvendorId\x12\x1b\n" +
-	"\tdevice_id\x18\b \x01(\x04R\bdeviceId\x12 \n" +
+	"\tvendor_id\x18\a \x01(\rR\bvendorId\x12$\n" +
+	"\x0edevice_pcie_id\x18\b \x01(\x04R\fdevicePcieId\x12 \n" +
 	"\vdescription\x18\t \x01(\tR\vdescription\x125\n" +
 	"\fpartition_id\x18\n" +
 	" \x03(\v2\x12.nmx_c.PartitionIdR\vpartitionId\x128\n" +
 	"\rdevice_health\x18\v \x01(\x0e2\x13.nmx_c.SwitchHealthR\fdeviceHealth\x129\n" +
-	"\x0eport_topo_info\x18\f \x03(\v2\x13.nmx_c.PortTopoInfoR\fportTopoInfo\"\xef\x03\n" +
+	"\x0eport_topo_info\x18\f \x03(\v2\x13.nmx_c.PortTopoInfoR\fportTopoInfo\"\xf2\x03\n" +
 	"\vGpuTopoInfo\x12%\n" +
 	"\x03loc\x18\x01 \x01(\v2\x13.nmx_c.LocationInfoR\x03loc\x12\x1f\n" +
 	"\vtopology_id\x18\x02 \x01(\x04R\n" +
 	"topologyId\x12\x1d\n" +
 	"\n" +
-	"device_uid\x18\x03 \x01(\x04R\tdeviceUid\x12!\n" +
-	"\fdevice_index\x18\x04 \x01(\rR\vdeviceIndex\x12\x1b\n" +
+	"device_uid\x18\x03 \x01(\x04R\tdeviceUid\x12\x1b\n" +
+	"\tdevice_id\x18\x04 \x01(\rR\bdeviceId\x12\x1b\n" +
 	"\tnum_ports\x18\x05 \x01(\x04R\bnumPorts\x12\x1d\n" +
 	"\n" +
 	"system_uid\x18\x06 \x01(\x04R\tsystemUid\x12\x1b\n" +
-	"\tvendor_id\x18\a \x01(\rR\bvendorId\x12\x1b\n" +
-	"\tdevice_id\x18\b \x01(\x04R\bdeviceId\x12\x15\n" +
+	"\tvendor_id\x18\a \x01(\rR\bvendorId\x12$\n" +
+	"\x0edevice_pcie_id\x18\b \x01(\x04R\fdevicePcieId\x12\x15\n" +
 	"\x06a_lids\x18\t \x03(\x04R\x05aLids\x12 \n" +
 	"\vdescription\x18\n" +
 	" \x01(\tR\vdescription\x125\n" +
@@ -8097,10 +8629,10 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\n" +
 	"gateway_id\x18\x06 \x01(\tR\tgatewayId\x12/\n" +
 	"\n" +
-	"gpu_health\x18\a \x01(\x0e2\x10.nmx_c.GpuHealthR\tgpuHealth\"\xce\x01\n" +
+	"gpu_health\x18\a \x01(\x0e2\x10.nmx_c.GpuHealthR\tgpuHealth\"\xc8\x01\n" +
 	"\aGpuInfo\x12%\n" +
-	"\x03loc\x18\x01 \x01(\v2\x13.nmx_c.LocationInfoR\x03loc\x12\x1b\n" +
-	"\tgpu_index\x18\x02 \x01(\rR\bgpuIndex\x12\x17\n" +
+	"\x03loc\x18\x01 \x01(\v2\x13.nmx_c.LocationInfoR\x03loc\x12\x15\n" +
+	"\x06gpu_id\x18\x02 \x01(\rR\x05gpuId\x12\x17\n" +
 	"\agpu_uid\x18\x03 \x01(\x04R\x06gpuUid\x12/\n" +
 	"\n" +
 	"gpu_health\x18\x04 \x01(\x0e2\x10.nmx_c.GpuHealthR\tgpuHealth\x125\n" +
@@ -8153,11 +8685,11 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x03loc\x18\x02 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12!\n" +
 	"\fnum_switches\x18\x03 \x01(\rR\vnumSwitches\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\x04 \x01(\tR\tgatewayId\"\xbb\x01\n" +
+	"gateway_id\x18\x04 \x01(\tR\tgatewayId\"\xb5\x01\n" +
 	"\n" +
 	"SwitchInfo\x12!\n" +
-	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12!\n" +
-	"\fswitch_index\x18\x02 \x01(\rR\vswitchIndex\x12\x1d\n" +
+	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12\x1b\n" +
+	"\tswitch_id\x18\x02 \x01(\rR\bswitchId\x12\x1d\n" +
 	"\n" +
 	"switch_uid\x18\x03 \x01(\x04R\tswitchUid\x12\x1b\n" +
 	"\tnum_ports\x18\x04 \x01(\rR\bnumPorts\x12+\n" +
@@ -8217,10 +8749,10 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x1cGetPartitionInfoListResponse\x128\n" +
 	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
 	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12D\n" +
-	"\x13partition_info_list\x18\x03 \x03(\v2\x14.nmx_c.PartitionInfoR\x11partitionInfoList\"M\n" +
+	"\x13partition_info_list\x18\x03 \x03(\v2\x14.nmx_c.PartitionInfoR\x11partitionInfoList\"G\n" +
 	"\vGpuLocation\x12!\n" +
-	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12\x1b\n" +
-	"\tgpu_index\x18\x02 \x01(\rR\bgpuIndex\"q\n" +
+	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12\x15\n" +
+	"\x06gpu_id\x18\x02 \x01(\rR\x05gpuId\"q\n" +
 	"\rGpuResourceId\x127\n" +
 	"\fgpu_location\x18\x01 \x01(\v2\x12.nmx_c.GpuLocationH\x00R\vgpuLocation\x12\x19\n" +
 	"\agpu_uid\x18\x02 \x01(\x04H\x00R\x06gpuUidB\f\n" +
@@ -8281,10 +8813,10 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\tnum_conns\x18\x04 \x01(\rR\bnumConns\x12!\n" +
 	"\x03loc\x18\x05 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\x06 \x01(\tR\tgatewayId\"\xe9\x01\n" +
+	"gateway_id\x18\x06 \x01(\tR\tgatewayId\"\xe2\x01\n" +
 	"\fLinkEndPoint\x12!\n" +
-	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12-\n" +
-	"\x13switch_or_gpu_index\x18\x02 \x01(\rR\x10switchOrGpuIndex\x12\x19\n" +
+	"\x03loc\x18\x01 \x01(\v2\x0f.nmx_c.LocationR\x03loc\x12&\n" +
+	"\x0fswitch_orgpu_id\x18\x02 \x01(\rR\rswitchOrgpuId\x12\x19\n" +
 	"\bcage_num\x18\x03 \x01(\rR\acageNum\x12\"\n" +
 	"\rcage_port_num\x18\x04 \x01(\rR\vcagePortNum\x12-\n" +
 	"\x13cage_port_split_num\x18\x05 \x01(\rR\x10cagePortSplitNum\x12\x19\n" +
@@ -8302,11 +8834,12 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x129\n" +
 	"\x0econn_info_list\x18\x03 \x01(\v2\x13.nmx_c.ConnInfoListR\fconnInfoList\x12\x1d\n" +
 	"\n" +
-	"time_stamp\x18\x04 \x01(\tR\ttimeStamp\"d\n" +
+	"time_stamp\x18\x04 \x01(\tR\ttimeStamp\"\x8c\x01\n" +
 	"\x10SubscribeRequest\x12\x1d\n" +
 	"\n" +
 	"gateway_id\x18\x01 \x01(\tR\tgatewayId\x121\n" +
-	"\x15notify_on_self_change\x18\x02 \x01(\bR\x12notifyOnSelfChange\"e\n" +
+	"\x15notify_on_self_change\x18\x02 \x01(\bR\x12notifyOnSelfChange\x12&\n" +
+	"\x0fheart_beat_rate\x18\x03 \x01(\rR\rheartBeatRate\"e\n" +
 	"\x1aGetDomainPropertiesRequest\x12(\n" +
 	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12\x1d\n" +
 	"\n" +
@@ -8325,50 +8858,76 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x10ConnInfoCombined\x128\n" +
 	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
 	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12E\n" +
-	"\x14unexpected_conn_list\x18\x03 \x01(\v2\x13.nmx_c.ConnInfoListR\x12unexpectedConnList\"\xaa\x01\n" +
-	"\x0eCageIdentifier\x124\n" +
+	"\x14unexpected_conn_list\x18\x03 \x01(\v2\x13.nmx_c.ConnInfoListR\x12unexpectedConnList\"\xbf\x01\n" +
+	"\x15TransceiverIdentifier\x124\n" +
 	"\x15chassis_serial_number\x18\x01 \x01(\tH\x00R\x13chassisSerialNumber\x12\x1f\n" +
 	"\n" +
 	"chassis_id\x18\x02 \x01(\x04H\x00R\tchassisId\x12\x17\n" +
-	"\aslot_id\x18\x03 \x01(\x04R\x06slotId\x12\x19\n" +
-	"\bcage_num\x18\x04 \x01(\rR\acageNumB\r\n" +
-	"\vchassisInfo\"\xb5\x01\n" +
+	"\aslot_id\x18\x03 \x01(\x04R\x06slotId\x12'\n" +
+	"\x0ftransceiver_num\x18\x04 \x01(\rR\x0etransceiverNumB\r\n" +
+	"\vchassisInfo\"\xca\x01\n" +
 	"\x14GetAdminStateRequest\x12(\n" +
 	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12@\n" +
-	"\x0fcage_identifier\x18\x03 \x01(\v2\x15.nmx_c.CageIdentifierH\x00R\x0ecageIdentifierB\x12\n" +
-	"\x10adminStateEntity\"\xaf\x01\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12U\n" +
+	"\x16transceiver_identifier\x18\x03 \x01(\v2\x1c.nmx_c.TransceiverIdentifierH\x00R\x15transceiverIdentifierB\x12\n" +
+	"\x10adminStateEntity\"\xb0\x01\n" +
+	"\x0fAdminStateEntry\x122\n" +
+	"\vadmin_state\x18\x01 \x01(\x0e2\x11.nmx_c.AdminStateR\n" +
+	"adminState\x12U\n" +
+	"\x16transceiver_identifier\x18\x02 \x01(\v2\x1c.nmx_c.TransceiverIdentifierH\x00R\x15transceiverIdentifierB\x12\n" +
+	"\x10adminStateEntity\"\xbf\x01\n" +
 	"\x15GetAdminStateResponse\x128\n" +
 	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
-	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x122\n" +
-	"\vadmin_state\x18\x03 \x01(\x0e2\x11.nmx_c.AdminStateR\n" +
-	"adminState\"\xe9\x01\n" +
+	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12B\n" +
+	"\x11admin_state_entry\x18\x03 \x03(\v2\x16.nmx_c.AdminStateEntryR\x0fadminStateEntry\"\xa3\x01\n" +
 	"\x14SetAdminStateRequest\x12(\n" +
 	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x122\n" +
-	"\vadmin_state\x18\x03 \x01(\x0e2\x11.nmx_c.AdminStateR\n" +
-	"adminState\x12@\n" +
-	"\x0fcage_identifier\x18\x04 \x01(\v2\x15.nmx_c.CageIdentifierH\x00R\x0ecageIdentifierB\x12\n" +
-	"\x10adminStateEntity\"\x85\x02\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12B\n" +
+	"\x11admin_state_entry\x18\x03 \x01(\v2\x16.nmx_c.AdminStateEntryR\x0fadminStateEntry\"\xbf\x01\n" +
 	"\x15SetAdminStateResponse\x128\n" +
 	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
-	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12@\n" +
-	"\x0fcage_identifier\x18\x03 \x01(\v2\x15.nmx_c.CageIdentifierH\x00R\x0ecageIdentifier\x122\n" +
-	"\vadmin_state\x18\x04 \x01(\x0e2\x11.nmx_c.AdminStateR\n" +
-	"adminStateB\x12\n" +
-	"\x10adminStateEntity*Z\n" +
+	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12B\n" +
+	"\x11admin_state_entry\x18\x03 \x01(\v2\x16.nmx_c.AdminStateEntryR\x0fadminStateEntry\"g\n" +
+	"\fPartitionGpu\x12\x1d\n" +
+	"\n" +
+	"device_uid\x18\x01 \x01(\x04R\tdeviceUid\x128\n" +
+	"\rlocation_info\x18\x02 \x01(\v2\x13.nmx_c.LocationInfoR\flocationInfo\"q\n" +
+	"\x0fPartitionReport\x125\n" +
+	"\fpartition_id\x18\x01 \x01(\v2\x12.nmx_c.PartitionIdR\vpartitionId\x12'\n" +
+	"\x04gpus\x18\x02 \x03(\v2\x13.nmx_c.PartitionGpuR\x04gpus\"\x94\x01\n" +
+	"\x15GetStateReportRequest\x12(\n" +
+	"\acontext\x18\x01 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x122\n" +
+	"\vreport_type\x18\x03 \x01(\x0e2\x11.nmx_c.ReportTypeR\n" +
+	"reportType\"O\n" +
+	"\fTopologyInfo\x12?\n" +
+	"\x10device_topo_info\x18\x01 \x03(\v2\x15.nmx_c.DeviceTopoInfoR\x0edeviceTopoInfo\"J\n" +
+	"\x10PartitionsReport\x126\n" +
+	"\n" +
+	"partitions\x18\x01 \x03(\v2\x16.nmx_c.PartitionReportR\n" +
+	"partitions\"\x82\x02\n" +
+	"\x16GetStateReportResponse\x128\n" +
+	"\rserver_header\x18\x01 \x01(\v2\x13.nmx_c.ServerHeaderR\fserverHeader\x12(\n" +
+	"\acontext\x18\x02 \x01(\v2\x0e.nmx_c.ContextR\acontext\x12?\n" +
+	"\x10device_topo_info\x18\x03 \x01(\v2\x13.nmx_c.TopologyInfoH\x00R\x0edeviceTopoInfo\x129\n" +
+	"\n" +
+	"partitions\x18\x04 \x01(\v2\x17.nmx_c.PartitionsReportH\x00R\n" +
+	"partitionsB\b\n" +
+	"\x06report*\x81\x01\n" +
 	"\x14ProtoMsgMajorVersion\x12%\n" +
-	"!PROTO_MSG_MAJOR_VERSION_UNDEFINED\x10\x00\x12\x1b\n" +
-	"\x17PROTO_MSG_MAJOR_VERSION\x10\x01*\xcf\x01\n" +
+	"!PROTO_MSG_MAJOR_VERSION_UNDEFINED\x10\x00\x12%\n" +
+	"!PROTO_MSG_MAJOR_VERSION_OBSOLETE1\x10\x01\x12\x1b\n" +
+	"\x17PROTO_MSG_MAJOR_VERSION\x10\x02*\xcf\x01\n" +
 	"\x14ProtoMsgMinorVersion\x12%\n" +
 	"!PROTO_MSG_MINOR_VERSION_UNDEFINED\x10\x00\x12%\n" +
 	"!PROTO_MSG_MINOR_VERSION_OBSOLETE1\x10\x01\x12%\n" +
 	"!PROTO_MSG_MINOR_VERSION_OBSOLETE2\x10\x02\x12%\n" +
 	"!PROTO_MSG_MINOR_VERSION_OBSOLETE3\x10\x03\x12\x1b\n" +
-	"\x17PROTO_MSG_MINOR_VERSION\x10\x04*\xad\x05\n" +
-	"\fSTReturnCode\x12\x14\n" +
+	"\x17PROTO_MSG_MINOR_VERSION\x10\x14*\xd7\x06\n" +
+	"\fStReturnCode\x12\x14\n" +
 	"\x10NMX_ST_UNDEFINED\x10\x00\x12\x12\n" +
 	"\x0eNMX_ST_SUCCESS\x10\x01\x12\x13\n" +
 	"\x0fNMX_ST_BADPARAM\x10\x02\x12\x18\n" +
@@ -8393,7 +8952,11 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x1cNMX_ST_PARTITION_NAME_IN_USE\x10\x14\x12$\n" +
 	" NMX_ST_PARTITION_NAME_NOT_IN_USE\x10\x15\x12%\n" +
 	"!NMX_ST_PARTITION_ID_NAME_MISMATCH\x10\x16\x12\x14\n" +
-	"\x10NMX_ST_NOT_READY\x10\x17*\xc4\x02\n" +
+	"\x10NMX_ST_NOT_READY\x10\x17\x12)\n" +
+	"$NMX_ST_NMX_CONTROLLER_INTERNAL_ERROR\x10\xf4\x03\x12#\n" +
+	"\x1eNMX_ST_NMX_CONTROLLER_DB_ERROR\x10\xf5\x03\x12(\n" +
+	"#NMX_ST_NMX_CONTROLLER_DB_CORRUPTION\x10\xf6\x03\x12.\n" +
+	")NMX_ST_NMX_CONTROLLER_INVALID_CONFIG_FILE\x10\xf7\x03*\xc4\x02\n" +
 	"\x11ControlPlaneState\x12%\n" +
 	"!NMX_CONTROL_PLANE_STATE_UNDEFINED\x10\x00\x12#\n" +
 	"\x1fNMX_CONTROL_PLANE_STATE_OFFLINE\x10\x01\x12#\n" +
@@ -8505,24 +9068,32 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x1dNMX_RESILIENCY_MODE_UNDEFINED\x10\x00\x12&\n" +
 	"\"NMX_RESILIENCY_MODE_FULL_BANDWIDTH\x10\x01\x12*\n" +
 	"&NMX_RESILIENCY_MODE_ADAPTIVE_BANDWIDTH\x10\x02\x12,\n" +
-	"(NMX_RESILIENCY_MODE_USER_ACTION_REQUIRED\x10\x03*\xa4\x01\n" +
+	"(NMX_RESILIENCY_MODE_USER_ACTION_REQUIRED\x10\x03*\xd6\x01\n" +
 	"\x13NmxControllerHealth\x12!\n" +
 	"\x1dNMX_CONTROLLER_HEALTH_UNKNOWN\x10\x00\x12!\n" +
 	"\x1dNMX_CONTROLLER_HEALTH_HEALTHY\x10\x01\x12\"\n" +
 	"\x1eNMX_CONTROLLER_HEALTH_DEGRADED\x10\x02\x12#\n" +
-	"\x1fNMX_CONTROLLER_HEALTH_UNHEALTHY\x10\x03*u\n" +
+	"\x1fNMX_CONTROLLER_HEALTH_UNHEALTHY\x10\x03\x120\n" +
+	",NMX_CONTROLLER_HEALTH_UNHEALTHY_DB_CORRUPTED\x10\x04*u\n" +
 	"\n" +
 	"AdminState\x12\x1b\n" +
 	"\x17NMX_ADMIN_STATE_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12NMX_ADMIN_STATE_UP\x10\x01\x12\x18\n" +
 	"\x14NMX_ADMIN_STATE_DOWN\x10\x02\x12\x18\n" +
-	"\x14NMX_ADMIN_STATE_DIAG\x10\x032\xf1\x12\n" +
-	"\rNMXController\x121\n" +
+	"\x14NMX_ADMIN_STATE_DIAG\x10\x03*g\n" +
+	"\n" +
+	"ReportType\x12\x1b\n" +
+	"\x17NMX_REPORT_TYPE_UNKNOWN\x10\x00\x12\x1c\n" +
+	"\x18NMX_REPORT_TYPE_TOPOLOGY\x10\x01\x12\x1e\n" +
+	"\x1aNMX_REPORT_TYPE_PARTITIONS\x10\x022\xc3\x13\n" +
+	"\x0eNMX_Controller\x121\n" +
 	"\x05Hello\x12\x12.nmx_c.ClientHello\x1a\x12.nmx_c.ServerHello\"\x00\x12C\n" +
 	"\tSubscribe\x12\x17.nmx_c.SubscribeRequest\x1a\x19.nmx_c.ServerNotification\"\x000\x01\x12?\n" +
 	"\fFactoryReset\x12\x1a.nmx_c.FactoryResetRequest\x1a\x11.nmx_c.ReturnCode\"\x00\x12O\n" +
 	"\x0fGetStaticConfig\x12\x1d.nmx_c.GetStaticConfigRequest\x1a\x1b.nmx_c.StaticConfigResponse\"\x00\x12E\n" +
-	"\x0fSetStaticConfig\x12\x1d.nmx_c.SetStaticConfigRequest\x1a\x11.nmx_c.ReturnCode\"\x00\x12S\n" +
+	"\x0fSetStaticConfig\x12\x1d.nmx_c.SetStaticConfigRequest\x1a\x11.nmx_c.ReturnCode\"\x00\x12J\n" +
+	"\rGetAdminState\x12\x1b.nmx_c.GetAdminStateRequest\x1a\x1c.nmx_c.GetAdminStateResponse\x12J\n" +
+	"\rSetAdminState\x12\x1b.nmx_c.SetAdminStateRequest\x1a\x1c.nmx_c.SetAdminStateResponse\x12S\n" +
 	"\x13GetDomainProperties\x12!.nmx_c.GetDomainPropertiesRequest\x1a\x17.nmx_c.DomainProperties\"\x00\x12P\n" +
 	"\x12GetDomainStateInfo\x12 .nmx_c.GetDomainStateInfoRequest\x1a\x16.nmx_c.DomainStateInfo\"\x00\x12I\n" +
 	"\x0fGetTopologyInfo\x12\x1d.nmx_c.GetTopologyInfoRequest\x1a\x15.nmx_c.FmTopologyInfo\"\x00\x12^\n" +
@@ -8543,9 +9114,8 @@ const file_nmx_c_nico_proto_rawDesc = "" +
 	"\x17RemoveGpusFromPartition\x12\x1d.nmx_c.UpdatePartitionRequest\x1a\x1e.nmx_c.UpdatePartitionResponse\"\x00\x12I\n" +
 	"\fGetConnCount\x12\x1a.nmx_c.GetConnCountRequest\x1a\x1b.nmx_c.GetConnCountResponse\"\x00\x12R\n" +
 	"\x0fGetConnInfoList\x12\x1d.nmx_c.GetConnInfoListRequest\x1a\x1e.nmx_c.GetConnInfoListResponse\"\x00\x12S\n" +
-	"\x13GetConnInfoCombined\x12!.nmx_c.GetConnInfoCombinedRequest\x1a\x17.nmx_c.ConnInfoCombined\"\x00\x12J\n" +
-	"\rGetAdminState\x12\x1b.nmx_c.GetAdminStateRequest\x1a\x1c.nmx_c.GetAdminStateResponse\x12J\n" +
-	"\rSetAdminState\x12\x1b.nmx_c.SetAdminStateRequest\x1a\x1c.nmx_c.SetAdminStateResponseB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\x13GetConnInfoCombined\x12!.nmx_c.GetConnInfoCombinedRequest\x1a\x17.nmx_c.ConnInfoCombined\"\x00\x12O\n" +
+	"\x0eGetStateReport\x12\x1c.nmx_c.GetStateReportRequest\x1a\x1d.nmx_c.GetStateReportResponse\"\x00BCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_nmx_c_nico_proto_rawDescOnce sync.Once
@@ -8559,12 +9129,12 @@ func file_nmx_c_nico_proto_rawDescGZIP() []byte {
 	return file_nmx_c_nico_proto_rawDescData
 }
 
-var file_nmx_c_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 24)
-var file_nmx_c_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 92)
+var file_nmx_c_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 25)
+var file_nmx_c_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 100)
 var file_nmx_c_nico_proto_goTypes = []any{
 	(ProtoMsgMajorVersion)(0),                  // 0: nmx_c.ProtoMsgMajorVersion
 	(ProtoMsgMinorVersion)(0),                  // 1: nmx_c.ProtoMsgMinorVersion
-	(STReturnCode)(0),                          // 2: nmx_c.STReturnCode
+	(StReturnCode)(0),                          // 2: nmx_c.StReturnCode
 	(ControlPlaneState)(0),                     // 3: nmx_c.ControlPlaneState
 	(PortType)(0),                              // 4: nmx_c.PortType
 	(DeviceType)(0),                            // 5: nmx_c.DeviceType
@@ -8586,363 +9156,388 @@ var file_nmx_c_nico_proto_goTypes = []any{
 	(ResiliencyMode)(0),                        // 21: nmx_c.ResiliencyMode
 	(NmxControllerHealth)(0),                   // 22: nmx_c.NmxControllerHealth
 	(AdminState)(0),                            // 23: nmx_c.AdminState
-	(*ReturnCode)(nil),                         // 24: nmx_c.ReturnCode
-	(*KeyValPair)(nil),                         // 25: nmx_c.KeyValPair
-	(*ServerHeader)(nil),                       // 26: nmx_c.ServerHeader
-	(*ClientHello)(nil),                        // 27: nmx_c.ClientHello
-	(*ServerHello)(nil),                        // 28: nmx_c.ServerHello
-	(*SubscriptionResponse)(nil),               // 29: nmx_c.SubscriptionResponse
-	(*HealthStateChanged)(nil),                 // 30: nmx_c.HealthStateChanged
-	(*FmEvent)(nil),                            // 31: nmx_c.FmEvent
-	(*ServerNotification)(nil),                 // 32: nmx_c.ServerNotification
-	(*ConfigFileContent)(nil),                  // 33: nmx_c.ConfigFileContent
-	(*ConfigFileContents)(nil),                 // 34: nmx_c.ConfigFileContents
-	(*ConfigFile)(nil),                         // 35: nmx_c.ConfigFile
-	(*ConfigFiles)(nil),                        // 36: nmx_c.ConfigFiles
-	(*ConfigKeyVal)(nil),                       // 37: nmx_c.ConfigKeyVal
-	(*ConfigKeyVals)(nil),                      // 38: nmx_c.ConfigKeyVals
-	(*ConfigKey)(nil),                          // 39: nmx_c.ConfigKey
-	(*ConfigKeys)(nil),                         // 40: nmx_c.ConfigKeys
-	(*Context)(nil),                            // 41: nmx_c.Context
-	(*GetStaticConfigRequest)(nil),             // 42: nmx_c.GetStaticConfigRequest
-	(*SetStaticConfigRequest)(nil),             // 43: nmx_c.SetStaticConfigRequest
-	(*StaticConfigResponse)(nil),               // 44: nmx_c.StaticConfigResponse
-	(*StaticConfig)(nil),                       // 45: nmx_c.StaticConfig
-	(*SlotId)(nil),                             // 46: nmx_c.SlotId
-	(*PartitionId)(nil),                        // 47: nmx_c.PartitionId
-	(*Location)(nil),                           // 48: nmx_c.Location
-	(*LocationInfo)(nil),                       // 49: nmx_c.LocationInfo
-	(*DomainProperties)(nil),                   // 50: nmx_c.DomainProperties
-	(*DomainStateInfo)(nil),                    // 51: nmx_c.DomainStateInfo
-	(*FmEventControlPlaneStateChange)(nil),     // 52: nmx_c.FmEventControlPlaneStateChange
-	(*FmEventTopologyChange)(nil),              // 53: nmx_c.FmEventTopologyChange
-	(*FmEventPartitionChange)(nil),             // 54: nmx_c.FmEventPartitionChange
-	(*PortTopoInfo)(nil),                       // 55: nmx_c.PortTopoInfo
-	(*SwitchTopoInfo)(nil),                     // 56: nmx_c.SwitchTopoInfo
-	(*GpuTopoInfo)(nil),                        // 57: nmx_c.GpuTopoInfo
-	(*DeviceTopoInfo)(nil),                     // 58: nmx_c.DeviceTopoInfo
-	(*GetTopologyInfoRequest)(nil),             // 59: nmx_c.GetTopologyInfoRequest
-	(*FmTopologyInfo)(nil),                     // 60: nmx_c.FmTopologyInfo
-	(*GetComputeNodeCountRequest)(nil),         // 61: nmx_c.GetComputeNodeCountRequest
-	(*GetComputeNodeCountResponse)(nil),        // 62: nmx_c.GetComputeNodeCountResponse
-	(*GetComputeNodeLocationListRequest)(nil),  // 63: nmx_c.GetComputeNodeLocationListRequest
-	(*GetComputeNodeLocationListResponse)(nil), // 64: nmx_c.GetComputeNodeLocationListResponse
-	(*GetComputeNodeInfoListRequest)(nil),      // 65: nmx_c.GetComputeNodeInfoListRequest
-	(*ComputeNodeInfo)(nil),                    // 66: nmx_c.ComputeNodeInfo
-	(*GetComputeNodeInfoListResponse)(nil),     // 67: nmx_c.GetComputeNodeInfoListResponse
-	(*GetGpuInfoListRequest)(nil),              // 68: nmx_c.GetGpuInfoListRequest
-	(*GpuInfo)(nil),                            // 69: nmx_c.GpuInfo
-	(*GetGpuInfoListResponse)(nil),             // 70: nmx_c.GetGpuInfoListResponse
-	(*GetSwitchNodeCountRequest)(nil),          // 71: nmx_c.GetSwitchNodeCountRequest
-	(*GetSwitchNodeCountResponse)(nil),         // 72: nmx_c.GetSwitchNodeCountResponse
-	(*GetSwitchNodeLocationListRequest)(nil),   // 73: nmx_c.GetSwitchNodeLocationListRequest
-	(*GetSwitchNodeLocationListResponse)(nil),  // 74: nmx_c.GetSwitchNodeLocationListResponse
-	(*GetSwitchNodeInfoListRequest)(nil),       // 75: nmx_c.GetSwitchNodeInfoListRequest
-	(*SwitchNodeInfo)(nil),                     // 76: nmx_c.SwitchNodeInfo
-	(*GetSwitchNodeInfoListResponse)(nil),      // 77: nmx_c.GetSwitchNodeInfoListResponse
-	(*GetSwitchInfoListRequest)(nil),           // 78: nmx_c.GetSwitchInfoListRequest
-	(*SwitchInfo)(nil),                         // 79: nmx_c.SwitchInfo
-	(*GetSwitchInfoListResponse)(nil),          // 80: nmx_c.GetSwitchInfoListResponse
-	(*GetPartitionCountRequest)(nil),           // 81: nmx_c.GetPartitionCountRequest
-	(*GetPartitionCountResponse)(nil),          // 82: nmx_c.GetPartitionCountResponse
-	(*GetPartitionIdListRequest)(nil),          // 83: nmx_c.GetPartitionIdListRequest
-	(*Partition)(nil),                          // 84: nmx_c.Partition
-	(*GetPartitionIdListResponse)(nil),         // 85: nmx_c.GetPartitionIdListResponse
-	(*GetPartitionInfoListRequest)(nil),        // 86: nmx_c.GetPartitionInfoListRequest
-	(*PartitionAttr)(nil),                      // 87: nmx_c.PartitionAttr
-	(*PartitionInfo)(nil),                      // 88: nmx_c.PartitionInfo
-	(*GetPartitionInfoListResponse)(nil),       // 89: nmx_c.GetPartitionInfoListResponse
-	(*GpuLocation)(nil),                        // 90: nmx_c.GpuLocation
-	(*GpuResourceId)(nil),                      // 91: nmx_c.GpuResourceId
-	(*CreatePartitionRequest)(nil),             // 92: nmx_c.CreatePartitionRequest
-	(*CreatePartitionResponse)(nil),            // 93: nmx_c.CreatePartitionResponse
-	(*DeletePartitionRequest)(nil),             // 94: nmx_c.DeletePartitionRequest
-	(*DeletePartitionResponse)(nil),            // 95: nmx_c.DeletePartitionResponse
-	(*UpdatePartitionRequest)(nil),             // 96: nmx_c.UpdatePartitionRequest
-	(*UpdatePartitionResponse)(nil),            // 97: nmx_c.UpdatePartitionResponse
-	(*GetConnCountRequest)(nil),                // 98: nmx_c.GetConnCountRequest
-	(*GetConnCountResponse)(nil),               // 99: nmx_c.GetConnCountResponse
-	(*GetConnInfoListRequest)(nil),             // 100: nmx_c.GetConnInfoListRequest
-	(*LinkEndPoint)(nil),                       // 101: nmx_c.LinkEndPoint
-	(*ConnInfo)(nil),                           // 102: nmx_c.ConnInfo
-	(*ConnInfoList)(nil),                       // 103: nmx_c.ConnInfoList
-	(*GetConnInfoListResponse)(nil),            // 104: nmx_c.GetConnInfoListResponse
-	(*SubscribeRequest)(nil),                   // 105: nmx_c.SubscribeRequest
-	(*GetDomainPropertiesRequest)(nil),         // 106: nmx_c.GetDomainPropertiesRequest
-	(*GetDomainStateInfoRequest)(nil),          // 107: nmx_c.GetDomainStateInfoRequest
-	(*FactoryResetRequest)(nil),                // 108: nmx_c.FactoryResetRequest
-	(*GetConnInfoCombinedRequest)(nil),         // 109: nmx_c.GetConnInfoCombinedRequest
-	(*ConnInfoCombined)(nil),                   // 110: nmx_c.ConnInfoCombined
-	(*CageIdentifier)(nil),                     // 111: nmx_c.CageIdentifier
-	(*GetAdminStateRequest)(nil),               // 112: nmx_c.GetAdminStateRequest
-	(*GetAdminStateResponse)(nil),              // 113: nmx_c.GetAdminStateResponse
-	(*SetAdminStateRequest)(nil),               // 114: nmx_c.SetAdminStateRequest
-	(*SetAdminStateResponse)(nil),              // 115: nmx_c.SetAdminStateResponse
+	(ReportType)(0),                            // 24: nmx_c.ReportType
+	(*ReturnCode)(nil),                         // 25: nmx_c.ReturnCode
+	(*KeyValPair)(nil),                         // 26: nmx_c.KeyValPair
+	(*ServerHeader)(nil),                       // 27: nmx_c.ServerHeader
+	(*ClientHello)(nil),                        // 28: nmx_c.ClientHello
+	(*ServerHello)(nil),                        // 29: nmx_c.ServerHello
+	(*SubscriptionResponse)(nil),               // 30: nmx_c.SubscriptionResponse
+	(*HealthStateChanged)(nil),                 // 31: nmx_c.HealthStateChanged
+	(*FmEvent)(nil),                            // 32: nmx_c.FmEvent
+	(*InitDone)(nil),                           // 33: nmx_c.InitDone
+	(*ServerNotification)(nil),                 // 34: nmx_c.ServerNotification
+	(*ConfigFileContent)(nil),                  // 35: nmx_c.ConfigFileContent
+	(*ConfigFileContents)(nil),                 // 36: nmx_c.ConfigFileContents
+	(*ConfigFile)(nil),                         // 37: nmx_c.ConfigFile
+	(*ConfigFiles)(nil),                        // 38: nmx_c.ConfigFiles
+	(*ConfigKeyVal)(nil),                       // 39: nmx_c.ConfigKeyVal
+	(*ConfigKeyVals)(nil),                      // 40: nmx_c.ConfigKeyVals
+	(*ConfigKey)(nil),                          // 41: nmx_c.ConfigKey
+	(*ConfigKeys)(nil),                         // 42: nmx_c.ConfigKeys
+	(*Context)(nil),                            // 43: nmx_c.Context
+	(*GetStaticConfigRequest)(nil),             // 44: nmx_c.GetStaticConfigRequest
+	(*SetStaticConfigRequest)(nil),             // 45: nmx_c.SetStaticConfigRequest
+	(*StaticConfigResponse)(nil),               // 46: nmx_c.StaticConfigResponse
+	(*StaticConfig)(nil),                       // 47: nmx_c.StaticConfig
+	(*SlotId)(nil),                             // 48: nmx_c.SlotId
+	(*PartitionId)(nil),                        // 49: nmx_c.PartitionId
+	(*Location)(nil),                           // 50: nmx_c.Location
+	(*LocationInfo)(nil),                       // 51: nmx_c.LocationInfo
+	(*DomainProperties)(nil),                   // 52: nmx_c.DomainProperties
+	(*DomainStateInfo)(nil),                    // 53: nmx_c.DomainStateInfo
+	(*FmEventControlPlaneStateChange)(nil),     // 54: nmx_c.FmEventControlPlaneStateChange
+	(*FmEventTopologyChange)(nil),              // 55: nmx_c.FmEventTopologyChange
+	(*FmEventPartitionChange)(nil),             // 56: nmx_c.FmEventPartitionChange
+	(*PortTopoInfo)(nil),                       // 57: nmx_c.PortTopoInfo
+	(*SwitchTopoInfo)(nil),                     // 58: nmx_c.SwitchTopoInfo
+	(*GpuTopoInfo)(nil),                        // 59: nmx_c.GpuTopoInfo
+	(*DeviceTopoInfo)(nil),                     // 60: nmx_c.DeviceTopoInfo
+	(*GetTopologyInfoRequest)(nil),             // 61: nmx_c.GetTopologyInfoRequest
+	(*FmTopologyInfo)(nil),                     // 62: nmx_c.FmTopologyInfo
+	(*GetComputeNodeCountRequest)(nil),         // 63: nmx_c.GetComputeNodeCountRequest
+	(*GetComputeNodeCountResponse)(nil),        // 64: nmx_c.GetComputeNodeCountResponse
+	(*GetComputeNodeLocationListRequest)(nil),  // 65: nmx_c.GetComputeNodeLocationListRequest
+	(*GetComputeNodeLocationListResponse)(nil), // 66: nmx_c.GetComputeNodeLocationListResponse
+	(*GetComputeNodeInfoListRequest)(nil),      // 67: nmx_c.GetComputeNodeInfoListRequest
+	(*ComputeNodeInfo)(nil),                    // 68: nmx_c.ComputeNodeInfo
+	(*GetComputeNodeInfoListResponse)(nil),     // 69: nmx_c.GetComputeNodeInfoListResponse
+	(*GetGpuInfoListRequest)(nil),              // 70: nmx_c.GetGpuInfoListRequest
+	(*GpuInfo)(nil),                            // 71: nmx_c.GpuInfo
+	(*GetGpuInfoListResponse)(nil),             // 72: nmx_c.GetGpuInfoListResponse
+	(*GetSwitchNodeCountRequest)(nil),          // 73: nmx_c.GetSwitchNodeCountRequest
+	(*GetSwitchNodeCountResponse)(nil),         // 74: nmx_c.GetSwitchNodeCountResponse
+	(*GetSwitchNodeLocationListRequest)(nil),   // 75: nmx_c.GetSwitchNodeLocationListRequest
+	(*GetSwitchNodeLocationListResponse)(nil),  // 76: nmx_c.GetSwitchNodeLocationListResponse
+	(*GetSwitchNodeInfoListRequest)(nil),       // 77: nmx_c.GetSwitchNodeInfoListRequest
+	(*SwitchNodeInfo)(nil),                     // 78: nmx_c.SwitchNodeInfo
+	(*GetSwitchNodeInfoListResponse)(nil),      // 79: nmx_c.GetSwitchNodeInfoListResponse
+	(*GetSwitchInfoListRequest)(nil),           // 80: nmx_c.GetSwitchInfoListRequest
+	(*SwitchInfo)(nil),                         // 81: nmx_c.SwitchInfo
+	(*GetSwitchInfoListResponse)(nil),          // 82: nmx_c.GetSwitchInfoListResponse
+	(*GetPartitionCountRequest)(nil),           // 83: nmx_c.GetPartitionCountRequest
+	(*GetPartitionCountResponse)(nil),          // 84: nmx_c.GetPartitionCountResponse
+	(*GetPartitionIdListRequest)(nil),          // 85: nmx_c.GetPartitionIdListRequest
+	(*Partition)(nil),                          // 86: nmx_c.Partition
+	(*GetPartitionIdListResponse)(nil),         // 87: nmx_c.GetPartitionIdListResponse
+	(*GetPartitionInfoListRequest)(nil),        // 88: nmx_c.GetPartitionInfoListRequest
+	(*PartitionAttr)(nil),                      // 89: nmx_c.PartitionAttr
+	(*PartitionInfo)(nil),                      // 90: nmx_c.PartitionInfo
+	(*GetPartitionInfoListResponse)(nil),       // 91: nmx_c.GetPartitionInfoListResponse
+	(*GpuLocation)(nil),                        // 92: nmx_c.GpuLocation
+	(*GpuResourceId)(nil),                      // 93: nmx_c.GpuResourceId
+	(*CreatePartitionRequest)(nil),             // 94: nmx_c.CreatePartitionRequest
+	(*CreatePartitionResponse)(nil),            // 95: nmx_c.CreatePartitionResponse
+	(*DeletePartitionRequest)(nil),             // 96: nmx_c.DeletePartitionRequest
+	(*DeletePartitionResponse)(nil),            // 97: nmx_c.DeletePartitionResponse
+	(*UpdatePartitionRequest)(nil),             // 98: nmx_c.UpdatePartitionRequest
+	(*UpdatePartitionResponse)(nil),            // 99: nmx_c.UpdatePartitionResponse
+	(*GetConnCountRequest)(nil),                // 100: nmx_c.GetConnCountRequest
+	(*GetConnCountResponse)(nil),               // 101: nmx_c.GetConnCountResponse
+	(*GetConnInfoListRequest)(nil),             // 102: nmx_c.GetConnInfoListRequest
+	(*LinkEndPoint)(nil),                       // 103: nmx_c.LinkEndPoint
+	(*ConnInfo)(nil),                           // 104: nmx_c.ConnInfo
+	(*ConnInfoList)(nil),                       // 105: nmx_c.ConnInfoList
+	(*GetConnInfoListResponse)(nil),            // 106: nmx_c.GetConnInfoListResponse
+	(*SubscribeRequest)(nil),                   // 107: nmx_c.SubscribeRequest
+	(*GetDomainPropertiesRequest)(nil),         // 108: nmx_c.GetDomainPropertiesRequest
+	(*GetDomainStateInfoRequest)(nil),          // 109: nmx_c.GetDomainStateInfoRequest
+	(*FactoryResetRequest)(nil),                // 110: nmx_c.FactoryResetRequest
+	(*GetConnInfoCombinedRequest)(nil),         // 111: nmx_c.GetConnInfoCombinedRequest
+	(*ConnInfoCombined)(nil),                   // 112: nmx_c.ConnInfoCombined
+	(*TransceiverIdentifier)(nil),              // 113: nmx_c.TransceiverIdentifier
+	(*GetAdminStateRequest)(nil),               // 114: nmx_c.GetAdminStateRequest
+	(*AdminStateEntry)(nil),                    // 115: nmx_c.AdminStateEntry
+	(*GetAdminStateResponse)(nil),              // 116: nmx_c.GetAdminStateResponse
+	(*SetAdminStateRequest)(nil),               // 117: nmx_c.SetAdminStateRequest
+	(*SetAdminStateResponse)(nil),              // 118: nmx_c.SetAdminStateResponse
+	(*PartitionGpu)(nil),                       // 119: nmx_c.PartitionGpu
+	(*PartitionReport)(nil),                    // 120: nmx_c.PartitionReport
+	(*GetStateReportRequest)(nil),              // 121: nmx_c.GetStateReportRequest
+	(*TopologyInfo)(nil),                       // 122: nmx_c.TopologyInfo
+	(*PartitionsReport)(nil),                   // 123: nmx_c.PartitionsReport
+	(*GetStateReportResponse)(nil),             // 124: nmx_c.GetStateReportResponse
 }
 var file_nmx_c_nico_proto_depIdxs = []int32{
-	26,  // 0: nmx_c.ReturnCode.server_header:type_name -> nmx_c.ServerHeader
-	2,   // 1: nmx_c.ServerHeader.return_code:type_name -> nmx_c.STReturnCode
+	27,  // 0: nmx_c.ReturnCode.server_header:type_name -> nmx_c.ServerHeader
+	2,   // 1: nmx_c.ServerHeader.return_code:type_name -> nmx_c.StReturnCode
 	0,   // 2: nmx_c.ClientHello.major_version:type_name -> nmx_c.ProtoMsgMajorVersion
 	1,   // 3: nmx_c.ClientHello.minor_version:type_name -> nmx_c.ProtoMsgMinorVersion
-	26,  // 4: nmx_c.ServerHello.server_header:type_name -> nmx_c.ServerHeader
-	25,  // 5: nmx_c.ServerHello.components_ver:type_name -> nmx_c.KeyValPair
+	27,  // 4: nmx_c.ServerHello.server_header:type_name -> nmx_c.ServerHeader
+	26,  // 5: nmx_c.ServerHello.components_ver:type_name -> nmx_c.KeyValPair
 	0,   // 6: nmx_c.ServerHello.major_version:type_name -> nmx_c.ProtoMsgMajorVersion
 	1,   // 7: nmx_c.ServerHello.minor_version:type_name -> nmx_c.ProtoMsgMinorVersion
-	26,  // 8: nmx_c.SubscriptionResponse.server_header:type_name -> nmx_c.ServerHeader
-	26,  // 9: nmx_c.HealthStateChanged.server_header:type_name -> nmx_c.ServerHeader
-	26,  // 10: nmx_c.FmEvent.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 11: nmx_c.FmEvent.context:type_name -> nmx_c.Context
-	52,  // 12: nmx_c.FmEvent.fm_event_control_plane_state_change:type_name -> nmx_c.FmEventControlPlaneStateChange
-	53,  // 13: nmx_c.FmEvent.fm_event_topology_change:type_name -> nmx_c.FmEventTopologyChange
-	54,  // 14: nmx_c.FmEvent.fm_event_partition_change:type_name -> nmx_c.FmEventPartitionChange
-	29,  // 15: nmx_c.ServerNotification.subscription_response:type_name -> nmx_c.SubscriptionResponse
-	44,  // 16: nmx_c.ServerNotification.static_config_response:type_name -> nmx_c.StaticConfigResponse
-	93,  // 17: nmx_c.ServerNotification.create_partition_response:type_name -> nmx_c.CreatePartitionResponse
-	95,  // 18: nmx_c.ServerNotification.delete_partition_response:type_name -> nmx_c.DeletePartitionResponse
-	97,  // 19: nmx_c.ServerNotification.update_partition_response:type_name -> nmx_c.UpdatePartitionResponse
-	31,  // 20: nmx_c.ServerNotification.fm_event:type_name -> nmx_c.FmEvent
-	30,  // 21: nmx_c.ServerNotification.health_state_changed:type_name -> nmx_c.HealthStateChanged
-	115, // 22: nmx_c.ServerNotification.set_admin_state_response:type_name -> nmx_c.SetAdminStateResponse
-	33,  // 23: nmx_c.ConfigFileContents.config_file_content:type_name -> nmx_c.ConfigFileContent
-	35,  // 24: nmx_c.ConfigFiles.config_file:type_name -> nmx_c.ConfigFile
-	37,  // 25: nmx_c.ConfigKeyVals.config_key_val:type_name -> nmx_c.ConfigKeyVal
-	39,  // 26: nmx_c.ConfigKeys.config_key:type_name -> nmx_c.ConfigKey
-	41,  // 27: nmx_c.GetStaticConfigRequest.context:type_name -> nmx_c.Context
-	40,  // 28: nmx_c.GetStaticConfigRequest.config_keys:type_name -> nmx_c.ConfigKeys
-	36,  // 29: nmx_c.GetStaticConfigRequest.config_files:type_name -> nmx_c.ConfigFiles
-	45,  // 30: nmx_c.SetStaticConfigRequest.static_config:type_name -> nmx_c.StaticConfig
-	26,  // 31: nmx_c.StaticConfigResponse.server_header:type_name -> nmx_c.ServerHeader
-	45,  // 32: nmx_c.StaticConfigResponse.static_config:type_name -> nmx_c.StaticConfig
-	41,  // 33: nmx_c.StaticConfig.context:type_name -> nmx_c.Context
-	38,  // 34: nmx_c.StaticConfig.config_key_vals:type_name -> nmx_c.ConfigKeyVals
-	34,  // 35: nmx_c.StaticConfig.config_file_contents:type_name -> nmx_c.ConfigFileContents
-	48,  // 36: nmx_c.LocationInfo.location:type_name -> nmx_c.Location
-	26,  // 37: nmx_c.DomainProperties.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 38: nmx_c.DomainProperties.context:type_name -> nmx_c.Context
-	26,  // 39: nmx_c.DomainStateInfo.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 40: nmx_c.DomainStateInfo.context:type_name -> nmx_c.Context
-	3,   // 41: nmx_c.DomainStateInfo.control_plane_state:type_name -> nmx_c.ControlPlaneState
-	22,  // 42: nmx_c.DomainStateInfo.nmx_controller_health:type_name -> nmx_c.NmxControllerHealth
-	41,  // 43: nmx_c.FmEventControlPlaneStateChange.context:type_name -> nmx_c.Context
-	41,  // 44: nmx_c.FmEventTopologyChange.context:type_name -> nmx_c.Context
-	41,  // 45: nmx_c.FmEventPartitionChange.context:type_name -> nmx_c.Context
-	47,  // 46: nmx_c.FmEventPartitionChange.partition_id:type_name -> nmx_c.PartitionId
-	4,   // 47: nmx_c.PortTopoInfo.port_type:type_name -> nmx_c.PortType
-	17,  // 48: nmx_c.PortTopoInfo.physical_state:type_name -> nmx_c.PhysicalPortState
-	16,  // 49: nmx_c.PortTopoInfo.logical_state:type_name -> nmx_c.LogicalLinkState
-	47,  // 50: nmx_c.PortTopoInfo.partition_id_list:type_name -> nmx_c.PartitionId
-	23,  // 51: nmx_c.PortTopoInfo.port_admin_state:type_name -> nmx_c.AdminState
-	49,  // 52: nmx_c.SwitchTopoInfo.loc:type_name -> nmx_c.LocationInfo
-	47,  // 53: nmx_c.SwitchTopoInfo.partition_id:type_name -> nmx_c.PartitionId
-	12,  // 54: nmx_c.SwitchTopoInfo.device_health:type_name -> nmx_c.SwitchHealth
-	55,  // 55: nmx_c.SwitchTopoInfo.port_topo_info:type_name -> nmx_c.PortTopoInfo
-	49,  // 56: nmx_c.GpuTopoInfo.loc:type_name -> nmx_c.LocationInfo
-	47,  // 57: nmx_c.GpuTopoInfo.partition_id:type_name -> nmx_c.PartitionId
-	9,   // 58: nmx_c.GpuTopoInfo.device_health:type_name -> nmx_c.GpuHealth
-	55,  // 59: nmx_c.GpuTopoInfo.port_topo_info:type_name -> nmx_c.PortTopoInfo
-	56,  // 60: nmx_c.DeviceTopoInfo.switch_topo_info:type_name -> nmx_c.SwitchTopoInfo
-	57,  // 61: nmx_c.DeviceTopoInfo.gpu_topo_info:type_name -> nmx_c.GpuTopoInfo
-	41,  // 62: nmx_c.GetTopologyInfoRequest.context:type_name -> nmx_c.Context
-	26,  // 63: nmx_c.FmTopologyInfo.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 64: nmx_c.FmTopologyInfo.context:type_name -> nmx_c.Context
-	58,  // 65: nmx_c.FmTopologyInfo.device_topo_info:type_name -> nmx_c.DeviceTopoInfo
-	41,  // 66: nmx_c.GetComputeNodeCountRequest.context:type_name -> nmx_c.Context
-	6,   // 67: nmx_c.GetComputeNodeCountRequest.attr:type_name -> nmx_c.ComputeNodeAttr
-	7,   // 68: nmx_c.GetComputeNodeCountRequest.node_health:type_name -> nmx_c.ComputeNodeHealth
-	26,  // 69: nmx_c.GetComputeNodeCountResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 70: nmx_c.GetComputeNodeCountResponse.context:type_name -> nmx_c.Context
-	41,  // 71: nmx_c.GetComputeNodeLocationListRequest.context:type_name -> nmx_c.Context
-	6,   // 72: nmx_c.GetComputeNodeLocationListRequest.attr:type_name -> nmx_c.ComputeNodeAttr
-	7,   // 73: nmx_c.GetComputeNodeLocationListRequest.node_health:type_name -> nmx_c.ComputeNodeHealth
-	26,  // 74: nmx_c.GetComputeNodeLocationListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 75: nmx_c.GetComputeNodeLocationListResponse.context:type_name -> nmx_c.Context
-	48,  // 76: nmx_c.GetComputeNodeLocationListResponse.loc_list:type_name -> nmx_c.Location
-	41,  // 77: nmx_c.GetComputeNodeInfoListRequest.context:type_name -> nmx_c.Context
-	48,  // 78: nmx_c.GetComputeNodeInfoListRequest.loc_list:type_name -> nmx_c.Location
-	49,  // 79: nmx_c.ComputeNodeInfo.loc:type_name -> nmx_c.LocationInfo
-	7,   // 80: nmx_c.ComputeNodeInfo.node_health:type_name -> nmx_c.ComputeNodeHealth
-	47,  // 81: nmx_c.ComputeNodeInfo.partition_id_list:type_name -> nmx_c.PartitionId
-	26,  // 82: nmx_c.GetComputeNodeInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 83: nmx_c.GetComputeNodeInfoListResponse.context:type_name -> nmx_c.Context
-	66,  // 84: nmx_c.GetComputeNodeInfoListResponse.node_info_list:type_name -> nmx_c.ComputeNodeInfo
-	41,  // 85: nmx_c.GetGpuInfoListRequest.context:type_name -> nmx_c.Context
-	8,   // 86: nmx_c.GetGpuInfoListRequest.attr:type_name -> nmx_c.GpuAttr
-	48,  // 87: nmx_c.GetGpuInfoListRequest.loc:type_name -> nmx_c.Location
-	47,  // 88: nmx_c.GetGpuInfoListRequest.partition_id:type_name -> nmx_c.PartitionId
-	9,   // 89: nmx_c.GetGpuInfoListRequest.gpu_health:type_name -> nmx_c.GpuHealth
-	49,  // 90: nmx_c.GpuInfo.loc:type_name -> nmx_c.LocationInfo
-	9,   // 91: nmx_c.GpuInfo.gpu_health:type_name -> nmx_c.GpuHealth
-	47,  // 92: nmx_c.GpuInfo.partition_id:type_name -> nmx_c.PartitionId
-	26,  // 93: nmx_c.GetGpuInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 94: nmx_c.GetGpuInfoListResponse.context:type_name -> nmx_c.Context
-	69,  // 95: nmx_c.GetGpuInfoListResponse.gpu_info_list:type_name -> nmx_c.GpuInfo
-	41,  // 96: nmx_c.GetSwitchNodeCountRequest.context:type_name -> nmx_c.Context
-	10,  // 97: nmx_c.GetSwitchNodeCountRequest.attr:type_name -> nmx_c.SwitchNodeAttr
-	11,  // 98: nmx_c.GetSwitchNodeCountRequest.node_health:type_name -> nmx_c.SwitchNodeHealth
-	26,  // 99: nmx_c.GetSwitchNodeCountResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 100: nmx_c.GetSwitchNodeCountResponse.context:type_name -> nmx_c.Context
-	41,  // 101: nmx_c.GetSwitchNodeLocationListRequest.context:type_name -> nmx_c.Context
-	10,  // 102: nmx_c.GetSwitchNodeLocationListRequest.attr:type_name -> nmx_c.SwitchNodeAttr
-	11,  // 103: nmx_c.GetSwitchNodeLocationListRequest.node_health:type_name -> nmx_c.SwitchNodeHealth
-	26,  // 104: nmx_c.GetSwitchNodeLocationListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 105: nmx_c.GetSwitchNodeLocationListResponse.context:type_name -> nmx_c.Context
-	48,  // 106: nmx_c.GetSwitchNodeLocationListResponse.loc_list:type_name -> nmx_c.Location
-	41,  // 107: nmx_c.GetSwitchNodeInfoListRequest.context:type_name -> nmx_c.Context
-	48,  // 108: nmx_c.GetSwitchNodeInfoListRequest.loc_list:type_name -> nmx_c.Location
-	49,  // 109: nmx_c.SwitchNodeInfo.loc:type_name -> nmx_c.LocationInfo
-	11,  // 110: nmx_c.SwitchNodeInfo.node_health:type_name -> nmx_c.SwitchNodeHealth
-	47,  // 111: nmx_c.SwitchNodeInfo.partition_id_list:type_name -> nmx_c.PartitionId
-	26,  // 112: nmx_c.GetSwitchNodeInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 113: nmx_c.GetSwitchNodeInfoListResponse.context:type_name -> nmx_c.Context
-	76,  // 114: nmx_c.GetSwitchNodeInfoListResponse.node_info_list:type_name -> nmx_c.SwitchNodeInfo
-	41,  // 115: nmx_c.GetSwitchInfoListRequest.context:type_name -> nmx_c.Context
-	48,  // 116: nmx_c.GetSwitchInfoListRequest.loc:type_name -> nmx_c.Location
-	48,  // 117: nmx_c.SwitchInfo.loc:type_name -> nmx_c.Location
-	12,  // 118: nmx_c.SwitchInfo.health:type_name -> nmx_c.SwitchHealth
-	26,  // 119: nmx_c.GetSwitchInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 120: nmx_c.GetSwitchInfoListResponse.context:type_name -> nmx_c.Context
-	79,  // 121: nmx_c.GetSwitchInfoListResponse.switch_info_list:type_name -> nmx_c.SwitchInfo
-	41,  // 122: nmx_c.GetPartitionCountRequest.context:type_name -> nmx_c.Context
-	13,  // 123: nmx_c.GetPartitionCountRequest.info_attr:type_name -> nmx_c.PartitionInfoAttr
-	14,  // 124: nmx_c.GetPartitionCountRequest.health:type_name -> nmx_c.PartitionHealth
-	26,  // 125: nmx_c.GetPartitionCountResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 126: nmx_c.GetPartitionCountResponse.context:type_name -> nmx_c.Context
-	41,  // 127: nmx_c.GetPartitionIdListRequest.context:type_name -> nmx_c.Context
-	13,  // 128: nmx_c.GetPartitionIdListRequest.info_attr:type_name -> nmx_c.PartitionInfoAttr
-	14,  // 129: nmx_c.GetPartitionIdListRequest.health:type_name -> nmx_c.PartitionHealth
-	47,  // 130: nmx_c.Partition.partition_id:type_name -> nmx_c.PartitionId
-	26,  // 131: nmx_c.GetPartitionIdListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 132: nmx_c.GetPartitionIdListResponse.context:type_name -> nmx_c.Context
-	84,  // 133: nmx_c.GetPartitionIdListResponse.partition_list:type_name -> nmx_c.Partition
-	41,  // 134: nmx_c.GetPartitionInfoListRequest.context:type_name -> nmx_c.Context
-	47,  // 135: nmx_c.GetPartitionInfoListRequest.partition_id_list:type_name -> nmx_c.PartitionId
-	21,  // 136: nmx_c.PartitionAttr.resiliency_mode:type_name -> nmx_c.ResiliencyMode
-	47,  // 137: nmx_c.PartitionInfo.partition_id:type_name -> nmx_c.PartitionId
-	90,  // 138: nmx_c.PartitionInfo.gpu_location_list:type_name -> nmx_c.GpuLocation
-	14,  // 139: nmx_c.PartitionInfo.health:type_name -> nmx_c.PartitionHealth
-	15,  // 140: nmx_c.PartitionInfo.partition_type:type_name -> nmx_c.PartitionType
-	87,  // 141: nmx_c.PartitionInfo.attr:type_name -> nmx_c.PartitionAttr
-	26,  // 142: nmx_c.GetPartitionInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 143: nmx_c.GetPartitionInfoListResponse.context:type_name -> nmx_c.Context
-	88,  // 144: nmx_c.GetPartitionInfoListResponse.partition_info_list:type_name -> nmx_c.PartitionInfo
-	48,  // 145: nmx_c.GpuLocation.loc:type_name -> nmx_c.Location
-	90,  // 146: nmx_c.GpuResourceId.gpu_location:type_name -> nmx_c.GpuLocation
-	41,  // 147: nmx_c.CreatePartitionRequest.context:type_name -> nmx_c.Context
-	91,  // 148: nmx_c.CreatePartitionRequest.gpu_resource_id:type_name -> nmx_c.GpuResourceId
-	87,  // 149: nmx_c.CreatePartitionRequest.attr:type_name -> nmx_c.PartitionAttr
-	47,  // 150: nmx_c.CreatePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
-	26,  // 151: nmx_c.CreatePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 152: nmx_c.CreatePartitionResponse.context:type_name -> nmx_c.Context
-	47,  // 153: nmx_c.CreatePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
-	41,  // 154: nmx_c.DeletePartitionRequest.context:type_name -> nmx_c.Context
-	47,  // 155: nmx_c.DeletePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
-	26,  // 156: nmx_c.DeletePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 157: nmx_c.DeletePartitionResponse.context:type_name -> nmx_c.Context
-	47,  // 158: nmx_c.DeletePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
-	41,  // 159: nmx_c.UpdatePartitionRequest.context:type_name -> nmx_c.Context
-	47,  // 160: nmx_c.UpdatePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
-	90,  // 161: nmx_c.UpdatePartitionRequest.location_list:type_name -> nmx_c.GpuLocation
-	26,  // 162: nmx_c.UpdatePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 163: nmx_c.UpdatePartitionResponse.context:type_name -> nmx_c.Context
-	47,  // 164: nmx_c.UpdatePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
-	41,  // 165: nmx_c.GetConnCountRequest.context:type_name -> nmx_c.Context
-	19,  // 166: nmx_c.GetConnCountRequest.conn_type:type_name -> nmx_c.ConnType
-	20,  // 167: nmx_c.GetConnCountRequest.conn_attr:type_name -> nmx_c.ConnAttr
-	48,  // 168: nmx_c.GetConnCountRequest.loc:type_name -> nmx_c.Location
-	26,  // 169: nmx_c.GetConnCountResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 170: nmx_c.GetConnCountResponse.context:type_name -> nmx_c.Context
-	41,  // 171: nmx_c.GetConnInfoListRequest.context:type_name -> nmx_c.Context
-	19,  // 172: nmx_c.GetConnInfoListRequest.conn_type:type_name -> nmx_c.ConnType
-	20,  // 173: nmx_c.GetConnInfoListRequest.conn_attr:type_name -> nmx_c.ConnAttr
-	48,  // 174: nmx_c.GetConnInfoListRequest.loc:type_name -> nmx_c.Location
-	48,  // 175: nmx_c.LinkEndPoint.loc:type_name -> nmx_c.Location
-	101, // 176: nmx_c.ConnInfo.end_point_a:type_name -> nmx_c.LinkEndPoint
-	101, // 177: nmx_c.ConnInfo.end_point_b:type_name -> nmx_c.LinkEndPoint
-	19,  // 178: nmx_c.ConnInfo.conn_type:type_name -> nmx_c.ConnType
-	18,  // 179: nmx_c.ConnInfo.conn_state:type_name -> nmx_c.ConnState
-	102, // 180: nmx_c.ConnInfoList.conn_info_list:type_name -> nmx_c.ConnInfo
-	26,  // 181: nmx_c.GetConnInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 182: nmx_c.GetConnInfoListResponse.context:type_name -> nmx_c.Context
-	103, // 183: nmx_c.GetConnInfoListResponse.conn_info_list:type_name -> nmx_c.ConnInfoList
-	41,  // 184: nmx_c.GetDomainPropertiesRequest.context:type_name -> nmx_c.Context
-	41,  // 185: nmx_c.GetDomainStateInfoRequest.context:type_name -> nmx_c.Context
-	41,  // 186: nmx_c.GetConnInfoCombinedRequest.context:type_name -> nmx_c.Context
-	26,  // 187: nmx_c.ConnInfoCombined.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 188: nmx_c.ConnInfoCombined.context:type_name -> nmx_c.Context
-	103, // 189: nmx_c.ConnInfoCombined.unexpected_conn_list:type_name -> nmx_c.ConnInfoList
-	41,  // 190: nmx_c.GetAdminStateRequest.context:type_name -> nmx_c.Context
-	111, // 191: nmx_c.GetAdminStateRequest.cage_identifier:type_name -> nmx_c.CageIdentifier
-	26,  // 192: nmx_c.GetAdminStateResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 193: nmx_c.GetAdminStateResponse.context:type_name -> nmx_c.Context
-	23,  // 194: nmx_c.GetAdminStateResponse.admin_state:type_name -> nmx_c.AdminState
-	41,  // 195: nmx_c.SetAdminStateRequest.context:type_name -> nmx_c.Context
-	23,  // 196: nmx_c.SetAdminStateRequest.admin_state:type_name -> nmx_c.AdminState
-	111, // 197: nmx_c.SetAdminStateRequest.cage_identifier:type_name -> nmx_c.CageIdentifier
-	26,  // 198: nmx_c.SetAdminStateResponse.server_header:type_name -> nmx_c.ServerHeader
-	41,  // 199: nmx_c.SetAdminStateResponse.context:type_name -> nmx_c.Context
-	111, // 200: nmx_c.SetAdminStateResponse.cage_identifier:type_name -> nmx_c.CageIdentifier
-	23,  // 201: nmx_c.SetAdminStateResponse.admin_state:type_name -> nmx_c.AdminState
-	27,  // 202: nmx_c.NMXController.Hello:input_type -> nmx_c.ClientHello
-	105, // 203: nmx_c.NMXController.Subscribe:input_type -> nmx_c.SubscribeRequest
-	108, // 204: nmx_c.NMXController.FactoryReset:input_type -> nmx_c.FactoryResetRequest
-	42,  // 205: nmx_c.NMXController.GetStaticConfig:input_type -> nmx_c.GetStaticConfigRequest
-	43,  // 206: nmx_c.NMXController.SetStaticConfig:input_type -> nmx_c.SetStaticConfigRequest
-	106, // 207: nmx_c.NMXController.GetDomainProperties:input_type -> nmx_c.GetDomainPropertiesRequest
-	107, // 208: nmx_c.NMXController.GetDomainStateInfo:input_type -> nmx_c.GetDomainStateInfoRequest
-	59,  // 209: nmx_c.NMXController.GetTopologyInfo:input_type -> nmx_c.GetTopologyInfoRequest
-	61,  // 210: nmx_c.NMXController.GetComputeNodeCount:input_type -> nmx_c.GetComputeNodeCountRequest
-	63,  // 211: nmx_c.NMXController.GetComputeNodeLocationList:input_type -> nmx_c.GetComputeNodeLocationListRequest
-	65,  // 212: nmx_c.NMXController.GetComputeNodeInfoList:input_type -> nmx_c.GetComputeNodeInfoListRequest
-	68,  // 213: nmx_c.NMXController.GetGpuInfoList:input_type -> nmx_c.GetGpuInfoListRequest
-	71,  // 214: nmx_c.NMXController.GetSwitchNodeCount:input_type -> nmx_c.GetSwitchNodeCountRequest
-	73,  // 215: nmx_c.NMXController.GetSwitchNodeLocationList:input_type -> nmx_c.GetSwitchNodeLocationListRequest
-	75,  // 216: nmx_c.NMXController.GetSwitchNodeInfoList:input_type -> nmx_c.GetSwitchNodeInfoListRequest
-	78,  // 217: nmx_c.NMXController.GetSwitchInfoList:input_type -> nmx_c.GetSwitchInfoListRequest
-	81,  // 218: nmx_c.NMXController.GetPartitionCount:input_type -> nmx_c.GetPartitionCountRequest
-	83,  // 219: nmx_c.NMXController.GetPartitionIdList:input_type -> nmx_c.GetPartitionIdListRequest
-	86,  // 220: nmx_c.NMXController.GetPartitionInfoList:input_type -> nmx_c.GetPartitionInfoListRequest
-	92,  // 221: nmx_c.NMXController.CreatePartition:input_type -> nmx_c.CreatePartitionRequest
-	94,  // 222: nmx_c.NMXController.DeletePartition:input_type -> nmx_c.DeletePartitionRequest
-	96,  // 223: nmx_c.NMXController.AddGpusToPartition:input_type -> nmx_c.UpdatePartitionRequest
-	96,  // 224: nmx_c.NMXController.RemoveGpusFromPartition:input_type -> nmx_c.UpdatePartitionRequest
-	98,  // 225: nmx_c.NMXController.GetConnCount:input_type -> nmx_c.GetConnCountRequest
-	100, // 226: nmx_c.NMXController.GetConnInfoList:input_type -> nmx_c.GetConnInfoListRequest
-	109, // 227: nmx_c.NMXController.GetConnInfoCombined:input_type -> nmx_c.GetConnInfoCombinedRequest
-	112, // 228: nmx_c.NMXController.GetAdminState:input_type -> nmx_c.GetAdminStateRequest
-	114, // 229: nmx_c.NMXController.SetAdminState:input_type -> nmx_c.SetAdminStateRequest
-	28,  // 230: nmx_c.NMXController.Hello:output_type -> nmx_c.ServerHello
-	32,  // 231: nmx_c.NMXController.Subscribe:output_type -> nmx_c.ServerNotification
-	24,  // 232: nmx_c.NMXController.FactoryReset:output_type -> nmx_c.ReturnCode
-	44,  // 233: nmx_c.NMXController.GetStaticConfig:output_type -> nmx_c.StaticConfigResponse
-	24,  // 234: nmx_c.NMXController.SetStaticConfig:output_type -> nmx_c.ReturnCode
-	50,  // 235: nmx_c.NMXController.GetDomainProperties:output_type -> nmx_c.DomainProperties
-	51,  // 236: nmx_c.NMXController.GetDomainStateInfo:output_type -> nmx_c.DomainStateInfo
-	60,  // 237: nmx_c.NMXController.GetTopologyInfo:output_type -> nmx_c.FmTopologyInfo
-	62,  // 238: nmx_c.NMXController.GetComputeNodeCount:output_type -> nmx_c.GetComputeNodeCountResponse
-	64,  // 239: nmx_c.NMXController.GetComputeNodeLocationList:output_type -> nmx_c.GetComputeNodeLocationListResponse
-	67,  // 240: nmx_c.NMXController.GetComputeNodeInfoList:output_type -> nmx_c.GetComputeNodeInfoListResponse
-	70,  // 241: nmx_c.NMXController.GetGpuInfoList:output_type -> nmx_c.GetGpuInfoListResponse
-	72,  // 242: nmx_c.NMXController.GetSwitchNodeCount:output_type -> nmx_c.GetSwitchNodeCountResponse
-	74,  // 243: nmx_c.NMXController.GetSwitchNodeLocationList:output_type -> nmx_c.GetSwitchNodeLocationListResponse
-	77,  // 244: nmx_c.NMXController.GetSwitchNodeInfoList:output_type -> nmx_c.GetSwitchNodeInfoListResponse
-	80,  // 245: nmx_c.NMXController.GetSwitchInfoList:output_type -> nmx_c.GetSwitchInfoListResponse
-	82,  // 246: nmx_c.NMXController.GetPartitionCount:output_type -> nmx_c.GetPartitionCountResponse
-	85,  // 247: nmx_c.NMXController.GetPartitionIdList:output_type -> nmx_c.GetPartitionIdListResponse
-	89,  // 248: nmx_c.NMXController.GetPartitionInfoList:output_type -> nmx_c.GetPartitionInfoListResponse
-	93,  // 249: nmx_c.NMXController.CreatePartition:output_type -> nmx_c.CreatePartitionResponse
-	95,  // 250: nmx_c.NMXController.DeletePartition:output_type -> nmx_c.DeletePartitionResponse
-	97,  // 251: nmx_c.NMXController.AddGpusToPartition:output_type -> nmx_c.UpdatePartitionResponse
-	97,  // 252: nmx_c.NMXController.RemoveGpusFromPartition:output_type -> nmx_c.UpdatePartitionResponse
-	99,  // 253: nmx_c.NMXController.GetConnCount:output_type -> nmx_c.GetConnCountResponse
-	104, // 254: nmx_c.NMXController.GetConnInfoList:output_type -> nmx_c.GetConnInfoListResponse
-	110, // 255: nmx_c.NMXController.GetConnInfoCombined:output_type -> nmx_c.ConnInfoCombined
-	113, // 256: nmx_c.NMXController.GetAdminState:output_type -> nmx_c.GetAdminStateResponse
-	115, // 257: nmx_c.NMXController.SetAdminState:output_type -> nmx_c.SetAdminStateResponse
-	230, // [230:258] is the sub-list for method output_type
-	202, // [202:230] is the sub-list for method input_type
-	202, // [202:202] is the sub-list for extension type_name
-	202, // [202:202] is the sub-list for extension extendee
-	0,   // [0:202] is the sub-list for field type_name
+	27,  // 8: nmx_c.SubscriptionResponse.server_header:type_name -> nmx_c.ServerHeader
+	27,  // 9: nmx_c.HealthStateChanged.server_header:type_name -> nmx_c.ServerHeader
+	27,  // 10: nmx_c.FmEvent.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 11: nmx_c.FmEvent.context:type_name -> nmx_c.Context
+	54,  // 12: nmx_c.FmEvent.fm_event_control_plane_state_change:type_name -> nmx_c.FmEventControlPlaneStateChange
+	55,  // 13: nmx_c.FmEvent.fm_event_topology_change:type_name -> nmx_c.FmEventTopologyChange
+	56,  // 14: nmx_c.FmEvent.fm_event_partition_change:type_name -> nmx_c.FmEventPartitionChange
+	27,  // 15: nmx_c.InitDone.server_header:type_name -> nmx_c.ServerHeader
+	30,  // 16: nmx_c.ServerNotification.subscription_response:type_name -> nmx_c.SubscriptionResponse
+	46,  // 17: nmx_c.ServerNotification.static_config_response:type_name -> nmx_c.StaticConfigResponse
+	95,  // 18: nmx_c.ServerNotification.create_partition_response:type_name -> nmx_c.CreatePartitionResponse
+	97,  // 19: nmx_c.ServerNotification.delete_partition_response:type_name -> nmx_c.DeletePartitionResponse
+	99,  // 20: nmx_c.ServerNotification.update_partition_response:type_name -> nmx_c.UpdatePartitionResponse
+	32,  // 21: nmx_c.ServerNotification.fm_event:type_name -> nmx_c.FmEvent
+	31,  // 22: nmx_c.ServerNotification.health_state_changed:type_name -> nmx_c.HealthStateChanged
+	118, // 23: nmx_c.ServerNotification.set_admin_state_response:type_name -> nmx_c.SetAdminStateResponse
+	53,  // 24: nmx_c.ServerNotification.domain_state_info:type_name -> nmx_c.DomainStateInfo
+	33,  // 25: nmx_c.ServerNotification.init_done:type_name -> nmx_c.InitDone
+	35,  // 26: nmx_c.ConfigFileContents.config_file_content:type_name -> nmx_c.ConfigFileContent
+	37,  // 27: nmx_c.ConfigFiles.config_file:type_name -> nmx_c.ConfigFile
+	39,  // 28: nmx_c.ConfigKeyVals.config_key_val:type_name -> nmx_c.ConfigKeyVal
+	41,  // 29: nmx_c.ConfigKeys.config_key:type_name -> nmx_c.ConfigKey
+	43,  // 30: nmx_c.GetStaticConfigRequest.context:type_name -> nmx_c.Context
+	42,  // 31: nmx_c.GetStaticConfigRequest.config_keys:type_name -> nmx_c.ConfigKeys
+	38,  // 32: nmx_c.GetStaticConfigRequest.config_files:type_name -> nmx_c.ConfigFiles
+	47,  // 33: nmx_c.SetStaticConfigRequest.static_config:type_name -> nmx_c.StaticConfig
+	27,  // 34: nmx_c.StaticConfigResponse.server_header:type_name -> nmx_c.ServerHeader
+	47,  // 35: nmx_c.StaticConfigResponse.static_config:type_name -> nmx_c.StaticConfig
+	43,  // 36: nmx_c.StaticConfig.context:type_name -> nmx_c.Context
+	40,  // 37: nmx_c.StaticConfig.config_key_vals:type_name -> nmx_c.ConfigKeyVals
+	36,  // 38: nmx_c.StaticConfig.config_file_contents:type_name -> nmx_c.ConfigFileContents
+	50,  // 39: nmx_c.LocationInfo.location:type_name -> nmx_c.Location
+	27,  // 40: nmx_c.DomainProperties.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 41: nmx_c.DomainProperties.context:type_name -> nmx_c.Context
+	27,  // 42: nmx_c.DomainStateInfo.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 43: nmx_c.DomainStateInfo.context:type_name -> nmx_c.Context
+	3,   // 44: nmx_c.DomainStateInfo.control_plane_state:type_name -> nmx_c.ControlPlaneState
+	22,  // 45: nmx_c.DomainStateInfo.nmx_controller_health:type_name -> nmx_c.NmxControllerHealth
+	43,  // 46: nmx_c.FmEventControlPlaneStateChange.context:type_name -> nmx_c.Context
+	43,  // 47: nmx_c.FmEventTopologyChange.context:type_name -> nmx_c.Context
+	43,  // 48: nmx_c.FmEventPartitionChange.context:type_name -> nmx_c.Context
+	49,  // 49: nmx_c.FmEventPartitionChange.partition_id:type_name -> nmx_c.PartitionId
+	4,   // 50: nmx_c.PortTopoInfo.port_type:type_name -> nmx_c.PortType
+	17,  // 51: nmx_c.PortTopoInfo.physical_state:type_name -> nmx_c.PhysicalPortState
+	16,  // 52: nmx_c.PortTopoInfo.logical_state:type_name -> nmx_c.LogicalLinkState
+	49,  // 53: nmx_c.PortTopoInfo.partition_id_list:type_name -> nmx_c.PartitionId
+	23,  // 54: nmx_c.PortTopoInfo.port_admin_state:type_name -> nmx_c.AdminState
+	51,  // 55: nmx_c.SwitchTopoInfo.loc:type_name -> nmx_c.LocationInfo
+	49,  // 56: nmx_c.SwitchTopoInfo.partition_id:type_name -> nmx_c.PartitionId
+	12,  // 57: nmx_c.SwitchTopoInfo.device_health:type_name -> nmx_c.SwitchHealth
+	57,  // 58: nmx_c.SwitchTopoInfo.port_topo_info:type_name -> nmx_c.PortTopoInfo
+	51,  // 59: nmx_c.GpuTopoInfo.loc:type_name -> nmx_c.LocationInfo
+	49,  // 60: nmx_c.GpuTopoInfo.partition_id:type_name -> nmx_c.PartitionId
+	9,   // 61: nmx_c.GpuTopoInfo.device_health:type_name -> nmx_c.GpuHealth
+	57,  // 62: nmx_c.GpuTopoInfo.port_topo_info:type_name -> nmx_c.PortTopoInfo
+	58,  // 63: nmx_c.DeviceTopoInfo.switch_topo_info:type_name -> nmx_c.SwitchTopoInfo
+	59,  // 64: nmx_c.DeviceTopoInfo.gpu_topo_info:type_name -> nmx_c.GpuTopoInfo
+	43,  // 65: nmx_c.GetTopologyInfoRequest.context:type_name -> nmx_c.Context
+	27,  // 66: nmx_c.FmTopologyInfo.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 67: nmx_c.FmTopologyInfo.context:type_name -> nmx_c.Context
+	60,  // 68: nmx_c.FmTopologyInfo.device_topo_info:type_name -> nmx_c.DeviceTopoInfo
+	43,  // 69: nmx_c.GetComputeNodeCountRequest.context:type_name -> nmx_c.Context
+	6,   // 70: nmx_c.GetComputeNodeCountRequest.attr:type_name -> nmx_c.ComputeNodeAttr
+	7,   // 71: nmx_c.GetComputeNodeCountRequest.node_health:type_name -> nmx_c.ComputeNodeHealth
+	27,  // 72: nmx_c.GetComputeNodeCountResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 73: nmx_c.GetComputeNodeCountResponse.context:type_name -> nmx_c.Context
+	43,  // 74: nmx_c.GetComputeNodeLocationListRequest.context:type_name -> nmx_c.Context
+	6,   // 75: nmx_c.GetComputeNodeLocationListRequest.attr:type_name -> nmx_c.ComputeNodeAttr
+	7,   // 76: nmx_c.GetComputeNodeLocationListRequest.node_health:type_name -> nmx_c.ComputeNodeHealth
+	27,  // 77: nmx_c.GetComputeNodeLocationListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 78: nmx_c.GetComputeNodeLocationListResponse.context:type_name -> nmx_c.Context
+	50,  // 79: nmx_c.GetComputeNodeLocationListResponse.loc_list:type_name -> nmx_c.Location
+	43,  // 80: nmx_c.GetComputeNodeInfoListRequest.context:type_name -> nmx_c.Context
+	50,  // 81: nmx_c.GetComputeNodeInfoListRequest.loc_list:type_name -> nmx_c.Location
+	51,  // 82: nmx_c.ComputeNodeInfo.loc:type_name -> nmx_c.LocationInfo
+	7,   // 83: nmx_c.ComputeNodeInfo.node_health:type_name -> nmx_c.ComputeNodeHealth
+	49,  // 84: nmx_c.ComputeNodeInfo.partition_id_list:type_name -> nmx_c.PartitionId
+	27,  // 85: nmx_c.GetComputeNodeInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 86: nmx_c.GetComputeNodeInfoListResponse.context:type_name -> nmx_c.Context
+	68,  // 87: nmx_c.GetComputeNodeInfoListResponse.node_info_list:type_name -> nmx_c.ComputeNodeInfo
+	43,  // 88: nmx_c.GetGpuInfoListRequest.context:type_name -> nmx_c.Context
+	8,   // 89: nmx_c.GetGpuInfoListRequest.attr:type_name -> nmx_c.GpuAttr
+	50,  // 90: nmx_c.GetGpuInfoListRequest.loc:type_name -> nmx_c.Location
+	49,  // 91: nmx_c.GetGpuInfoListRequest.partition_id:type_name -> nmx_c.PartitionId
+	9,   // 92: nmx_c.GetGpuInfoListRequest.gpu_health:type_name -> nmx_c.GpuHealth
+	51,  // 93: nmx_c.GpuInfo.loc:type_name -> nmx_c.LocationInfo
+	9,   // 94: nmx_c.GpuInfo.gpu_health:type_name -> nmx_c.GpuHealth
+	49,  // 95: nmx_c.GpuInfo.partition_id:type_name -> nmx_c.PartitionId
+	27,  // 96: nmx_c.GetGpuInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 97: nmx_c.GetGpuInfoListResponse.context:type_name -> nmx_c.Context
+	71,  // 98: nmx_c.GetGpuInfoListResponse.gpu_info_list:type_name -> nmx_c.GpuInfo
+	43,  // 99: nmx_c.GetSwitchNodeCountRequest.context:type_name -> nmx_c.Context
+	10,  // 100: nmx_c.GetSwitchNodeCountRequest.attr:type_name -> nmx_c.SwitchNodeAttr
+	11,  // 101: nmx_c.GetSwitchNodeCountRequest.node_health:type_name -> nmx_c.SwitchNodeHealth
+	27,  // 102: nmx_c.GetSwitchNodeCountResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 103: nmx_c.GetSwitchNodeCountResponse.context:type_name -> nmx_c.Context
+	43,  // 104: nmx_c.GetSwitchNodeLocationListRequest.context:type_name -> nmx_c.Context
+	10,  // 105: nmx_c.GetSwitchNodeLocationListRequest.attr:type_name -> nmx_c.SwitchNodeAttr
+	11,  // 106: nmx_c.GetSwitchNodeLocationListRequest.node_health:type_name -> nmx_c.SwitchNodeHealth
+	27,  // 107: nmx_c.GetSwitchNodeLocationListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 108: nmx_c.GetSwitchNodeLocationListResponse.context:type_name -> nmx_c.Context
+	50,  // 109: nmx_c.GetSwitchNodeLocationListResponse.loc_list:type_name -> nmx_c.Location
+	43,  // 110: nmx_c.GetSwitchNodeInfoListRequest.context:type_name -> nmx_c.Context
+	50,  // 111: nmx_c.GetSwitchNodeInfoListRequest.loc_list:type_name -> nmx_c.Location
+	51,  // 112: nmx_c.SwitchNodeInfo.loc:type_name -> nmx_c.LocationInfo
+	11,  // 113: nmx_c.SwitchNodeInfo.node_health:type_name -> nmx_c.SwitchNodeHealth
+	49,  // 114: nmx_c.SwitchNodeInfo.partition_id_list:type_name -> nmx_c.PartitionId
+	27,  // 115: nmx_c.GetSwitchNodeInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 116: nmx_c.GetSwitchNodeInfoListResponse.context:type_name -> nmx_c.Context
+	78,  // 117: nmx_c.GetSwitchNodeInfoListResponse.node_info_list:type_name -> nmx_c.SwitchNodeInfo
+	43,  // 118: nmx_c.GetSwitchInfoListRequest.context:type_name -> nmx_c.Context
+	50,  // 119: nmx_c.GetSwitchInfoListRequest.loc:type_name -> nmx_c.Location
+	50,  // 120: nmx_c.SwitchInfo.loc:type_name -> nmx_c.Location
+	12,  // 121: nmx_c.SwitchInfo.health:type_name -> nmx_c.SwitchHealth
+	27,  // 122: nmx_c.GetSwitchInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 123: nmx_c.GetSwitchInfoListResponse.context:type_name -> nmx_c.Context
+	81,  // 124: nmx_c.GetSwitchInfoListResponse.switch_info_list:type_name -> nmx_c.SwitchInfo
+	43,  // 125: nmx_c.GetPartitionCountRequest.context:type_name -> nmx_c.Context
+	13,  // 126: nmx_c.GetPartitionCountRequest.info_attr:type_name -> nmx_c.PartitionInfoAttr
+	14,  // 127: nmx_c.GetPartitionCountRequest.health:type_name -> nmx_c.PartitionHealth
+	27,  // 128: nmx_c.GetPartitionCountResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 129: nmx_c.GetPartitionCountResponse.context:type_name -> nmx_c.Context
+	43,  // 130: nmx_c.GetPartitionIdListRequest.context:type_name -> nmx_c.Context
+	13,  // 131: nmx_c.GetPartitionIdListRequest.info_attr:type_name -> nmx_c.PartitionInfoAttr
+	14,  // 132: nmx_c.GetPartitionIdListRequest.health:type_name -> nmx_c.PartitionHealth
+	49,  // 133: nmx_c.Partition.partition_id:type_name -> nmx_c.PartitionId
+	27,  // 134: nmx_c.GetPartitionIdListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 135: nmx_c.GetPartitionIdListResponse.context:type_name -> nmx_c.Context
+	86,  // 136: nmx_c.GetPartitionIdListResponse.partition_list:type_name -> nmx_c.Partition
+	43,  // 137: nmx_c.GetPartitionInfoListRequest.context:type_name -> nmx_c.Context
+	49,  // 138: nmx_c.GetPartitionInfoListRequest.partition_id_list:type_name -> nmx_c.PartitionId
+	21,  // 139: nmx_c.PartitionAttr.resiliency_mode:type_name -> nmx_c.ResiliencyMode
+	49,  // 140: nmx_c.PartitionInfo.partition_id:type_name -> nmx_c.PartitionId
+	92,  // 141: nmx_c.PartitionInfo.gpu_location_list:type_name -> nmx_c.GpuLocation
+	14,  // 142: nmx_c.PartitionInfo.health:type_name -> nmx_c.PartitionHealth
+	15,  // 143: nmx_c.PartitionInfo.partition_type:type_name -> nmx_c.PartitionType
+	89,  // 144: nmx_c.PartitionInfo.attr:type_name -> nmx_c.PartitionAttr
+	27,  // 145: nmx_c.GetPartitionInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 146: nmx_c.GetPartitionInfoListResponse.context:type_name -> nmx_c.Context
+	90,  // 147: nmx_c.GetPartitionInfoListResponse.partition_info_list:type_name -> nmx_c.PartitionInfo
+	50,  // 148: nmx_c.GpuLocation.loc:type_name -> nmx_c.Location
+	92,  // 149: nmx_c.GpuResourceId.gpu_location:type_name -> nmx_c.GpuLocation
+	43,  // 150: nmx_c.CreatePartitionRequest.context:type_name -> nmx_c.Context
+	93,  // 151: nmx_c.CreatePartitionRequest.gpu_resource_id:type_name -> nmx_c.GpuResourceId
+	89,  // 152: nmx_c.CreatePartitionRequest.attr:type_name -> nmx_c.PartitionAttr
+	49,  // 153: nmx_c.CreatePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
+	27,  // 154: nmx_c.CreatePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 155: nmx_c.CreatePartitionResponse.context:type_name -> nmx_c.Context
+	49,  // 156: nmx_c.CreatePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
+	43,  // 157: nmx_c.DeletePartitionRequest.context:type_name -> nmx_c.Context
+	49,  // 158: nmx_c.DeletePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
+	27,  // 159: nmx_c.DeletePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 160: nmx_c.DeletePartitionResponse.context:type_name -> nmx_c.Context
+	49,  // 161: nmx_c.DeletePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
+	43,  // 162: nmx_c.UpdatePartitionRequest.context:type_name -> nmx_c.Context
+	49,  // 163: nmx_c.UpdatePartitionRequest.partition_id:type_name -> nmx_c.PartitionId
+	92,  // 164: nmx_c.UpdatePartitionRequest.location_list:type_name -> nmx_c.GpuLocation
+	27,  // 165: nmx_c.UpdatePartitionResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 166: nmx_c.UpdatePartitionResponse.context:type_name -> nmx_c.Context
+	49,  // 167: nmx_c.UpdatePartitionResponse.partition_id:type_name -> nmx_c.PartitionId
+	43,  // 168: nmx_c.GetConnCountRequest.context:type_name -> nmx_c.Context
+	19,  // 169: nmx_c.GetConnCountRequest.conn_type:type_name -> nmx_c.ConnType
+	20,  // 170: nmx_c.GetConnCountRequest.conn_attr:type_name -> nmx_c.ConnAttr
+	50,  // 171: nmx_c.GetConnCountRequest.loc:type_name -> nmx_c.Location
+	27,  // 172: nmx_c.GetConnCountResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 173: nmx_c.GetConnCountResponse.context:type_name -> nmx_c.Context
+	43,  // 174: nmx_c.GetConnInfoListRequest.context:type_name -> nmx_c.Context
+	19,  // 175: nmx_c.GetConnInfoListRequest.conn_type:type_name -> nmx_c.ConnType
+	20,  // 176: nmx_c.GetConnInfoListRequest.conn_attr:type_name -> nmx_c.ConnAttr
+	50,  // 177: nmx_c.GetConnInfoListRequest.loc:type_name -> nmx_c.Location
+	50,  // 178: nmx_c.LinkEndPoint.loc:type_name -> nmx_c.Location
+	103, // 179: nmx_c.ConnInfo.end_point_a:type_name -> nmx_c.LinkEndPoint
+	103, // 180: nmx_c.ConnInfo.end_point_b:type_name -> nmx_c.LinkEndPoint
+	19,  // 181: nmx_c.ConnInfo.conn_type:type_name -> nmx_c.ConnType
+	18,  // 182: nmx_c.ConnInfo.conn_state:type_name -> nmx_c.ConnState
+	104, // 183: nmx_c.ConnInfoList.conn_info_list:type_name -> nmx_c.ConnInfo
+	27,  // 184: nmx_c.GetConnInfoListResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 185: nmx_c.GetConnInfoListResponse.context:type_name -> nmx_c.Context
+	105, // 186: nmx_c.GetConnInfoListResponse.conn_info_list:type_name -> nmx_c.ConnInfoList
+	43,  // 187: nmx_c.GetDomainPropertiesRequest.context:type_name -> nmx_c.Context
+	43,  // 188: nmx_c.GetDomainStateInfoRequest.context:type_name -> nmx_c.Context
+	43,  // 189: nmx_c.GetConnInfoCombinedRequest.context:type_name -> nmx_c.Context
+	27,  // 190: nmx_c.ConnInfoCombined.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 191: nmx_c.ConnInfoCombined.context:type_name -> nmx_c.Context
+	105, // 192: nmx_c.ConnInfoCombined.unexpected_conn_list:type_name -> nmx_c.ConnInfoList
+	43,  // 193: nmx_c.GetAdminStateRequest.context:type_name -> nmx_c.Context
+	113, // 194: nmx_c.GetAdminStateRequest.transceiver_identifier:type_name -> nmx_c.TransceiverIdentifier
+	23,  // 195: nmx_c.AdminStateEntry.admin_state:type_name -> nmx_c.AdminState
+	113, // 196: nmx_c.AdminStateEntry.transceiver_identifier:type_name -> nmx_c.TransceiverIdentifier
+	27,  // 197: nmx_c.GetAdminStateResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 198: nmx_c.GetAdminStateResponse.context:type_name -> nmx_c.Context
+	115, // 199: nmx_c.GetAdminStateResponse.admin_state_entry:type_name -> nmx_c.AdminStateEntry
+	43,  // 200: nmx_c.SetAdminStateRequest.context:type_name -> nmx_c.Context
+	115, // 201: nmx_c.SetAdminStateRequest.admin_state_entry:type_name -> nmx_c.AdminStateEntry
+	27,  // 202: nmx_c.SetAdminStateResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 203: nmx_c.SetAdminStateResponse.context:type_name -> nmx_c.Context
+	115, // 204: nmx_c.SetAdminStateResponse.admin_state_entry:type_name -> nmx_c.AdminStateEntry
+	51,  // 205: nmx_c.PartitionGpu.location_info:type_name -> nmx_c.LocationInfo
+	49,  // 206: nmx_c.PartitionReport.partition_id:type_name -> nmx_c.PartitionId
+	119, // 207: nmx_c.PartitionReport.gpus:type_name -> nmx_c.PartitionGpu
+	43,  // 208: nmx_c.GetStateReportRequest.context:type_name -> nmx_c.Context
+	24,  // 209: nmx_c.GetStateReportRequest.report_type:type_name -> nmx_c.ReportType
+	60,  // 210: nmx_c.TopologyInfo.device_topo_info:type_name -> nmx_c.DeviceTopoInfo
+	120, // 211: nmx_c.PartitionsReport.partitions:type_name -> nmx_c.PartitionReport
+	27,  // 212: nmx_c.GetStateReportResponse.server_header:type_name -> nmx_c.ServerHeader
+	43,  // 213: nmx_c.GetStateReportResponse.context:type_name -> nmx_c.Context
+	122, // 214: nmx_c.GetStateReportResponse.device_topo_info:type_name -> nmx_c.TopologyInfo
+	123, // 215: nmx_c.GetStateReportResponse.partitions:type_name -> nmx_c.PartitionsReport
+	28,  // 216: nmx_c.NMX_Controller.Hello:input_type -> nmx_c.ClientHello
+	107, // 217: nmx_c.NMX_Controller.Subscribe:input_type -> nmx_c.SubscribeRequest
+	110, // 218: nmx_c.NMX_Controller.FactoryReset:input_type -> nmx_c.FactoryResetRequest
+	44,  // 219: nmx_c.NMX_Controller.GetStaticConfig:input_type -> nmx_c.GetStaticConfigRequest
+	45,  // 220: nmx_c.NMX_Controller.SetStaticConfig:input_type -> nmx_c.SetStaticConfigRequest
+	114, // 221: nmx_c.NMX_Controller.GetAdminState:input_type -> nmx_c.GetAdminStateRequest
+	117, // 222: nmx_c.NMX_Controller.SetAdminState:input_type -> nmx_c.SetAdminStateRequest
+	108, // 223: nmx_c.NMX_Controller.GetDomainProperties:input_type -> nmx_c.GetDomainPropertiesRequest
+	109, // 224: nmx_c.NMX_Controller.GetDomainStateInfo:input_type -> nmx_c.GetDomainStateInfoRequest
+	61,  // 225: nmx_c.NMX_Controller.GetTopologyInfo:input_type -> nmx_c.GetTopologyInfoRequest
+	63,  // 226: nmx_c.NMX_Controller.GetComputeNodeCount:input_type -> nmx_c.GetComputeNodeCountRequest
+	65,  // 227: nmx_c.NMX_Controller.GetComputeNodeLocationList:input_type -> nmx_c.GetComputeNodeLocationListRequest
+	67,  // 228: nmx_c.NMX_Controller.GetComputeNodeInfoList:input_type -> nmx_c.GetComputeNodeInfoListRequest
+	70,  // 229: nmx_c.NMX_Controller.GetGpuInfoList:input_type -> nmx_c.GetGpuInfoListRequest
+	73,  // 230: nmx_c.NMX_Controller.GetSwitchNodeCount:input_type -> nmx_c.GetSwitchNodeCountRequest
+	75,  // 231: nmx_c.NMX_Controller.GetSwitchNodeLocationList:input_type -> nmx_c.GetSwitchNodeLocationListRequest
+	77,  // 232: nmx_c.NMX_Controller.GetSwitchNodeInfoList:input_type -> nmx_c.GetSwitchNodeInfoListRequest
+	80,  // 233: nmx_c.NMX_Controller.GetSwitchInfoList:input_type -> nmx_c.GetSwitchInfoListRequest
+	83,  // 234: nmx_c.NMX_Controller.GetPartitionCount:input_type -> nmx_c.GetPartitionCountRequest
+	85,  // 235: nmx_c.NMX_Controller.GetPartitionIdList:input_type -> nmx_c.GetPartitionIdListRequest
+	88,  // 236: nmx_c.NMX_Controller.GetPartitionInfoList:input_type -> nmx_c.GetPartitionInfoListRequest
+	94,  // 237: nmx_c.NMX_Controller.CreatePartition:input_type -> nmx_c.CreatePartitionRequest
+	96,  // 238: nmx_c.NMX_Controller.DeletePartition:input_type -> nmx_c.DeletePartitionRequest
+	98,  // 239: nmx_c.NMX_Controller.AddGpusToPartition:input_type -> nmx_c.UpdatePartitionRequest
+	98,  // 240: nmx_c.NMX_Controller.RemoveGpusFromPartition:input_type -> nmx_c.UpdatePartitionRequest
+	100, // 241: nmx_c.NMX_Controller.GetConnCount:input_type -> nmx_c.GetConnCountRequest
+	102, // 242: nmx_c.NMX_Controller.GetConnInfoList:input_type -> nmx_c.GetConnInfoListRequest
+	111, // 243: nmx_c.NMX_Controller.GetConnInfoCombined:input_type -> nmx_c.GetConnInfoCombinedRequest
+	121, // 244: nmx_c.NMX_Controller.GetStateReport:input_type -> nmx_c.GetStateReportRequest
+	29,  // 245: nmx_c.NMX_Controller.Hello:output_type -> nmx_c.ServerHello
+	34,  // 246: nmx_c.NMX_Controller.Subscribe:output_type -> nmx_c.ServerNotification
+	25,  // 247: nmx_c.NMX_Controller.FactoryReset:output_type -> nmx_c.ReturnCode
+	46,  // 248: nmx_c.NMX_Controller.GetStaticConfig:output_type -> nmx_c.StaticConfigResponse
+	25,  // 249: nmx_c.NMX_Controller.SetStaticConfig:output_type -> nmx_c.ReturnCode
+	116, // 250: nmx_c.NMX_Controller.GetAdminState:output_type -> nmx_c.GetAdminStateResponse
+	118, // 251: nmx_c.NMX_Controller.SetAdminState:output_type -> nmx_c.SetAdminStateResponse
+	52,  // 252: nmx_c.NMX_Controller.GetDomainProperties:output_type -> nmx_c.DomainProperties
+	53,  // 253: nmx_c.NMX_Controller.GetDomainStateInfo:output_type -> nmx_c.DomainStateInfo
+	62,  // 254: nmx_c.NMX_Controller.GetTopologyInfo:output_type -> nmx_c.FmTopologyInfo
+	64,  // 255: nmx_c.NMX_Controller.GetComputeNodeCount:output_type -> nmx_c.GetComputeNodeCountResponse
+	66,  // 256: nmx_c.NMX_Controller.GetComputeNodeLocationList:output_type -> nmx_c.GetComputeNodeLocationListResponse
+	69,  // 257: nmx_c.NMX_Controller.GetComputeNodeInfoList:output_type -> nmx_c.GetComputeNodeInfoListResponse
+	72,  // 258: nmx_c.NMX_Controller.GetGpuInfoList:output_type -> nmx_c.GetGpuInfoListResponse
+	74,  // 259: nmx_c.NMX_Controller.GetSwitchNodeCount:output_type -> nmx_c.GetSwitchNodeCountResponse
+	76,  // 260: nmx_c.NMX_Controller.GetSwitchNodeLocationList:output_type -> nmx_c.GetSwitchNodeLocationListResponse
+	79,  // 261: nmx_c.NMX_Controller.GetSwitchNodeInfoList:output_type -> nmx_c.GetSwitchNodeInfoListResponse
+	82,  // 262: nmx_c.NMX_Controller.GetSwitchInfoList:output_type -> nmx_c.GetSwitchInfoListResponse
+	84,  // 263: nmx_c.NMX_Controller.GetPartitionCount:output_type -> nmx_c.GetPartitionCountResponse
+	87,  // 264: nmx_c.NMX_Controller.GetPartitionIdList:output_type -> nmx_c.GetPartitionIdListResponse
+	91,  // 265: nmx_c.NMX_Controller.GetPartitionInfoList:output_type -> nmx_c.GetPartitionInfoListResponse
+	95,  // 266: nmx_c.NMX_Controller.CreatePartition:output_type -> nmx_c.CreatePartitionResponse
+	97,  // 267: nmx_c.NMX_Controller.DeletePartition:output_type -> nmx_c.DeletePartitionResponse
+	99,  // 268: nmx_c.NMX_Controller.AddGpusToPartition:output_type -> nmx_c.UpdatePartitionResponse
+	99,  // 269: nmx_c.NMX_Controller.RemoveGpusFromPartition:output_type -> nmx_c.UpdatePartitionResponse
+	101, // 270: nmx_c.NMX_Controller.GetConnCount:output_type -> nmx_c.GetConnCountResponse
+	106, // 271: nmx_c.NMX_Controller.GetConnInfoList:output_type -> nmx_c.GetConnInfoListResponse
+	112, // 272: nmx_c.NMX_Controller.GetConnInfoCombined:output_type -> nmx_c.ConnInfoCombined
+	124, // 273: nmx_c.NMX_Controller.GetStateReport:output_type -> nmx_c.GetStateReportResponse
+	245, // [245:274] is the sub-list for method output_type
+	216, // [216:245] is the sub-list for method input_type
+	216, // [216:216] is the sub-list for extension type_name
+	216, // [216:216] is the sub-list for extension extendee
+	0,   // [0:216] is the sub-list for field type_name
 }
 
 func init() { file_nmx_c_nico_proto_init() }
@@ -8955,7 +9550,7 @@ func file_nmx_c_nico_proto_init() {
 		(*FmEvent_FmEventTopologyChange)(nil),
 		(*FmEvent_FmEventPartitionChange)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[8].OneofWrappers = []any{
+	file_nmx_c_nico_proto_msgTypes[9].OneofWrappers = []any{
 		(*ServerNotification_SubscriptionResponse)(nil),
 		(*ServerNotification_StaticConfigResponse)(nil),
 		(*ServerNotification_CreatePartitionResponse)(nil),
@@ -8964,44 +9559,47 @@ func file_nmx_c_nico_proto_init() {
 		(*ServerNotification_FmEvent)(nil),
 		(*ServerNotification_HealthStateChanged)(nil),
 		(*ServerNotification_SetAdminStateResponse)(nil),
+		(*ServerNotification_DomainStateInfo)(nil),
+		(*ServerNotification_InitDone)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[18].OneofWrappers = []any{
+	file_nmx_c_nico_proto_msgTypes[19].OneofWrappers = []any{
 		(*GetStaticConfigRequest_ConfigKeys)(nil),
 		(*GetStaticConfigRequest_ConfigFiles)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[21].OneofWrappers = []any{
+	file_nmx_c_nico_proto_msgTypes[22].OneofWrappers = []any{
 		(*StaticConfig_ConfigKeyVals)(nil),
 		(*StaticConfig_ConfigFileContents)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[31].OneofWrappers = []any{}
-	file_nmx_c_nico_proto_msgTypes[34].OneofWrappers = []any{
+	file_nmx_c_nico_proto_msgTypes[32].OneofWrappers = []any{}
+	file_nmx_c_nico_proto_msgTypes[35].OneofWrappers = []any{
 		(*DeviceTopoInfo_SwitchTopoInfo)(nil),
 		(*DeviceTopoInfo_GpuTopoInfo)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[67].OneofWrappers = []any{
+	file_nmx_c_nico_proto_msgTypes[68].OneofWrappers = []any{
 		(*GpuResourceId_GpuLocation)(nil),
 		(*GpuResourceId_GpuUid)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[87].OneofWrappers = []any{
-		(*CageIdentifier_ChassisSerialNumber)(nil),
-		(*CageIdentifier_ChassisId)(nil),
-	}
 	file_nmx_c_nico_proto_msgTypes[88].OneofWrappers = []any{
-		(*GetAdminStateRequest_CageIdentifier)(nil),
+		(*TransceiverIdentifier_ChassisSerialNumber)(nil),
+		(*TransceiverIdentifier_ChassisId)(nil),
+	}
+	file_nmx_c_nico_proto_msgTypes[89].OneofWrappers = []any{
+		(*GetAdminStateRequest_TransceiverIdentifier)(nil),
 	}
 	file_nmx_c_nico_proto_msgTypes[90].OneofWrappers = []any{
-		(*SetAdminStateRequest_CageIdentifier)(nil),
+		(*AdminStateEntry_TransceiverIdentifier)(nil),
 	}
-	file_nmx_c_nico_proto_msgTypes[91].OneofWrappers = []any{
-		(*SetAdminStateResponse_CageIdentifier)(nil),
+	file_nmx_c_nico_proto_msgTypes[99].OneofWrappers = []any{
+		(*GetStateReportResponse_DeviceTopoInfo)(nil),
+		(*GetStateReportResponse_Partitions)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nmx_c_nico_proto_rawDesc), len(file_nmx_c_nico_proto_rawDesc)),
-			NumEnums:      24,
-			NumMessages:   92,
+			NumEnums:      25,
+			NumMessages:   100,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

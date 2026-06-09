@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,7 +50,7 @@ func TestSSHKeySQLDAO_Create(t *testing.T) {
 			desc: "create one",
 			sks: []SSHKey{
 				{
-					Name: "test", Org: "test", TenantID: tenant.ID, PublicKey: "test", Fingerprint: db.GetStrPtr("test"), CreatedBy: user.ID,
+					Name: "test", Org: "test", TenantID: tenant.ID, PublicKey: "test", Fingerprint: cutil.GetPtr("test"), CreatedBy: user.ID,
 				},
 			},
 			expectError:        false,
@@ -62,7 +63,7 @@ func TestSSHKeySQLDAO_Create(t *testing.T) {
 					Name: "test", Org: "test", TenantID: tenant.ID, PublicKey: "test", CreatedBy: user.ID,
 				},
 				{
-					Name: "test", Org: "test", TenantID: tenant.ID, PublicKey: "test", Fingerprint: db.GetStrPtr("test"), Expires: db.GetTimePtr(time.Now()), CreatedBy: user.ID,
+					Name: "test", Org: "test", TenantID: tenant.ID, PublicKey: "test", Fingerprint: cutil.GetPtr("test"), Expires: cutil.GetPtr(time.Now()), CreatedBy: user.ID,
 				},
 			},
 			expectError: false,
@@ -71,7 +72,7 @@ func TestSSHKeySQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on tenant_id",
 			sks: []SSHKey{
 				{
-					Name: "test", Org: "test", TenantID: uuid.New(), PublicKey: "test", Fingerprint: db.GetStrPtr("test"), CreatedBy: user.ID,
+					Name: "test", Org: "test", TenantID: uuid.New(), PublicKey: "test", Fingerprint: cutil.GetPtr("test"), CreatedBy: user.ID,
 				},
 			},
 			expectError: true,
@@ -126,7 +127,7 @@ func TestSSHKeySQLDAO_GetByID(t *testing.T) {
 			TenantID:    tenant.ID,
 			PublicKey:   "testkey",
 			Fingerprint: nil,
-			Expires:     db.GetTimePtr(time.Now()),
+			Expires:     cutil.GetPtr(time.Now()),
 			CreatedBy:   user.ID,
 		},
 	)
@@ -194,11 +195,11 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 	tnOrg := "test-tenant-org-1"
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", ipOrg1, ipu.ID)
 	assert.NotNil(t, ip)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe1@test.com"), db.GetStrPtr("John1"), db.GetStrPtr("Doe2"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe1@test.com"), cutil.GetPtr("John1"), cutil.GetPtr("Doe2"))
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	assert.NotNil(t, tn)
@@ -208,17 +209,17 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 	site1 := testBuildSite(t, dbSession, nil, ip.ID, "test-site-1", "Test Site-1", ip.Org, ipu.ID)
 
 	// Build SSHKeyGroup
-	skg1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("testdesc"), tnOrg, tn.ID, db.GetStrPtr("test-version"), SSHKeyGroupStatusSyncing, tnu.ID)
+	skg1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("testdesc"), tnOrg, tn.ID, cutil.GetPtr("test-version"), SSHKeyGroupStatusSyncing, tnu.ID)
 
 	// Build SSHKeyGroup
-	skg2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("testdesc"), tnOrg, tn.ID, db.GetStrPtr("test-version"), SSHKeyGroupStatusSyncing, tnu.ID)
+	skg2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("testdesc"), tnOrg, tn.ID, cutil.GetPtr("test-version"), SSHKeyGroupStatusSyncing, tnu.ID)
 
 	// Build SSHKeyGroupSiteAssociation
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, site1.ID, db.GetStrPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, site1.ID, cutil.GetPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSHKeyGroupSiteAssociation
-	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, site1.ID, db.GetStrPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, site1.ID, cutil.GetPtr("test-version"), SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	assert.NotNil(t, skgsa2)
 
 	skg1Sshkeys := []SSHKey{}
@@ -236,7 +237,7 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 				TenantOrg:   "testorg",
 				TenantID:    tenant.ID,
 				PublicKey:   fmt.Sprintf("testkey-%d", i),
-				Fingerprint: db.GetStrPtr(fmt.Sprintf("fingerprint-%d", i)),
+				Fingerprint: cutil.GetPtr(fmt.Sprintf("fingerprint-%d", i)),
 				Expires:     nil,
 				CreatedBy:   user.ID,
 			},
@@ -358,8 +359,8 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
 
-			paramOffset: db.GetIntPtr(10),
-			paramLimit:  db.GetIntPtr(10),
+			paramOffset: cutil.GetPtr(10),
+			paramLimit:  cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -382,7 +383,7 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 			desc:                  "getall with name search query returns objects",
 			paramTenantIDs:        nil,
 			includeRelations:      []string{},
-			searchQuery:           db.GetStrPtr("test-"),
+			searchQuery:           cutil.GetPtr("test-"),
 			expectFirstObjectName: "test-1",
 			expectError:           false,
 			expectTotal:           25,
@@ -392,7 +393,7 @@ func TestSSHKeySQLDAO_GetAll(t *testing.T) {
 			desc:                  "getall with empty search query returns objects",
 			paramTenantIDs:        nil,
 			includeRelations:      []string{},
-			searchQuery:           db.GetStrPtr(""),
+			searchQuery:           cutil.GetPtr(""),
 			expectFirstObjectName: "test-1",
 			expectError:           false,
 			expectTotal:           25,
@@ -492,20 +493,20 @@ func TestSSHKeySQLDAO_Update(t *testing.T) {
 		{
 			desc:             "can update all fields",
 			id:               sk1.ID,
-			paramName:        db.GetStrPtr("updatedName"),
-			paramOrg:         db.GetStrPtr("updatedOrg"),
+			paramName:        cutil.GetPtr("updatedName"),
+			paramOrg:         cutil.GetPtr("updatedOrg"),
 			paramTenantID:    &tenant1.ID,
-			paramPublicKey:   db.GetStrPtr("updatedPublicKey"),
-			paramFingerprint: db.GetStrPtr("updatedFingerprint"),
-			paramExpires:     db.GetTimePtr(now),
+			paramPublicKey:   cutil.GetPtr("updatedPublicKey"),
+			paramFingerprint: cutil.GetPtr("updatedFingerprint"),
+			paramExpires:     cutil.GetPtr(now),
 
-			expectedName:        db.GetStrPtr("updatedName"),
-			expectedOrg:         db.GetStrPtr("updatedOrg"),
+			expectedName:        cutil.GetPtr("updatedName"),
+			expectedOrg:         cutil.GetPtr("updatedOrg"),
 			expectedTenantID:    &tenant1.ID,
-			expectedIsGlobal:    db.GetBoolPtr(false),
-			expectedPublicKey:   db.GetStrPtr("updatedPublicKey"),
-			expectedFingerprint: db.GetStrPtr("updatedFingerprint"),
-			expectedExpires:     db.GetTimePtr(now),
+			expectedIsGlobal:    cutil.GetPtr(false),
+			expectedPublicKey:   cutil.GetPtr("updatedPublicKey"),
+			expectedFingerprint: cutil.GetPtr("updatedFingerprint"),
+			expectedExpires:     cutil.GetPtr(now),
 
 			expectError:        false,
 			verifyChildSpanner: true,

@@ -25,9 +25,13 @@ spec:
   usages:
     - client auth
   dnsNames:
+    {{- if .Values.certificate.dnsNames }}
+    {{- toYaml .Values.certificate.dnsNames | nindent 4 }}
+    {{- else }}
     - {{ include "nico-rest-site-agent.name" . }}
     - {{ include "nico-rest-site-agent.name" . }}.{{ include "nico-rest-site-agent.namespace" . }}
     - {{ include "nico-rest-site-agent.name" . }}.{{ include "nico-rest-site-agent.namespace" . }}.svc.cluster.local
+    {{- end }}
   uris:
     {{- if .Values.certificate.uris }}
     {{- toYaml .Values.certificate.uris | nindent 4 }}

@@ -15,19 +15,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -54,19 +55,19 @@ func TestCreateMachineInstanceTypeHandler_Handle(t *testing.T) {
 	ip := common.TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, ipu)
 	st := common.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x2.large",
 		"description": "X2 Large Instance Type",
 	}, ipu)
-	it2 := common.TestBuildInstanceType(t, dbSession, "x2.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "x2.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x2.large",
 		"description": "X2 Large Instance Type",
 	}, ipu)
-	it3 := common.TestBuildInstanceType(t, dbSession, "x1.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it3 := common.TestBuildInstanceType(t, dbSession, "x1.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x1.large",
 		"description": "X1 Large Instance Type",
 	}, ipu)
-	icap1 := common.TestCommonBuildMachineCapability(t, dbSession, nil, &it3.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cdb.GetStrPtr("3.0Hz"), cdb.GetStrPtr("32GB"), nil, cdb.GetIntPtr(4), nil, nil)
+	icap1 := common.TestCommonBuildMachineCapability(t, dbSession, nil, &it3.ID, cdbm.MachineCapabilityTypeCPU, "AMD Opteron Series x10", cutil.GetPtr("3.0Hz"), cutil.GetPtr("32GB"), nil, cutil.GetPtr(4), nil, nil)
 	assert.NotNil(t, icap1)
 
 	m1 := common.TestBuildMachine(t, dbSession, ip, st, nil, nil, cdbm.MachineStatusReady)
@@ -76,7 +77,7 @@ func TestCreateMachineInstanceTypeHandler_Handle(t *testing.T) {
 	m5 := common.TestBuildMachine(t, dbSession, ip, st, nil, nil, cdbm.MachineStatusReady)
 
 	m6 := common.TestBuildMachine(t, dbSession, ip, st, nil, nil, cdbm.MachineStatusReady)
-	mcap1 := common.TestCommonBuildMachineCapability(t, dbSession, &m6.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), nil, nil)
+	mcap1 := common.TestCommonBuildMachineCapability(t, dbSession, &m6.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), nil, nil)
 	assert.NotNil(t, mcap1)
 
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
@@ -148,7 +149,7 @@ func TestCreateMachineInstanceTypeHandler_Handle(t *testing.T) {
 			name:             "error when request data is an array",
 			tc:               tc,
 			scp:              scp,
-			reqJSON:          cdb.GetStrPtr("[]"),
+			reqJSON:          cutil.GetPtr("[]"),
 			wantStatusCode:   http.StatusBadRequest,
 			reqInstaceTypeID: it.ID,
 		},
@@ -327,7 +328,7 @@ func TestGetAllMachineInstanceTypeHandler_Handle(t *testing.T) {
 
 	st := common.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x2.large",
 		"description": "X2 Large Instance Type",
 	}, ipu)
@@ -337,7 +338,7 @@ func TestGetAllMachineInstanceTypeHandler_Handle(t *testing.T) {
 	mits := []cdbm.MachineInstanceType{}
 
 	for i := 0; i < totalCount; i++ {
-		m := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+		m := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
 		mi := common.TestBuildMachineInstanceType(t, dbSession, m, it)
 
@@ -514,32 +515,32 @@ func TestDeleteMachineInstanceTypeHandler_Handle(t *testing.T) {
 	ip := common.TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, ipu)
 	st := common.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x2.large",
 		"description": "X2 Large Instance Type",
 	}, ipu)
-	it2 := common.TestBuildInstanceType(t, dbSession, "x3.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "x3.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x3.large",
 		"description": "X3 Large Instance Type",
 	}, ipu)
-	it3 := common.TestBuildInstanceType(t, dbSession, "x4.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it3 := common.TestBuildInstanceType(t, dbSession, "x4.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x4.large",
 		"description": "X4 Large Instance Type",
 	}, ipu)
-	it4 := common.TestBuildInstanceType(t, dbSession, "x5.large", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it4 := common.TestBuildInstanceType(t, dbSession, "x5.large", cutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "x5.large",
 		"description": "X5 Large Instance Type",
 	}, ipu)
 
-	m := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m2 := common.TestBuildMachine(t, dbSession, ip, st, &it2.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m3 := common.TestBuildMachine(t, dbSession, ip, st, &it2.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m2 := common.TestBuildMachine(t, dbSession, ip, st, &it2.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m3 := common.TestBuildMachine(t, dbSession, ip, st, &it2.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
-	m4 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m5 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m6 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m7 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
-	m8 := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m4 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m5 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m6 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m7 := common.TestBuildMachine(t, dbSession, ip, st, &it4.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m8 := common.TestBuildMachine(t, dbSession, ip, st, &it.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 
 	assert.Equal(t, it.ID, *m.InstanceTypeID)
 	assert.Equal(t, it2.ID, *m2.InstanceTypeID)
@@ -566,24 +567,24 @@ func TestDeleteMachineInstanceTypeHandler_Handle(t *testing.T) {
 
 	// Create Allocation for Instance Type 2
 	acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it2.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 1}
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit1", Description: cdb.GetStrPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit1", Description: cutil.GetPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
 	testCreateAllocation(t, dbSession, ipamStorage, ipu, org, string(okBodyIT))
 
 	// Create Allocation for Instance Type 3
 	acGoodIT2 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it3.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 1}
-	okBodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit2", Description: cdb.GetStrPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
+	okBodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit2", Description: cutil.GetPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
 	assert.Nil(t, err)
 	apial := testCreateAllocation(t, dbSession, ipamStorage, ipu, org, string(okBodyIT2))
 
 	// Create Allocation for Instance Type 4
 	acGoodIT4 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it4.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 3}
-	okBodyIT4, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit4", Description: cdb.GetStrPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT4}})
+	okBodyIT4, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit4", Description: cutil.GetPtr(""), TenantID: tenant.ID.String(), SiteID: st.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT4}})
 	assert.Nil(t, err)
 	apial2 := testCreateAllocation(t, dbSession, ipamStorage, ipu, org, string(okBodyIT4))
 	assert.NotNil(t, apial2)
 
-	vpc := common.TestBuildVPC(t, dbSession, "test-vpc", ip, tenant, st, cdb.GetUUIDPtr(uuid.New()), nil, nil, cdbm.VpcStatusReady, tnu)
+	vpc := common.TestBuildVPC(t, dbSession, "test-vpc", ip, tenant, st, cutil.GetPtr(uuid.New()), nil, nil, cdbm.VpcStatusReady, tnu)
 	os := common.TestBuildOperatingSystem(t, dbSession, "test-os", tenant, cdbm.OperatingSystemStatusReady, tnu)
 
 	alDAO := cdbm.NewAllocationDAO(dbSession)
@@ -851,7 +852,7 @@ func TestDeleteMachineInstanceTypeHandler_Handle(t *testing.T) {
 			}
 
 			mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
-			umits, _, terr := mitDAO.GetAll(context.Background(), nil, cdb.GetStrPtr(tt.args.expectedDeletedMachine), []uuid.UUID{tt.args.it.ID}, nil, nil, nil, nil)
+			umits, _, terr := mitDAO.GetAll(context.Background(), nil, cutil.GetPtr(tt.args.expectedDeletedMachine), []uuid.UUID{tt.args.it.ID}, nil, nil, nil, nil)
 			assert.Nil(t, terr)
 			assert.Len(t, umits, 0)
 

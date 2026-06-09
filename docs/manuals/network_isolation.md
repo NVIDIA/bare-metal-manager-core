@@ -96,6 +96,8 @@ overview does not duplicate them:
 - [VPC Peering](vpc/vpc_peering_management.md) — opt-in cross-VPC reachability
 - [Network Security Groups](networking/network_security_groups.md) — L3 / L4
   rule filtering and site-wide operator overrides
+- [Flat VPCs and Zero-DPU Hosts](vpc/flat_vpcs_zero_dpu.md) — the
+  operator-managed data plane for hosts without a NICo-managed DPU
 
 ---
 

@@ -72,6 +72,7 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
             delete_interfaces: false,
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
         }))
         .await
         .unwrap()
@@ -114,6 +115,50 @@ async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
 
     let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
     assert!(!body.contains("web-health-test"));
+}
+
+#[crate::sqlx_test]
+async fn test_add_remove_nvlink_domain_health_report_via_web_ui(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let app = make_test_app(&env);
+    let domain_id = "00000000-0000-0000-0000-000000000001";
+
+    let payload = r#"{
+        "mode": "Merge",
+        "health_report": {
+            "source": "web-nvlink-domain-health-test",
+            "triggered_by": null,
+            "observed_at": null,
+            "successes": [],
+            "alerts": [{
+                "id": "NvLinkDomainWebHealth",
+                "target": null,
+                "in_alert_since": null,
+                "message": "nvlink domain web health",
+                "tenant_message": null,
+                "classifications": ["PreventAllocations"]
+            }]
+        }
+    }"#;
+
+    post_nvlink_domain_health_report(&app, domain_id, "add-report", payload).await;
+
+    let body = get_nvlink_domain_health_page(&app, domain_id).await;
+    let aggregate_health = aggregate_health_section(&body);
+    assert!(aggregate_health.contains("NvLinkDomainWebHealth"));
+    assert!(aggregate_health.contains("nvlink domain web health"));
+    assert!(body.contains("web-nvlink-domain-health-test"));
+
+    post_nvlink_domain_health_report(
+        &app,
+        domain_id,
+        "remove-report",
+        r#"{"source":"web-nvlink-domain-health-test"}"#,
+    )
+    .await;
+
+    let body = get_nvlink_domain_health_page(&app, domain_id).await;
+    assert!(!body.contains("web-nvlink-domain-health-test"));
 }
 
 #[crate::sqlx_test]
@@ -620,6 +665,49 @@ async fn get_machine_health_page(app: &axum::Router, machine_id: &str) -> String
         .oneshot(
             web_request_builder()
                 .uri(format!("/admin/machine/{machine_id}/health"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    String::from_utf8_lossy(&body_bytes).into_owned()
+}
+
+async fn post_nvlink_domain_health_report(
+    app: &axum::Router,
+    domain_id: &str,
+    action: &str,
+    payload: &str,
+) {
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .method(Method::POST)
+                .uri(format!("/admin/nvlink-domain/{domain_id}/health/{action}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn get_nvlink_domain_health_page(app: &axum::Router, domain_id: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/nvlink-domain/{domain_id}/health"))
                 .body(Body::empty())
                 .unwrap(),
         )

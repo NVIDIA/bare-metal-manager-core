@@ -7,14 +7,14 @@ import (
 	"errors"
 	"testing"
 
-	instanceTypeActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/instancetype"
+	instanceTypeActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/instancetype"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type UpdateInstanceTypeTestSuite struct {

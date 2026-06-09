@@ -224,6 +224,8 @@ pub async fn register_machine(
     retry: DiscoveryRetry,
     create_machine: bool,
     require_client_certificates: bool,
+    discovery_reporter: ::rpc::MachineDiscoveryReporter,
+    reporter_version: Option<String>,
 ) -> Result<
     (
         RegistrationData,
@@ -238,6 +240,8 @@ pub async fn register_machine(
             hardware_info,
         )),
         create_machine,
+        discovery_reporter: discovery_reporter as i32,
+        discovery_reporter_version: reporter_version,
     };
     tracing::info!("register_machine discovery_info {:?}", info);
 

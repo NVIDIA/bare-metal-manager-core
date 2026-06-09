@@ -13,16 +13,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -75,7 +76,7 @@ func testIPBlockSetupSchema(t *testing.T, dbSession *cdb.Session) {
 
 func testIPBlockBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Infrastructure Provider"), org, nil, user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, nil, user)
 	assert.Nil(t, err)
 	return ip
 }
@@ -83,7 +84,7 @@ func testIPBlockBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session
 func testIPBlockBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -109,9 +110,9 @@ func testIPBlockBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID stri
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData:     OrgData,
 		},
 	)
@@ -157,19 +158,19 @@ func testIPBlockBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrast
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   cdb.GetStrPtr("Test Site"),
-		Description:                   cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:             cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             imEnabled,
-		SerialConsoleHostname:         cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        status,
 		CreatedBy:                     user.ID,
 	})
@@ -183,7 +184,7 @@ func testIPBlockBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.S
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -414,7 +415,7 @@ func TestIPBlockHandler_Create(t *testing.T) {
 			paramNamespace:     ipam.GetIpamNamespaceForIPBlock(ctx, cdbm.IPBlockRoutingTypeDatacenterOnly, ip.ID.String(), site.ID.String()),
 			paramCIDR:          ipam.GetCidrForIPBlock(ctx, "192.168.0.1", 24),
 			expectedIpam:       true,
-			expectMessage:      cdb.GetStrPtr("IP Block is ready for use"),
+			expectMessage:      cutil.GetPtr("IP Block is ready for use"),
 			verifyChildSpanner: true,
 		},
 		{
@@ -427,7 +428,7 @@ func TestIPBlockHandler_Create(t *testing.T) {
 			paramNamespace: ipam.GetIpamNamespaceForIPBlock(ctx, cdbm.IPBlockRoutingTypeDatacenterOnly, ip.ID.String(), site.ID.String()),
 			paramCIDR:      ipam.GetCidrForIPBlock(ctx, "192.169.0.1", 24),
 			expectedIpam:   true,
-			expectMessage:  cdb.GetStrPtr("IP Block is ready for use"),
+			expectMessage:  cutil.GetPtr("IP Block is ready for use"),
 		},
 		{
 			name:           "error when ip prefix clashes in same infrastructure provider",
@@ -444,7 +445,7 @@ func TestIPBlockHandler_Create(t *testing.T) {
 			user:           user,
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
-			expectMessage:  cdb.GetStrPtr("prefix should have 13 right most bits zeroed to match block size, e.g. 100.100.0.0"),
+			expectMessage:  cutil.GetPtr("prefix should have 13 right most bits zeroed to match block size, e.g. 100.100.0.0"),
 		},
 		{
 			name:           "success when ip prefix clashes for another infrastructure provider",
@@ -589,14 +590,14 @@ func TestIPBlockHandler_Update(t *testing.T) {
 	assert.NotNil(t, ipb2)
 	testIPBlockBuildStatusDetail(t, dbSession, ipb2.ID.String(), cdbm.IPBlockStatusPending)
 
-	errBody1, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyNameClash, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("testDel2")})
+	errBodyNameClash, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cutil.GetPtr("testDel2")})
 	assert.Nil(t, err)
-	okBody1, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("UpdatedName1")})
+	okBody1, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cutil.GetPtr("UpdatedName1")})
 	assert.Nil(t, err)
-	okBody2, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("UpdatedName2"), Description: cdb.GetStrPtr("UpdatedDesc2")})
+	okBody2, err := json.Marshal(model.APIIPBlockUpdateRequest{Name: cutil.GetPtr("UpdatedName2"), Description: cutil.GetPtr("UpdatedDesc2")})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -730,7 +731,7 @@ func TestIPBlockHandler_Update(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedName:   "UpdatedName2",
-			expectedDesc:   cdb.GetStrPtr("UpdatedDesc2"),
+			expectedDesc:   cutil.GetPtr("UpdatedDesc2"),
 		},
 	}
 	for _, tc := range tests {
@@ -846,7 +847,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref2)
 
-	ipb3 := testIPBlockBuildIPBlock(t, dbSession, "test3", site3, ip3, cdb.GetUUIDPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+	ipb3 := testIPBlockBuildIPBlock(t, dbSession, "test3", site3, ip3, cutil.GetPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, ipb3)
 	testIPBlockBuildStatusDetail(t, dbSession, ipb3.ID.String(), cdbm.IPBlockStatusPending)
 
@@ -854,10 +855,10 @@ func TestIPBlockHandler_Get(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, childPref1)
 
-	ipb4 := testIPBlockBuildIPBlock(t, dbSession, "test3", site3, ip3, cdb.GetUUIDPtr(tn2.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+	ipb4 := testIPBlockBuildIPBlock(t, dbSession, "test3", site3, ip3, cutil.GetPtr(tn2.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, ipb4)
 
-	ipb5 := testIPBlockBuildIPBlock(t, dbSession, "test5", site, ip, cdb.GetUUIDPtr(tn3.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.1.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+	ipb5 := testIPBlockBuildIPBlock(t, dbSession, "test5", site, ip, cutil.GetPtr(tn3.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.1.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, ipb5)
 	testIPBlockBuildStatusDetail(t, dbSession, ipb5.ID.String(), cdbm.IPBlockStatusPending)
 
@@ -877,7 +878,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 
 	sipb := testIPBlockBuildIPBlock(t, dbSession, "site-prefix-1", ss, sip, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.168.1.0", 24, cdbm.IPBlockProtocolVersionV4, true, cdbm.IPBlockStatusPending, su)
 	assert.NotNil(t, sipb)
-	common.TestBuildStatusDetail(t, dbSession, sipb.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, sipb.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	sipbprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, sipb.Prefix, sipb.PrefixLength, sipb.RoutingType, sipb.InfrastructureProviderID.String(), sipb.SiteID.String())
 	assert.Nil(t, err)
@@ -889,7 +890,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 
 	dsipb := testIPBlockBuildIPBlock(t, dbSession, "tenant-prefix-1", ss, sip, &stn.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.168.2.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, su)
 	assert.NotNil(t, dsipb)
-	common.TestBuildStatusDetail(t, dbSession, dsipb.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, dsipb.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	dsipbprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, dsipb.Prefix, dsipb.PrefixLength, dsipb.RoutingType, dsipb.InfrastructureProviderID.String(), dsipb.SiteID.String())
 	assert.Nil(t, err)
@@ -1034,16 +1035,16 @@ func TestIPBlockHandler_Get(t *testing.T) {
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
 			ipbID:                             ipb5.ID.String(),
-			queryIncludeProviderRelation:      cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeTenantRelation:        cdb.GetStrPtr(cdbm.TenantRelationName),
-			queryIncludeSiteRelation:          cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryIncludeProviderRelation:      cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeTenantRelation:        cutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeSiteRelation:          cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        ipb5.ID.String(),
 			expectedStatusDetailsCnt:          1,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site.Name),
-			expectedTenantOrg:                 cdb.GetStrPtr(tn3.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedSiteName:                  cutil.GetPtr(site.Name),
+			expectedTenantOrg:                 cutil.GetPtr(tn3.Org),
 		},
 		{
 			name:                     "success when retrieving IP Block with ipam usage stats as Provider",
@@ -1054,7 +1055,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 			expectedStatus:           http.StatusOK,
 			expectedID:               ipb1.ID.String(),
 			expectedStatusDetailsCnt: 1,
-			queryIncludeUsageStats:   cdb.GetStrPtr("true"),
+			queryIncludeUsageStats:   cutil.GetPtr("true"),
 			expectedIpam:             true,
 			expectPerfUsage: &cipam.Usage{
 				AvailableIPs:              parentPref1.Usage().AvailableIPs,
@@ -1073,7 +1074,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 			expectedStatus:           http.StatusOK,
 			expectedID:               ipb2.ID.String(),
 			expectedStatusDetailsCnt: 0,
-			queryIncludeUsageStats:   cdb.GetStrPtr("true"),
+			queryIncludeUsageStats:   cutil.GetPtr("true"),
 			expectedIpam:             true,
 			expectPerfUsage: &cipam.Usage{
 				AvailableIPs:              0,
@@ -1092,7 +1093,7 @@ func TestIPBlockHandler_Get(t *testing.T) {
 			expectedStatus:           http.StatusOK,
 			expectedID:               ipb3.ID.String(),
 			expectedStatusDetailsCnt: 1,
-			queryIncludeUsageStats:   cdb.GetStrPtr("true"),
+			queryIncludeUsageStats:   cutil.GetPtr("true"),
 			expectedIpam:             true,
 			expectPerfUsage: &cipam.Usage{
 				AvailableIPs:              childPref1.Usage().AvailableIPs,
@@ -1244,7 +1245,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 	ipbfg := testIPBlockBuildIPBlock(t, dbSession, "test-ipam-1", site4, ip4, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.168.1.0", 24, cdbm.IPBlockProtocolVersionV4, true, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, ipbfg)
 	testIPBlockBuildStatusDetail(t, dbSession, ipbfg.ID.String(), cdbm.IPBlockStatusPending)
-	common.TestBuildStatusDetail(t, dbSession, ipbfg.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, ipbfg.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	ipbfgprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipbfg.Prefix, ipbfg.PrefixLength, ipbfg.RoutingType, ipbfg.InfrastructureProviderID.String(), ipbfg.SiteID.String())
 	assert.Nil(t, err)
@@ -1253,7 +1254,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 	ipbwfg := testIPBlockBuildIPBlock(t, dbSession, "test-ipam-2", site4, ip4, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.169.1.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, ipbwfg)
 	testIPBlockBuildStatusDetail(t, dbSession, ipbwfg.ID.String(), cdbm.IPBlockStatusPending)
-	common.TestBuildStatusDetail(t, dbSession, ipbwfg.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, ipbwfg.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	ipbwfgprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipbwfg.Prefix, ipbwfg.PrefixLength, ipbwfg.RoutingType, ipbwfg.InfrastructureProviderID.String(), ipbwfg.SiteID.String())
 	assert.Nil(t, err)
@@ -1269,7 +1270,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			assert.NotNil(t, ipb)
 			testIPBlockBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.IPBlockStatusPending)
 		} else {
-			ipb = testIPBlockBuildIPBlock(t, dbSession, fmt.Sprintf("test-%02d", i), site, ip, cdb.GetUUIDPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, fmt.Sprintf("192.168.%v.0", i), 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+			ipb = testIPBlockBuildIPBlock(t, dbSession, fmt.Sprintf("test-%02d", i), site, ip, cutil.GetPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, fmt.Sprintf("192.168.%v.0", i), 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 			assert.NotNil(t, ipb)
 			testIPBlockBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.IPBlockStatusPending)
 
@@ -1278,7 +1279,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			assert.NotNil(t, ac)
 		}
 
-		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 		ipbs = append(ipbs, *ipb)
 	}
@@ -1296,7 +1297,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 	sipb := testIPBlockBuildIPBlock(t, dbSession, "site-prefix-1", ss, sip, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.168.1.0", 24, cdbm.IPBlockProtocolVersionV4, true, cdbm.IPBlockStatusPending, su)
 	assert.NotNil(t, sipb)
 	testIPBlockBuildStatusDetail(t, dbSession, sipb.ID.String(), cdbm.IPBlockStatusPending)
-	common.TestBuildStatusDetail(t, dbSession, sipb.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, sipb.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	sipbprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, sipb.Prefix, sipb.PrefixLength, sipb.RoutingType, sipb.InfrastructureProviderID.String(), sipb.SiteID.String())
 	assert.Nil(t, err)
@@ -1309,7 +1310,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 	dsipb := testIPBlockBuildIPBlock(t, dbSession, "tenant-prefix-1", ss, sip, &stn.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "172.168.2.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, su)
 	assert.NotNil(t, dsipb)
 	testIPBlockBuildStatusDetail(t, dbSession, dsipb.ID.String(), cdbm.IPBlockStatusPending)
-	common.TestBuildStatusDetail(t, dbSession, dsipb.ID.String(), cdbm.IPBlockStatusReady, cdb.GetStrPtr("IP Block is ready for use"))
+	common.TestBuildStatusDetail(t, dbSession, dsipb.ID.String(), cdbm.IPBlockStatusReady, cutil.GetPtr("IP Block is ready for use"))
 
 	dsipbprefix, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, dsipb.Prefix, dsipb.PrefixLength, dsipb.RoutingType, dsipb.InfrastructureProviderID.String(), dsipb.SiteID.String())
 	assert.Nil(t, err)
@@ -1366,7 +1367,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "error when site id not valid uuid",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr("non-uuid"),
+			querySiteID:    cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -1374,7 +1375,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "error when Site ID is non-existent",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			querySiteID:    cdb.GetStrPtr(uuid.NewString()),
+			querySiteID:    cutil.GetPtr(uuid.NewString()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -1414,7 +1415,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when filtering by Site ID as Tenant",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
@@ -1423,7 +1424,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when filtering by Site with no IP Blocks",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site2.ID.String()),
+			querySiteID:    cutil.GetPtr(site2.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
@@ -1440,22 +1441,22 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:               "success when pagination params are specified",
 			reqOrgName:         ipOrg1,
 			user:               ipu,
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry: &ipbs[28],
 		},
 		{
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     ipOrg1,
 			user:           ipu,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -1464,21 +1465,21 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:                              "success when include relation is specified",
 			reqOrgName:                        ipOrg1,
 			user:                              ipu,
-			queryIncludeProviderRelation:      cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeTenantRelation:        cdb.GetStrPtr(cdbm.TenantRelationName),
-			queryIncludeSiteRelation:          cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryIncludeProviderRelation:      cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeTenantRelation:        cutil.GetPtr(cdbm.TenantRelationName),
+			queryIncludeSiteRelation:          cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       totalCount / 2,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site.Name),
-			expectedTenantOrg:                 cdb.GetStrPtr(tn.Org),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip.Org),
+			expectedSiteName:                  cutil.GetPtr(site.Name),
+			expectedTenantOrg:                 cutil.GetPtr(tn.Org),
 		},
 		{
 			name:           "success when name query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
@@ -1487,7 +1488,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when status query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("pending"),
+			querySearch:    cutil.GetPtr("pending"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
@@ -1496,7 +1497,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when search query containing name and status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test ready"),
+			querySearch:    cutil.GetPtr("test ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
@@ -1505,7 +1506,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when search query containing status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr(cdbm.IPBlockStatusPending),
+			queryStatus:    cutil.GetPtr(cdbm.IPBlockStatusPending),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
@@ -1514,7 +1515,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			name:           "success when search query containing invalid status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr("BadStatus"),
+			queryStatus:    cutil.GetPtr("BadStatus"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -1527,7 +1528,7 @@ func TestIPBlockHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            2,
 			expectedIpam:           true,
-			queryIncludeUsageStats: cdb.GetStrPtr("true"),
+			queryIncludeUsageStats: cutil.GetPtr("true"),
 			expectFGPerfUsage: &cipam.Usage{
 				AvailableIPs:              0,
 				AcquiredIPs:               0,
@@ -1748,27 +1749,27 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 	testIPBlockBuildStatusDetail(t, dbSession, parentIpb3.ID.String(), cdbm.IPBlockStatusReady)
 
 	// Child IPBlocks
-	childIpb1 := testIPBlockBuildIPBlock(t, dbSession, "test3", site, ip, cdb.GetUUIDPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusError, ipu)
+	childIpb1 := testIPBlockBuildIPBlock(t, dbSession, "test3", site, ip, cutil.GetPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusError, ipu)
 	assert.NotNil(t, childIpb1)
 	testIPBlockBuildStatusDetail(t, dbSession, childIpb1.ID.String(), cdbm.IPBlockStatusPending)
 
-	childIpb2 := testIPBlockBuildIPBlock(t, dbSession, "test3", site2, ip2, cdb.GetUUIDPtr(tn2.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+	childIpb2 := testIPBlockBuildIPBlock(t, dbSession, "test3", site2, ip2, cutil.GetPtr(tn2.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, childIpb2)
 	testIPBlockBuildStatusDetail(t, dbSession, childIpb2.ID.String(), cdbm.IPBlockStatusPending)
 
-	childIpb4 := testIPBlockBuildIPBlock(t, dbSession, "test5", site, ip, cdb.GetUUIDPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 18, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
+	childIpb4 := testIPBlockBuildIPBlock(t, dbSession, "test5", site, ip, cutil.GetPtr(tn.ID), cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.3.0", 18, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusPending, ipu)
 	assert.NotNil(t, childIpb4)
 	testIPBlockBuildStatusDetail(t, dbSession, childIpb4.ID.String(), cdbm.IPBlockStatusPending)
 
 	alloc1 := testIPBlockBuildAllocation(t, dbSession, site, tn, "testAlloc1", ipu)
-	allocConstraint1 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc1.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb1.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cdb.GetUUIDPtr(childIpb1.ID), ipu.ID)
+	allocConstraint1 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc1.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb1.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cutil.GetPtr(childIpb1.ID), ipu.ID)
 	assert.NotNil(t, allocConstraint1)
 
-	allocConstraint2 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc1.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb1.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cdb.GetUUIDPtr(childIpb4.ID), ipu.ID)
+	allocConstraint2 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc1.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb1.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cutil.GetPtr(childIpb4.ID), ipu.ID)
 	assert.NotNil(t, allocConstraint2)
 
 	alloc2 := testIPBlockBuildAllocation(t, dbSession, site2, tn, "testAlloc2", ipu)
-	allocConstraint3 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc2.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb2.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cdb.GetUUIDPtr(childIpb2.ID), ipu.ID)
+	allocConstraint3 := testIPBlockBuildAllocationConstraint(t, dbSession, alloc2.ID, cdbm.AllocationResourceTypeIPBlock, parentIpb2.ID, cdbm.AllocationConstraintTypeOnDemand, 10, cutil.GetPtr(childIpb2.ID), ipu.ID)
 	assert.NotNil(t, allocConstraint3)
 
 	cfg := common.GetTestConfig()
@@ -1864,13 +1865,13 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            2,
-			expectedTotal:          cdb.GetIntPtr(2),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.SiteRelationName),
-			queryIncludeRelations3: cdb.GetStrPtr(cdbm.TenantRelationName),
-			pageNumber:             cdb.GetIntPtr(1),
-			pageSize:               cdb.GetIntPtr(2),
-			orderBy:                cdb.GetStrPtr("NAME_DESC"),
+			expectedTotal:          cutil.GetPtr(2),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.SiteRelationName),
+			queryIncludeRelations3: cutil.GetPtr(cdbm.TenantRelationName),
+			pageNumber:             cutil.GetPtr(1),
+			pageSize:               cutil.GetPtr(2),
+			orderBy:                cutil.GetPtr("NAME_DESC"),
 			verifyChildSpanner:     true,
 		},
 		{
@@ -1881,10 +1882,10 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        2,
-			expectedTotal:      cdb.GetIntPtr(2),
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(2),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			expectedTotal:      cutil.GetPtr(2),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(2),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			verifyChildSpanner: true,
 		},
 		{
@@ -1895,7 +1896,7 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        1,
-			expectedTotal:      cdb.GetIntPtr(1),
+			expectedTotal:      cutil.GetPtr(1),
 			verifyChildSpanner: true,
 		},
 		{
@@ -1916,7 +1917,7 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        1,
-			querySearch:        cdb.GetStrPtr("test3"),
+			querySearch:        cutil.GetPtr("test3"),
 			expectedFirstEntry: childIpb2,
 			verifyChildSpanner: true,
 		},
@@ -1928,7 +1929,7 @@ func TestDerivedIPBlockHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        1,
-			queryStatus:        cdb.GetStrPtr(cdbm.IPBlockStatusError),
+			queryStatus:        cutil.GetPtr(cdbm.IPBlockStatusError),
 			expectedFirstEntry: childIpb1,
 			verifyChildSpanner: true,
 		},

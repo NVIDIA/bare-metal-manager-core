@@ -15,16 +15,16 @@ import (
 	tWorkflowv1 "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 
-	cloudutils "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	csm "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/sitemgr"
+	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 )
 
 const (
@@ -95,7 +95,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 
 	// Delete Instance Types
 	// Check for Instance Types associated with Site
-	its, _, err := itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{siteID}}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	its, _, err := itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{siteID}}, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Instance Types for Site from DB")
 		return err
@@ -126,7 +126,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 			SiteIDs:        []uuid.UUID{siteID},
 			ExcludeDerived: true,
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -145,7 +145,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 
 	// Delete Instances
 	// Check that Instance exists
-	instances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	instances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Instances from DB by Site ID")
 		return err
@@ -198,7 +198,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 
 	// Delete Machines
 	// Check if Machines exist
-	mcs, _, err := mDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	mcs, _, err := mDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machine for Site from DB")
 		return err
@@ -212,7 +212,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 			cdbm.MachineInterfaceFilterInput{
 				MachineIDs: []string{mc.ID},
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if serr != nil {
@@ -230,7 +230,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 		}
 
 		// Get Machine Capability records from the db
-		mcbs, _, serr := mcDAO.GetAll(ctx, nil, []string{mc.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		mcbs, _, serr := mcDAO.GetAll(ctx, nil, []string{mc.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving MachineCapabilities for Site's machine from DB")
 			return serr
@@ -254,7 +254,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 
 	// Delete Subnets
 	// Check if Subnets exist
-	subnets, _, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+	subnets, _, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, []string{})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Subnets from DB by Site ID")
 		return err
@@ -270,7 +270,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete VPC Prefixes
-	vpcPrefixes, _, err := vpfxDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	vpcPrefixes, _, err := vpfxDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve VPC Prefixes from DB by Site ID")
 		return err
@@ -286,7 +286,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete VPC Peerings
-	vpps, _, err := vpDAO.GetAll(ctx, nil, cdbm.VpcPeeringFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	vpps, _, err := vpDAO.GetAll(ctx, nil, cdbm.VpcPeeringFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve VPC Peerings from DB by Site ID")
 		return err
@@ -302,7 +302,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 
 	// Delete VPCs
 	// Check if VPCs exist
-	vpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	vpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve VPCs from DB by Site ID")
 		return err
@@ -324,7 +324,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 		cdbm.InfiniBandPartitionFilterInput{
 			SiteIDs: []uuid.UUID{siteID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -342,7 +342,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete NVLink Logical Partitions
-	nvllps, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	nvllps, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve NVLink Logical Partitions from DB by Site ID")
 		return err
@@ -357,7 +357,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete SSH Key Group Site Associations
-	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &siteID, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgsas, _, err := skgsaDAO.GetAll(ctx, nil, nil, &siteID, nil, nil, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Site Associations from DB")
 		return err
@@ -372,7 +372,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete SSH Key Group Instance Associations
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{siteID}, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, []uuid.UUID{siteID}, nil, nil, nil, cloudutils.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance Associations from DB")
 		return err
@@ -387,7 +387,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete Network Security Groups
-	nsgs, _, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	nsgs, _, err := nsgDAO.GetAll(ctx, nil, cdbm.NetworkSecurityGroupFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Network Security Groups from DB by Site ID")
 		return err
@@ -405,7 +405,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete operating system site associations.
-	ossas, _, err := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	ossas, _, err := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Operating System Site Associations from DB by Site ID")
 		return err
@@ -420,7 +420,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete DPU Extension Service Deployments
-	desds, _, err := desdDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceDeploymentFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	desds, _, err := desdDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceDeploymentFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve DPU Extension Service Deployments from DB by Site ID")
 		return err
@@ -435,7 +435,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete Skus
-	skus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)})
+	skus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Skus from DB by Site ID")
 		return err
@@ -450,7 +450,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete Expected Switches
-	ess, _, err := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	ess, _, err := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Expected Switches from DB by Site ID")
 		return err
@@ -465,7 +465,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete Expected Power Shelves
-	epss, _, err := epsDAO.GetAll(ctx, nil, cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	epss, _, err := epsDAO.GetAll(ctx, nil, cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Expected Power Shelves from DB by Site ID")
 		return err
@@ -480,7 +480,7 @@ func (mst ManageSite) DeleteSiteComponentsFromDB(ctx context.Context, siteID uui
 	}
 
 	// Delete Expected Machines
-	ems, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	ems, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{SiteIDs: []uuid.UUID{siteID}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Expected Machines from DB by Site ID")
 		return err
@@ -514,7 +514,7 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 	// Get all Sites
 	siteDAO := cdbm.NewSiteDAO(mst.dbSession)
 
-	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{string(cdbm.SiteStatusRegistered)}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{string(cdbm.SiteStatusRegistered)}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Sites from DB")
 		return err
@@ -569,7 +569,7 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 
 			// Set Site status to error
 			errMsg := fmt.Sprintf("Site hasn't received inventory for longer than threshold period of: %v minutes", SiteInventoryReceiptThreshold.Minutes())
-			serr := mst.updateSiteStatusInDB(ctx, nil, site.ID, cdb.GetStrPtr(cdbm.SiteStatusError), &errMsg)
+			serr := mst.updateSiteStatusInDB(ctx, nil, site.ID, cloudutils.GetPtr(cdbm.SiteStatusError), &errMsg)
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error updating Site status in DB")
 				return serr
@@ -591,7 +591,7 @@ func (mst ManageSite) GetAllSiteIDs(ctx context.Context) ([]uuid.UUID, error) {
 	// Get all Sites
 	siteDAO := cdbm.NewSiteDAO(mst.dbSession)
 
-	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Sites from DB")
 		return nil, err
@@ -635,7 +635,7 @@ func (mst ManageSite) CheckOTPExpirationAndRenewForAllSites(ctx context.Context)
 	logger.Info().Msg("starting activity")
 
 	stDAO := cdbm.NewSiteDAO(mst.dbSession)
-	sites, _, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{cdbm.SiteStatusRegistered}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	sites, _, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{cdbm.SiteStatusRegistered}}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("Error retrieving Site from DB")
 		return err
@@ -774,7 +774,7 @@ func (mst ManageSite) DeleteOrphanedSiteTemporalNamespaces(ctx context.Context) 
 
 	// Get existing Site IDs
 	stDAO := cdbm.NewSiteDAO(mst.dbSession)
-	sites, count, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	sites, count, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{}, cdbp.PageInput{Limit: cloudutils.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to retrieve Sites from DB")
 		return fmt.Errorf("failed to get sites from DB: %w", err)

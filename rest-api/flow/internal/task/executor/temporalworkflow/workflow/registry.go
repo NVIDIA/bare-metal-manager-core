@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
 // WorkflowDescriptor describes a Temporal workflow.

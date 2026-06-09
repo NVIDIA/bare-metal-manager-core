@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 mod nmxc_api;
+mod response;
 
 // Generated gRPC types and client from nmx_c.proto
 pub mod nmxc_model {
@@ -50,12 +51,34 @@ pub enum NmxcError {
 
     #[error("Connection not initialized")]
     Uninitialized,
+
+    #[error("NMX-C {operation} response missing server_header")]
+    MissingServerHeader { operation: &'static str },
+
+    #[error("NMX-C {operation} returned status code {return_code}")]
+    NmxReturnCode {
+        return_code: i32,
+        operation: &'static str,
+    },
 }
 
 impl NmxcError {
     /// Creates an error for invalid or missing response from the server.
     pub fn invalid_response(msg: impl Into<String>) -> Self {
         NmxcError::Status(tonic::Status::unknown(msg.into()))
+    }
+
+    /// NMX-C `server_header.return_code` when this error is [`NmxcError::NmxReturnCode`].
+    pub fn nmx_return_code(&self) -> Option<i32> {
+        match self {
+            NmxcError::NmxReturnCode { return_code, .. } => Some(*return_code),
+            _ => None,
+        }
+    }
+
+    /// True when NMX-C returned `NMX_ST_RESOURCE_EXHAUSTED`.
+    pub fn is_nmx_resource_exhausted(&self) -> bool {
+        self.nmx_return_code() == Some(nmxc_model::StReturnCode::NmxStResourceExhausted as i32)
     }
 }
 

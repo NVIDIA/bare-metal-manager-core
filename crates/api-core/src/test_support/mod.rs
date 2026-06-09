@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+pub mod builder;
+pub mod default_config;
+pub mod endpoint_explorer;
+pub mod ib_fabric;
+pub mod network;
+pub mod network_segment;
+
+use std::sync::Arc;
+
+use db::work_lock_manager::WorkLockManagerHandle;
+use forge_secrets::credentials::CredentialManager;
+use model::resource_pool::common::CommonPools;
+pub use rpc;
+
+pub use crate::api::Api;
+pub use crate::api::metrics::ApiMetricsEmitter;
+
+impl Api {
+    pub fn work_lock_manager_handle(&self) -> WorkLockManagerHandle {
+        self.work_lock_manager_handle.clone()
+    }
+
+    pub fn common_pools(&self) -> &Arc<CommonPools> {
+        &self.common_pools
+    }
+
+    pub fn credential_manager(&self) -> &Arc<dyn CredentialManager> {
+        &self.credential_manager
+    }
+}
+
+pub fn setup_test_logging() {
+    use tracing::metadata::LevelFilter;
+    use tracing_subscriber::filter::EnvFilter;
+    use tracing_subscriber::fmt::TestWriter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .compact()
+                .with_writer(TestWriter::new),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("sqlx=warn".parse().unwrap())
+                .add_directive("tower=warn".parse().unwrap())
+                .add_directive("rustify=off".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("h2=warn".parse().unwrap())
+                // Silence permissive mode related messages
+                .add_directive("carbide_api_core::auth=error".parse().unwrap()),
+        )
+        .try_init()
+    {
+        // Note: Resist the temptation to ignore this error. We really should only have one place in
+        // the test binary that initializes logging.
+        panic!(
+            "Failed to initialize trace logging for carbide-api tests. It's possible some earlier \
+            code path has already set a global default log subscriber: {e}"
+        );
+    }
+}

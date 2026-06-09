@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
 func TestPowerOperationCodeString(t *testing.T) {

@@ -10,10 +10,10 @@ pub struct Tray {
     /// The rack this tray physically belongs to.
     ///
     /// Carried here so that partition-level operations (e.g. writing rv.*
-    /// labels back to NICC) can identify which rack to target without needing
+    /// labels back to NICo) can identify which rack to target without needing
     /// a separate lookup.
     pub rack_id: RackId,
-    /// Raw rack lifecycle state string as returned by NICC.
+    /// Raw rack lifecycle state string as returned by NICo.
     ///
     /// Intentionally uninterpreted here: processing modules decide what states
     /// mean (e.g. "all racks in partition are Validation(Pending)" -> partition

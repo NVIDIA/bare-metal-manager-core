@@ -44,6 +44,7 @@ use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_boot_interface::MachineBootInterface;
 use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
@@ -1001,9 +1002,45 @@ impl SiteExplorer {
         }
 
         let mut managed_hosts = Vec::new();
-        let mut boot_interface_macs: Vec<(IpAddr, MacAddress)> = Vec::new();
+        let mut boot_interfaces: Vec<(IpAddr, MachineBootInterface)> = Vec::new();
+        // Each host NIC's full boot interface (MAC + Redfish id), to record on
+        // its machine_interfaces row so the primary row holds the complete pair.
+        let mut nic_boot_interfaces: Vec<MachineBootInterface> = Vec::new();
 
         for (_, ep) in explored_hosts {
+            // Record every host NIC's boot interface (MAC + Redfish id) on its
+            // machine_interfaces row (matched by MAC), so the primary-flagged
+            // row holds the full pair -- whatever the NIC type (integrated NICs,
+            // SuperNICs, DPU host-PFs, DPUs in NIC mode). This sits before the
+            // zero-DPU/NoDpu and unmatched-host `continue`s below, so every
+            // explored host is covered -- including a zero-DPU host whose primary
+            // boots from a plain NIC. The UPDATE no-ops for MACs with no row
+            // (e.g. a never-cabled NIC). Last-known-good: only NICs that resolve
+            // a full pair in this report are recorded, so a wiped MAC keeps its
+            // prior id.
+            nic_boot_interfaces.extend(ep.report.complete_boot_interfaces());
+
+            // Surface partial records -- a host NIC reporting only one of (MAC,
+            // interface id). `complete_boot_interfaces` skips these, so log here
+            // to make it visible that we saw, and ignored, an incomplete NIC.
+            for iface in ep
+                .report
+                .systems
+                .iter()
+                .flat_map(|s| s.ethernet_interfaces.iter())
+            {
+                let has_mac = iface.mac_address.is_some();
+                let has_id = iface.id.as_deref().is_some_and(|s| !s.is_empty());
+                if has_mac != has_id {
+                    tracing::info!(
+                        address = %ep.address,
+                        mac = ?iface.mac_address,
+                        interface_id = ?iface.id,
+                        "site-explorer: host NIC reported with only one of (MAC, interface id) -- not recording its boot interface",
+                    );
+                }
+            }
+
             // Resolve the operator-declared DPU mode for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
             // below -- operator override wins over BF3 model heuristics)
@@ -1206,7 +1243,26 @@ impl SiteExplorer {
                 .report
                 .fetch_host_primary_interface_mac(&dpus_explored_for_host)
             {
-                boot_interface_macs.push((ep.address, mac_address));
+                // Capture the boot interface's [stable] Redfish interface id
+                // alongside its MAC. Only persist when both resolve from the
+                // current report: if the MAC has no matching interface id in
+                // this report, keep the last-known-good stored boot interface
+                // rather than clobbering it with a partial record.
+                if let Some(interface_id) = ep.report.find_interface_id_for_mac(mac_address) {
+                    boot_interfaces.push((
+                        ep.address,
+                        MachineBootInterface {
+                            mac_address,
+                            interface_id: interface_id.to_string(),
+                        },
+                    ));
+                } else {
+                    tracing::debug!(
+                        address = %ep.address,
+                        %mac_address,
+                        "boot interface MAC has no matching Redfish interface id in the report; keeping last-known-good stored boot interface",
+                    );
+                }
 
                 let primary_dpu_position = dpus_explored_for_host
                     .iter()
@@ -1293,8 +1349,19 @@ impl SiteExplorer {
         .await?;
 
         // Persist boot interface MACs for host endpoints
-        for (address, mac) in &boot_interface_macs {
-            db::explored_endpoints::set_boot_interface_mac(*address, *mac, &mut txn).await?;
+        for (address, boot_interface) in &boot_interfaces {
+            db::explored_endpoints::set_boot_interface(*address, boot_interface, &mut txn).await?;
+        }
+
+        // Record each host NIC's Redfish id on its machine_interfaces row so the
+        // primary-flagged row is the host's complete boot interface (MAC + id).
+        for boot_interface in &nic_boot_interfaces {
+            db::machine_interface::set_boot_interface_id(
+                boot_interface.mac_address,
+                &boot_interface.interface_id,
+                &mut txn,
+            )
+            .await?;
         }
 
         txn.commit().await?;
@@ -1817,7 +1884,12 @@ impl SiteExplorer {
                 .endpoint_exploration_duration
                 .push(exploration_duration);
             match &result {
-                Ok(_) => metrics.endpoint_explorations_success += 1,
+                Ok(report) => {
+                    metrics.endpoint_explorations_success += 1;
+                    if let Some(e) = &report.remediation_error {
+                        redfish_error = Some(e.clone());
+                    }
+                }
                 Err(e) => {
                     *metrics
                         .endpoint_explorations_failures_by_type
@@ -3108,6 +3180,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         }
     }
 
@@ -3202,6 +3275,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         };
 
         assert_eq!(

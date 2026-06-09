@@ -79,6 +79,10 @@ impl InternalRBACRules {
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindVpcPrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);
@@ -166,6 +170,15 @@ impl InternalRBACRules {
         x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
         x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("ListNVLinkDomainHealthReports", vec![ForgeAdminCLI, Health]);
+        x.perm(
+            "InsertNVLinkDomainHealthReport",
+            vec![ForgeAdminCLI, Health],
+        );
+        x.perm(
+            "RemoveNVLinkDomainHealthReport",
+            vec![ForgeAdminCLI, Health],
+        );
         // Deprecated aliases for the machine health report RPCs. Mirror the
         // permissions of their canonical equivalents above. Drop once we're
         // confident no clients are still calling the old names.
@@ -268,6 +281,7 @@ impl InternalRBACRules {
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AdminForceDeletePowerShelf",
@@ -338,6 +352,7 @@ impl InternalRBACRules {
         x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ReencryptTenantIdentitySecrets", vec![ForgeAdminCLI]);
         x.perm("GetJWKS", vec![Anonymous, Agent, ForgeAdminCLI, SiteAgent]);
         x.perm(
             "GetOpenIDConfiguration",
@@ -648,18 +663,8 @@ impl InternalRBACRules {
         );
         x.perm("TriggerMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CancelMachineAttestation", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm(
-            "ListAttestationsForMachineId",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
-        x.perm(
-            "GetMachineAttestationStatus",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
-        x.perm(
-            "FindMachineIdsUnderAttestation",
-            vec![ForgeAdminCLI, SiteAgent],
-        );
+        x.perm("ListAttestationMachines", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetAttestationMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindPowerShelves", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm("FindPowerShelfIds", vec![ForgeAdminCLI, Machineatron, Flow]);
         x.perm(

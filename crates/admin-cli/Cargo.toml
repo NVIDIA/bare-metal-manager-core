@@ -58,6 +58,7 @@ ipnet = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
+pandoc = { workspace = true }
 prettytable-rs = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { features = ["derive"], workspace = true }

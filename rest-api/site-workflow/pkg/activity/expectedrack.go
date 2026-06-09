@@ -17,11 +17,11 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/util/labels"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cclient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util/labels"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedRackInventory is an activity wrapper for Expected Rack inventory collection and publishing
@@ -216,8 +216,8 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, req
 		err = errors.New("received empty create Expected Rack request")
 	} else if request.GetRackId().GetId() == "" {
 		err = errors.New("received create Expected Rack request without required rack_id field")
-	} else if request.GetRackType() == "" {
-		err = errors.New("received create Expected Rack request without required rack_type field")
+	} else if request.GetRackProfileId().GetId() == "" {
+		err = errors.New("received create Expected Rack request without required rack_profile_id field")
 	}
 
 	if err != nil {
@@ -255,8 +255,8 @@ func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, req
 		err = errors.New("received empty update Expected Rack request")
 	} else if request.GetRackId().GetId() == "" {
 		err = errors.New("received update Expected Rack request without required rack_id field")
-	} else if request.GetRackType() == "" {
-		err = errors.New("received update Expected Rack request without required rack_type field")
+	} else if request.GetRackProfileId().GetId() == "" {
+		err = errors.New("received update Expected Rack request without required rack_profile_id field")
 	}
 
 	if err != nil {
@@ -337,8 +337,8 @@ func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context
 			logger.Warn().Int("index", i).Msg(err.Error())
 			return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 		}
-		if rack.GetRackType() == "" {
-			err := errors.New("received replace Expected Rack request with entry missing rack_type field")
+		if rack.GetRackProfileId().GetId() == "" {
+			err := errors.New("received replace Expected Rack request with entry missing rack_profile_id field")
 			logger.Warn().Int("index", i).Msg(err.Error())
 			return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 		}

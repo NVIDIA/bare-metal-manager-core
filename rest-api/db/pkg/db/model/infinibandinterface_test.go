@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,10 +54,10 @@ func TestInfiniBandInterfaceSQLDAO_GetByID(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -64,7 +65,7 @@ func TestInfiniBandInterfaceSQLDAO_GetByID(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -79,11 +80,11 @@ func TestInfiniBandInterfaceSQLDAO_GetByID(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -91,8 +92,8 @@ func TestInfiniBandInterfaceSQLDAO_GetByID(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
-	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, context.Background())
@@ -189,14 +190,14 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("janed@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("janed@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant-1", "test-tenant-org-1", tnu1.ID)
 
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jimd@test.com"), db.GetStrPtr("Jim"), db.GetStrPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jimd@test.com"), cutil.GetPtr("Jim"), cutil.GetPtr("Doe"))
 	tn2 := testBuildTenant(t, dbSession, nil, "test-tenant-2", "test-tenant-org-2", tnu2.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -206,8 +207,8 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn1, "testVpc")
 	vpc2 := testInstanceBuildVpc(t, dbSession, ip, st2, tn1, "testVpc2")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st2.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest2"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st2.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest2"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn1, st, "testAllocation")
 	allocation2 := testInstanceBuildAllocation(t, dbSession, ip, tn2, st2, "testAllocation2")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
@@ -224,12 +225,12 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu1.ID,
 		},
@@ -246,12 +247,12 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc2.ID,
 			MachineID:                &machine2.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu2.ID,
 		},
@@ -259,8 +260,8 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i2)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn1.Org, tn1.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu1.ID)
-	ibpr2 := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition2", nil, tn2.Org, tn2.ID, st2.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu2.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn1.Org, tn1.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu1.ID)
+	ibpr2 := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition2", nil, tn2.Org, tn2.ID, st2.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu2.ID)
 
 	totalCount := 30
 	infiniBandInterfaces := []InfiniBandInterface{}
@@ -279,9 +280,9 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			ibif = testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tn.ID)
+			ibif = testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tn.ID)
 		} else {
-			ibif = testBuildInfiniBandInterface(t, dbSession, nil, st2.ID, i2.ID, ibpr2.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusPending), tn.ID)
+			ibif = testBuildInfiniBandInterface(t, dbSession, nil, st2.ID, i2.ID, ibpr2.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusPending), tn.ID)
 		}
 
 		infiniBandInterfaces = append(infiniBandInterfaces, *ibif)
@@ -389,7 +390,7 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			args: args{
 				ctx:     context.Background(),
 				siteIDs: []uuid.UUID{st.ID},
-				limit:   db.GetIntPtr(10),
+				limit:   cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount / 2,
@@ -403,7 +404,7 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			args: args{
 				ctx:     context.Background(),
 				siteIDs: []uuid.UUID{st.ID, st2.ID},
-				offset:  db.GetIntPtr(5),
+				offset:  cutil.GetPtr(5),
 			},
 			wantCount:      paginator.DefaultLimit,
 			wantTotalCount: totalCount,
@@ -416,7 +417,7 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:         context.Background(),
-				searchQuery: db.GetStrPtr(InfiniBandInterfaceStatusReady),
+				searchQuery: cutil.GetPtr(InfiniBandInterfaceStatusReady),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -429,7 +430,7 @@ func TestInfiniBandInterface_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:         context.Background(),
-				searchQuery: db.GetStrPtr(InfiniBandInterfaceStatusPending),
+				searchQuery: cutil.GetPtr(InfiniBandInterfaceStatusPending),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -533,17 +534,17 @@ func TestInfiniBandInterfaceSQLDAO_Create(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -558,12 +559,12 @@ func TestInfiniBandInterfaceSQLDAO_Create(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -571,18 +572,18 @@ func TestInfiniBandInterfaceSQLDAO_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	ibif := &InfiniBandInterface{
 		SiteID:                st.ID,
 		InstanceID:            i1.ID,
 		InfiniBandPartitionID: ibpr.ID,
 		Device:                "mks-123",
-		Vendor:                db.GetStrPtr("Mellenox"),
+		Vendor:                cutil.GetPtr("Mellenox"),
 		DeviceInstance:        1,
 		IsPhysical:            true,
-		VirtualFunctionID:     db.GetIntPtr(1),
-		GUID:                  db.GetStrPtr("guid"),
+		VirtualFunctionID:     cutil.GetPtr(1),
+		GUID:                  cutil.GetPtr("guid"),
 		Status:                InfiniBandInterfaceStatusPending,
 		CreatedBy:             tnu.ID,
 	}
@@ -678,10 +679,10 @@ func TestInfiniBandInterfaceSQLDAO_Update(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -689,7 +690,7 @@ func TestInfiniBandInterfaceSQLDAO_Update(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -704,12 +705,12 @@ func TestInfiniBandInterfaceSQLDAO_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -717,12 +718,12 @@ func TestInfiniBandInterfaceSQLDAO_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
-	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
 
 	uInfiniBandInterface := ibif
-	uInfiniBandInterface.VirtualFunctionID = db.GetIntPtr(2)
-	uInfiniBandInterface.Status = InfiniBandPartitionStatusPending
+	uInfiniBandInterface.VirtualFunctionID = cutil.GetPtr(2)
+	uInfiniBandInterface.Status = InfiniBandInterfaceStatusPending
 	uInfiniBandInterface.IsMissingOnSite = true
 
 	// OTEL Spanner configuration
@@ -809,10 +810,10 @@ func TestInfiniBandInterfaceSQLDAO_Clear(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -820,7 +821,7 @@ func TestInfiniBandInterfaceSQLDAO_Clear(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -835,12 +836,12 @@ func TestInfiniBandInterfaceSQLDAO_Clear(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -848,8 +849,8 @@ func TestInfiniBandInterfaceSQLDAO_Clear(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
-	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, context.Background())
@@ -939,10 +940,10 @@ func TestInfiniBandInterfaceSQLDAO_Delete(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -950,7 +951,7 @@ func TestInfiniBandInterfaceSQLDAO_Delete(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -965,12 +966,12 @@ func TestInfiniBandInterfaceSQLDAO_Delete(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -978,8 +979,8 @@ func TestInfiniBandInterfaceSQLDAO_Delete(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
-	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-infinibandpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibif := testBuildInfiniBandInterface(t, dbSession, nil, st.ID, i1.ID, ibpr.ID, 1, false, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -1034,15 +1035,15 @@ func TestInfiniBandInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 	defer dbSession.Close()
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1057,18 +1058,18 @@ func TestInfiniBandInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	ibp := testBuildInfiniBandPartition(t, dbSession, nil, "test-ibpartition", db.GetStrPtr("Test IB Partition"), tn.Org, tn.ID, st.ID, nil, nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibp := testBuildInfiniBandPartition(t, dbSession, nil, "test-ibpartition", cutil.GetPtr("Test IB Partition"), tn.Org, tn.ID, st.ID, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	ibisd := NewInfiniBandInterfaceDAO(dbSession)
 
@@ -1184,10 +1185,10 @@ func TestInfiniBandInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 	testInfiniBandInterfaceSetupSchema(t, dbSession)
 
 	// Shared infrastructure
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	// Two target sites plus a third site that has no IB interfaces, used to
@@ -1201,7 +1202,7 @@ func TestInfiniBandInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 
 	buildInstanceForSite := func(site *Site, hostname, machineTag string) *Instance {
 		vpc := testInstanceBuildVpc(t, dbSession, ip, site, tn, "vpc-"+site.Name)
-		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr(machineTag))
+		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr(machineTag))
 		alloc := testInstanceBuildAllocation(t, dbSession, ip, tn, site, "alloc-"+site.Name)
 		_ = testBuildAllocationConstraint(t, dbSession, alloc, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 
@@ -1216,11 +1217,11 @@ func TestInfiniBandInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr(hostname),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
-				UserData:                 db.GetStrPtr("userdata"),
-				InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+				Hostname:                 cutil.GetPtr(hostname),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
+				UserData:                 cutil.GetPtr("userdata"),
+				InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 				Status:                   InstanceStatusPending,
 				CreatedBy:                tnu.ID,
 			},
@@ -1232,13 +1233,13 @@ func TestInfiniBandInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 	inst1 := buildInstanceForSite(st1, "host1.com", "mcType1")
 	inst2 := buildInstanceForSite(st2, "host2.com", "mcType2")
 
-	ibp1 := testBuildInfiniBandPartition(t, dbSession, nil, "ibp-site-1", nil, tn.Org, tn.ID, st1.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
-	ibp2 := testBuildInfiniBandPartition(t, dbSession, nil, "ibp-site-2", nil, tn.Org, tn.ID, st2.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibp1 := testBuildInfiniBandPartition(t, dbSession, nil, "ibp-site-1", nil, tn.Org, tn.ID, st1.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibp2 := testBuildInfiniBandPartition(t, dbSession, nil, "ibp-site-2", nil, tn.Org, tn.ID, st2.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	// Two interfaces in the target site, one in another site that should remain.
-	ibi1a := testBuildInfiniBandInterface(t, dbSession, nil, st1.ID, inst1.ID, ibp1.ID, 1, true, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
-	ibi1b := testBuildInfiniBandInterface(t, dbSession, nil, st1.ID, inst1.ID, ibp1.ID, 2, true, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
-	ibi2 := testBuildInfiniBandInterface(t, dbSession, nil, st2.ID, inst2.ID, ibp2.ID, 1, true, nil, nil, false, db.GetStrPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibi1a := testBuildInfiniBandInterface(t, dbSession, nil, st1.ID, inst1.ID, ibp1.ID, 1, true, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibi1b := testBuildInfiniBandInterface(t, dbSession, nil, st1.ID, inst1.ID, ibp1.ID, 2, true, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
+	ibi2 := testBuildInfiniBandInterface(t, dbSession, nil, st2.ID, inst2.ID, ibp2.ID, 1, true, nil, nil, false, cutil.GetPtr(InfiniBandInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)

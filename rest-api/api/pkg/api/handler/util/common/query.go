@@ -4,7 +4,7 @@
 package common
 
 import (
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/labstack/echo/v4"
 )
 

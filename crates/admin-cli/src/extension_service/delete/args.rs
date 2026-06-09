@@ -18,6 +18,17 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an entire extension service (all versions):
+    $ carbide-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567
+
+Delete only specific versions, keeping the rest:
+    $ carbide-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    --versions 1.0,1.1
+
+")]
 pub struct Args {
     #[clap(short = 'i', long = "id", help = "The extension service ID to delete")]
     pub service_id: String,

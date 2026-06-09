@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 )
 
 // Client allow us to have both a real implemenation and a mock implementation for unit tests which can be switched transparently
@@ -49,6 +49,16 @@ type Client interface {
 	// for the given shelves. A shelf without a rack assignment is omitted from
 	// the result rather than reported as an empty string.
 	FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error)
+
+	// FindSwitchControllerStates returns the raw controller_state string Core
+	// reports for each switch. The value is the JSON-tagged form emitted by
+	// core (e.g. `{"state":"ready"}`); decoding is the caller's job. Switches
+	// for which Core returns no controller_state are omitted from the result.
+	FindSwitchControllerStates(ctx context.Context, switchIds []string) (map[string]string, error)
+
+	// FindPowerShelfControllerStates is the power-shelf equivalent of
+	// FindSwitchControllerStates.
+	FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error)
 
 	// GetMachinePositionInfo returns position information for the given machine IDs
 	GetMachinePositionInfo(ctx context.Context, machineIds []string) ([]MachinePosition, error)
@@ -131,5 +141,7 @@ type Client interface {
 	SetLeakingSwitchIds([]string)
 	SetSwitchRackID(switchID, rackID string)
 	SetPowerShelfRackID(shelfID, rackID string)
+	SetSwitchControllerState(switchID, state string)
+	SetPowerShelfControllerState(shelfID, state string)
 	SetRackHostMachineIDs(rackID string, machineIDs []string)
 }

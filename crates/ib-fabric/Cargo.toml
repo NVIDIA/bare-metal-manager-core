@@ -31,7 +31,7 @@ eyre = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-hyper-rustls = { workspace = true }
+hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-timeout = { workspace = true }
 hyper-util = { workspace = true }
 opentelemetry = { workspace = true }

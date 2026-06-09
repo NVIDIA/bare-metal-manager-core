@@ -43,8 +43,11 @@ use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use component_manager::compute_tray_manager::Backend;
+use component_manager::config::ComponentManagerConfig;
 use db::{expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf};
-use forge_secrets::credentials::{Credentials, TestCredentialManager};
+use forge_secrets::credentials::Credentials;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
@@ -61,16 +64,16 @@ use crate::tests::power_shelf_state_controller::fixtures::power_shelf::set_power
 const TEST_BMC_USER: &str = "root";
 const TEST_BMC_PASSWORD: &str = "password";
 
-/// Build a `CommonStateHandlerServices` whose `rms_client` may be cleared
-/// (to exercise the "RMS not configured" path) while preserving the rest of
-/// the test environment's services.
-fn services_with_rms_client(
+/// Build a `PowerShelfStateHandlerServices` whose `component_manager` may be
+/// cleared (to exercise the "component manager not configured" path) while
+/// preserving the rest of the test environment's services.
+fn services_with_component_manager(
     env: &TestEnv,
-    rms_client: Option<Arc<dyn librms::RmsApi>>,
+    component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
 ) -> PowerShelfStateHandlerServices {
     PowerShelfStateHandlerServices {
         db_pool: env.pool.clone(),
-        rms_client,
+        component_manager,
         // Force a credential manager that always resolves BMC creds via the
         // site-wide fallback. This avoids relying on whatever the test-env
         // happens to be seeded with for BMC creds.
@@ -79,6 +82,32 @@ fn services_with_rms_client(
             password: TEST_BMC_PASSWORD.into(),
         })),
     }
+}
+
+async fn build_test_component_manager(
+    env: &TestEnv,
+    rms_client: Option<Arc<dyn librms::RmsApi>>,
+) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
+    let config = ComponentManagerConfig {
+        nv_switch_backend: "mock".into(),
+        power_shelf_backend: if rms_client.is_some() {
+            "rms".into()
+        } else {
+            "mock".into()
+        },
+        compute_tray_backend: Backend::Mock,
+        ..Default::default()
+    };
+    component_manager::component_manager::build_component_manager(
+        &config,
+        rms_client,
+        None,
+        Some(env.pool.clone()),
+        None,
+    )
+    .await
+    .ok()
+    .map(Arc::new)
 }
 
 /// Drive a power shelf into `Maintenance { operation }` with a maintenance
@@ -247,7 +276,10 @@ async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
@@ -273,7 +305,7 @@ async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
 }
 
 #[crate::sqlx_test]
-async fn power_on_transitions_to_error_when_rms_client_missing(
+async fn power_on_transitions_to_error_when_component_manager_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
@@ -289,11 +321,11 @@ async fn power_on_transitions_to_error_when_rms_client_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, None);
+    let mut services = services_with_component_manager(&env, None);
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
-    assert_error_with_substring(&transition, "RMS client not configured");
+    assert_error_with_substring(&transition, "component manager not configured");
 
     let reloaded = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(reloaded.power_shelf_maintenance_requested.is_none());
@@ -322,7 +354,10 @@ async fn power_on_transitions_to_error_when_rack_id_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
@@ -358,7 +393,10 @@ async fn power_on_transitions_to_error_when_bmc_mac_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
@@ -379,7 +417,7 @@ async fn power_on_transitions_to_error_when_bmc_mac_missing(
 // ── PowerOff ───────────────────────────────────────────────────────────────
 
 #[crate::sqlx_test]
-async fn power_off_transitions_to_error_when_rms_client_missing(
+async fn power_off_transitions_to_error_when_component_manager_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
@@ -395,11 +433,11 @@ async fn power_off_transitions_to_error_when_rms_client_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, None);
+    let mut services = services_with_component_manager(&env, None);
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
-    assert_error_with_substring(&transition, "RMS client not configured");
+    assert_error_with_substring(&transition, "component manager not configured");
     // The error cause must mention the operation we tried.
     if let PowerShelfControllerState::Error { cause } = &transition {
         assert!(
@@ -436,7 +474,10 @@ async fn power_off_transitions_to_error_when_rack_id_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
@@ -474,7 +515,10 @@ async fn power_off_transitions_to_error_when_bmc_mac_missing(
         .await;
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = commit_and_extract_transition(outcome).await.unwrap();
@@ -511,7 +555,10 @@ async fn ready_state_does_not_invoke_rms_set_power_state(
         .unwrap();
     }
 
-    let mut services = services_with_rms_client(&env, env.rms_sim.as_rms_client());
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     // We don't care about the outcome here, just that no by-device-list

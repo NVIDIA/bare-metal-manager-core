@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 

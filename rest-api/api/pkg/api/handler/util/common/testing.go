@@ -17,12 +17,13 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 )
 
 var (
@@ -178,7 +179,7 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 func TestBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.InfrastructureProvider {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cdb.GetStrPtr("Test Infrastructure Provider"), org, cdb.GetStrPtr(name), user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Infrastructure Provider"), org, cutil.GetPtr(name), user)
 	assert.Nil(t, err)
 
 	return ip
@@ -220,19 +221,19 @@ func TestBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastructure
 
 	st, err := stDAO.Create(context.Background(), nil, cdbm.SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   cdb.GetStrPtr("Test Site"),
-		Description:                   cdb.GetStrPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:             cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:             false,
-		SerialConsoleHostname:         cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        cdbm.SiteStatusPending,
 		CreatedBy:                     user.ID,
 	})
@@ -270,9 +271,9 @@ func TestBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, org
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -295,7 +296,7 @@ func TestBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.Site, tn
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -329,7 +330,7 @@ func TestBuildInstanceType(t *testing.T, dbSession *cdb.Session, name string, in
 
 	it, err := itDAO.Create(context.Background(), nil, cdbm.InstanceTypeCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Latest generation"),
+		Description:              cutil.GetPtr("Latest generation"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		InfinityResourceTypeID:   infinityResourceTypeID,
 		SiteID:                   &st.ID,
@@ -378,9 +379,9 @@ func TestBuildMachine(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastruct
 		InstanceTypeID:           itID,
 		ControllerMachineID:      mID,
 		ControllerMachineType:    controllerMachineType,
-		Vendor:                   cdb.GetStrPtr("test-vendor"),
-		ProductName:              cdb.GetStrPtr("test-product-name"),
-		SerialNumber:             cdb.GetStrPtr(uuid.NewString()),
+		Vendor:                   cutil.GetPtr("test-vendor"),
+		ProductName:              cutil.GetPtr("test-product-name"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		Status:                   status,
 	}
 	m, err := mDAO.Create(context.Background(), nil, createInput)
@@ -425,12 +426,12 @@ func TestBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm.In
 	vDAO := cdbm.NewVpcDAO(dbSession)
 
 	if networkVirtualizationType == nil {
-		networkVirtualizationType = cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer)
+		networkVirtualizationType = cutil.GetPtr(cdbm.VpcEthernetVirtualizer)
 	}
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cdb.GetStrPtr("Test Vpc"),
+		Description:               cutil.GetPtr("Test Vpc"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
@@ -454,7 +455,7 @@ func TestBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, tn *cdbm
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, cdbm.SubnetCreateInput{
 		Name:                       name,
-		Description:                cdb.GetStrPtr("Test Subnet"),
+		Description:                cutil.GetPtr("Test Subnet"),
 		Org:                        tn.Org,
 		SiteID:                     vpc.SiteID,
 		VpcID:                      vpc.ID,
@@ -474,7 +475,7 @@ func TestBuildOperatingSystem(t *testing.T, dbSession *cdb.Session, name string,
 	operatingSystem := &cdbm.OperatingSystem{
 		ID:        uuid.New(),
 		Name:      name,
-		TenantID:  cdb.GetUUIDPtr(tn.ID),
+		TenantID:  cutil.GetPtr(tn.ID),
 		Status:    status,
 		CreatedBy: user.ID,
 	}
@@ -653,11 +654,11 @@ func TestBuildDpuExtensionService(t *testing.T, dbSession *cdb.Session, name str
 
 	des, err := desDAO.Create(context.Background(), nil, cdbm.DpuExtensionServiceCreateInput{
 		Name:        name,
-		Description: cdb.GetStrPtr("Test DPU Extension Service"),
+		Description: cutil.GetPtr("Test DPU Extension Service"),
 		ServiceType: serviceType,
 		SiteID:      site.ID,
 		TenantID:    tenant.ID,
-		Version:     cdb.GetStrPtr(version),
+		Version:     cutil.GetPtr(version),
 		VersionInfo: &cdbm.DpuExtensionServiceVersionInfo{
 			Version:        version,
 			Data:           "apiVersion: v1\nkind: Pod",
@@ -706,7 +707,7 @@ func TestBuildInterface(t *testing.T, dbSession *cdb.Session, instanceID uuid.UU
 	iiDAO := cdbm.NewInterfaceDAO(dbSession)
 
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.InterfaceStatusPending)
+		status = cutil.GetPtr(cdbm.InterfaceStatusPending)
 	}
 
 	ii, err := iiDAO.Create(context.Background(), nil, cdbm.InterfaceCreateInput{

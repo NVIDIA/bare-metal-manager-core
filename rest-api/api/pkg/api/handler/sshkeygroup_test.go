@@ -13,14 +13,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -125,10 +125,10 @@ func TestSSHKeyGroupHandler_Create(t *testing.T) {
 	st2 := testVPCBuildSite(t, dbSession, ip, "test-site-2", false, false, cdbm.SiteStatusRegistered, ipu)
 	assert.NotNil(t, st2)
 
-	sk1 := testBuildSSHKey(t, dbSession, "test1", tnOrg, tn1.ID, "testpublickey1", cdb.GetStrPtr("test1"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test1", tnOrg, tn1.ID, "testpublickey1", cutil.GetPtr("test1"), nil, tnu1.ID)
 	assert.NotNil(t, sk1)
 
-	sk2 := testBuildSSHKey(t, dbSession, "test2", tnOrg, tn1.ID, "testpublickey2", cdb.GetStrPtr("test2"), nil, tnu1.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test2", tnOrg, tn1.ID, "testpublickey2", cutil.GetPtr("test2"), nil, tnu1.ID)
 	assert.NotNil(t, sk2)
 
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)
@@ -137,11 +137,11 @@ func TestSSHKeyGroupHandler_Create(t *testing.T) {
 	ts2 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st2.ID, tnu1.ID)
 	assert.NotNil(t, ts2)
 
-	okBody, err := json.Marshal(model.APISSHKeyGroupCreateRequest{Name: "ok1", Description: db.GetStrPtr("test"),
+	okBody, err := json.Marshal(model.APISSHKeyGroupCreateRequest{Name: "ok1", Description: cutil.GetPtr("test"),
 		SiteIDs: []string{st1.ID.String(), st2.ID.String()}, SSHKeyIDs: []string{sk1.ID.String()}})
 	assert.Nil(t, err)
 
-	okBody2, err := json.Marshal(model.APISSHKeyGroupCreateRequest{Name: "ok2", Description: db.GetStrPtr("test"), SiteIDs: []string{}, SSHKeyIDs: []string{sk1.ID.String()}})
+	okBody2, err := json.Marshal(model.APISSHKeyGroupCreateRequest{Name: "ok2", Description: cutil.GetPtr("test"), SiteIDs: []string{}, SSHKeyIDs: []string{sk1.ID.String()}})
 	assert.Nil(t, err)
 
 	errBodyNameClash, err := json.Marshal(model.APISSHKeyGroupCreateRequest{Name: "ok1"})
@@ -247,7 +247,7 @@ func TestSSHKeyGroupHandler_Create(t *testing.T) {
 			expectedStatus:           http.StatusCreated,
 			countSiteAssociations:    2,
 			countSSHKeys:             1,
-			expectSSHKeyGroupStatus:  cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+			expectSSHKeyGroupStatus:  cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 		},
 		{
 			name:                     "success case creating SSH Key Group without Site associations",
@@ -261,7 +261,7 @@ func TestSSHKeyGroupHandler_Create(t *testing.T) {
 			expectedStatus:           http.StatusCreated,
 			countSiteAssociations:    0,
 			countSSHKeys:             1,
-			expectSSHKeyGroupStatus:  cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectSSHKeyGroupStatus:  cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 		},
 		{
 			name:           "error when name clashes",
@@ -399,33 +399,33 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ts51)
 
 	// SSHKeys
-	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	assert.NotNil(t, sk1)
 
-	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	assert.NotNil(t, sk2)
 
-	sk3 := testBuildSSHKey(t, dbSession, "test-ssh-key-3", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk3 := testBuildSSHKey(t, dbSession, "test-ssh-key-3", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	assert.NotNil(t, sk3)
 
-	sk4 := testBuildSSHKey(t, dbSession, "test-ssh-key-4", tnOrg, tn2.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu2.ID)
+	sk4 := testBuildSSHKey(t, dbSession, "test-ssh-key-4", tnOrg, tn2.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu2.ID)
 	assert.NotNil(t, sk4)
 
-	sk5 := testBuildSSHKey(t, dbSession, "test-ssh-key-5", tnOrg, tn2.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu2.ID)
+	sk5 := testBuildSSHKey(t, dbSession, "test-ssh-key-5", tnOrg, tn2.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu2.ID)
 	assert.NotNil(t, sk5)
 
-	sk6 := testBuildSSHKey(t, dbSession, "test-ssh-key-6", tnOrg2, tn2.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu2.ID)
+	sk6 := testBuildSSHKey(t, dbSession, "test-ssh-key-6", tnOrg2, tn2.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu2.ID)
 	assert.NotNil(t, sk6)
 
-	sk7 := testBuildSSHKey(t, dbSession, "test-ssh-key-7", tnOrg2, tn2.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu2.ID)
+	sk7 := testBuildSSHKey(t, dbSession, "test-ssh-key-7", tnOrg2, tn2.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu2.ID)
 	assert.NotNil(t, sk7)
 
 	// Build SSHKeyGroup 1
-	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg1)
 
 	// Build SSHKeyGroupSiteAssociation 1
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Build SSHKeyAssociation 1
@@ -433,11 +433,11 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska1)
 
 	// Build SSHKeyGroup 2
-	skg2 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cdb.GetStrPtr("test"), tn2.ID, cdb.GetStrPtr("124345"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
+	skg2 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-2", tnOrg, cutil.GetPtr("test"), tn2.ID, cutil.GetPtr("124345"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
 	assert.NotNil(t, skg2)
 
 	// Build SSHKeyGroupSiteAssociation 2
-	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st3.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
+	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg2.ID, st3.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
 	assert.NotNil(t, skgsa2)
 
 	// Build SSHKeyAssociation 2
@@ -445,15 +445,15 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska2)
 
 	// Build SSHKeyGroup 3
-	skg3 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("124745"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg3 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-3", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("124745"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg3)
 
 	// Build SSHKeyGroup 4
-	skg4 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg2, cdb.GetStrPtr("test"), tn2.ID, cdb.GetStrPtr("131417"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
+	skg4 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-4", tnOrg2, cutil.GetPtr("test"), tn2.ID, cutil.GetPtr("131417"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
 	assert.NotNil(t, skg4)
 
 	// Build SSHKeyGroupSiteAssociation 4
-	skgsa4 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st4.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
+	skgsa4 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg4.ID, st4.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
 	assert.NotNil(t, skgsa4)
 
 	// Build SSHKeyAssociation 4
@@ -461,11 +461,11 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska4)
 
 	// Build SSHKeyGroup 5
-	skg5 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg2, cdb.GetStrPtr("test"), tn2.ID, cdb.GetStrPtr("158790"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
+	skg5 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-5", tnOrg2, cutil.GetPtr("test"), tn2.ID, cutil.GetPtr("158790"), cdbm.SSHKeyGroupStatusSynced, tnu2.ID)
 	assert.NotNil(t, skg5)
 
 	// Build SSHKeyGroupSiteAssociation 5
-	skgsa5 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st5.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
+	skgsa5 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg5.ID, st5.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu2.ID)
 	assert.NotNil(t, skgsa5)
 
 	// Build SSHKeyAssociation 5
@@ -473,11 +473,11 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska5)
 
 	// Build SSHKeyGroup 6
-	skg6 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusDeleting, tnu1.ID)
+	skg6 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-6", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusDeleting, tnu1.ID)
 	assert.NotNil(t, skg6)
 
 	// Build SSHKeyGroup 7
-	skg7 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg7 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-7", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg7)
 
 	// Add 2 keys but no Site Association
@@ -488,30 +488,30 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska72)
 
 	// Build SSHKeyGroup 8
-	skg8 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-8", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg8 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-8", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg8)
 
 	// Add a Site Association but no keys
-	skgsa81 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg8.ID, st1.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa81 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg8.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa81)
 
 	// Build SSHKeyGroup 9
-	skg9 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-9", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg9 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-9", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg9)
 
 	// Add a Site Association and a Key Association
-	skgsa91 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg9.ID, st1.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa91 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg9.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa91)
 
 	ska91 := testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg9.ID, tnu1.ID)
 	assert.NotNil(t, ska91)
 
 	// Build SSHKeyGroup 10
-	skg10 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-10", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg10 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-10", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg10)
 
 	// Build SSHKeyGroup 11
-	skg11 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-10", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg11 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-10", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345678"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg11)
 
 	// Add a Key Association
@@ -519,26 +519,26 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 	assert.NotNil(t, ska111)
 
 	// Populate request data
-	errBody1, err := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyVersionMatch, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-2")})
+	errBodyVersionMatch, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-2")})
 	assert.NotNil(t, errBodyVersionMatch)
 
-	errBodyNameClash, err := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-3"), Version: skg1.Version})
+	errBodyNameClash, err := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-3"), Version: skg1.Version})
 	assert.Nil(t, err)
 
 	// only name update
-	okNameUpdateBody1, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-updated"), Version: skg1.Version})
+	okNameUpdateBody1, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-updated"), Version: skg1.Version})
 	assert.NotNil(t, okNameUpdateBody1)
 
-	okNameUpdateBody2, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-updated-new"), Version: skg5.Version})
+	okNameUpdateBody2, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-updated-new"), Version: skg5.Version})
 	assert.NotNil(t, okNameUpdateBody2)
 
-	okSiteKeyUpdateBody1, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-updated-1"), Description: db.GetStrPtr("testdescription"), Version: skg1.Version, SiteIDs: []string{st1.ID.String(), st2.ID.String()}, SSHKeyIDs: []string{sk1.ID.String(), sk2.ID.String()}})
+	okSiteKeyUpdateBody1, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-updated-1"), Description: cutil.GetPtr("testdescription"), Version: skg1.Version, SiteIDs: []string{st1.ID.String(), st2.ID.String()}, SSHKeyIDs: []string{sk1.ID.String(), sk2.ID.String()}})
 	assert.NotNil(t, okSiteKeyUpdateBody1)
 
-	okSiteKeyUpdateBody2, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("test-sshkeygroup-updated-2"), Description: db.GetStrPtr("testdescription"), Version: skg2.Version, SiteIDs: []string{st2.ID.String()}, SSHKeyIDs: []string{sk5.ID.String()}})
+	okSiteKeyUpdateBody2, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("test-sshkeygroup-updated-2"), Description: cutil.GetPtr("testdescription"), Version: skg2.Version, SiteIDs: []string{st2.ID.String()}, SSHKeyIDs: []string{sk5.ID.String()}})
 	assert.NotNil(t, okSiteKeyUpdateBody2)
 
 	okDeleteAllSiteKeyBody1, _ := json.Marshal(model.APISSHKeyGroupUpdateRequest{Version: skg4.Version, SiteIDs: []string{}, SSHKeyIDs: []string{}})
@@ -698,8 +698,8 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
 			verifyChildSpanner:        true,
-			expectedName:              cdb.GetStrPtr("test-sshkeygroup-updated-new"),
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedName:              cutil.GetPtr("test-sshkeygroup-updated-new"),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
 			countSSHKeys:              1,
@@ -714,8 +714,8 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
 			verifyChildSpanner:        true,
-			expectedName:              cdb.GetStrPtr("test-sshkeygroup-updated-1"),
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+			expectedName:              cutil.GetPtr("test-sshkeygroup-updated-1"),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 			expectVersion:             skg1.Version,
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
@@ -731,8 +731,8 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
 			verifyChildSpanner:        true,
-			expectedName:              cdb.GetStrPtr("test-sshkeygroup-updated-2"),
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+			expectedName:              cutil.GetPtr("test-sshkeygroup-updated-2"),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 			expectVersion:             skg2.Version,
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
@@ -750,7 +750,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
 			verifyChildSpanner:        true,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 			expectVersion:             skg4.Version,
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
@@ -767,7 +767,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			skgID:                     skg7.ID.String(),
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			expectedSiteAssociations:  false,
 			expectedSSHKeys:           true,
 			countSSHKeys:              2,
@@ -781,7 +781,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			skgID:                     skg8.ID.String(),
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           false,
 			countSSHKeys:              0,
@@ -795,7 +795,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			skgID:                     skg9.ID.String(),
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
 			countSSHKeys:              1,
@@ -809,7 +809,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			skgID:                     skg10.ID.String(),
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSyncing),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
 			expectedSiteAssociations:  true,
 			expectedSSHKeys:           true,
 			countSSHKeys:              1,
@@ -823,7 +823,7 @@ func TestSSHKeyGroupHandler_Update(t *testing.T) {
 			skgID:                     skg11.ID.String(),
 			expectedErr:               false,
 			expectedStatus:            http.StatusOK,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			expectedSiteAssociations:  false,
 			expectedSSHKeys:           false,
 			countSSHKeys:              0,
@@ -939,24 +939,24 @@ func TestSSHKeyGroupHandler_GetByID(t *testing.T) {
 	tn2 := testInstanceBuildTenant(t, dbSession, "test-tenant2", tnOrg2, tnu2)
 	assert.NotNil(t, tn2)
 
-	sk1 := testBuildSSHKey(t, dbSession, "test1", tnOrg, tn1.ID, "testpublickey1", cdb.GetStrPtr("test1"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test1", tnOrg, tn1.ID, "testpublickey1", cutil.GetPtr("test1"), nil, tnu1.ID)
 	assert.NotNil(t, sk1)
 
-	sk2 := testBuildSSHKey(t, dbSession, "test2", tnOrg, tn1.ID, "testpublickey2", cdb.GetStrPtr("test2"), nil, tnu1.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test2", tnOrg, tn1.ID, "testpublickey2", cutil.GetPtr("test2"), nil, tnu1.ID)
 	assert.NotNil(t, sk2)
 
-	sk3 := testBuildSSHKey(t, dbSession, "test3", tnOrg, tn1.ID, "testpublickey3", cdb.GetStrPtr("test3"), nil, tnu1.ID)
+	sk3 := testBuildSSHKey(t, dbSession, "test3", tnOrg, tn1.ID, "testpublickey3", cutil.GetPtr("test3"), nil, tnu1.ID)
 	assert.NotNil(t, sk3)
 
 	skg1 := testBuildSSHKeyGroup(t, dbSession, "test", tnOrg, nil, tn1.ID, nil, cdbm.SSHKeyGroupStatusSyncing, tnu1.ID)
 
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cdb.GetStrPtr("1234"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1234"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
-	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st2.ID, cdb.GetStrPtr("5678"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa2 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st2.ID, cutil.GetPtr("5678"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa2)
 
-	skgsa3 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st3.ID, cdb.GetStrPtr("9012"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa3 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st3.ID, cutil.GetPtr("9012"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa3)
 
 	ska1 := testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg1.ID, tnu1.ID)
@@ -1059,11 +1059,11 @@ func TestSSHKeyGroupHandler_GetByID(t *testing.T) {
 			reqOrgName:             tnOrg,
 			user:                   tnu1,
 			skgID:                  skg1.ID.String(),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			countSiteAssociations:  3,
-			expectedTenantOrg:      cdb.GetStrPtr(tn1.Org),
+			expectedTenantOrg:      cutil.GetPtr(tn1.Org),
 		},
 	}
 	for _, tc := range tests {
@@ -1191,8 +1191,8 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 		}
 
 		skg1 := testBuildSSHKeyGroup(t, dbSession, fmt.Sprintf("test-%d", i), tnOrg, nil, tn1.ID, nil, status, tnu1.ID)
-		sk1 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-first-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey1-%d", i), cdb.GetStrPtr("test"), nil, tnu1.ID)
-		sk2 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-second-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey2-%d", i), cdb.GetStrPtr("test"), nil, tnu1.ID)
+		sk1 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-first-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey1-%d", i), cutil.GetPtr("test"), nil, tnu1.ID)
+		sk2 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-second-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey2-%d", i), cutil.GetPtr("test"), nil, tnu1.ID)
 
 		testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg1.ID, tnu1.ID)
 		testBuildSSHKeyAssociation(t, dbSession, sk2.ID, skg1.ID, tnu1.ID)
@@ -1212,7 +1212,7 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -1221,16 +1221,16 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	assert.NotNil(t, subnet1)
 
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	skgia1 := testInstanceBuildSSHKeyGroupInstanceAssociation(t, dbSession, skgs[0].ID, st1.ID, inst1.ID)
@@ -1300,44 +1300,44 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			name:                     "success case, objects returned",
 			reqOrgName:               tnOrg,
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedSkgCnt:           20,
-			expectedTotal:            cdb.GetIntPtr(25),
+			expectedTotal:            cutil.GetPtr(25),
 			expectedSiteAssociations: true,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
 			name:                     "success case filtering by associated Site, objects returned",
 			reqOrgName:               tnOrg,
-			reqSiteID:                cdb.GetUUIDPtr(st1.ID),
+			reqSiteID:                cutil.GetPtr(st1.ID),
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedSkgCnt:           20,
-			expectedTotal:            cdb.GetIntPtr(25),
+			expectedTotal:            cutil.GetPtr(25),
 			expectedSiteAssociations: true,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
 			name:                     "success case filtering by Site with no associations, no objects returned",
 			reqOrgName:               tnOrg,
-			reqSiteID:                cdb.GetUUIDPtr(st2.ID),
+			reqSiteID:                cutil.GetPtr(st2.ID),
 			user:                     tnu1,
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedSkgCnt:           0,
-			expectedTotal:            cdb.GetIntPtr(0),
+			expectedTotal:            cutil.GetPtr(0),
 			expectedSiteAssociations: false,
 			countSiteAssociations:    0,
 			expectedSSHKeys:          false,
@@ -1347,70 +1347,70 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 		{
 			name:                     "error case filtering by non-existent Site ID",
 			reqOrgName:               tnOrg,
-			reqSiteID:                cdb.GetUUIDPtr(uuid.New()),
+			reqSiteID:                cutil.GetPtr(uuid.New()),
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              true,
 			expectedStatus:           http.StatusBadRequest,
 			expectedSkgCnt:           0,
-			expectedTotal:            cdb.GetIntPtr(0),
+			expectedTotal:            cutil.GetPtr(0),
 			expectedSiteAssociations: false,
 			countSiteAssociations:    0,
 			expectedSSHKeys:          false,
 			countSSHKeys:             0,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
 			name:                     "success case filtering by Instance, objects returned",
 			reqOrgName:               tnOrg,
-			reqInstanceID:            cdb.GetUUIDPtr(inst1.ID),
+			reqInstanceID:            cutil.GetPtr(inst1.ID),
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedSkgCnt:           2,
-			expectedTotal:            cdb.GetIntPtr(2),
+			expectedTotal:            cutil.GetPtr(2),
 			expectedSiteAssociations: false,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
 			name:                     "error case filtering by non-existent Instance ID",
 			reqOrgName:               tnOrg,
-			reqInstanceID:            cdb.GetUUIDPtr(uuid.New()),
+			reqInstanceID:            cutil.GetPtr(uuid.New()),
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              true,
 			expectedStatus:           http.StatusBadRequest,
 			expectedSkgCnt:           0,
-			expectedTotal:            cdb.GetIntPtr(0),
+			expectedTotal:            cutil.GetPtr(0),
 			expectedSiteAssociations: false,
 			countSiteAssociations:    0,
 			expectedSSHKeys:          false,
 			countSSHKeys:             0,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
 			name:                     "success case filtering by both Site ID and Instance ID, objects returned",
 			reqOrgName:               tnOrg,
-			reqInstanceID:            cdb.GetUUIDPtr(inst1.ID),
-			reqSiteID:                cdb.GetUUIDPtr(st1.ID),
+			reqInstanceID:            cutil.GetPtr(inst1.ID),
+			reqSiteID:                cutil.GetPtr(st1.ID),
 			user:                     tnu1,
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
 			expectedSkgCnt:           2,
-			expectedTotal:            cdb.GetIntPtr(2),
+			expectedTotal:            cutil.GetPtr(2),
 			expectedSiteAssociations: false,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 			verifyChildSpanner:       true,
 		},
 		{
@@ -1419,16 +1419,16 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			user:                     tnu1,
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
-			pageNumber:               cdb.GetIntPtr(1),
-			pageSize:                 cdb.GetIntPtr(10),
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:               cutil.GetPtr(1),
+			pageSize:                 cutil.GetPtr(10),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedSkgCnt:           10,
-			expectedTotal:            cdb.GetIntPtr(25),
+			expectedTotal:            cutil.GetPtr(25),
 			expectedSiteAssociations: true,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 		},
 		{
 			name:                     "success case with paging set higher limit but returns expected higher count",
@@ -1436,16 +1436,16 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			user:                     tnu1,
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
-			pageNumber:               cdb.GetIntPtr(1),
-			pageSize:                 cdb.GetIntPtr(30),
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:               cutil.GetPtr(1),
+			pageSize:                 cutil.GetPtr(30),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedSkgCnt:           25,
-			expectedTotal:            cdb.GetIntPtr(25),
+			expectedTotal:            cutil.GetPtr(25),
 			expectedSiteAssociations: true,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
 			countSSHKeys:             2,
-			expectedFirstSkName:      cdb.GetStrPtr("test-1"),
+			expectedFirstSkName:      cutil.GetPtr("test-1"),
 		},
 		{
 			name:                     "success case retrieving second page",
@@ -1453,12 +1453,12 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			user:                     tnu1,
 			expectedErr:              false,
 			expectedStatus:           http.StatusOK,
-			pageNumber:               cdb.GetIntPtr(2),
-			pageSize:                 cdb.GetIntPtr(10),
-			orderBy:                  cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:               cutil.GetPtr(2),
+			pageSize:                 cutil.GetPtr(10),
+			orderBy:                  cutil.GetPtr("CREATED_ASC"),
 			expectedSkgCnt:           10,
-			expectedTotal:            cdb.GetIntPtr(25),
-			expectedFirstSkName:      cdb.GetStrPtr("test-11"),
+			expectedTotal:            cutil.GetPtr(25),
+			expectedFirstSkName:      cutil.GetPtr("test-11"),
 			expectedSiteAssociations: true,
 			countSiteAssociations:    1,
 			expectedSSHKeys:          true,
@@ -1470,33 +1470,33 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			user:           tnu1,
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedSkgCnt: 0,
 		},
 		{
 			name:                   "success case with include relation",
 			reqOrgName:             tnOrg,
 			user:                   tnu1,
-			orderBy:                cdb.GetStrPtr("CREATED_ASC"),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedSkgCnt:         20,
-			expectedTotal:          cdb.GetIntPtr(25),
-			expectedFirstSkName:    cdb.GetStrPtr("test-1"),
-			expectedTenantOrg:      cdb.GetStrPtr(tn1.Org),
+			expectedTotal:          cutil.GetPtr(25),
+			expectedFirstSkName:    cutil.GetPtr("test-1"),
+			expectedTenantOrg:      cutil.GetPtr(tn1.Org),
 		},
 		{
 			name:           "success case with name search query",
 			reqOrgName:     tnOrg,
 			user:           tnu1,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedSkgCnt: 20,
-			expectedTotal:  cdb.GetIntPtr(25),
+			expectedTotal:  cutil.GetPtr(25),
 		},
 		{
 			name:           "success case return empty list if no objects created",
@@ -1505,27 +1505,27 @@ func TestSSHKeyGroupHandler_GetAll(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedSkgCnt: 0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success case filtering by status Syncing, objects returned",
 			reqOrgName:     tnOrg,
 			user:           tnu1,
-			queryStatus:    cdb.GetStrPtr("Syncing"),
+			queryStatus:    cutil.GetPtr("Syncing"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedSkgCnt: 13,
-			expectedTotal:  cdb.GetIntPtr(13),
+			expectedTotal:  cutil.GetPtr(13),
 		},
 		{
 			name:           "success case filtering by status Synced, objects returned",
 			reqOrgName:     tnOrg,
 			user:           tnu1,
-			queryStatus:    cdb.GetStrPtr("Synced"),
+			queryStatus:    cutil.GetPtr("Synced"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedSkgCnt: 12,
-			expectedTotal:  cdb.GetIntPtr(12),
+			expectedTotal:  cutil.GetPtr(12),
 		},
 	}
 	for _, tc := range tests {
@@ -1683,7 +1683,7 @@ func TestSSHKeyGroupHandler_Delete(t *testing.T) {
 	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, nil, cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
-	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	ska1 := testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg1.ID, tnu1.ID)
 	assert.NotNil(t, ska1)
 
@@ -1769,7 +1769,7 @@ func TestSSHKeyGroupHandler_Delete(t *testing.T) {
 			skgID:                   skg1.ID.String(),
 			expectErr:               false,
 			expectStatus:            http.StatusAccepted,
-			expectSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusDeleting),
+			expectSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusDeleting),
 			verifyChildSpanner:      true,
 		},
 		{

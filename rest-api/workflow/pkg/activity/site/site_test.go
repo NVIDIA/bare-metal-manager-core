@@ -16,12 +16,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +34,7 @@ import (
 	tOperatorv1 "go.temporal.io/api/operatorservice/v1"
 	tWorkflowv1 "go.temporal.io/api/workflowservice/v1"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	tosv1mock "go.temporal.io/api/operatorservicemock/v1"
 	twsv1mock "go.temporal.io/api/workflowservicemock/v1"
 	tmocks "go.temporal.io/sdk/mocks"
@@ -98,8 +99,8 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 	// Site 1 that will be deleted normally
 	site := util.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "test-vpc")
-	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetStrPtr("x86"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
-	machine2 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetStrPtr("x86"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
+	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("x86"), cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine2 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("x86"), cutil.GetPtr(true), cdbm.MachineStatusReady)
 	allocation := util.TestBuildAllocation(t, dbSession, ip, tenant, site, "test-allocation")
 	instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "test-instance-type")
 	_ = util.TestBuildAllocationContraints(t, dbSession, allocation, cdbm.AllocationResourceTypeInstanceType, instanceType.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
@@ -116,14 +117,14 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 cdb.GetStrPtr("test.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
-			PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			CreatedBy:                tnu.ID,
 		},
 	)
@@ -138,15 +139,15 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine2.ID,
-			ControllerInstanceID:     cdb.GetUUIDPtr(uuid.New()),
-			Hostname:                 cdb.GetStrPtr("test.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
-			PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			CreatedBy:                tnu.ID,
 		},
 	)
@@ -154,8 +155,8 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 	// Site 2 where the Machine components will be purged
 	site2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusPending, nil, ipu)
 	vpc2 := util.TestBuildVpc(t, dbSession, ip, site2, tenant, "test-vpc-2")
-	machine3 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, cdb.GetStrPtr("mcTypeTest2"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
-	machine4 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, cdb.GetStrPtr("mcTypeTest3"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
+	machine3 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, cutil.GetPtr("mcTypeTest2"), cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine4 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, cutil.GetPtr("mcTypeTest3"), cutil.GetPtr(true), cdbm.MachineStatusReady)
 
 	allocation2 := util.TestBuildAllocation(t, dbSession, ip, tenant, site2, "test-allocation-2")
 	instanceType2 := util.TestBuildInstanceType(t, dbSession, ip, site2, "test-instance-type-2")
@@ -172,14 +173,14 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 			InstanceTypeID:           &instanceType2.ID,
 			VpcID:                    vpc2.ID,
 			MachineID:                &machine3.ID,
-			Hostname:                 cdb.GetStrPtr("test.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem2.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem2.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
-			PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			CreatedBy:                tnu.ID,
 		},
 	)
@@ -193,15 +194,15 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 			InstanceTypeID:           &instanceType2.ID,
 			VpcID:                    vpc2.ID,
 			MachineID:                &machine4.ID,
-			ControllerInstanceID:     cdb.GetUUIDPtr(uuid.New()),
-			Hostname:                 cdb.GetStrPtr("test.com"),
-			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem2.ID),
-			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem2.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cdb.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusPending,
-			PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			CreatedBy:                tnu.ID,
 		},
 	)
@@ -268,7 +269,7 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 			args: args{
 				ctx:    context.Background(),
 				siteID: uuid.New(),
-				ipID:   cdb.GetUUIDPtr(uuid.New()),
+				ipID:   cutil.GetPtr(uuid.New()),
 			},
 			want:           nil,
 			expectDeletion: false,
@@ -432,9 +433,9 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	ip := util.TestBuildInfrastructureProvider(t, dbSession, "testIP", ipOrg, ipu)
 
 	site1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusPending, nil, ipu)
-	site2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-1*time.Hour)), ipu)
-	site3 := util.TestBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now()), ipu)
-	site4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-1*time.Hour)), ipu)
+	site2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-1*time.Hour)), ipu)
+	site3 := util.TestBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now()), ipu)
+	site4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-1*time.Hour)), ipu)
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
 	assert.NotNil(t, tSiteClientPool)
@@ -533,8 +534,8 @@ func TestManageSite_MonitorInventoryReceiptForAllSites_PagerDutyEnabled(t *testi
 	ip := util.TestBuildInfrastructureProvider(t, dbSession, "testIP", ipOrg, ipu)
 
 	// Create sites with expired inventory receipt times
-	site1 := util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-1", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-2*time.Hour)), ipu)
-	site2 := util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-2", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-30*time.Minute)), ipu)
+	site1 := util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-1", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-2*time.Hour)), ipu)
+	site2 := util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-2", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-30*time.Minute)), ipu)
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
 	assert.NotNil(t, tSiteClientPool)
@@ -609,8 +610,8 @@ func TestManageSite_MonitorInventoryReceiptForAllSites_PagerDutyDisabled(t *test
 	ip := util.TestBuildInfrastructureProvider(t, dbSession, "testIP", ipOrg, ipu)
 
 	// Create sites with expired inventory receipt times
-	_ = util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-3", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-2*time.Hour)), ipu)
-	_ = util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-4", cdbm.SiteStatusRegistered, cdb.GetTimePtr(time.Now().Add(-30*time.Minute)), ipu)
+	_ = util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-3", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-2*time.Hour)), ipu)
+	_ = util.TestBuildSite(t, dbSession, ip, "pagerduty-test-site-4", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-30*time.Minute)), ipu)
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
 	assert.NotNil(t, tSiteClientPool)
@@ -1050,7 +1051,7 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 		// VpcPeering row can satisfy its (vpc1_id, vpc2_id) foreign keys.
 		vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "vpc-"+tag)
 		vpc2 := util.TestBuildVpc(t, dbSession, ip, site, tenant, "vpc2-"+tag)
-		machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetStrPtr("x86"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
+		machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("x86"), cutil.GetPtr(true), cdbm.MachineStatusReady)
 		instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "it-"+tag)
 
 		instance, err := iDAO.Create(
@@ -1063,10 +1064,10 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 cdb.GetStrPtr(tag + ".test.com"),
-				OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               cdb.GetStrPtr("ipxe"),
-				UserData:                 cdb.GetStrPtr("userdata"),
+				Hostname:                 cutil.GetPtr(tag + ".test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
 				Status:                   cdbm.InstanceStatusPending,
 				CreatedBy:                tnu.ID,
@@ -1076,7 +1077,7 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 
 		// VPC Prefix needs an IPBlock.
 		ipBlock := util.TestBuildBuildIPBlock(t, dbSession, "ipblock-"+tag, site, ip, &tenant.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.0.0.0/16", 16, cdbm.IPBlockProtocolVersionV4, true, cdbm.IPBlockStatusReady, ipu)
-		vpcPrefix := util.TestBuildVPCPrefix(t, dbSession, "vpfx-"+tag, site, tenant, vpc.ID, &ipBlock.ID, cdb.GetStrPtr("10.1.0.0/24"), cdb.GetIntPtr(24), "Pending", ipu)
+		vpcPrefix := util.TestBuildVPCPrefix(t, dbSession, "vpfx-"+tag, site, tenant, vpc.ID, &ipBlock.ID, cutil.GetPtr("10.1.0.0/24"), cutil.GetPtr(24), "Pending", ipu)
 
 		// VpcPeering uses two distinct vpc1/vpc2 IDs and the schema enforces
 		// real FKs on both, so we use the two VPCs created above.
@@ -1084,21 +1085,21 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 
 		// NVLink logical partition + an NVLink interface attached to it.
 		nvllp := util.TestBuildNVLinkLogicalPartition(t, dbSession, "nvllp-"+tag, nil, site, tenant, cdbm.NVLinkLogicalPartitionStatusReady, false)
-		nvli := util.TestBuildNVLinkInterface(t, dbSession, instance.ID, site.ID, nvllp.ID, cdb.GetStrPtr("Nvidia GB200"), 0, cdb.GetStrPtr("guid-"+tag), nil, cdbm.NVLinkInterfaceStatusReady)
+		nvli := util.TestBuildNVLinkInterface(t, dbSession, instance.ID, site.ID, nvllp.ID, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid-"+tag), nil, cdbm.NVLinkInterfaceStatusReady)
 
 		// InfiniBand partition + an InfiniBand interface attached to it.
 		ibp := util.TestBuildInfiniBandPartition(t, dbSession, "ibp-"+tag, site, tenant, nil, cdbm.InfiniBandPartitionStatusReady, false)
 		ibi := util.TestBuildInfiniBandInterface(t, dbSession, instance.ID, site.ID, ibp.ID, "mlx5_0", 0, true, nil, cdbm.InfiniBandInterfaceStatusReady, false)
 
 		// Two ethernet interfaces on the instance.
-		iface1 := util.TestBuildInterface(t, dbSession, &instance.ID, nil, nil, true, cdb.GetStrPtr("eth0"), cdb.GetIntPtr(0), nil, &ipu.ID, cdbm.InterfaceStatusReady)
-		iface2 := util.TestBuildInterface(t, dbSession, &instance.ID, nil, nil, false, cdb.GetStrPtr("eth1"), cdb.GetIntPtr(1), nil, &ipu.ID, cdbm.InterfaceStatusPending)
+		iface1 := util.TestBuildInterface(t, dbSession, &instance.ID, nil, nil, true, cutil.GetPtr("eth0"), cutil.GetPtr(0), nil, &ipu.ID, cdbm.InterfaceStatusReady)
+		iface2 := util.TestBuildInterface(t, dbSession, &instance.ID, nil, nil, false, cutil.GetPtr("eth1"), cutil.GetPtr(1), nil, &ipu.ID, cdbm.InterfaceStatusPending)
 
 		// Network Security Group
 		nsg := util.TestBuildNetworkSecurityGroup(t, dbSession, "nsg-"+tag, site, tenant, cdbm.NetworkSecurityGroupStatusReady, ipu)
 
 		// DPU extension service + deployment
-		des := util.TestBuildDpuExtensionService(t, dbSession, "des-"+tag, site, tenant, "test-type", cdb.GetStrPtr("v1"), nil, []string{"v1"}, cdbm.DpuExtensionServiceStatusReady, ipu)
+		des := util.TestBuildDpuExtensionService(t, dbSession, "des-"+tag, site, tenant, "test-type", cutil.GetPtr("v1"), nil, []string{"v1"}, cdbm.DpuExtensionServiceStatusReady, ipu)
 		desd := util.TestBuildDpuExtensionServiceDeployment(t, dbSession, des.ID, site.ID, tenant.ID, instance.ID, "v1", cdbm.DpuExtensionServiceStatusReady, ipu)
 
 		// SKU (hard delete)
@@ -1107,8 +1108,8 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 		// SSH key group + site/instance associations + key + key association.
 		// The site/instance associations are scoped by SiteID; the key
 		// association is intentionally unscoped (see test docstring).
-		skg := util.TestBuildSSHKeyGroup(t, dbSession, "skg-"+tag, tenant.Org, nil, tenant.ID, cdb.GetStrPtr("v1"), cdbm.SSHKeyGroupStatusSynced, ipu.ID)
-		skgsa := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site.ID, cdb.GetStrPtr("v1"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, ipu.ID)
+		skg := util.TestBuildSSHKeyGroup(t, dbSession, "skg-"+tag, tenant.Org, nil, tenant.ID, cutil.GetPtr("v1"), cdbm.SSHKeyGroupStatusSynced, ipu.ID)
+		skgsa := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site.ID, cutil.GetPtr("v1"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, ipu.ID)
 		skgia := util.TestBuildSSHKeyGroupInstanceAssociation(t, dbSession, skg.ID, site.ID, instance.ID, ipu.ID)
 		sshKey := util.TestBuildSSHKey(t, dbSession, "key-"+tag, tenant, "ssh-rsa AAAA...", ipu)
 		ska := util.TestBuildSSHKeyAssociation(t, dbSession, skg.ID, sshKey.ID, ipu.ID)
@@ -1121,7 +1122,7 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 		eps := util.TestBuildExpectedPowerShelf(t, dbSession, site, "00:11:22:33:66:0"+tag, "shelf-"+tag, ipu)
 
 		// OperatingSystem with a single ossa on this site.
-		imageOS := util.TestBuildImageOperatingSystem(t, dbSession, &ip.ID, nil, "img-"+tag, ipOrg, cdb.GetStrPtr("v1"), cdbm.OperatingSystemStatusReady)
+		imageOS := util.TestBuildImageOperatingSystem(t, dbSession, &ip.ID, nil, "img-"+tag, ipOrg, cutil.GetPtr("v1"), cdbm.OperatingSystemStatusReady)
 		imageOSSA := util.TestBuildImageOperatingSystemSiteAssociation(t, dbSession, imageOS.ID, site.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "v1", false)
 
 		return &siteResources{

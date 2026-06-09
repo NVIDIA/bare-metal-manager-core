@@ -15,9 +15,9 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/pmc"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/powershelf"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/objects/powersupply"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powershelf"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powersupply"
 
 	log "github.com/sirupsen/logrus"
 

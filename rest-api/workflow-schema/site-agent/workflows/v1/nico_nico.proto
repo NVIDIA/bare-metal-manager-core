@@ -10,7 +10,6 @@ package forge;
 
 import "common_nico.proto";
 import "dns_nico.proto";
-import "dpa_rpc_nico.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
@@ -19,9 +18,10 @@ import "health_nico.proto";
 import "machine_discovery_nico.proto";
 import "measured_boot_nico.proto";
 import "mlx_device_nico.proto";
+import "scout_firmware_upgrade_nico.proto";
 import "site_explorer_nico.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 service Forge {
   // What version of NICo is this service running? Matches `--version` command line.
@@ -57,6 +57,11 @@ service Forge {
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
+
+  rpc CreateSpxPartition(SpxPartitionCreationRequest) returns (SpxPartition);
+  rpc DeleteSpxPartition(SpxPartitionDeletionRequest) returns (SpxPartitionDeletionResult);
+  rpc FindSpxPartitionIds(SpxPartitionSearchFilter) returns (SpxPartitionIdList);
+  rpc FindSpxPartitionsByIds(SpxPartitionsByIdsRequest) returns (SpxPartitionList);
 
   // VPC prefixes
   rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
@@ -97,6 +102,11 @@ service Forge {
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
   // Force deletes a Power Shelf and optionally its associated interfaces from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
+  // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
+  // When the power shelf is in Ready state, the power shelf state controller
+  // will observe the request and transition to the Maintenance state with the
+  // requested operation.
+  rpc SetPowerShelfMaintenance(PowerShelfMaintenanceRequest) returns (google.protobuf.Empty);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
@@ -139,28 +149,56 @@ service Forge {
   // nico-dpu-agent -> nico-core-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Machine health status
-  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
-  // Adds a new override for a Machines health status
-  rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override
-  rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Rack health status
-  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportOverrideResponse);
-  // Adds a new health report override for a Rack
-  rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override for a Rack
-  rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Machine
+  rpc ListMachineHealthReports(common.MachineId) returns (ListHealthReportResponse);
+  // Adds a health report source for a Machine
+  rpc InsertMachineHealthReport(InsertMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Machine
+  rpc RemoveMachineHealthReport(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Rack
+  rpc ListRackHealthReports(ListRackHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Rack
+  rpc InsertRackHealthReport(InsertRackHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Rack
+  rpc RemoveRackHealthReport(RemoveRackHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Switch
+  rpc ListSwitchHealthReports(ListSwitchHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Switch
+  rpc InsertSwitchHealthReport(InsertSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Switch
+  rpc RemoveSwitchHealthReport(RemoveSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Power Shelf
+  rpc ListPowerShelfHealthReports(ListPowerShelfHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Power Shelf
+  rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Power Shelf
+  rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for an NVLink domain
+  rpc ListNVLinkDomainHealthReports(ListNVLinkDomainHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for an NVLink domain
+  rpc InsertNVLinkDomainHealthReport(InsertNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for an NVLink domain
+  rpc RemoveNVLinkDomainHealthReport(RemoveNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
+
+  // Deprecated aliases for the machine health report RPCs.
+  // These exist so older clients (admin-cli binaries, scripts pinned to the
+  // previous proto names, ForgeScope, etc) keep working. They delegate
+  // one-for-one to the canonical names above. Drop once we're confident
+  // nothing in the wild still calls them.
+  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse) {
+    option deprecated = true;
+  }
+  rpc InsertHealthReportOverride(InsertMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+  rpc RemoveHealthReportOverride(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by NICo
   rpc LookupRecord(dns.DnsResourceRecordLookupRequest)returns (dns.DnsResourceRecordLookupResponse);
-
-  // DEPRECATED DNS Lookup RPC - for backward compatibility
-  // Use LookupRecord with DnsResourceRecordLookupRequest instead
-  rpc LookupRecordLegacy(DNSMessage.DNSQuestion)returns (DNSMessage.DNSResponse) {
-    option deprecated = true;
-  }
 
   // Get all DNS domains
   rpc GetAllDomains(dns.GetAllDomainsRequest) returns (dns.GetAllDomainsResponse);
@@ -174,14 +212,14 @@ service Forge {
   /* Power Control */
   rpc InvokeInstancePower(InstancePowerRequest) returns (InstancePowerResult);
 
-  rpc NICoAgentControl(NICoAgentControlRequest) returns (NICoAgentControlResponse);
+  rpc ForgeAgentControl(ForgeAgentControlRequest) returns (ForgeAgentControlResponse);
   // PRIVILEGED: Creates a new machine from nothing
   rpc DiscoverMachine(MachineDiscoveryInfo) returns (MachineDiscoveryResult);
   rpc RenewMachineCertificate(MachineCertificateRenewRequest) returns (MachineCertificateResult);
   rpc DiscoveryCompleted(MachineDiscoveryCompletedRequest) returns (MachineDiscoveryCompletedResponse);
   rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
   // Invoked by nico-scout whenever a certain Machine can not be properly acted on
-  rpc ReportNICoScoutError(NICoScoutErrorReport) returns (NICoScoutErrorReportResult);
+  rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
@@ -197,14 +235,16 @@ service Forge {
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
-  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
-  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
-  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
+  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
+  rpc FindBmcIps(FindBmcIpsRequest) returns (BmcIpList);
   rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
   rpc IdentifyMac(IdentifyMacRequest) returns (IdentifyMacResponse);
   rpc IdentifySerial(IdentifySerialRequest) returns (IdentifySerialResponse);
@@ -234,6 +274,7 @@ service Forge {
 
   // Query for BMC Credentials
   rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
+  rpc GetSwitchNvosCredentials(GetSwitchNvosCredentialsRequest) returns (GetBmcCredentialsResponse);
 
   // Admin CLI actions
 
@@ -255,6 +296,12 @@ service Forge {
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
+  // Immediately probes a single BMC endpoint via Redfish, enriches the report
+  // (machine_id, model, position), and persists it. The next site-explorer tick
+  // picks up the freshly persisted report for downstream processing (pairing,
+  // remediation, audit). Returns AlreadyExists
+  // if a concurrent refresh or periodic probe is already in progress.
+  rpc RefreshEndpointReport(RefreshEndpointReportRequest) returns (site_explorer.ExploredEndpoint);
   // Delete an explored endpoint from the database
   rpc DeleteExploredEndpoint(DeleteExploredEndpointRequest) returns (DeleteExploredEndpointResponse);
   // Pause or unpause remediation actions for an explored endpoint
@@ -320,6 +367,8 @@ service Forge {
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
+  // Report the result of a scout-based firmware upgrade
+  rpc ReportScoutFirmwareUpgradeStatus(ScoutFirmwareUpgradeStatusRequest) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -343,7 +392,7 @@ service Forge {
   rpc RemoveRouteServers(RouteServers) returns (google.protobuf.Empty);
   rpc ReplaceRouteServers(RouteServers) returns (google.protobuf.Empty);
 
-  // MachineComponentInventory
+  // MachineInventory
   rpc UpdateAgentReportedInventory(DpuAgentInventoryReport) returns (google.protobuf.Empty);
 
   // Phone Home
@@ -365,28 +414,18 @@ service Forge {
   // Get the BMC credentials for all expected machines
   rpc GetAllExpectedMachines(google.protobuf.Empty) returns (ExpectedMachineList);
 
-  // Rack Firmware Management
-  // Create or update a Rack firmware configuration
-  rpc CreateRackFirmware(RackFirmwareCreateRequest) returns (RackFirmware);
-  // Get a Rack firmware configuration by ID
-  rpc GetRackFirmware(RackFirmwareGetRequest) returns (RackFirmware);
-  // List all Rack firmware configurations
-  rpc ListRackFirmware(RackFirmwareListRequest) returns (RackFirmwareList);
-  // Delete a Rack firmware configuration
-  rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
-  // Apply firmware to all devices in a rack
-  rpc ApplyRackFirmware(RackFirmwareApplyRequest) returns (RackFirmwareApplyResponse);
-  // Check the status of an async firmware update job
-  rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
-  // Get the history of rack firmware apply operations
-  rpc GetRackFirmwareHistory(RackFirmwareHistoryRequest) returns (RackFirmwareHistoryResponse);
-
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
   // Delete all expected machines in site
   rpc DeleteAllExpectedMachines(google.protobuf.Empty) returns (google.protobuf.Empty);
   // Expected machines connected to Explored Endpoints and Machines
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
+  // Explored host BMC endpoints whose MAC is not listed in any of
+  // expected_machines, expected_power_shelf, or expected_switch. Entries with
+  // non-null `machine_id` are orphans (ingested before the expected entry
+  // was removed); the rest are hosts Site Explorer refuses to ingest until
+  // they are added to the expected_machines table.
+  rpc GetAllUnexpectedMachines(google.protobuf.Empty) returns (UnexpectedMachineList);
   // Batch create expected machines
   rpc CreateExpectedMachines(BatchExpectedMachineOperationRequest) returns (BatchExpectedMachineOperationResponse);
   // Batch update expected machines
@@ -540,6 +579,10 @@ service Forge {
   rpc GetOsImage(common.UUID) returns (OsImage);
   rpc UpdateOsImage(OsImageAttributes) returns (OsImage);
 
+  // iPXE Script Template management
+  rpc GetIpxeTemplate(GetIpxeTemplateRequest) returns (IpxeTemplate);
+  rpc ListIpxeTemplates(ListIpxeTemplatesRequest) returns (IpxeTemplateList);
+
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
   // Validation result Persist
@@ -609,6 +652,9 @@ service Forge {
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
 
+  // On-demand rack maintenance (full rack or partial)
+  rpc OnDemandRackMaintenance(RackMaintenanceOnDemandRequest) returns (RackMaintenanceOnDemandResponse);
+
   // TPM CA certs Management
   //rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
   rpc TpmAddCaCert(TpmCaCert) returns (TpmCaAddedCaStatus);
@@ -661,7 +707,6 @@ service Forge {
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
-  rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
@@ -675,6 +720,9 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  // Force deletes a Rack from the database.
+  rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
+  rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
   // Compute Allocations
@@ -692,6 +740,12 @@ service Forge {
 
   // Trim DB Tables
   rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
+
+  // Chassis serial → NMX-C gRPC endpoint (nvlink_nmxc_endpoints table)
+  rpc ListNvlinkNmxcEndpoints(google.protobuf.Empty) returns (NvlinkNmxcEndpointList);
+  rpc CreateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc UpdateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc DeleteNvlinkNmxcEndpoint(DeleteNvlinkNmxcEndpointRequest) returns (google.protobuf.Empty);
 
   // begin DPU Remediation APIs
   // these apis are intended for consumption by the admin-cli to manage remediations and their status
@@ -728,10 +782,11 @@ service Forge {
   rpc FindInstancesByDpuExtensionService(FindInstancesByDpuExtensionServiceRequest) returns (FindInstancesByDpuExtensionServiceResponse);
 
   // SPDM attestation APIs start
-  rpc TriggerMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc CancelMachineAttestation(AttestationData) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(AttestationIdsRequest) returns (common.MachineIdList);
-  rpc FindMachinesUnderAttestation(AttestationMachineList) returns (AttestationResponse);
+  rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
+  rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
+
+  rpc ListAttestationMachines(SpdmListAttestationMachinesRequest) returns (SpdmListAttestationMachinesResponse);
+  rpc GetAttestationMachine(common.MachineId) returns (SpdmGetAttestationMachineResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -745,6 +800,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Site-operator: re-wrap tenant_identity_config ciphertext with a new master encryption key.
+  rpc ReencryptTenantIdentitySecrets(ReencryptTenantIdentitySecretsRequest)
+      returns (ReencryptTenantIdentitySecretsResponse);
   // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
   rpc GetJWKS(JwksRequest) returns (Jwks);
   rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
@@ -752,7 +810,7 @@ service Forge {
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and nico-core-api. The initial use-case for this is for
   // Mellanox device management using nico-admin-cli, but there's an
-  // opportunity to pull the NICoAgentControl flow into here as well.
+  // opportunity to pull the ForgeAgentControl flow into here as well.
   rpc ScoutStream(stream ScoutStreamApiBoundMessage) returns (stream ScoutStreamScoutBoundMessage);
 
   // ScoutStreamShowConnections is used to show all established
@@ -855,10 +913,15 @@ service Forge {
   // Get position related information for machines
   rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
-  rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
+  rpc NmxcBrowse(NmxcBrowseRequest) returns (NmxcBrowseResponse);
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
+  // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
+  rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
+  // Helm/docker versions for the nico DPF mandatory services, from both
+  // the nico config and the live DPUServiceTemplate CRs.
+  rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -866,39 +929,83 @@ service Forge {
   rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
   rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
   rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
+
+  // Operating System library
+  rpc CreateOperatingSystem(CreateOperatingSystemRequest) returns (OperatingSystem);
+  rpc GetOperatingSystem(common.OperatingSystemId) returns (OperatingSystem);
+  rpc UpdateOperatingSystem(UpdateOperatingSystemRequest) returns (OperatingSystem);
+  rpc DeleteOperatingSystem(DeleteOperatingSystemRequest) returns (DeleteOperatingSystemResponse);
+  rpc FindOperatingSystemIds(OperatingSystemSearchFilter) returns (OperatingSystemIdList);
+  rpc FindOperatingSystemsByIds(OperatingSystemsByIdsRequest) returns (OperatingSystemList);
+  // Returns the ordered artifact list for an OS definition without fetching the full record.
+  rpc GetOperatingSystemCachableIpxeTemplateArtifacts(GetOperatingSystemCachableIpxeTemplateArtifactsRequest) returns (IpxeTemplateArtifactList);
+  // Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
+  // and OS definition fields (including ipxe_definition_hash) unchanged.
+  rpc UpdateOperatingSystemCachableIpxeTemplateArtifacts(UpdateOperatingSystemIpxeTemplateArtifactRequest) returns (IpxeTemplateArtifactList);
 }
 
-message AttestationIdsRequest {
-
+// Indicates the lifecycle state of a resource that is controlled by a state controller
+message LifecycleStatus {
+  // The current state of the resource
+  string state = 1;
+  // The state version. This version number is incremented each time the resource transitions into a new state
+  string version = 2;
+  // The result of last state controller run - its outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 3;
+  // The SLA that is associated with the current state
+  StateSla sla = 4;
 }
 
-message AttestationData {
+enum SpdmAttestationStatus{
+  SPDM_ATT_IN_PROGRESS = 0;
+  SPDM_ATT_CANCELLED = 1;
+  SPDM_ATT_PASSED = 2;
+  SPDM_ATT_FAILED = 3;
+}
+
+message SpdmMachineAttestationStatus {
   common.MachineId machine_id = 1;
+  SpdmAttestationStatus attestation_status = 2;
 }
 
-message AttestationMachineList {
-  repeated common.MachineId machine_ids = 1;
+message SpdmMachineAttestationTriggerResponse {
+  common.MachineId machine_id = 1;
+  int32 devices_under_attestation = 2;
 }
 
-message AttestationResponse {
-  message AttestationDeviceData {
-    string device_id = 1;
-    common.UUID nonce = 2;
-    string state = 3;
-    optional string metadata = 4;
-  }
-  message AttestationMachineData {
+message SpdmAttestationDetails{
+  common.MachineId machine_id = 1;
+  string device_id = 2;
+  string state = 3;
+
+  google.protobuf.Timestamp started_at = 7;
+  optional google.protobuf.Timestamp cancelled_at = 8;
+  optional google.protobuf.Timestamp completed_at = 9;
+}
+
+message SpdmGetAttestationMachineResponse {
+  repeated SpdmAttestationDetails attestations_details = 1;
+}
+
+message SpdmMachineAttestationTriggerRequest {
+  common.MachineId machine_id = 1;
+  uint32 redfish_timeout_secs = 2;
+}
+
+enum SpdmListAttestationMachinesRequestSelector {
+  SPDM_LIST_IN_PROGRESS = 0;
+  SPDM_LIST_UNSUCCESSFUL = 1;
+}
+
+message SpdmListAttestationMachinesRequest {
+  oneof variant {
     common.MachineId machine_id = 1;
-    google.protobuf.Timestamp requested_at = 2;
-    optional google.protobuf.Timestamp started_at = 3;
-    optional google.protobuf.Timestamp canceled_at = 4;
-    string state = 5;
-    string state_version = 6;
-    optional string state_outcome = 7;
-    string status = 8;
-    repeated AttestationDeviceData device_data = 9;
+    SpdmListAttestationMachinesRequestSelector selector = 2;
   }
-  repeated AttestationMachineData machines = 1;
+}
+
+message SpdmListAttestationMachinesResponse {
+  repeated SpdmMachineAttestationStatus statuses = 1;
 }
 
 // Machine Identity - JWT-SVID token signing
@@ -1006,6 +1113,31 @@ message TokenDelegationRequest {
   TokenDelegation config = 2;
 }
 
+message ReencryptTenantIdentitySecretsRequest {
+  // If set, only this org; otherwise all rows in tenant_identity_config.
+  optional string organization_id = 1;
+  // Decrypt and validate only; no DB writes.
+  bool dry_run = 2;
+}
+
+message ReencryptTenantIdentityFailure {
+  string organization_id = 1;
+  string field = 2;
+  string error = 3;
+}
+
+message ReencryptTenantIdentitySecretsResponse {
+  uint32 rows_examined = 1;
+  uint32 rows_updated = 2;
+  uint32 rows_skipped_all_on_target = 3;
+  uint32 fields_reencrypted = 4;
+  uint32 fields_skipped_on_target = 5;
+  uint32 rows_failed = 6;
+  repeated ReencryptTenantIdentityFailure failures = 7;
+  // Site [machine_identity].current_encryption_key_id used as the re-wrap target.
+  string current_encryption_key_id = 8;
+}
+
 // Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
 message Jwks {
   // UTF-8 JSON text: {"keys":[ ... ]} per RFC 7517.
@@ -1018,8 +1150,7 @@ message OpenIdConfiguration {
   // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
   repeated string response_types_supported = 3;
   repeated string subject_types_supported = 4;
-  // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
-  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
+  // Verifiers use `jwks_uri` / `spiffe_jwks_uri` and the GetJWKS `jwks` JSON (`keys[].alg`) for JWT verification.
   repeated string id_token_signing_alg_values_supported = 5;
   // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
   string spiffe_jwks_uri = 7;
@@ -1133,8 +1264,9 @@ enum CredentialType {
   DpuBMCFactoryDefault = 6;
   SiteWideBmcRoot = 7;
   RootBmcByMacAddress = 8;
-  BmcNICoAdminByMacAddress = 9;
+  BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
+  BgpSiteWideLeafPassword = 11;
 }
 
 message CredentialCreationRequest {
@@ -1255,6 +1387,9 @@ message RuntimeConfig {
   bool dpf_enabled = 49;
 
   bool rack_validation_enabled = 50;
+
+  string compile_time_helm_version = 51;
+  string compile_time_docker_version = 52;
 }
 
 message EchoRequest {
@@ -1268,8 +1403,8 @@ message EchoResponse {
 message DNSMessage {
 
   message DNSQuestion {
-    optional string q_name = 1; // FQDN including trailing dot
-    optional uint32 q_type = 2;
+    optional string q_name = 1;  // FQDN including trailing dot
+    optional uint32 q_type = 2;  //
     optional uint32 q_class = 3; // Usually 1 (IN)
   }
   message DNSResponse {
@@ -1337,7 +1472,7 @@ message VpcStatus {
 
 message Vpc {
   common.VpcId id = 1;
-  string name = 2;
+  string name = 2; // Removed in v0.9.x and above, retained here for backwards compatibility
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   string version = 99;
@@ -1378,8 +1513,7 @@ message Vpc {
 }
 
 message VpcCreationRequest {
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 2;
+  string name = 2; // Removed in v0.9.x and above, retained here for backwards compatibility
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
@@ -1417,7 +1551,7 @@ message VpcCreationRequest {
 
 enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
-  // 1 was previously NICO_NATIVE_NETWORKING
+  // 1 was previously FORGE_NATIVE_NETWORKING
   // ETHERNET_VIRTUALIZER_WITH_NVUE is deprecated. NVUE is now
   // implied; just use ETHERNET_VIRTUALIZER.
   ETHERNET_VIRTUALIZER_WITH_NVUE = 2 [deprecated = true];
@@ -1427,9 +1561,9 @@ enum VpcVirtualizationType {
   FNN = 5;
   // FLAT is for VPCs whose tenant instances live directly on the underlay
   // (zero-DPU hosts, or hosts with their DPU in NIC mode). Their interfaces
-  // are bound to `HostInband` network segments rather than a Carbide-managed
+  // are bound to `HostInband` network segments rather than a NICo-managed
   // overlay. Flat VPCs are still real tenant VPCs with a VNI and NSGs, but
-  // Carbide doesn't drive their data plane -- routing and ACL enforcement
+  // NICo doesn't drive their data plane -- routing and ACL enforcement
   // between Flat VPCs and other VPCs is the network operator's
   // responsibility.
   FLAT = 6;
@@ -1448,8 +1582,7 @@ message VpcUpdateRequest {
   // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
-  // TODO: Remove the name field as soon as cloud codes gets updated to using metadata.name.
-  string name = 3;
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   reserved 4; // was tenantOrganizationId
   reserved 5; // was tenantKeysetId
 
@@ -1514,7 +1647,7 @@ enum PrefixMatchType {
 message VpcPrefix {
   common.VpcPrefixId id = 1;
   string prefix = 2; // Deprecated, use config instead
-  string name = 3; // Deprecated, use metadata instead
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   uint32 total_31_segments = 6; // Deprecated, use status instead
@@ -1541,7 +1674,7 @@ message VpcPrefixCreationRequest {
   optional common.VpcPrefixId id = 1;
   // IPv4 or IPv6 prefix in CIDR notation
   string prefix = 2; // Deprecated, use config instead
-  string name = 3; // Deprecated, use config instead
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
@@ -1579,7 +1712,7 @@ message VpcPrefixUpdateRequest {
   // 2. It is not larger than its containing site prefix.
   // 3. It contains all of its associated network segment prefixes.
   optional string prefix = 2; // Deprecated, use config instead
-  optional string name = 3;  // Deprecated, use metadata instead
+  optional string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   VpcPrefixConfig config = 4;
   Metadata metadata = 5;
 }
@@ -1662,10 +1795,7 @@ enum TenantState {
 
   // Something Wrong happened at nico. Check logs for more info.
   INVALID = 9;
-
-  // The instance is currently getting repaired on the machine. 
-  // This is a temporary state that is used to indicate that the instance is being repaired on the machine.
-  // The instance will return to the READY state when the repair is complete.
+  // Instance is undergoing online repair (health override active).
   REPAIRING = 10;
 }
 
@@ -1772,15 +1902,16 @@ message PowerShelfConfig {
   optional int32 capacity = 2;
   // Voltage in volts
   optional int32 voltage = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to PowerShelf message
 }
 
 // Describe the status and applied configuration of a PowerShelf
 message PowerShelfStatus {
   // The result of last state controller run - its outcome and an optional reason for that outcome
+  // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
   // The SLA for the current state - and whether the SLA has been breached
+  // deprecated: Use lifecycle field
   StateSla state_sla = 2;
 
   // The shelf name of PowerShelf
@@ -1791,6 +1922,11 @@ message PowerShelfStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1814,6 +1950,11 @@ message PowerShelf {
 
   // Version string for the current controller state (e.g. "V3-T1774905143273055").
   string state_version = 9;
+
+  // The rack that this powershelf is associated with
+  optional common.RackId rack_id = 10;
+
+  reserved 11, 12;
 }
 
 message PowerShelfList {
@@ -1835,22 +1976,27 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
-message PowerShelfStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
+// Operation requested for a power shelf maintenance activity.
+enum PowerShelfMaintenanceOperation {
+  POWER_SHELF_MAINTENANCE_OPERATION_UNSPECIFIED = 0;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_ON = 1;
+  POWER_SHELF_MAINTENANCE_OPERATION_POWER_OFF = 2;
+}
+
+// Request to drive one or more power shelves into the Maintenance state with
+// the given operation (PowerOn / PowerOff). The state controller, when the
+// shelf is in Ready, observes this request and transitions to Maintenance.
+// All listed power shelves are updated atomically in a single transaction.
+message PowerShelfMaintenanceRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  PowerShelfMaintenanceOperation operation = 2;
+  // URL of a ticket / issue tracking this maintenance request. Used as the
+  // request initiator in audit logs.
+  optional string reference = 3;
 }
 
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
-}
-
-message PowerShelfStateHistories {
-  map<string, PowerShelfStateHistoryRecords> histories = 1;
-}
-
-message PowerShelfStateHistoryRecords {
-  repeated PowerShelfStateHistoryRecord records = 1;
 }
 
 message PowerShelfQuery {
@@ -1893,6 +2039,9 @@ message ExpectedPowerShelf {
   optional common.RackId rack_id = 7;
   // Unique identifier for the expected power shelf. When omitted, server generates one.
   optional common.UUID expected_power_shelf_id = 8;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 9;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;
@@ -1935,8 +2084,7 @@ message SwitchConfig {
   string name = 1;
   bool enable_nmxc = 2;
   FabricManagerConfig fabric_manager_config = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to Switch message
 }
 
 // Describe the desired configuration of Fabric Manager
@@ -1944,11 +2092,27 @@ message FabricManagerConfig {
   map<string, string> config_map = 1;
 }
 
+enum FabricManagerState {
+  FABRIC_MANAGER_STATE_UNSPECIFIED = 0;
+  FABRIC_MANAGER_STATE_OK = 1;
+  FABRIC_MANAGER_STATE_NOT_OK = 2;
+  FABRIC_MANAGER_STATE_UNKNOWN = 3;
+}
+
+message FabricManagerStatus {
+  FabricManagerState fabric_manager_state = 1;
+  optional string addition_info = 2;
+  optional string reason = 3;
+  optional string error_message = 4;
+}
+
 // Describe the status and applied configuration of a Switch
 message SwitchStatus {
   // The result of last state controller run - its outcome and an optional reason for that outcome
+  // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
   // The SLA for the current state - and whether the SLA has been breached
+  // deprecated: Use lifecycle field
   StateSla state_sla = 2;
 
   // The name of Switch
@@ -1959,6 +2123,18 @@ message SwitchStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
+  optional string fabric_manager_status = 10;
+  optional FabricManagerStatus fabric_manager_status_details = 11;
+}
+
+message PlacementInRack {
+  optional int32 slot_number = 1;
+  optional int32 tray_index = 2;
 }
 
 // Describe a Switch configuration and status
@@ -1972,7 +2148,7 @@ message Switch {
   // Timestamp when the switch was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
-  // Deprecated: use status.controller_state instead
+  // Deprecated: use status.lifecycle instead
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
@@ -1982,6 +2158,15 @@ message Switch {
 
   Metadata metadata = 8;
   string version = 9;
+
+  // The rack that this switch is associated with
+  optional common.RackId rack_id = 10;
+  optional PlacementInRack placement_in_rack = 11;
+  reserved 12, 13;
+  bool is_primary = 14;
+
+  // NVOS host endpoint
+  SwitchNvosInfo nvos_info = 15;
 }
 
 message SwitchList {
@@ -1994,6 +2179,8 @@ message SwitchCreationRequest {
   // a random ID.
   // The Switch ID must be unique within the NICo site.
   optional common.UUID id = 2;
+
+  optional PlacementInRack placement_in_rack = 3;
 }
 
 message SwitchDeletionRequest {
@@ -2003,25 +2190,25 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
-
-message SwitchStateHistoryRecord {
+// The state that a object/resource had at a certain point in time
+message StateHistoryRecord {
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
+}
+
+message StateHistoryRecords {
+  repeated StateHistoryRecord records = 1;
 }
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
 }
 
-message SwitchStateHistories {
-  map<string, SwitchStateHistoryRecords> histories = 1;
+message StateHistories {
+  // Maps from the object identifier to a list of state history records
+  map<string, StateHistoryRecords> histories = 1;
 }
-
-message SwitchStateHistoryRecords {
-  repeated SwitchStateHistoryRecord records = 1;
-}
-
 
 message SwitchQuery {
   optional string name = 1;
@@ -2036,6 +2223,10 @@ message SwitchSearchFilter {
   optional string controller_state = 3;
   // Filter by BMC MAC address via machine_interfaces
   optional string bmc_mac = 4;
+  // Filter by NVOS MAC address via expected_switches.nvos_mac_addresses
+  optional string nvos_mac = 5;
+  // For example, to search for leak alerts, set the below to "hardware-health.tray-leak-detection"
+  optional string only_with_health_alert = 6;
 }
 
 message SwitchesByIdsRequest {
@@ -2056,6 +2247,12 @@ message ExpectedSwitch {
   optional common.UUID expected_switch_id = 9;
   repeated string nvos_mac_addresses = 10;
   string bmc_ip_address = 11;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 12;
+  // Static IP reservation for the single wired NVOS port. Only meaningful
+  // when `nvos_mac_addresses` has exactly one entry.
+  optional string nvos_ip_address = 13;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;
@@ -2095,9 +2292,11 @@ message LinkedExpectedSwitch {
 message ExpectedRack {
   // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
   optional common.RackId rack_id = 1;
-  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
-  string rack_type = 2;
+  // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
+  common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
+  // This includes things like chassis and location attributes,
+  // which has some "well known" definitions in api-model::rack.
   Metadata metadata = 3;
 }
 
@@ -2116,6 +2315,7 @@ message IBFabricIdList {
   repeated string ib_fabric_ids = 1;
 }
 
+// Deprecated: use FindNetworkSegmentStateHistories RPC instead
 message NetworkSegmentStateHistory {
   string state = 1;
   string version = 2;
@@ -2143,33 +2343,66 @@ enum NetworkSegmentFlag {
   CAN_STRETCH = 1;
 }
 
+message NetworkSegmentConfig {
+  common.VpcId vpc_id = 1;
+
+  optional common.DomainId subdomain_id = 2;
+  optional int32 mtu = 3;
+
+  NetworkSegmentType segment_type = 4;
+
+  repeated NetworkPrefix prefixes = 5;
+}
+
+message NetworkSegmentStatus {
+  // Derived from can_stretch; not accepted as user input.
+  repeated NetworkSegmentFlag flags = 1;
+
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 2;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 3;
+}
+
 message NetworkSegment {
   common.NetworkSegmentId id = 1;
-  common.VpcId vpc_id = 2;
 
-  string name = 3;
-
-  optional common.DomainId subdomain_id = 4;
-  optional int32 mtu = 5;
-
-  repeated NetworkPrefix prefixes = 6;
-
-  string version = 99;
-  TenantState state = 100;
-  repeated NetworkSegmentStateHistory history = 101;
-  // The result of last state controller run - its outcome and an optional reason for that outcome
-  optional ControllerStateReason state_reason = 102;
-  // The SLA for the current state - and whether the SLA has been breached
-  StateSla state_sla = 103;
-
+  // Deprecated: use config.vpc_id
+  common.VpcId vpc_id = 2 [deprecated = true];
+  // Deprecated: use metadata.name
+  string name = 3 [deprecated = true];
+  // Deprecated: use config.subdomain_id
+  optional common.DomainId subdomain_id = 4 [deprecated = true];
+  // Deprecated: use config.mtu
+  optional int32 mtu = 5 [deprecated = true];
+  // Deprecated: use config.prefixes
+  repeated NetworkPrefix prefixes = 6 [deprecated = true];
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
 
-  NetworkSegmentType segment_type = 14;
-  repeated NetworkSegmentFlag flags = 15;
+  // Deprecated: use config.segment_type
+  NetworkSegmentType segment_type = 14 [deprecated = true];
+  // Deprecated: use status.flags
+  repeated NetworkSegmentFlag flags = 15 [deprecated = true];
+
+  NetworkSegmentConfig config = 16;
+  NetworkSegmentStatus status = 17;
+  Metadata metadata = 18;
+
+  // Deprecated: use status.lifecycle.version
+  string version = 99 [deprecated = true];
+  // Deprecated: use status.tenant_state (coarse) or status.lifecycle.state (full controller state)
+  TenantState state = 100 [deprecated = true];
+  // Deprecated: use FindNetworkSegmentStateHistories RPC
+  repeated NetworkSegmentStateHistory history = 101 [deprecated = true];
+  // Deprecated: use status.lifecycle.state_reason
+  optional ControllerStateReason state_reason = 102 [deprecated = true];
+  // Deprecated: use status.lifecycle.sla
+  StateSla state_sla = 103 [deprecated = true];
 }
 
 message NetworkSegmentCreationRequest {
@@ -2195,6 +2428,10 @@ message NetworkSegmentDeletionRequest {
 }
 
 message NetworkSegmentDeletionResult {
+}
+
+message NetworkSegmentStateHistoriesRequest {
+  repeated common.NetworkSegmentId network_segment_ids = 1;
 }
 
 message NetworkSegmentSearchConfig {
@@ -2338,6 +2575,52 @@ message BatchInstanceAllocationResponse {
   repeated Instance instances = 1;
 }
 
+// Parameter for iPXE template substitution or kernel command line
+// Can be used to replace variables in iPXE templates or add parameters to kernel command line
+// Some are "well known" like 'console', others can be custom defined by users
+message IpxeTemplateParameter {
+  string name = 1;   // Name of the parameter (used as variable in template)
+  string value = 2;  // Value of the parameter
+}
+
+// Artifact cache strategy
+enum IpxeTemplateArtifactCacheStrategy {
+  CACHE_AS_NEEDED = 0;   // Download and cache artifact locally if possible
+  LOCAL_ONLY = 1;        // Artifact URL provided is only usable locally: site specific, no caching applicable.
+  CACHED_ONLY = 2;       // Artifact URL must be cached locally or is unusable
+  REMOTE_ONLY = 3;       // Always fetch from remote URL, never cache locally
+}
+
+// Remote artifact to be cached locally before booting
+// Examples: kernel, initrd, rootfs, qcow-imager.efi, OS image, ...
+message IpxeTemplateArtifact {
+  string name = 1;                          // Name of the artifact (can be used as variable in template)
+  string url = 2;                           // Original URL for the artifact
+  optional string sha = 3;                  // Optional SHA256 checksum for the artifact
+  optional string auth_type = 4;            // Auth type: "None", "Basic", "Bearer"
+  optional string auth_token = 5;           // Optional auth token for the artifact
+  IpxeTemplateArtifactCacheStrategy cache_strategy = 6; // How to handle caching for this artifact
+  optional string cached_url = 7;           // Local cached URL, set by nico-core on successful download. If present overrides 'url' at boot time.
+}
+
+// Scope for iPXE script templates.
+enum IpxeTemplateScope {
+  INTERNAL = 0;  // NICo-core usage only
+  PUBLIC = 1;    // Usable by tenant
+}
+
+// Template management messages
+message IpxeTemplate {
+  string name = 1;
+  string template = 2;
+  repeated string required_params = 3;  // Error if these params are not provided or empty
+  string description = 4;
+  repeated string reserved_params = 5;  // Reserved for nico-core to provide at render time
+  repeated string required_artifacts = 6;  // Error if these artifacts are not provided or empty
+  IpxeTemplateScope scope = 7;  // INTERNAL = nico-core only, PUBLIC = tenant-usable
+  common.IpxeTemplateId id = 8;  // Stable UUID, hardcoded in templates.yaml; consistent across all sites
+}
+
 // Tenant related configuration that is set once the instance is allocated
 // by a tenant
 message TenantConfig {
@@ -2345,7 +2628,7 @@ message TenantConfig {
   string tenant_organization_id = 1;
 
   // These fields have been used for OS configuration in the past.
-  // They are now replaced with the OperatingSystem message.
+  // They are now replaced with the InstanceOperatingSystemConfig message.
   reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
@@ -2355,11 +2638,14 @@ message TenantConfig {
   repeated string tenantKeysetIds = 8; // this may be empty
 }
 
-message OperatingSystem {
+message InstanceOperatingSystemConfig {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     InlineIpxe ipxe = 1;
     common.UUID os_image_id = 2;
+    // Reference any operating system definition by ID (any variant except OS image).
+    // On read the actual variant (iPXE / ipxe_os_definition) is resolved from the row.
+    common.OperatingSystemId operating_system_id = 4;
   }
 
   // If this flag is set to `true` the instance will not transition to a Ready state until
@@ -2394,8 +2680,7 @@ message InlineIpxe {
   string ipxe_script = 1;
   // Optional user-data that is associated with the iPXE script
   // This can be a cloud-init script
-  // Deprecated, use OperatingSystem user_data field
-  optional string user_data = 2;
+  reserved 2; // was: optional string user_data, now use InstanceOperatingSystemConfig user_data
 }
 
 // Desired configuration for an instance
@@ -2407,7 +2692,7 @@ message InstanceConfig {
   TenantConfig tenant = 1;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 2;
+  InstanceOperatingSystemConfig os = 2;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 3;
 
@@ -2430,26 +2715,32 @@ message InstanceConfig {
   // Configures instance nvlink partitions
   InstanceNVLinkConfig nvlink = 24;
 
+  InstanceSpxConfig spxconfig = 25;
 }
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
   // Configures how instance network interfaces are set up.
   // Mutually exclusive with `auto`: when `auto` is true, this
-  // MUST be empty. When `auto` is false, this lists the explicit
+  // MUST be empty, When `auto` is false, this lists the explicit
   // interface configuration the caller wants applied.
   repeated InstanceInterfaceConfig interfaces = 1;
 
   // When true, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
-  // hosts (no DPU, or DPU in NIC mode). When set, `interfaces` MUST be
-  // empty on the request.
+  // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
+  // MUST be empty on the request.
   //
-  // Callers reading the instance back also see `auto = true` with an
-  // empty `interfaces` list (what they sent is preserved verbatim).
-  // The resolved per-interface details surface in
-  // `Instance.status.network.interfaces` instead.
+  // Callers reading the instance back also see `auto = true` with an empty
+  // `interfaces` list (what they sent is preserved verbatim). The
+  // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
+  // in `Instance.status.network.interfaces` instead.
+  //
+  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // current HostInband segments. If nothing has changed, this is a no-op.
+  // If the host's segments have been added/removed by the operator, the
+  // update reflects that change.
   bool auto = 2;
 }
 
@@ -2472,6 +2763,24 @@ message InstanceDpuExtensionServicesConfig {
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
   repeated InstanceNVLinkGpuConfig gpu_configs = 1;
+}
+
+message InstanceSpxConfig {
+  repeated InstanceSpxAttachment spx_attachments = 1;
+}
+
+enum SpxAttachmentType {
+  Physical = 0;
+  Virtual = 1;
+  Ovn = 2; // This is WIP. Specification for this not yet finalized in Astra Spec
+}
+
+message InstanceSpxAttachment {
+  string device = 1;
+  uint32 device_instance = 2;
+  common.SpxPartitionId spx_partition_id = 3;
+  SpxAttachmentType attachment_type = 4;
+  optional uint32 virtual_function_id = 5; // Needed only if AttachmentType is Virtual
 }
 
 // New configuration for the instances network interfaces
@@ -2507,7 +2816,7 @@ message InstanceOperatingSystemUpdateRequest {
   optional string if_version_match = 2;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 3;
+  InstanceOperatingSystemConfig os = 3;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 4;
 }
@@ -2560,15 +2869,37 @@ message InstanceStatus {
   optional InstanceUpdateStatus update = 102;
 
   InstanceNVLinkStatus nvlink = 103;
+
+  InstanceSpxStatus spx_status = 104;
+}
+
+message InstanceSpxStatus {
+  repeated InstanceSpxAttachmentStatus attachment_statuses = 1;
+  SyncState configs_synced = 101;
+}
+
+message InstanceSpxAttachmentStatus {
+  optional string mac_addr = 1;
+  uint32 virtual_function_id = 2;
+  optional string ip_address = 3;
+  SpxAttachmentType attachment_type = 4;
+  common.SpxPartitionId spx_partition_id = 5;
 }
 
 // State of the networking subsystem of an instance
 message InstanceNetworkStatus {
   // Status for each configured interface
   //
-  // Each entry in this status array maps to its corresponding entry in the
-  // Config section. E.g. `instance.status.network.interface_status[1]`
-  // would map to `instance.config.network.interface_configs[1]`.
+  // For non-auto configs: each entry in this status array maps to its
+  // corresponding entry in the Config section. E.g.
+  // `instance.status.network.interfaces[1]` would map to
+  // `instance.config.network.interfaces[1]`.
+  //
+  // For auto configs (`InstanceNetworkConfig.auto = true`): the config-side
+  // `interfaces` is always empty on the wire (it's preserved verbatim from
+  // the request), so this status array stands alone and describes the
+  // interfaces NICo resolved from the host's HostInband segments. There
+  // is no positional relationship to consult on the config side.
   repeated InstanceInterfaceStatus interfaces = 1;
 
   // Whether all desired network changes that the user has applied have taken effect
@@ -2713,7 +3044,8 @@ message InstanceInterfaceConfig {
   oneof network_details {
     common.NetworkSegmentId segment_id = 5;
     // In case of vpc_prefix_id, nico should allocate a network segment
-    // and continue IP allocation.
+    // and continue IP allocation. This field is address-family agnostic —
+    // it can be an IPv4 or IPv6 VPC prefix.
     common.VpcPrefixId vpc_prefix_id = 6;
   }
 
@@ -2742,10 +3074,34 @@ message InstanceInterfaceConfig {
   // for this network interface.
   optional uint32 virtual_function_id = 9;
 
-  // Explicit _host_ IP address requested for the interface.
-  // Only allowed when VPC prefix is used.
-  // Must match VPC prefix defined for the interface.
+  // Explicit _host_ IP address requested for the interface (for vpc_prefix_id).
   optional string ip_address = 10;
+
+  // Optional IPv6 configuration for dual-stack interfaces. When set alongside
+  // vpc_prefix_id (field 6), both prefixes are allocated to a single network segment.
+  optional InstanceInterfaceIpv6Config ipv6_interface_config = 11;
+
+  // Optional per-interface routing profile overrides. API callers can only
+  // narrow prefix-list options that are already allowed by the owning VPC's
+  // routing profile.
+  optional InstanceInterfaceRoutingProfile routing_profile = 12;
+}
+
+// IPv6 configuration for a dual-stack instance interface.
+message InstanceInterfaceIpv6Config {
+  // The IPv6 VPC prefix to allocate from. The primary vpc_prefix_id creates
+  // the segment, and this prefix is added to it.
+  common.VpcPrefixId vpc_prefix_id = 1;
+  // Explicit host IPv6 address requested for this interface.
+  optional string ip_address = 2;
+}
+
+// Routing-profile options API callers may narrow on an instance interface.
+message InstanceInterfaceRoutingProfile {
+  // IP prefixes this interface is allowed to announce as anycast routes.
+  // Every entry must be contained by an allowed_anycast_prefixes entry on the
+  // owning VPC's routing profile.
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -3050,6 +3406,13 @@ message BmcInfo {
   optional string version = 3;
   optional string firmware_version = 4;
   optional uint32 port = 5;
+  optional common.MachineInterfaceId machine_interface_id = 6;
+}
+
+message SwitchNvosInfo {
+  optional string ip = 1;
+  optional string mac = 2;
+  optional uint32 port = 3;
 }
 
 message Machine {
@@ -3112,9 +3475,9 @@ message Machine {
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
 
-  // Informs whether any overrides (identified by a specific source name and mode) are applied
-  // to health
-  repeated HealthOverrideOrigin health_overrides = 29;
+  // Health report sources (identified by a specific source name and mode) that are applied
+  // to the aggregate health of this machine
+  repeated HealthSourceOrigin health_sources = 29;
 
   optional bool firmware_autoupdate = 28;
 
@@ -3152,7 +3515,12 @@ message Machine {
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
 
+  // The rack that this machine is associated with
   optional common.RackId rack_id = 45;
+
+  optional PlacementInRack placement_in_rack = 46;
+
+  optional MachineSpxStatusObservation spx_status_observation = 47;
 }
 
 message InstanceNetworkRestrictions {
@@ -3237,7 +3605,7 @@ message DpuAgentInventoryReport {
   MachineComponentInventory inventory = 2;
 }
 
-// WARNING: This type conflicts with MachineInventory in nico_nico.proto and must be renamed to MachineComponentInventory
+// WARNING: This type conflicts with MachineInventory in inventory.proto and must be renamed to MachineComponentInventory
 message MachineComponentInventory {
   repeated MachineInventorySoftwareComponent components = 1;
 }
@@ -3248,16 +3616,19 @@ message MachineInventorySoftwareComponent {
   string url = 3;
 }
 
-// A health override that is applied to a Host
-message HealthOverrideOrigin {
-  OverrideMode mode = 1;
+// Summary of a health report source: its mode and source identifier.
+message HealthSourceOrigin {
+  HealthReportApplyMode mode = 1;
   string source = 2;
 }
 
-// Result of last state controller iteration
+// Result of last state handler invocation
 message ControllerStateReason {
+  // Return value of last state handler invocation
   ControllerStateOutcome outcome = 1;
+  // Message associated with the return value of the last state handler invocation
   optional string outcome_msg = 2;
+  // Reference to source code where the outcome was generated
   optional ControllerStateSourceReference source_ref = 3;
 }
 
@@ -3326,6 +3697,11 @@ enum InterfaceAssociationType {
   POWERSHELF = 3;
 }
 
+enum InterfaceType {
+  INTERFACE_TYPE_DATA = 0;
+  INTERFACE_TYPE_BMC = 1;
+}
+
 message MachineInterface {
   common.MachineInterfaceId id = 1;
   optional common.MachineId attached_dpu_machine_id = 2;
@@ -3345,11 +3721,12 @@ message MachineInterface {
   google.protobuf.Timestamp created = 11;
   optional google.protobuf.Timestamp last_dhcp = 12;
 
-  optional bool is_bmc = 13;
+  optional bool is_bmc = 13 [deprecated = true];
   optional common.PowerShelfId power_shelf_id = 14;
   optional common.SwitchId switch_id = 15;
 
   optional InterfaceAssociationType association_type = 16;
+  optional InterfaceType interface_type = 17;
 }
 
 // Infiniband interface status description
@@ -3409,6 +3786,11 @@ message DhcpDiscovery {
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;
+  // Optional MAC of the expiring lease. When set, the handler only
+  // deletes the row whose (ip_address, mac) pair matches; Kea will
+  // set both. admin-cli calls may just set ip_address. We could
+  // probably just enforce that both must be set.
+  optional string mac_address = 2;
 }
 
 enum ExpireDhcpLeaseStatus {
@@ -3468,6 +3850,10 @@ message GetBmcCredentialsRequest {
   string mac_addr = 1;
 }
 
+message GetSwitchNvosCredentialsRequest {
+  common.SwitchId switch_id = 1;
+}
+
 message GetBmcCredentialsResponse {
   BmcCredentials credentials = 1;
 }
@@ -3494,6 +3880,11 @@ message ReExploreEndpointRequest {
   // If this is set, it will schedule re-exploration of the endpoint only if the
   // report version number is equivalent to the version in the request
   optional string if_version_match = 2;
+}
+
+message RefreshEndpointReportRequest {
+  // The IP address of the BMC endpoint to probe and refresh
+  string ip_address = 1;
 }
 
 message DeleteExploredEndpointRequest {
@@ -3542,9 +3933,12 @@ message SshRequest {
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
   reserved 2;
-  // Optional host BMC IP; if provided, the host will be power-cycled
-  // before BFB copy to ensure the DPU has rshim control.
-  optional string host_bmc_ip = 3;
+  // Host BMC IP address. Required for the mandatory post-copy host
+  // power-cycle to apply the new BFB.
+  string host_bmc_ip = 3;
+  // When true, the host is also power-cycled *before* the BFB copy
+  // to release rshim control to the DPU BMC.
+  bool pre_copy_powercycle = 4;
 }
 
 message UpdateMachineHardwareInfoRequest {
@@ -3683,6 +4077,7 @@ message ManagedHostNetworkConfigResponse {
 
   // Route imports and tagging details for exports
   // used by FNN configs.
+  // Deprecated: use FlatInterfaceConfig.vpc_routing_profile for per-VPC routing.
   // NOTE: This will replace internet_l3_vni and common_internal_route_target but could allow
   //       common_internal_route_target to be renamed/repurposed as a site-level RT.
   //       to become a site-level common route target.
@@ -3708,6 +4103,10 @@ message ManagedHostNetworkConfigResponse {
   // will still use the dynamically allocated VNI for deriving
   // route-targets.
   optional uint32 site_global_vpc_vni = 117;
+
+  // The password the DPU should use when configuring a
+  // BGP session with the its TOR
+  optional string bgp_leaf_session_password = 118;
 }
 
 message TrafficInterceptConfig {
@@ -3722,26 +4121,26 @@ message TrafficInterceptConfig {
   // Prefixes expected to be publicly routable and used
   // by VMaaS for internet gateways.
   repeated string public_prefixes            = 3;
+
+  // IPv4 or IPv6 aggregate prefixes associated with secondary
+  // VTEPs. These are used only for routing and filtering, not for
+  // allocating IPs. IP allocation is provided by the secondary VTEP
+  // resource pool.
+  repeated string secondary_vtep_aggregate_prefixes = 4;
 }
 
-
 message TrafficInterceptBridging {
+  reserved 2, 4;
+  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
+
   // Prefix to be used for assigning gateway IPs
   // to bridges used for VMaaS routing within the DPU.
   string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the last hop before the PF
-  // on the host.
-  string host_intercept_bridge_name      = 2;
 
   // Name of the bridge acting as the gateway for packets
   // leaving VMaaS pods and destined for the outside.
   // (E.g., internet or pods on other hosts)
   string vf_intercept_bridge_name        = 3;
-
-  // The name of the patch-port on the intercept bridge side
-  // that connects to the host_intercept_bridge.
-  string host_intercept_bridge_port      = 4;
 
   // Name of the patch-port on the intercept bridge side
   // of the vf_intercept_bridge that connects to the HBN pod
@@ -3751,6 +4150,12 @@ message TrafficInterceptBridging {
   // Name of SF used for routing VMaaS VF traffic into
   // the HBN pod.
   string vf_intercept_bridge_sf          = 6;
+
+  // Host-owned PF/VF representor bridging layout keyed by representor name.
+  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
+
+  // Bridge that intercept patch ports attach to during provisioning.
+  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -3894,6 +4299,17 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
+  // IPv6 configuration for dual-stack FNN interfaces.
+  optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
+
+  // Route imports and tagging details for exports used by FNN configs.
+  // This is scoped to the VPC that owns this interface.
+  optional RoutingProfile vpc_routing_profile = 20;
+
+  // Interface-local routing profile details. These narrow the VPC routing
+  // profile for this interface.
+  optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
+
   // The details of the network security group associated with
   // either the instance or its parent VPC.
   // Currently, source would either be INSTANCE or VPC.
@@ -3906,6 +4322,22 @@ message FlatInterfaceConfig {
 
   // A UUID used to associate a network status with an interface config.
   optional common.UUID internal_uuid = 108;
+}
+
+message FlatInterfaceRoutingProfile {
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
+}
+
+// IPv6 configuration for a dual-stack FNN interface, sent from the API to
+// the DPU agent as part of FlatInterfaceConfig.
+message FlatInterfaceIpv6Config {
+  // Host IPv6 address (e.g. "2001:db8::1").
+  string ip = 1;
+  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  string interface_prefix = 2;
+  // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
+  // Only set for L2 segments (can_stretch = true).
+  optional string svi_ip = 3;
 }
 
 message FlatInterfaceNetworkSecurityGroupConfig {
@@ -3966,6 +4398,9 @@ message AdminForceDeleteMachineRequest {
   // Should we delete the BMC credentials? Please note, this will depend on if site explore configured
   // credentials for this machine.
   bool delete_bmc_credentials = 4;
+
+  // Allow force delete of machine with orphaned dpf crds
+  bool allow_delete_with_orphaned_dpf_crds = 5;
 }
 
 // Response to AdminForceDeleteMachine call
@@ -4071,6 +4506,8 @@ message AdminRebootResponse {
 message AdminBmcResetRequest {
   optional BmcEndpointRequest bmc_endpoint_request = 1;
   optional string machine_id = 2;
+  // When true, reset the BMC via ipmitool instead of Redfish.
+  // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
 }
 
@@ -4139,12 +4576,13 @@ message MachineCredentialsUpdateRequest {
 message MachineCredentialsUpdateResponse {
 }
 
-message NICoAgentControlRequest {
+message ForgeAgentControlRequest {
   common.MachineId machine_id = 1;
 }
 
-message NICoAgentControlResponse {
-  enum Action {
+message ForgeAgentControlResponse {
+  // Legacy action enum. New clients will use `action` oneof below.
+  enum LegacyAction {
     NOOP = 0; // No operation. Do nothing
     RESET = 1; // Wipe the machine, prepare for next tenant
     DISCOVERY = 2; // Run full discovery
@@ -4154,10 +4592,12 @@ message NICoAgentControlResponse {
     LOGERROR = 6; // Log error.
     MACHINE_VALIDATION = 7; // Machine validation.
     MLX_ACTION = 8; // MlxAction for DPA NICs
+    FIRMWARE_UPGRADE = 9; // Firmware upgrade through scout
   }
-  Action action = 1;
+  LegacyAction legacy_action = 1;
 
-  message NICoAgentControlExtraInfo {
+  // Legacy untyped action payload. New clients should use typed_action below.
+  message ForgeAgentControlExtraInfo {
     message KeyValuePair {
       string key = 1;
       string value = 2;
@@ -4165,7 +4605,95 @@ message NICoAgentControlResponse {
     repeated KeyValuePair pair = 1;
   }
 
-  optional NICoAgentControlExtraInfo data = 2;
+  optional ForgeAgentControlExtraInfo data = 2;
+
+  message Noop {
+  }
+
+  message Reset {
+  }
+
+  message Discovery {
+  }
+
+  message Rebuild {
+  }
+
+  message Retry {
+  }
+
+  message Measure {
+  }
+
+  message LogError {
+  }
+
+  message MachineValidation {
+    bool is_enabled = 1;
+    string context = 2;
+    common.MachineValidationId validation_id = 3;
+    MachineValidationFilter filter = 4;
+  }
+
+  message MachineValidationFilter {
+    repeated string tags = 1;
+    repeated string allowed_tests = 2;
+    optional bool run_unverfied_tests = 3;
+    optional common.StringList contexts = 4;
+  }
+
+  message MlxAction {
+    repeated MlxDeviceAction device_actions = 1;
+  }
+
+  message MlxDeviceAction {
+    string pci_name = 1;
+
+    oneof command {
+      MlxDeviceNoop noop = 2;
+      MlxDeviceLock lock = 3;
+      MlxDeviceUnlock unlock = 4;
+      MlxDeviceApplyProfile apply_profile = 5;
+      MlxDeviceApplyFirmware apply_firmware = 6;
+    }
+  }
+
+  message MlxDeviceNoop {
+  }
+
+  message MlxDeviceLock {
+    string key = 1;
+  }
+
+  message MlxDeviceUnlock {
+    string key = 1;
+  }
+
+  message MlxDeviceApplyProfile {
+    optional mlx_device.SerializableMlxConfigProfile serialized_profile = 1;
+  }
+
+  message MlxDeviceApplyFirmware {
+    optional mlx_device.FirmwareFlasherProfile profile = 1;
+  }
+
+  message FirmwareUpgrade {
+    scout_firmware_upgrade.ScoutFirmwareUpgradeTask task = 1;
+  }
+
+
+  oneof action {
+    Noop noop = 3;
+    Reset reset = 4;
+    Discovery discovery = 5;
+    Rebuild rebuild = 6;
+    Retry retry = 7;
+    Measure measure = 8;
+    LogError log_error = 9;
+    MachineValidation machine_validation = 10;
+    MlxAction mlx_action = 11;
+    FirmwareUpgrade firmware_upgrade = 12;
+  }
 }
 
 message MachineDiscoveryInfo {
@@ -4201,7 +4729,9 @@ message MachineCleanupInfo {
   // EFI variable MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829 must be set to 1
   CleanupStepResult mem_overwrite = 4;
   // Reset IB devices
-  CleanupStepResult ib = 5;
+  CleanupStepResult ib  = 5;
+  // HDD/SSD block device cleanup result
+  CleanupStepResult hdd = 6;
 
   CleanupResult result = 11;
 }
@@ -4237,7 +4767,7 @@ message MachineCleanupResult {
   // This is returned to the discovery client from the API. Lets try not to put much in here unless we need it.
 }
 
-message NICoScoutErrorReport {
+message ForgeScoutErrorReport {
   // Machine that encountered the error
   // This might be null if the MachineId could not be resolved
   common.MachineId machine_id = 1;
@@ -4247,17 +4777,32 @@ message NICoScoutErrorReport {
   string error = 3;
 }
 
-message NICoScoutErrorReportResult {
+message ForgeScoutErrorReportResult {
 }
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  common.MachineInterfaceId interface_id = 2;
+  // DEPRECATED: interface_id is no longer read by nico-core-api. The
+  // booting machine is now identified via client_ip (see below).
+  // We could potentially just drop this entirely and mark it as
+  // "reserved 2" in the future or similar.
+  common.MachineInterfaceId interface_id = 2 [deprecated = true];
   optional string product = 3;
+  // client_ip is the IP nico-pxe observed for the booting machine
+  // -- read from X-Forwarded-For when nico-pxe is fronted by a
+  // proxy, or the TCP socket peer when reached directly.
+  optional string client_ip = 4;
 }
 
 message PxeInstructions {
   string pxe_script = 1;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, nico-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 2;
+  optional string pxe_url_override = 3;
+  optional string static_pxe_url_override = 4;
 }
 
 message CloudInitDiscoveryInstructions {
@@ -4266,18 +4811,31 @@ message CloudInitDiscoveryInstructions {
   optional string hbn_reps = 3;
   optional string hbn_sfs = 4;
   optional string vf_intercept_bridge_name = 5;
-  optional string host_intercept_bridge_name = 6;
+
+  reserved 6;
+  reserved "host_intercept_bridge_name";
+
   // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
   // This will be the side owned by the <vf_intercept_bridge_name> bridge
   optional string vf_intercept_bridge_port   = 7;
 
-  // The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <host_intercept_bridge_name> bridge.
-  optional string host_intercept_bridge_port = 8;
+  reserved 8;
+  reserved "host_intercept_bridge_port";
 
   // The representor that will plug into the HBN container to connect it to br-hbn
   // to open connectivity between all the VFs.
   optional string vf_intercept_bridge_sf = 9;
+
+  // Number of VFs to configure per DPU PF during BlueField provisioning.
+  // If absent, nico-pxe uses the legacy default of 16 for rolling upgrades.
+  optional uint32 num_of_vfs = 10;
+
+  // The layout for any desired additional bridging between
+  // host PF/VFs and HBN.
+  optional string host_representor_intercept_bridging = 11;
+
+  // Bridge that intercept patch ports attach to during BlueField provisioning.
+  optional string hbn_bridge = 12;
 }
 
 message CloudInitMetaData {
@@ -4294,6 +4852,12 @@ message CloudInitInstructions {
   optional string custom_cloud_init = 1;
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
   optional CloudInitMetaData metadata = 3;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, nico-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 4;
+  optional string pxe_url_override = 5;
 }
 
 // Specifies whether a network interface is physical network function (PF)
@@ -4359,7 +4923,7 @@ message OptionalHealthReport {
   optional health.HealthReport report = 1;
 }
 
-enum OverrideMode {
+enum HealthReportApplyMode {
   // Keep the existing health reports, and merge them with this health report.
   // If 2 reports report the same failures based on `id`s on `target`s
   // - the classifications of both alerts will be merged
@@ -4370,41 +4934,92 @@ enum OverrideMode {
   Replace = 1;
 }
 
-message HealthReportOverride {
+message HealthReportEntry {
   health.HealthReport report = 1;
-  OverrideMode mode = 2;
+  HealthReportApplyMode mode = 2;
 }
 
-message InsertHealthReportOverrideRequest {
+// Request to insert a health report source for a Host or DPU Machine.
+message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
-// Request to insert a health report override for a Rack.
-// Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
-message InsertRackHealthReportOverrideRequest {
+// Request to insert a health report source for a Rack.
+message InsertRackHealthReportRequest {
   common.RackId rack_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
-// Request to remove a health report override for a Rack.
-// Same as RemoveHealthReportOverrideRequest but with rack_id instead of machine_id.
-message RemoveRackHealthReportOverrideRequest {
+// Request to remove a health report source for a Rack.
+message RemoveRackHealthReportRequest {
   common.RackId rack_id = 1;
   string source = 2;
 }
 
-// Request to list health report overrides for a Rack.
-message ListRackHealthReportOverridesRequest {
+// Request to list health report sources for a Rack.
+message ListRackHealthReportsRequest {
   optional common.RackId rack_id = 1;
 }
 
-message ListHealthReportOverrideResponse {
-  repeated HealthReportOverride overrides = 1;
+// Request to insert a health report source for a Switch.
+message InsertSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  HealthReportEntry health_report_entry = 2;
 }
 
-message RemoveHealthReportOverrideRequest {
+// Request to remove a health report source for a Switch.
+message RemoveSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Switch.
+message ListSwitchHealthReportsRequest {
+  optional common.SwitchId switch_id = 1;
+}
+
+// Request to insert a health report source for a Power Shelf.
+message InsertPowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a Power Shelf.
+message RemovePowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Power Shelf.
+message ListPowerShelfHealthReportsRequest {
+  optional common.PowerShelfId power_shelf_id = 1;
+}
+
+message ListHealthReportResponse {
+  repeated HealthReportEntry health_report_entries = 1;
+}
+
+// Request to remove a health report source from a host or DPU Machine.
+message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a NVLink domain.
+message ListNVLinkDomainHealthReportsRequest {
+  optional common.NVLinkDomainId domain_id = 1;
+}
+
+// Request to insert a health report source for a NVLink domain.
+message InsertNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a NVLink domain.
+message RemoveNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
   string source = 2;
 }
 
@@ -4670,6 +5285,7 @@ enum ConfigSetting {
   CREATE_MACHINES = 1;
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
+  SITE_EXPLORER_ENABLED = 4;
 }
 
 message FindIpAddressRequest {
@@ -4699,6 +5315,13 @@ enum UuidType {
   UuidTypeDomain = 4;
   UuidTypeDpaInterfaceId = 5;
   UuidTypeComputeAllocationId = 6;
+}
+
+message FindBmcIpsRequest {
+  oneof lookup_by {
+    string mac_address = 1;
+    string serial = 2;
+  }
 }
 
 message IdentifyMacRequest {
@@ -4837,6 +5460,12 @@ enum IpType {
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
   IpTypeDpaInterface = 11;
+  // IpTypeStaticBmcIp are BMC IPs that were statically assigned via
+  // ExpectedMachine.bmc_ip_address, ExpectedPowerShelf.bmc_ip_address,
+  // ExpectedSwitch.bmc_ip_address, or operator static assignment
+  // (AllocationType::Static / static-assignments segment), as opposed to
+  // a normal DHCP allocation.
+  IpTypeStaticBmcIp = 12;
 }
 
 message MachineBootOverride {
@@ -5023,6 +5652,19 @@ message DeleteOsImageRequest {
 message DeleteOsImageResponse {
 }
 
+// Request/Response messages for iPXE Script Template management
+message GetIpxeTemplateRequest {
+  common.IpxeTemplateId id = 1;  // Stable template UUID
+}
+
+message ListIpxeTemplatesRequest {
+  // Empty for now
+}
+
+message IpxeTemplateList {
+  repeated IpxeTemplate templates = 1;
+}
+
 
 message ExpectedHostNic {
   string mac_address = 1;
@@ -5030,6 +5672,45 @@ message ExpectedHostNic {
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
   optional string fixed_gateway = 5;
+  // When true, this flags the given NIC as the host's primary (boot)
+  // interface (used in cases of zero DPU).
+  //
+  // Up to one NIC per ExpectedMachine may be marked primary, if set at
+  // all. Propagates to `machine_interfaces.primary_interface` during DHCP
+  // when this NIC is first discovered.
+  //
+  // Some day this could be even possibly used to say "this dumb NIC
+  // *is* the primary interface, even though I know I have a DPU."
+  optional bool primary = 6;
+}
+
+// Per-host DPU operating mode. Lets site operators mix DPU-mode,
+// NIC-mode, and no-DPU hosts within a single site.
+//
+// - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
+//   overlay networking, etc).
+// - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
+//   explorer reconfigures them to NIC mode if needed; the host is then
+//   tracked as if it had no DPUs.
+// - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
+//
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default,"
+// which comes from `[site_explorer] dpu_mode` (and falls back to
+// DPU_MODE when that's unset).
+enum DpuMode {
+  DPU_MODE_UNSPECIFIED = 0;
+  DPU_MODE = 1;
+  NIC_MODE = 2;
+  NO_DPU = 3;
+}
+
+// Per-host lifecycle profile for settings that affect state-machine progression.
+// When the outer field is unset on ExpectedMachine, the server preserves the
+// existing DB value (patch semantics).
+message HostLifecycleProfile {
+  // If true, do not lock down the server as part of host lifecycle management. If unset or false, preserve
+  // the default behavior of locking down the server after configuring the BIOS.
+  optional bool disable_lockdown = 1;
 }
 
 message ExpectedMachine {
@@ -5052,6 +5733,16 @@ message ExpectedMachine {
   // Static BMC IP (optional). Pre-allocates a machine_interface like expected
   // switches and power shelves; external IPs use the static-assignments segment.
   optional string bmc_ip_address = 14;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 15;
+  // Per-host DPU operating mode. See `DpuMode` above. Unset means "use
+  // the site-wide `[site_explorer] dpu_mode` default" (which itself
+  // defaults to DPU_MODE when unset).
+  optional DpuMode dpu_mode = 16;
+  // Per-host lifecycle profile. When unset in a patch/update request, the
+  // existing DB value is preserved via COALESCE.
+  optional HostLifecycleProfile host_lifecycle_profile = 17;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;
@@ -5088,6 +5779,16 @@ message LinkedExpectedMachine {
   optional common.UUID expected_machine_id = 6;
 }
 
+message UnexpectedMachineList {
+  repeated UnexpectedMachine unexpected_machines = 1;
+}
+
+message UnexpectedMachine {
+  string address = 1;
+  string bmc_mac_address = 2;
+  optional common.MachineId machine_id = 3;
+}
+
 message BatchExpectedMachineOperationRequest {
   // The list of expected machines to create or update
   ExpectedMachineList expected_machines = 1;
@@ -5117,6 +5818,17 @@ message MachineRebootCompletedResponse {
 message MachineRebootCompletedRequest {
   common.MachineId machine_id = 1;
 }
+
+message ScoutFirmwareUpgradeStatusRequest {
+  common.MachineId machine_id = 1;
+  bool success = 2;
+  int32 exit_code = 3;
+  string stdout = 4;
+  string stderr = 5;
+  string error = 6;
+  string upgrade_task_id = 7;
+}
+
 // enum MachineValidationState {
 //     Started = 0;
 //     InProgress = 1;
@@ -5128,7 +5840,7 @@ message MachineRebootCompletedRequest {
 message MachineValidationCompletedRequest {
   common.MachineId machine_id = 1;
   optional string machine_validation_error = 2;
-  common.UUID validation_id = 3;
+  common.MachineValidationId validation_id = 3;
 }
 
 message MachineValidationCompletedResponse {
@@ -5145,7 +5857,7 @@ message MachineValidationResult {
   int32 exit_code = 8;
   google.protobuf.Timestamp start_time = 10;
   google.protobuf.Timestamp end_time = 11;
-  common.UUID validation_id = 12;
+  common.MachineValidationId validation_id = 12;
   optional string test_id = 13;
 }
 
@@ -5160,20 +5872,20 @@ message MachineValidationResultList {
 message MachineValidationGetRequest {
   optional common.MachineId machine_id = 1;
   bool include_history = 2;
-  optional common.UUID validation_id = 3;
+  optional common.MachineValidationId validation_id = 3;
 }
 
-// WARNING: Site proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
 enum MachineValidationStarted {
   Started = 0;
 }
 
-// WARNING: Site proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
 enum MachineValidationInProgress {
   InProgress = 0;
 }
 
-// WARNING: Site proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
 enum MachineValidationCompleted {
   Success = 0;
   Failed = 1;
@@ -5181,6 +5893,9 @@ enum MachineValidationCompleted {
 }
 
 message MachineValidationStatus {
+
+
+
 
   oneof MachineValidationState {
     MachineValidationStarted started = 1;
@@ -5192,7 +5907,7 @@ message MachineValidationStatus {
   uint32 completed_tests = 5;
 }
 message MachineValidationRun {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   common.MachineId machine_id = 2;
   google.protobuf.Timestamp start_time = 3;
   google.protobuf.Timestamp end_time = 4;
@@ -5261,7 +5976,75 @@ message MachineValidationOnDemandRequest {
 }
 
 message MachineValidationOnDemandResponse {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
+}
+
+message FirmwareUpgradeActivity {
+  // SOT JSON string passed to the backend.
+  // Explicit firmware-upgrade maintenance requests must set this and access_token.
+  // Implicit all-activity maintenance skips firmware update when no JSON is configured.
+  string firmware_version = 1;
+  // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
+  // When empty, all components are updated.
+  repeated string components = 2;
+  // Used only by the backend for artifact download when firmware_version contains SOT JSON.
+  // NICo stores it as a maintenance credential, not in rack maintenance state.
+  optional string access_token = 3;
+  bool force_update = 4;
+}
+
+message NvosUpdateActivity {
+  reserved 1;
+  reserved "firmware_object_id";
+  // SOT JSON string passed to RMS ApplySwitchSystemImageFromJSON.
+  // Required for nvos-update activity.
+  string config_json = 2;
+  // Used only by the backend for artifact download when config_json is set.
+  // NICo stores it as a maintenance credential, not in rack maintenance state.
+  optional string access_token = 3;
+}
+
+message ConfigureNmxClusterActivity {
+  // Per-activity configuration (extend as needed).
+}
+
+message PowerSequenceActivity {
+  // Per-activity configuration (extend as needed).
+}
+
+// A single maintenance activity with its per-activity configuration.
+// The oneof discriminant identifies the activity type.
+message MaintenanceActivityConfig {
+  oneof activity {
+    FirmwareUpgradeActivity firmware_upgrade = 1;
+    ConfigureNmxClusterActivity configure_nmx_cluster = 2;
+    PowerSequenceActivity power_sequence = 3;
+    NvosUpdateActivity nvos_update = 4;
+  }
+}
+
+// Scope of an on-demand rack maintenance request: which devices to include
+// and which activities to run. When all three device-id lists are empty the
+// full rack is maintained. When the activities list is empty all activities
+// are run.
+message RackMaintenanceScope {
+  repeated string machine_ids = 1;
+  repeated string switch_ids = 2;
+  repeated string power_shelf_ids = 3;
+  // Which maintenance activities to run. Empty means all activities.
+  repeated MaintenanceActivityConfig activities = 4;
+}
+
+// On-demand rack maintenance – supports full-rack or partial (subset of
+// machines, switches, power shelves).  When `scope` is unset, or all of its
+// device-id lists are empty, the full rack is maintained.
+message RackMaintenanceOnDemandRequest {
+  common.RackId rack_id = 1;
+  RackMaintenanceScope scope = 2;
+}
+
+message RackMaintenanceOnDemandResponse {
+  // RackMaintenanceOnDemandResponse
 }
 
 message AdminPowerControlRequest {
@@ -5436,7 +6219,7 @@ message MachineValidationTestEnableDisableTestResponse {
 }
 
 message MachineValidationRunRequest {
-  common.UUID validation_id = 1;
+  common.MachineValidationId validation_id = 1;
   google.protobuf.Duration duration_to_complete = 2;
   uint32 total = 3;
 }
@@ -6098,12 +6881,13 @@ message DpaInterface {
   string controller_state = 7;
   string controller_state_version = 8;
   string controller_state_outcome = 9;
-  string network_status_observation = 10;
+
+  reserved 10;
 
   string network_config = 11;
   string network_config_version = 12;
 
-  repeated DpaInterfaceStateHistoryRecord history = 13;
+  repeated StateHistoryRecord history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
 
@@ -6123,6 +6907,8 @@ message DpaInterface {
   // back to its default values before allocating to the
   // next tenant.
   optional string mlxconfig_profile = 19;
+
+  optional string device_description = 20;
 }
 
 
@@ -6131,6 +6917,7 @@ message DpaInterfaceCreationRequest {
   string mac_addr = 2;
   string device_type = 3;
   string pci_name = 4;
+  optional string device_description = 5;
 }
 
 message DpaInterfaceIdList {
@@ -6144,12 +6931,6 @@ message DpaInterfacesByIdsRequest {
 
 message DpaInterfaceList {
   repeated DpaInterface interfaces = 1;
-}
-
-message DpaInterfaceStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
 }
 
 message DpaNetworkObservationSetRequest {
@@ -6321,6 +7102,8 @@ message RackList {
 }
 
 message RackSearchFilter {
+  // Supports filtering on key, value, or key and value.
+  optional Label label = 1;
 }
 
 message RackIdList {
@@ -6333,46 +7116,120 @@ message RacksByIdsRequest {
 
 message Rack {
   common.RackId id = 1;
+  // deprecated: Use status.lifecycle field
   string rack_state = 2;
-  repeated string expected_compute_trays = 3;
-  repeated string expected_power_shelves = 4;
-  repeated string expected_nvlink_switches = 5;
-  repeated common.MachineId compute_trays = 6;
-  repeated common.PowerShelfId power_shelves = 7;
-  repeated common.SwitchId switches = 8;
+
+  // Removed fields that can be derived from other API calls.
+  reserved 3, 4, 5, 6, 7, 8;
+  reserved "expected_compute_trays", "expected_power_shelves",
+    "expected_nvlink_switches", "compute_trays",
+    "power_shelves", "switches";
+
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
-  health.HealthReport health = 12;
-  repeated HealthOverrideOrigin health_overrides = 13;
+  reserved 12, 13;
   Metadata metadata = 14;
   string version = 15;
+  RackConfig config = 16;
+  RackStatus status = 17;
 }
 
-message RackStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
+message RackConfig {
+
+}
+
+message RackStatus {
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
 }
 
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
 }
 
-message RackStateHistories {
-  map<string, RackStateHistoryRecords> histories = 1;
-}
-
-message RackStateHistoryRecords {
-  repeated RackStateHistoryRecord records = 1;
-}
-
 message DeleteRackRequest {
   string id = 1;
 }
 
+// Force deletes a Rack from the database.
+message AdminForceDeleteRackRequest {
+  // The Rack ID to force delete.
+  common.RackId rack_id = 1;
+}
+
+message AdminForceDeleteRackResponse {
+  // The ID of the rack that was deleted.
+  string rack_id = 1;
+}
+
+// Rack Capabilities
+
+
+enum RackHardwareTopology {
+  RACK_HARDWARE_TOPOLOGY_UNSPECIFIED = 0;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL36R1_C2G4 = 1;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL36R1_C2G4 = 2;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL72R1_C2G4 = 3;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL72R1_C2G4 = 4;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL8R1_C2G4_RTF = 5;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
+}
+
+enum RackHardwareClass {
+  RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
+  RACK_HARDWARE_CLASS_DEV = 1;
+  RACK_HARDWARE_CLASS_PROD = 2;
+}
+
+message RackCapabilityCompute {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitySwitch {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilityPowerShelf {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitiesSet {
+  RackCapabilityCompute compute = 1;
+  RackCapabilitySwitch switch = 2;
+  RackCapabilityPowerShelf power_shelf = 3;
+}
+
+message RackProfile {
+  common.RackHardwareType rack_hardware_type = 1;
+  RackHardwareTopology rack_hardware_topology = 2;
+  RackHardwareClass rack_hardware_class = 3;
+  RackCapabilitiesSet capabilities = 4;
+}
+
+message GetRackProfileRequest {
+  common.RackId rack_id = 1;
+}
+
+message GetRackProfileResponse {
+  common.RackId rack_id = 1;
+  common.RackProfileId rack_profile_id = 2;
+  RackProfile profile = 3;
+}
+
 // put some sample rack manager commands in for now
-enum RackManagerNICoCmd {
+enum RackManagerForgeCmd {
   InventoryGet = 0;
   RemoveNode = 1;
   GetPoweronOrder = 2;
@@ -6383,17 +7240,18 @@ enum RackManagerNICoCmd {
   CheckBkcCompliance = 7;
 }
 
-message RackManagerNICoRequest {
-  RackManagerNICoCmd cmd = 1;
+message RackManagerForgeRequest {
+  RackManagerForgeCmd cmd = 1;
   optional string node_id = 2;
 }
 
-message RackManagerNICoResponse {
+message RackManagerForgeResponse {
   optional string json_result = 1;
 }
 message MachineNVLinkInfo {
   common.NVLinkDomainId domain_uuid = 1;
   repeated NVLinkGpu gpus = 2;
+  string chassis_serial = 3;
 }
 
 message UpdateMachineNvLinkInfoRequest {
@@ -6401,8 +7259,22 @@ message UpdateMachineNvLinkInfoRequest {
   MachineNVLinkInfo nvlink_info = 2;
 }
 
+message MachineSpxStatusObservation {
+  repeated MachineSpxAttachmentStatusObservation attachment_status = 1;
+  optional google.protobuf.Timestamp observed_at = 2;
+}
+
+message MachineSpxAttachmentStatusObservation {
+  string mac_address = 1;
+  optional common.SpxPartitionId partition_id = 2;
+  optional SpxAttachmentType attachment_type = 3;
+  optional uint32 virtual_function_id = 4;
+  optional google.protobuf.Timestamp observed_at = 5;
+}
+
 message NVLinkGpu {
-  string nmx_m_id = 1;
+  reserved 1;
+  reserved "nmx_m_id";
   int32 tray_index = 2;
   int32 slot_id = 3;
   int32 device_id = 4;
@@ -6422,11 +7294,25 @@ message MachineNVLinkGpuStatusObservation {
   uint64 guid = 6;
 }
 
-message NmxmBrowseRequest {
-  string path = 1;
+enum NmxcBrowseOperation {
+  NMXC_BROWSE_OPERATION_UNSPECIFIED = 0;
+  NMXC_BROWSE_OPERATION_COMPUTE_NODE_INFO_LIST = 1;
+  NMXC_BROWSE_OPERATION_GPU_INFO = 2;
+  // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
+  NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
 }
 
-message NmxmBrowseResponse {
+message NmxcBrowseRequest {
+  reserved 1;
+  reserved "path";
+  // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  string chassis_serial = 2;
+  NmxcBrowseOperation operation = 3;
+  // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
+  uint64 gpu_uid = 4;
+}
+
+message NmxcBrowseResponse {
   // Response body
   string body = 1;
   // Response status code
@@ -6598,6 +7484,19 @@ message TrimTableRequest{
 
 message TrimTableResponse{
   string total_deleted = 1;
+}
+
+message NvlinkNmxcEndpoint {
+  string chassis_serial = 1;
+  string endpoint = 2;
+}
+
+message NvlinkNmxcEndpointList {
+  repeated NvlinkNmxcEndpoint entries = 1;
+}
+
+message DeleteNvlinkNmxcEndpointRequest {
+  string chassis_serial = 1;
 }
 
 // begin DPU remediation models
@@ -7028,17 +7927,35 @@ enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
 }
 
+// Entries used for prefix-list policies on the DPUS.
+// Default behavior is max-len lte 32
+// We can change that with additional fields on this struct
+// if necessary in the future.
+message PrefixFilterPolicyEntry {
+  string prefix = 1;
+}
 
 message RoutingProfile {
-  repeated common.RouteTarget route_target_imports     = 1;
-  repeated common.RouteTarget route_targets_on_exports = 2;
-  bool leak_default_route_from_underlay                = 3;
-  bool leak_tenant_host_routes_to_underlay             = 4;
+  repeated common.RouteTarget route_target_imports             = 1;
+  repeated common.RouteTarget route_targets_on_exports         = 2;
+  bool leak_default_route_from_underlay                        = 3;
+  bool leak_tenant_host_routes_to_underlay                     = 4;
 
   // Are route-leak communities sent by the host OS honored by the DPU for allowing
   // routes advertised by the host OS to be leaked into the underlay?
-  bool tenant_leak_communities_accepted                = 5;
+  bool tenant_leak_communities_accepted                        = 5;
 
+  // An explicit/granular list of prefixes that should
+  // be allowed to leak from the default VRF into the tenant
+  // VRF.
+  //
+  // These are purely for routing purposes and will not have any
+  // impact on ACLs.
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
+
+  // IP prefixes that tenant hosts are allowed to announce to the DPU as
+  // anycast routes. Accepts IPv4 and IPv6 CIDR prefixes.
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 7;
 }
 
 // ============================================================================
@@ -7107,109 +8024,6 @@ message MachinePositionInfo {
   optional common.PowerShelfId power_shelf_id = 7;
 }
 
-// Rack Firmware Management Messages
-
-message RackFirmware {
-  string id = 1;
-  string config_json = 2;
-  bool available = 3;
-  string created = 4;
-  string updated = 5;
-  string parsed_components = 6; // JSON string of firmware lookup table
-}
-
-message FirmwareComponentInfo {
-  string device_type = 1;
-  string component = 2;
-  string bundle = 3;
-  string filename = 4;
-  string target = 5;
-  string firmware_type = 6; // "prod" or "dev"
-}
-
-message RackFirmwareCreateRequest {
-  string config_json = 1;
-  string artifactory_token = 2;
-}
-
-message RackFirmwareGetRequest {
-  string id = 1;
-}
-
-message RackFirmwareListRequest {
-  bool only_available = 1;
-}
-
-message RackFirmwareList {
-  repeated RackFirmware configs = 1;
-}
-
-message RackFirmwareDeleteRequest {
-  string id = 1;
-}
-
-message RackFirmwareApplyRequest {
-  common.RackId rack_id = 1;
-  string firmware_id = 2;
-  string firmware_type = 3; // "dev" or "prod"
-}
-
-message RackFirmwareApplyResponse {
-  int32 total_updates = 1;
-  int32 successful_updates = 2;
-  int32 failed_updates = 3;
-  repeated DeviceUpdateResult device_results = 4;
-}
-
-message DeviceUpdateResult {
-  string device_id = 1;
-  string device_type = 2;
-  bool success = 3;
-  string message = 4;
-  string job_id = 5; // Parent job ID for async firmware updates (use with RMS GetFirmwareJobStatus)
-  repeated NodeJobInfo node_jobs = 6; // Per-node job IDs for tracking individual node progress
-}
-
-message NodeJobInfo {
-  string node_id = 1;
-  string job_id = 2;
-}
-
-message RackFirmwareJobStatusRequest {
-  string job_id = 1;
-}
-
-message RackFirmwareJobStatusResponse {
-  string job_id = 1;
-  string state = 2; // QUEUED, RUNNING, COMPLETED, FAILED
-  string state_description = 3; // Human-readable description
-  string rack_id = 4;
-  string node_id = 5;
-  string error_message = 6; // Populated if state is FAILED
-  string result_json = 7; // Detailed result data on completion
-}
-
-message RackFirmwareHistoryRequest {
-  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
-  repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
-}
-
-message RackFirmwareHistoryResponse {
-  map<string, RackFirmwareHistoryRecords> histories = 1; // Keyed by rack ID
-}
-
-message RackFirmwareHistoryRecords {
-  repeated RackFirmwareHistoryRecord records = 1;
-}
-
-message RackFirmwareHistoryRecord {
-  string firmware_id = 1;
-  string rack_id = 2;
-  string firmware_type = 3;
-  string applied_at = 4;
-  bool firmware_available = 5; // Whether the firmware ID still exists and is available
-}
-
 message ModifyDPFStateRequest {
   common.MachineId machine_id = 1;
   bool dpf_enabled = 2;
@@ -7226,6 +8040,44 @@ message DPFStateResponse {
 
 message GetDPFStateRequest {
   repeated common.MachineId machine_ids = 1;
+}
+
+// --- DPF host snapshot ---
+
+message GetDPFHostSnapshotRequest {
+  common.MachineId host_machine_id = 1;
+}
+
+// Returns the snapshot as a JSON string. The server-side curates the field
+// set; the CLI just pretty-prints. Keeps the wire format stable while letting
+// the SDK evolve its summary types.
+message DPFHostSnapshotResponse {
+  string json_payload = 1;
+}
+
+// --- DPF service versions ---
+
+message GetDPFServiceVersionsRequest {
+}
+
+message DPFServiceVersion {
+  // Service name (e.g. "dts", "doca-hbn", "nico-dpu-agent").
+  string service = 1;
+  // Helm chart version from the nico config.
+  string config_helm_version = 2;
+  // Docker image tag from the nico config.
+  string config_docker_image_tag = 3;
+  // Helm chart version observed on a live DPUServiceTemplate CR, if a
+  // matching one exists. Empty if no template was found.
+  string live_helm_version = 4;
+  // Docker image tag observed on a live DPUServiceTemplate CR
+  // (helm_values.image.tag). Empty if no template was found or the
+  // template doesn't pin an image tag (e.g. dts uses the chart default).
+  string live_docker_image_tag = 5;
+}
+
+message DPFServiceVersionsResponse {
+  repeated DPFServiceVersion services = 1;
 }
 
 // ============================================================================
@@ -7283,6 +8135,9 @@ message ComponentPowerControlRequest {
     PowerShelfIdList power_shelf_ids = 3;
   }
   common.SystemPowerControl action = 4;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  bool bypass_state_controller = 5;
 }
 
 message ComponentPowerControlResponse {
@@ -7326,6 +8181,14 @@ enum ComputeTrayComponent {
   COMPUTE_TRAY_COMPONENT_UNKNOWN = 0;
   COMPUTE_TRAY_COMPONENT_BMC = 1;
   COMPUTE_TRAY_COMPONENT_BIOS = 2;
+  COMPUTE_TRAY_COMPONENT_CEC = 3;
+  COMPUTE_TRAY_COMPONENT_NIC = 4;
+  COMPUTE_TRAY_COMPONENT_CPLD_MB = 5;
+  COMPUTE_TRAY_COMPONENT_CPLD_PDB = 6;
+  COMPUTE_TRAY_COMPONENT_HGX_BMC = 7;
+  COMPUTE_TRAY_COMPONENT_COMBINED_BMC_UEFI = 8;
+  COMPUTE_TRAY_COMPONENT_GPU = 9;
+  COMPUTE_TRAY_COMPONENT_CX7 = 10;
 }
 
 message UpdateComputeTrayFirmwareTarget {
@@ -7343,13 +8206,33 @@ message UpdatePowerShelfFirmwareTarget {
   repeated PowerShelfComponent components = 2;
 }
 
+// Whole-rack firmware update target. All eligible compute and switch devices
+// in each listed rack are updated.
+message UpdateFirmwareObjectTarget {
+  RackIdList rack_ids = 1;
+}
+
 message UpdateComponentFirmwareRequest {
   oneof target {
     UpdateComputeTrayFirmwareTarget compute_trays = 1;
     UpdateSwitchFirmwareTarget switches = 2;
+    // powershelf firmware update currently not implemented by state machine and backend
     UpdatePowerShelfFirmwareTarget power_shelves = 3;
+    UpdateFirmwareObjectTarget racks = 5;
   }
+
+  // Target firmware version for direct component-manager dispatch.
+  // For targets routed through rack maintenance, this carries SOT JSON for
+  // the backend firmware apply path.
   string target_version = 4;
+  // Required for firmware targets routed through rack maintenance.
+  // Rejected for direct dispatch paths and currently unsupported for power shelves.
+  optional string access_token = 6;
+  bool force_update = 7;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  // Not supported for rack-level firmware updates.
+  bool bypass_state_controller = 8;
 }
 
 message UpdateComponentFirmwareResponse {
@@ -7361,6 +8244,7 @@ message GetComponentFirmwareStatusRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    RackIdList rack_ids = 4;
   }
 }
 
@@ -7373,16 +8257,67 @@ message ListComponentFirmwareVersionsRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    RackIdList rack_ids = 4;
   }
+}
+
+// Per-component firmware versions for a compute tray. Since compute trays
+// don't use bundles, each component (BMC, BIOS, etc.) has its own set of
+// available firmware versions.
+message ComputeTrayFirmwareVersions {
+  ComputeTrayComponent component = 1;
+  repeated string versions = 2;
 }
 
 message DeviceFirmwareVersions {
   ComponentResult result = 1;
+  // Firmware Bundle IDs for switches, powershelves, and racks.
   repeated string versions = 2;
+  // Per-component firmware versions for compute trays.
+  repeated ComputeTrayFirmwareVersions compute_fw_versions = 3;
 }
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+message SpxPartitionCreationRequest {
+  Metadata metadata = 1;
+  optional common.SpxPartitionId id = 2;
+  optional uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartition {
+  Metadata metadata = 1;
+  common.SpxPartitionId id = 2;
+  uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartitionIdList {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
+}
+
+message SpxPartitionDeletionRequest {
+  common.SpxPartitionId id = 1;
+}
+
+message SpxPartitionDeletionResult {
+}
+
+message SpxPartitionSearchFilter {
+  optional string name = 1;
+  optional string tenant_org_id = 2;
+  optional Label label = 3;
+}
+
+message SpxPartitionList {
+  repeated SpxPartition spx_partitions = 1;
+}
+
+message SpxPartitionsByIdsRequest {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
 }
 
 // Force deletes a Switch and optionally its associated interfaces.
@@ -7413,4 +8348,131 @@ message AdminForceDeletePowerShelfResponse {
   string power_shelf_id = 1;
   // Number of interfaces deleted.
   uint32 interfaces_deleted = 2;
+}
+
+// --- Operating System library messages ---
+
+// Operating system definition (CRUD resource, table operating_systems).
+// Type of Operating System variant
+enum OperatingSystemType {
+  OS_TYPE_UNSPECIFIED = 0;
+  OS_TYPE_IPXE = 1;              // Raw inline iPXE script
+  OS_TYPE_TEMPLATED_IPXE = 2; // iPXE OS using an iPXE template
+}
+
+message OperatingSystem {
+  common.OperatingSystemId id = 1;
+  string name = 2;
+  optional string description = 3;
+  string tenant_organization_id = 4;
+  OperatingSystemType type = 5;
+  TenantState status = 6; // we only use some states from TenantState
+  bool is_active = 7;
+  bool allow_override = 8;
+  bool phone_home_enabled = 9;
+  optional string user_data = 10;
+  string created = 11;
+  string updated = 12;
+
+  // Variant: ipxe
+  optional string ipxe_script = 20;
+  // Variant: ipxe_os_definition
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  repeated IpxeTemplateParameter ipxe_template_parameters = 23;
+  repeated IpxeTemplateArtifact ipxe_template_artifacts = 24;
+  optional string ipxe_template_definition_hash = 25;
+}
+
+message CreateOperatingSystemRequest {
+  string name = 1;
+  optional string description = 2;
+  string tenant_organization_id = 3;
+  bool is_active = 4;
+  bool allow_override = 5;
+  bool phone_home_enabled = 6;
+  optional string user_data = 7;
+  optional common.OperatingSystemId id = 8;
+
+  // Exactly one variant must be provided to determine the type.
+  // This is only set for 'ipxe' variant:
+  optional string ipxe_script = 20;
+  // This is only set for 'ipxe_os_definition' variant (with optional parameters/artifacts):
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  repeated IpxeTemplateParameter ipxe_template_parameters = 23;
+  repeated IpxeTemplateArtifact ipxe_template_artifacts = 24;
+}
+
+// Wrapper for repeated IpxeTemplateParameter so that an optional field can distinguish
+// "not provided" (keep existing) from "provided but empty" (clear the list).
+message IpxeTemplateParameters {
+  repeated IpxeTemplateParameter items = 1;
+}
+
+// Wrapper for repeated IpxeTemplateArtifact (same rationale as IpxeTemplateParameters).
+message IpxeTemplateArtifacts {
+  repeated IpxeTemplateArtifact items = 1;
+}
+
+message UpdateOperatingSystemRequest {
+  common.OperatingSystemId id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional bool is_active = 4;
+  optional bool allow_override = 5;
+  optional bool phone_home_enabled = 6;
+  optional string user_data = 7;
+
+  optional string ipxe_script = 20;
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  optional IpxeTemplateParameters ipxe_template_parameters = 23;
+  optional IpxeTemplateArtifacts ipxe_template_artifacts = 24;
+  optional string ipxe_template_definition_hash = 25; // if provided, used as-is; otherwise recomputed
+}
+
+message DeleteOperatingSystemRequest {
+  common.OperatingSystemId id = 1;
+}
+
+message DeleteOperatingSystemResponse {
+}
+
+message OperatingSystemSearchFilter {
+  optional string tenant_organization_id = 1;
+}
+
+message OperatingSystemIdList {
+  repeated common.OperatingSystemId ids = 1;
+}
+
+message OperatingSystemsByIdsRequest {
+  repeated common.OperatingSystemId ids = 1;
+}
+
+message OperatingSystemList {
+  repeated OperatingSystem operating_systems = 1;
+}
+
+message GetOperatingSystemCachableIpxeTemplateArtifactsRequest {
+  common.OperatingSystemId id = 1;
+}
+
+message IpxeTemplateArtifactList {
+  repeated IpxeTemplateArtifact artifacts = 1;
+}
+
+// A single (artifact name, cached_url) pair for UpdateOperatingSystemCachableIpxeTemplateArtifacts.
+// cached_url is optional: absent means clear the cached_url on the matching artifact(s).
+message IpxeTemplateArtifactUpdateRequest {
+  string name = 1;
+  optional string cached_url = 2;
+}
+
+message UpdateOperatingSystemIpxeTemplateArtifactRequest {
+  common.OperatingSystemId id = 1;
+  repeated IpxeTemplateArtifactUpdateRequest updates = 2;
+}
+
+message HostRepresentorInterceptBridging {
+  string bridge     = 1;
+  string patch_port = 2;
 }

@@ -6,8 +6,8 @@ package componentmanager
 import (
 	"context"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
 // Operation interfaces describe the optional callable behaviors behind

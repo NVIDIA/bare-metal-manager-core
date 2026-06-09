@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package machine_discovery;
 
-option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";
 
 // Carries information about a host that was discovered by the NICo system
 message DiscoveryInfo {
@@ -13,8 +13,7 @@ message DiscoveryInfo {
   repeated NetworkInterface network_interfaces = 1;
 
   // Replaced with option 16: cpu_info, an aggregation of cpus per model
-  // Enumerates CPUs on the host
-  repeated Cpu cpus = 2 [deprecated = true];
+  reserved 2;
 
   // Enumerates discovered block devices on the host
   repeated BlockDevice block_devices = 3;

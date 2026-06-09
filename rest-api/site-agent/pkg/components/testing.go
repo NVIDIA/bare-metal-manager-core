@@ -24,14 +24,14 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/coregrpc"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/conftypes"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/elektratypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/coregrpc"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/conftypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/elektratypes"
 	"github.com/rs/zerolog/log"
 
-	computils "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/utils"
-	bootstraptypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/bootstrap"
-	workflowtypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/workflow"
+	computils "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/utils"
+	bootstraptypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/bootstrap"
+	workflowtypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/workflow"
 )
 
 var (

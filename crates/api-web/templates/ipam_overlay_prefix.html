@@ -12,6 +12,39 @@
 	<tr><td>VNI</td><td>{{ vni }}</td></tr>
 </table>
 
+{% if let Some(lifecycle_detail) = lifecycle_detail %}
+{{ lifecycle_detail|safe }}
+{% else %}
+<h2>Lifecycle</h2>
+<table class="detailsview">
+	<tr><th>State</th><td>Unavailable</td></tr>
+</table>
+{% endif %}
+
+<h2>State History</h2>
+{% if let Some(state_history_load_error) = state_history_load_error %}
+<p>Error loading state-history records: {{ state_history_load_error }}</p>
+{% else if state_history.is_empty() %}
+<p>No state-history records.</p>
+{% else %}
+<table class="detailsview">
+	<thead>
+		<tr>
+			<th>Version</th>
+			<th>State</th>
+		</tr>
+	</thead>
+	<tbody>
+	{% for record in state_history %}
+		<tr>
+			<td>{{ record.version|config_version|safe }}</td>
+			<td><div style="overflow: auto;"><pre><code class="prettyjson">{{ record.state }}</code></pre></div></td>
+		</tr>
+	{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
 <h2>Segments</h2>
 <p>{{ segments.len() }} segment(s) carved from this prefix.</p>
 

@@ -8,17 +8,18 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedPowerShelf is an activity wrapper for managing ExpectedPowerShelf lifecycle that allows
@@ -69,7 +70,7 @@ func (mei ManageExpectedPowerShelf) UpdateExpectedPowerShelvesInDB(ctx context.C
 
 	// Fetch ALL existing expected power shelves for site
 	filterInput := cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{siteID}}
-	existingExpectedPowerShelves, _, err := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingExpectedPowerShelves, _, err := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get ExpectedPowerShelves for Site from DB")
 		return err

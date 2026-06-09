@@ -30,4 +30,3 @@ pub mod metadata;
 pub mod network_segment;
 pub mod rpc_builder;
 pub mod sqlx_fixtures;
-pub mod test_certificates;

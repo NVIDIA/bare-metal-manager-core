@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,12 +27,12 @@ func TestAPISSHKeyGroupCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APISSHKeyGroupCreateRequest{Name: "test", Description: cdb.GetStrPtr("test")},
+			obj:       APISSHKeyGroupCreateRequest{Name: "test", Description: cutil.GetPtr("test")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when required fields are not provided",
-			obj:       APISSHKeyGroupCreateRequest{Description: cdb.GetStrPtr("test")},
+			obj:       APISSHKeyGroupCreateRequest{Description: cutil.GetPtr("test")},
 			expectErr: true,
 		},
 	}
@@ -54,12 +55,12 @@ func TestAPISSHKeyGroupUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when only some fields are provided",
-			obj:       APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("updatedname")},
+			obj:       APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("updatedname")},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APISSHKeyGroupUpdateRequest{Name: cdb.GetStrPtr("updatedname"), Description: cdb.GetStrPtr("updated"), Version: cdb.GetStrPtr("1234")},
+			obj:       APISSHKeyGroupUpdateRequest{Name: cutil.GetPtr("updatedname"), Description: cutil.GetPtr("updated"), Version: cutil.GetPtr("1234")},
 			expectErr: false,
 		},
 	}
@@ -78,15 +79,15 @@ func TestAPISSHKeyGroupNew(t *testing.T) {
 	dbskg := &cdbm.SSHKeyGroup{
 		ID:          uuid.New(),
 		Name:        "test",
-		Description: cdb.GetStrPtr("test"),
+		Description: cutil.GetPtr("test"),
 		Org:         "test",
-		Version:     cdb.GetStrPtr("12334"),
+		Version:     cutil.GetPtr("12334"),
 		TenantID:    uuid.New(),
 		Created:     cdb.GetCurTime(),
 		Updated:     cdb.GetCurTime(),
 	}
 	dbsgas := []cdbm.SSHKeyGroupSiteAssociation{
-		{ID: uuid.New(), SSHKeyGroupID: dbskg.ID, SiteID: uuid.New(), Version: cdb.GetStrPtr("1233"), Status: cdbm.SSHKeyGroupSiteAssociationStatusSyncing},
+		{ID: uuid.New(), SSHKeyGroupID: dbskg.ID, SiteID: uuid.New(), Version: cutil.GetPtr("1233"), Status: cdbm.SSHKeyGroupSiteAssociationStatusSyncing},
 	}
 	sttsmap := map[uuid.UUID]*cdbm.TenantSite{
 		dbsgas[0].SiteID: {
@@ -116,7 +117,7 @@ func TestAPISSHKeyGroupNew(t *testing.T) {
 		Name:        "test",
 		Org:         "test",
 		PublicKey:   "test",
-		Fingerprint: cdb.GetStrPtr("test"),
+		Fingerprint: cutil.GetPtr("test"),
 		TenantID:    uuid.New(),
 		Created:     cdb.GetCurTime(),
 		Updated:     cdb.GetCurTime(),

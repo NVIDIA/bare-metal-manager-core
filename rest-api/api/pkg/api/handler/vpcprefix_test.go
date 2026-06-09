@@ -15,19 +15,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -170,14 +171,14 @@ func TestVpcPrefixHandler_Create(t *testing.T) {
 	tenant1 := testMachineBuildTenant(t, dbSession, tnOrg1, "t1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 
-	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc2 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc3 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc4 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusPending, nil)
-	vpc5 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site3, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc6 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc7 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc8 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC8", cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc2 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc3 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc4 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusPending, nil)
+	vpc5 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site3, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc6 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc7 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc8 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site4, tnOrg2, "testVPC8", cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -241,7 +242,7 @@ func TestVpcPrefixHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref4)
 
-	okBodyTimeout, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "oktimeout", VpcID: vpc7.ID.String(), IPBlockID: cdb.GetStrPtr(ipb4.ID.String()), PrefixLength: 24})
+	okBodyTimeout, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "oktimeout", VpcID: vpc7.ID.String(), IPBlockID: cutil.GetPtr(ipb4.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
 	ipbFG := testIPBlockBuildIPBlock(t, dbSession, "testipbfg", site, ip, &tenant1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.170.0.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, ipu)
@@ -249,49 +250,49 @@ func TestVpcPrefixHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPrefFG)
 
-	okBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	okBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
-	okBodyFG, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "okFG", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipbFG.ID.String()), PrefixLength: 16})
+	okBodyFG, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "okFG", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: 16})
 	assert.Nil(t, err)
 
-	okBodySlash31, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok31", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 31})
+	okBodySlash31, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok31", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 31})
 	assert.Nil(t, err)
 
-	errBodySlash32, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "err32", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 32})
+	errBodySlash32, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "err32", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 32})
 	assert.Nil(t, err)
 
-	okBodyNameClash, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc2.ID.String(), IPBlockID: cdb.GetStrPtr(ipb3.ID.String()), PrefixLength: 24})
+	okBodyNameClash, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc2.ID.String(), IPBlockID: cutil.GetPtr(ipb3.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
-	errBodyNameClash, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errBodyNameClash, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
 	errBodyDoesntValidate, err := json.Marshal(struct{ Name string }{Name: "test"})
 	assert.Nil(t, err)
-	errBodyBadVpcID, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: uuid.New().String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errBodyBadVpcID, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: uuid.New().String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
-	errBodyBadVpcTenantMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc6.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errBodyBadVpcTenantMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc6.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
-	errBodyBadVpcNotFNN, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc8.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errBodyBadVpcNotFNN, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc8.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
-	errBodyBadIPBlockID, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(uuid.New().String()), PrefixLength: 24})
+	errBodyBadIPBlockID, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: 24})
 	assert.Nil(t, err)
 	errBodyNoIPv4, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), PrefixLength: 25})
 	assert.Nil(t, err)
 
-	errBodyBadIPBlockIDTenantMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb2.ID.String()), PrefixLength: 24})
+	errBodyBadIPBlockIDTenantMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb2.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
-	errBodyBadIPBlockIDSiteMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc3.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errBodyBadIPBlockIDSiteMismatch, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc3.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
-	errBodyIpamFail, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 15})
+	errBodyIpamFail, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 15})
 	assert.Nil(t, err)
 
-	errVpcNotReady, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok4", VpcID: vpc4.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errVpcNotReady, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok4", VpcID: vpc4.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
-	errSiteNotReady, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok5", VpcID: vpc5.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: 24})
+	errSiteNotReady, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok5", VpcID: vpc5.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: 24})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -674,10 +675,10 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg1, tenant1.ID, site.ID, tnu.ID)
 	assert.NotNil(t, ts1)
 
-	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
-	vpc2 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
+	vpc2 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant2, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 	assert.NotNil(t, vpc2)
-	vpc3 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc3 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site2, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 	assert.NotNil(t, vpc3)
 
 	cfg := common.GetTestConfig()
@@ -719,7 +720,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			ipbID = ipb2.ID
 		}
 		prefixLen := 24
-		vpcprefixBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: fmt.Sprintf("vpcprefix-%02d", i), VpcID: vpcID.String(), IPBlockID: cdb.GetStrPtr(ipbID.String()), PrefixLength: prefixLen})
+		vpcprefixBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: fmt.Sprintf("vpcprefix-%02d", i), VpcID: vpcID.String(), IPBlockID: cutil.GetPtr(ipbID.String()), PrefixLength: prefixLen})
 		assert.Nil(t, err)
 		apiVpcPrefix := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(vpcprefixBody))
 		assert.NotNil(t, apiVpcPrefix)
@@ -727,7 +728,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 		sid, _ := uuid.Parse(apiVpcPrefix.ID)
 		s, err := vpDAO.GetByID(ctx, nil, sid, nil)
 		assert.Nil(t, err)
-		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.VpcPrefixStatusReady, cdb.GetStrPtr("VpcPrefix has been provisioned on Site"))
+		common.TestBuildStatusDetail(t, dbSession, sid.String(), cdbm.VpcPrefixStatusReady, cutil.GetPtr("VpcPrefix has been provisioned on Site"))
 		ss = append(ss, *s)
 	}
 
@@ -784,7 +785,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "error when siteId not valid uuid",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr("non-uuid"),
+			querySiteID:    cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -792,7 +793,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "error when siteId in query does not exist",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(uuid.New().String()),
+			querySiteID:    cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -800,17 +801,17 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "error when tenant doesn't have access to siteId in query",
 			reqOrgName:     tnOrg2,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site2.ID.String()),
+			querySiteID:    cutil.GetPtr(site2.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "error when vpcId not valid uuid",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr("non-uuid"),
+			queryVpcID:     cutil.GetPtr("non-uuid"),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -818,7 +819,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "error when vpcId in query does not exist",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(uuid.New().String()),
+			queryVpcID:     cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusNotFound,
 		},
@@ -826,7 +827,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "error when vpc's tenant does not match org's tenant",
 			reqOrgName:     tnOrg2,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(vpc1.ID.String()),
+			queryVpcID:     cutil.GetPtr(vpc1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -834,21 +835,21 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "success when site id is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySiteID:    cdb.GetStrPtr(site.ID.String()),
+			querySiteID:    cutil.GetPtr(site.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
-			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:           "success when vpc id is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryVpcID:     cdb.GetStrPtr(vpc1.ID.String()),
+			queryVpcID:     cutil.GetPtr(vpc1.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    totalCount / 2,
-			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:  cutil.GetPtr(totalCount / 2),
 		},
 		{
 			name:               "success when vpc id is not specified",
@@ -864,9 +865,9 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:               "success when pagination params are specified",
 			reqOrgName:         tnOrg1,
 			user:               tnu,
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
@@ -877,9 +878,9 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -892,7 +893,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations4: cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryIncludeRelations4: cutil.GetPtr(cdbm.SiteRelationName),
 			expectedSiteName:       &site.Name,
 		},
 		{
@@ -903,7 +904,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.VpcRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.VpcRelationName),
 			expectedVpcName:        &vpc1.Name,
 		},
 		{
@@ -914,24 +915,24 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.IPBlockRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.IPBlockRelationName),
 			expectetIPv4Name:       &ipb1.Name,
 		},
 		{
 			name:           "success when query search unexisted name specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when query search name specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("vpcprefix"),
+			querySearch:    cutil.GetPtr("vpcprefix"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -941,7 +942,7 @@ func TestVpcPrefixHandler_GetAll(t *testing.T) {
 			name:           "success when query search status specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("ready"),
+			querySearch:    cutil.GetPtr("ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -1102,7 +1103,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 	tenant1 := testMachineBuildTenant(t, dbSession, tnOrg1, "t1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 	assert.NotNil(t, tenant2)
-	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	_ = common.TestBuildTenantSite(t, dbSession, tenant1, site, tnu)
 	cfg := common.GetTestConfig()
@@ -1124,20 +1125,20 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref1)
 	prefixLen := 24
-	parentIpbBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	parentIpbBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "ok1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	vpcprefix := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(parentIpbBody))
 
 	ifaceWorkloadBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{
-		Name: "iface-usage-stats", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+		Name: "iface-usage-stats", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	require.NoError(t, err)
 	vpcprefixWithIfaceWorkload := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(ifaceWorkloadBody))
 
 	alWorkload := common.TestBuildAllocation(t, dbSession, site, tenant1, "get-vpfx-usage-iface-alloc", ipu)
-	itWorkload := common.TestBuildInstanceType(t, dbSession, "get-vpfx-iface-it", cdb.GetUUIDPtr(uuid.New()), site, nil, ipu)
+	itWorkload := common.TestBuildInstanceType(t, dbSession, "get-vpfx-iface-it", cutil.GetPtr(uuid.New()), site, nil, ipu)
 	common.TestBuildAllocationConstraint(t, dbSession, alWorkload, itWorkload, nil, 5, ipu)
-	mWorkload := common.TestBuildMachine(t, dbSession, ip, site, &itWorkload.ID, cdb.GetStrPtr("get-vpfx-iface-mt"), cdbm.MachineStatusReady)
+	mWorkload := common.TestBuildMachine(t, dbSession, ip, site, &itWorkload.ID, cutil.GetPtr("get-vpfx-iface-mt"), cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, mWorkload, itWorkload)
 	osWorkload := common.TestBuildOperatingSystem(t, dbSession, "get-vpfx-iface-os", tenant1, cdbm.OperatingSystemStatusReady, tnu)
 
@@ -1148,9 +1149,9 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 	cidr := testVPCPrefixCIDREntity(t, vpWorkloadEnt)
 	chosenIfaceIPv4 := testIPv4NthUsableInCIDR(t, cidr, 20)
 
-	instWorkload := common.TestBuildInstance(t, dbSession, "get-vpfx-iface-inst", tenant1.ID, ip.ID, site.ID, itWorkload.ID, vpc1.ID, cdb.GetStrPtr(mWorkload.ID), osWorkload.ID)
+	instWorkload := common.TestBuildInstance(t, dbSession, "get-vpfx-iface-inst", tenant1.ID, ip.ID, site.ID, itWorkload.ID, vpc1.ID, cutil.GetPtr(mWorkload.ID), osWorkload.ID)
 
-	ifWorkload := common.TestBuildInterface(t, dbSession, instWorkload.ID, nil, &vpWorkloadID, true, nil, nil, nil, cdb.GetStrPtr(cdbm.InterfaceStatusReady), tnu)
+	ifWorkload := common.TestBuildInterface(t, dbSession, instWorkload.ID, nil, &vpWorkloadID, true, nil, nil, nil, cutil.GetPtr(cdbm.InterfaceStatusReady), tnu)
 	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
 		InterfaceID: ifWorkload.ID,
 		IpAddresses: []string{chosenIfaceIPv4},
@@ -1240,7 +1241,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			id:                     vpcprefix.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.VpcRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.VpcRelationName),
 			expectedVpcName:        &vpc1.Name,
 			verifyChildSpanner:     true,
 		},
@@ -1251,7 +1252,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			id:                     vpcprefix.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.IPBlockRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.IPBlockRelationName),
 			expectetIPName:         &ipb1.Name,
 		},
 		{
@@ -1261,7 +1262,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			id:                     vpcprefix.ID,
 			expectedErr:            true,
 			expectedStatus:         http.StatusBadRequest,
-			queryIncludeUsageStats: cdb.GetStrPtr("not-a-bool"),
+			queryIncludeUsageStats: cutil.GetPtr("not-a-bool"),
 		},
 		{
 			name:                   "success case when includeUsageStats true",
@@ -1270,7 +1271,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			id:                     vpcprefix.ID,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeUsageStats: cdb.GetStrPtr("true"),
+			queryIncludeUsageStats: cutil.GetPtr("true"),
 			expectUsageStatsNonNil: true,
 		},
 		{
@@ -1280,7 +1281,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			id:                              vpcprefixWithIfaceWorkload.ID,
 			expectedErr:                     false,
 			expectedStatus:                  http.StatusOK,
-			queryIncludeUsageStats:          cdb.GetStrPtr("true"),
+			queryIncludeUsageStats:          cutil.GetPtr("true"),
 			expectUsageStatsNonNil:          true,
 			verifyUsageAcquisitionFromIface: true,
 		},
@@ -1410,7 +1411,7 @@ func TestVpcPrefixHandler_Update(t *testing.T) {
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "t2")
 	assert.NotNil(t, tenant2)
 
-	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -1449,10 +1450,10 @@ func TestVpcPrefixHandler_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPref1)
 	prefixLen := 24
-	vpcprefixBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpcprefix-1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	vpcprefixBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpcprefix-1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	vpcprefixBody2, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpcprefix-2", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	vpcprefixBody2, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpcprefix-2", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	tscCallCount := 0
@@ -1463,16 +1464,16 @@ func TestVpcPrefixHandler_Update(t *testing.T) {
 	vpcprefix2 := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(vpcprefixBody2))
 	tscCallCount++
 
-	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APIAllocationUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyNameClash, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("test-vpcprefix-2")})
+	errBodyNameClash, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("test-vpcprefix-2")})
 	assert.Nil(t, err)
 
-	okBody1, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("test-vpcprefix-updated-1")})
+	okBody1, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("test-vpcprefix-updated-1")})
 	assert.Nil(t, err)
 
-	okBody3, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cdb.GetStrPtr("test-vpcprefix-2")})
+	okBody3, err := json.Marshal(model.APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("test-vpcprefix-2")})
 	assert.Nil(t, err)
 
 	// OTEL Spanner configuration
@@ -1690,14 +1691,14 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 	_ = common.TestBuildTenantSite(t, dbSession, tn1, site, tnu)
 
 	al1 := common.TestBuildAllocation(t, dbSession, site, tn1, "test-allocation-1", ipu)
-	it1 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", cdb.GetUUIDPtr(uuid.New()), site, nil, ipu)
+	it1 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", cutil.GetPtr(uuid.New()), site, nil, ipu)
 	common.TestBuildAllocationConstraint(t, dbSession, al1, it1, nil, 5, ipu)
 
-	m1 := common.TestBuildMachine(t, dbSession, ip, site, &it1.ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+	m1 := common.TestBuildMachine(t, dbSession, ip, site, &it1.ID, cutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 	_ = common.TestBuildMachineInstanceType(t, dbSession, m1, it1)
 
 	os1 := common.TestBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemStatusReady, tnu)
-	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tn1, site, tnOrg1, "test-vpc-1", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
+	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tn1, site, tnOrg1, "test-vpc-1", cutil.GetPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cutil.GetPtr(uuid.New()))
 
 	cfg := common.GetTestConfig()
 
@@ -1777,13 +1778,13 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 
 	prefixLen := 24
 
-	okBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-1", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-1", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	okBody2, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-2", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	okBody2, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-2", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	okBodyFG, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-full-grant", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
+	okBodyFG, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-full-grant", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
 	vpcp1 := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBody))
@@ -1793,8 +1794,8 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 
 	vpcp1FG := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBodyFG))
 
-	ins1 := common.TestBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, site.ID, it1.ID, vpc1.ID, cdb.GetStrPtr(m1.ID), os1.ID)
-	common.TestBuildInterface(t, dbSession, ins1.ID, nil, &vpcp2ID, true, nil, nil, nil, cdb.GetStrPtr(cdbm.InterfaceStatusReady), tnu)
+	ins1 := common.TestBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, site.ID, it1.ID, vpc1.ID, cutil.GetPtr(m1.ID), os1.ID)
+	common.TestBuildInterface(t, dbSession, ins1.ID, nil, &vpcp2ID, true, nil, nil, nil, cutil.GetPtr(cdbm.InterfaceStatusReady), tnu)
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -1891,7 +1892,7 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 			id:               vpcp2.ID,
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
-			expectedErrorMsg: cdb.GetStrPtr("VPC Prefix is being used by one or more Instances and cannot be deleted"),
+			expectedErrorMsg: cutil.GetPtr("VPC Prefix is being used by one or more Instances and cannot be deleted"),
 		},
 		{
 			name:               "success when deleting VPC Prefix",

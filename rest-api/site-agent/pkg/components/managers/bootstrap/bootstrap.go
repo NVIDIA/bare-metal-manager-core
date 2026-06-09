@@ -25,9 +25,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	computils "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/utils"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/conftypes"
-	bootstraptypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/bootstrap"
+	computils "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/utils"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/conftypes"
+	bootstraptypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/bootstrap"
 	"gopkg.in/fsnotify.v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"

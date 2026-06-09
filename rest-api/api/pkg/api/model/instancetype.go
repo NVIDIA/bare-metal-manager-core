@@ -9,9 +9,9 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // APIInstanceTypeCreateRequest is the data structure to capture user request to create a new InstanceType

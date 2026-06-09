@@ -1,4 +1,4 @@
-## Key Group Synchronization
+# Key Group Synchronization
 
 Key groups are lists of SSH Keys and groups of them in order to provide access to the SSH console for users.
 

@@ -168,6 +168,12 @@ service Forge {
   rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   // Removes a health report source for a Power Shelf
   rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for an NVLink domain
+  rpc ListNVLinkDomainHealthReports(ListNVLinkDomainHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for an NVLink domain
+  rpc InsertNVLinkDomainHealthReport(InsertNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for an NVLink domain
+  rpc RemoveNVLinkDomainHealthReport(RemoveNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
 
   // Deprecated aliases for the machine health report RPCs.
   // These exist so older clients (admin-cli binaries, scripts pinned to the
@@ -228,6 +234,7 @@ service Forge {
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
+  rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -709,6 +716,8 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  // Force deletes a Rack from the database.
+  rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
@@ -771,9 +780,9 @@ service Forge {
   // SPDM attestation APIs start
   rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
   rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
-  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
-  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
+
+  rpc ListAttestationMachines(SpdmListAttestationMachinesRequest) returns (SpdmListAttestationMachinesResponse);
+  rpc GetAttestationMachine(common.MachineId) returns (SpdmGetAttestationMachineResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -787,6 +796,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Site-operator: re-wrap tenant_identity_config ciphertext with a new master encryption key.
+  rpc ReencryptTenantIdentitySecrets(ReencryptTenantIdentitySecretsRequest)
+      returns (ReencryptTenantIdentitySecretsResponse);
   // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
   rpc GetJWKS(JwksRequest) returns (Jwks);
   rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
@@ -947,11 +959,7 @@ enum SpdmAttestationStatus{
   SPDM_ATT_FAILED = 3;
 }
 
-message AttestationIdsRequest {
-
-}
-
-message SpdmMachineAttestationStatusResponse {
+message SpdmMachineAttestationStatus {
   common.MachineId machine_id = 1;
   SpdmAttestationStatus attestation_status = 2;
 }
@@ -971,13 +979,29 @@ message SpdmAttestationDetails{
   optional google.protobuf.Timestamp completed_at = 9;
 }
 
-message SpdmListAttestationsResponse {
+message SpdmGetAttestationMachineResponse {
   repeated SpdmAttestationDetails attestations_details = 1;
 }
 
 message SpdmMachineAttestationTriggerRequest {
   common.MachineId machine_id = 1;
   uint32 redfish_timeout_secs = 2;
+}
+
+enum SpdmListAttestationMachinesRequestSelector {
+  SPDM_LIST_IN_PROGRESS = 0;
+  SPDM_LIST_UNSUCCESSFUL = 1;
+}
+
+message SpdmListAttestationMachinesRequest {
+  oneof variant {
+    common.MachineId machine_id = 1;
+    SpdmListAttestationMachinesRequestSelector selector = 2;
+  }
+}
+
+message SpdmListAttestationMachinesResponse {
+  repeated SpdmMachineAttestationStatus statuses = 1;
 }
 
 // Machine Identity - JWT-SVID token signing
@@ -1083,6 +1107,31 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+message ReencryptTenantIdentitySecretsRequest {
+  // If set, only this org; otherwise all rows in tenant_identity_config.
+  optional string organization_id = 1;
+  // Decrypt and validate only; no DB writes.
+  bool dry_run = 2;
+}
+
+message ReencryptTenantIdentityFailure {
+  string organization_id = 1;
+  string field = 2;
+  string error = 3;
+}
+
+message ReencryptTenantIdentitySecretsResponse {
+  uint32 rows_examined = 1;
+  uint32 rows_updated = 2;
+  uint32 rows_skipped_all_on_target = 3;
+  uint32 fields_reencrypted = 4;
+  uint32 fields_skipped_on_target = 5;
+  uint32 rows_failed = 6;
+  repeated ReencryptTenantIdentityFailure failures = 7;
+  // Site [machine_identity].current_encryption_key_id used as the re-wrap target.
+  string current_encryption_key_id = 8;
 }
 
 // Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
@@ -1640,7 +1689,8 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4; 
+  uint64 available_linknet_segments = 4;
+  LifecycleStatus lifecycle = 5;
 }
 
 message VpcPrefixCreationRequest {
@@ -1664,10 +1714,14 @@ message VpcPrefixSearchQuery {
   // for its semantics.)
   optional string prefix_match = 4;
   optional PrefixMatchType prefix_match_type = 5;
+  // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 6;
 }
 
 message VpcPrefixGetRequest {
   repeated common.VpcPrefixId vpc_prefix_ids = 1;
+  // Controls whether soft-deleted VPC prefixes are returned. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
 }
 
 message VpcPrefixIdList {
@@ -1695,6 +1749,10 @@ message VpcPrefixDeletionRequest {
 }
 
 message VpcPrefixDeletionResult {
+}
+
+message VpcPrefixStateHistoriesRequest {
+  repeated common.VpcPrefixId vpc_prefix_ids = 1;
 }
 
 message VpcPeering {
@@ -3474,6 +3532,9 @@ message Machine {
   optional PlacementInRack placement_in_rack = 46;
 
   optional MachineSpxStatusObservation spx_status_observation = 47;
+
+  // Build version of forge-scout last observed during machine discovery registration.
+  optional string last_scout_observed_version = 48;
 }
 
 message InstanceNetworkRestrictions {
@@ -4350,6 +4411,9 @@ message AdminForceDeleteMachineRequest {
   // Should we delete the BMC credentials? Please note, this will depend on if site explore configured
   // credentials for this machine.
   bool delete_bmc_credentials = 4;
+
+  // Allow force delete of machine with orphaned dpf crds
+  bool allow_delete_with_orphaned_dpf_crds = 5;
 }
 
 // Response to AdminForceDeleteMachine call
@@ -4645,12 +4709,20 @@ message ForgeAgentControlResponse {
   }
 }
 
+enum MachineDiscoveryReporter {
+  MACHINE_DISCOVERY_REPORTER_UNSPECIFIED = 0;
+  MACHINE_DISCOVERY_REPORTER_SCOUT = 1;
+  MACHINE_DISCOVERY_REPORTER_DPU_AGENT = 2;
+}
+
 message MachineDiscoveryInfo {
   common.MachineInterfaceId machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
   bool create_machine = 3;
+  MachineDiscoveryReporter discovery_reporter = 4;
+  optional string discovery_reporter_version = 5;
 }
 
 message MachineDiscoveryCompletedRequest {
@@ -4951,6 +5023,23 @@ message ListHealthReportResponse {
 // Request to remove a health report source from a host or DPU Machine.
 message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a NVLink domain.
+message ListNVLinkDomainHealthReportsRequest {
+  optional common.NVLinkDomainId domain_id = 1;
+}
+
+// Request to insert a health report source for a NVLink domain.
+message InsertNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a NVLink domain.
+message RemoveNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
   string source = 2;
 }
 
@@ -5344,9 +5433,27 @@ message HostReprovisioningListResponse {
   repeated HostReprovisioningListItem hosts = 1;
 }
 
+message DpuOsOperationalState {
+  string state_detail = 1;
+}
+
+message DpuRepresentorStatus {
+  string name = 1;
+  optional bool carrier_up = 2;
+  optional string state = 3;
+}
+
+message DpuInfoStatusObservation {
+  optional DpuOsOperationalState os_operational_state = 1;
+  optional string firmware_version = 2;
+  repeated DpuRepresentorStatus representors = 3;
+  optional google.protobuf.Timestamp last_heartbeat = 4;
+}
+
 message DpuInfo {
   string id = 1;
   string loopback_ip = 2;
+  optional DpuInfoStatusObservation observed_status = 3;
 }
 
 message GetDpuInfoListRequest {
@@ -5896,13 +6003,14 @@ message MachineValidationOnDemandResponse {
 
 message FirmwareUpgradeActivity {
   // SOT JSON string passed to the backend.
-  // Explicit firmware-upgrade maintenance requests must set this and access_token.
+  // Explicit firmware-upgrade maintenance requests must set this.
   // Implicit all-activity maintenance skips firmware update when no JSON is configured.
   string firmware_version = 1;
   // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
   // When empty, all components are updated.
   repeated string components = 2;
   // Used only by the backend for artifact download when firmware_version contains SOT JSON.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
   // NICo stores it as a maintenance credential, not in rack maintenance state.
   optional string access_token = 3;
   bool force_update = 4;
@@ -5915,6 +6023,7 @@ message NvosUpdateActivity {
   // Required for nvos-update activity.
   string config_json = 2;
   // Used only by the backend for artifact download when config_json is set.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
   // NICo stores it as a maintenance credential, not in rack maintenance state.
   optional string access_token = 3;
 }
@@ -7069,6 +7178,17 @@ message DeleteRackRequest {
   string id = 1;
 }
 
+// Force deletes a Rack from the database.
+message AdminForceDeleteRackRequest {
+  // The Rack ID to force delete.
+  common.RackId rack_id = 1;
+}
+
+message AdminForceDeleteRackResponse {
+  // The ID of the rack that was deleted.
+  string rack_id = 1;
+}
+
 // Rack Capabilities
 
 
@@ -8038,6 +8158,9 @@ message ComponentPowerControlRequest {
     PowerShelfIdList power_shelf_ids = 3;
   }
   common.SystemPowerControl action = 4;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  bool bypass_state_controller = 5;
 }
 
 message ComponentPowerControlResponse {
@@ -8125,10 +8248,14 @@ message UpdateComponentFirmwareRequest {
   // For targets routed through rack maintenance, this carries SOT JSON for
   // the backend firmware apply path.
   string target_version = 4;
-  // Required for firmware targets routed through rack maintenance.
-  // Rejected for direct dispatch paths and currently unsupported for power shelves.
+  // Optional for firmware targets routed to RMS.
+  // Omitted or empty values are passed to RMS as "NOAUTH".
   optional string access_token = 6;
   bool force_update = 7;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  // Not supported for rack-level firmware updates.
+  bool bypass_state_controller = 8;
 }
 
 message UpdateComponentFirmwareResponse {

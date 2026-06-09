@@ -33,12 +33,27 @@ pub enum Args {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show a switch's metadata:
+    $ carbide-admin-cli switch metadata show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct SwitchMetadataCommandShow {
     #[clap(help = "The switch which should get its metadata displayed")]
     pub switch: SwitchId,
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set a switch's name and description:
+    $ carbide-admin-cli switch metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    --name spine-01 --description \"Rack 4 spine\"
+
+")]
 pub struct SwitchMetadataCommandSet {
     #[clap(help = "The switch which should get updated metadata")]
     pub switch: SwitchId,
@@ -49,6 +64,17 @@ pub struct SwitchMetadataCommandSet {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add a key-only label:
+    $ carbide-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+
+Add a key/value label:
+    $ carbide-admin-cli switch metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    --key env --value prod
+
+")]
 pub struct SwitchMetadataCommandAddLabel {
     #[clap(help = "The switch which should get updated metadata")]
     pub switch: SwitchId,
@@ -59,6 +85,14 @@ pub struct SwitchMetadataCommandAddLabel {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove one or more labels by key:
+    $ carbide-admin-cli switch metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    --keys env --keys edge
+
+")]
 pub struct SwitchMetadataCommandRemoveLabels {
     #[clap(help = "The switch which should get updated metadata")]
     pub switch: SwitchId,
@@ -67,6 +101,17 @@ pub struct SwitchMetadataCommandRemoveLabels {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Fill in missing metadata from the expected-switch (leaving existing values intact):
+    $ carbide-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567
+
+Overwrite the switch's metadata with the expected-switch's values:
+    $ carbide-admin-cli switch metadata from-expected-switch 12345678-1234-5678-90ab-cdef01234567 \
+    --replace-all
+
+")]
 pub struct SwitchMetadataCommandFromExpectedSwitch {
     #[clap(help = "The switch which should get updated metadata")]
     pub switch: SwitchId,

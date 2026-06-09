@@ -17,10 +17,8 @@
 
 //! Handler for PowerShelfControllerState::Ready.
 
-use carbide_rack::rack_manager_error;
 use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use librms::protos::rack_manager as rms;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfStatus};
 use sqlx::PgTransaction;
 use state_controller::state_handler::{
@@ -28,15 +26,16 @@ use state_controller::state_handler::{
 };
 
 use crate::context::PowerShelfStateHandlerContextObjects;
-use crate::maintenance::build_power_shelf_node_info;
+use crate::maintenance::build_power_shelf_endpoint;
 
 /// Handles the Ready state for a power shelf.
 ///
 /// If the power shelf is marked for deletion, transitions to `Deleting`.
 /// If a maintenance request has been posted via
 /// `power_shelf_maintenance_requested`, transitions to `Maintenance` with the
-/// requested operation (PowerOn / PowerOff). Otherwise polls RMS for the
-/// current power state (best-effort observation) and idles.
+/// requested operation (PowerOn / PowerOff). Otherwise polls the configured
+/// component manager backend for the current power state (best-effort
+/// observation) and idles.
 ///
 /// TODO: Implement PowerShelf monitoring (health checks, status updates,
 /// power consumption / efficiency tracking).
@@ -64,26 +63,26 @@ pub async fn handle_ready(
         ));
     }
 
-    let txn = poll_rms_power_state(power_shelf_id, state, ctx).await;
+    let txn = poll_power_state(power_shelf_id, state, ctx).await;
 
     Ok(StateHandlerOutcome::do_nothing().with_txn_opt(txn))
 }
 ///
-/// On a successful response, the observed `pstate` for this power shelf is
+/// On a successful response, the observed power state for this power shelf is
 /// persisted to the `power_shelves.status` column and the in-memory `state`
 /// is updated to match. The returned `PgTransaction` (if any) carries that
 /// status write so the caller can attach it to the `Ready` outcome and have
 /// the state-controller framework commit it alongside the usual outcome
 /// bookkeeping.
-async fn poll_rms_power_state(
+async fn poll_power_state(
     power_shelf_id: &PowerShelfId,
     state: &mut PowerShelf,
     ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
 ) -> Option<PgTransaction<'static>> {
-    let Some(rms_client) = ctx.services.rms_client.as_ref() else {
+    let Some(component_manager) = ctx.services.component_manager.as_ref() else {
         tracing::debug!(
             power_shelf_id = %power_shelf_id,
-            "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; RMS client not configured",
+            "PowerShelf Ready: skipping power state poll; component manager not configured",
         );
         return None;
     };
@@ -91,119 +90,112 @@ async fn poll_rms_power_state(
     let Some(rack_id) = state.rack_id.as_ref() else {
         tracing::debug!(
             power_shelf_id = %power_shelf_id,
-            "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; power shelf has no rack association",
+            "PowerShelf Ready: skipping power state poll; power shelf has no rack association",
         );
         return None;
     };
 
-    let device = match build_power_shelf_node_info(
+    let endpoint = match build_power_shelf_endpoint(
         power_shelf_id,
         state,
-        rack_id.to_string(),
         &ctx.services.db_pool,
         ctx.services.credential_manager.as_ref(),
     )
     .await
     {
-        Ok(device) => device,
+        Ok(endpoint) => endpoint,
         Err(cause) => {
             tracing::debug!(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id,
                 cause = %cause,
-                "PowerShelf Ready: skipping RMS GetPowerStateByDeviceList; unable to build NodeSet",
+                "PowerShelf Ready: skipping power state poll; unable to build endpoint",
             );
             return None;
         }
-    };
-
-    let request = rms::GetPowerStateByDeviceListRequest {
-        nodes: Some(rms::NodeSet {
-            devices: vec![device],
-        }),
-        ..Default::default()
     };
 
     let rack_id_str = rack_id.to_string();
-    let response = match rms_client.get_power_state_by_device_list(request).await {
-        Ok(response) => response,
+    let results = match component_manager
+        .power_shelf
+        .get_power_state(std::slice::from_ref(&endpoint))
+        .await
+    {
+        Ok(results) => results,
         Err(error) => {
-            let error = rack_manager_error("get_power_state_by_device_list", error);
             tracing::warn!(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id_str,
+                backend = component_manager.power_shelf.name(),
                 error = %error,
-                "RMS GetPowerStateByDeviceList transport error",
+                "Power shelf get power state transport error",
             );
             return None;
         }
     };
 
-    let batch = response.response.clone().unwrap_or_default();
-    if !(batch.status == rms::ReturnCode::Success as i32 && batch.failed_nodes == 0) {
+    let Some(result) = results.into_iter().next() else {
+        tracing::debug!(
+            power_shelf_id = %power_shelf_id,
+            backend = component_manager.power_shelf.name(),
+            "Power shelf get power state returned no result",
+        );
+        return None;
+    };
+
+    if let Some(error) = result.error {
         tracing::warn!(
             power_shelf_id = %power_shelf_id,
             rack_id = %rack_id_str,
-            batch_status = batch.status,
-            successful_nodes = batch.successful_nodes,
-            failed_nodes = batch.failed_nodes,
-            message = %batch.message,
-            "RMS GetPowerStateByDeviceList returned non-Success result",
+            backend = component_manager.power_shelf.name(),
+            error = %error,
+            "Power shelf get power state returned an error result",
         );
         return None;
-    }
+    };
+
+    let Some(observed_power_state) = result.power_state else {
+        tracing::debug!(
+            power_shelf_id = %power_shelf_id,
+            backend = component_manager.power_shelf.name(),
+            "Power shelf get power state did not return a power state",
+        );
+        return None;
+    };
 
     tracing::info!(
         power_shelf_id = %power_shelf_id,
         rack_id = %rack_id_str,
-        successful_nodes = batch.successful_nodes,
-        pstates = ?response
-            .node_power_states
-            .iter()
-            .map(|node| (node.node_id.as_str(), node.pstate.as_str()))
-            .collect::<Vec<_>>(),
-        "RMS GetPowerStateByDeviceList succeeded",
+        backend = component_manager.power_shelf.name(),
+        power_state = %observed_power_state,
+        "Power shelf get power state succeeded",
     );
 
-    persist_observed_power_state(power_shelf_id, state, ctx, &response.node_power_states).await
+    persist_observed_power_state(power_shelf_id, state, ctx, &observed_power_state).await
 }
 
-/// Look up the `NodePowerState` for this power shelf in the RMS response,
-/// stamp the value into `state.status`, and persist it via
+/// Stamp the observed power state into `state.status` and persist it via
 /// `db_power_shelf::update`. Returns the open `PgTransaction` so the caller
 /// can attach it to the `Ready` outcome.
 ///
-/// Status persistence is best-effort: if RMS did not echo a result for this
-/// node, or if the DB write fails, the in-memory state is left untouched
-/// and `None` is returned — `Ready` must stay in `Ready` regardless.
+/// Status persistence is best-effort: if the DB write fails, the in-memory
+/// state is left untouched and `None` is returned — `Ready` must stay in
+/// `Ready` regardless.
 async fn persist_observed_power_state(
     power_shelf_id: &PowerShelfId,
     state: &mut PowerShelf,
     ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
-    node_power_states: &[rms::NodePowerState],
+    observed_power_state: &str,
 ) -> Option<PgTransaction<'static>> {
-    let node_id = power_shelf_id.to_string();
-    let Some(observed) = node_power_states
-        .iter()
-        .find(|node| node.node_id == node_id)
-    else {
-        tracing::debug!(
-            power_shelf_id = %power_shelf_id,
-            "RMS GetPowerStateByDeviceList: no NodePowerState echoed for this power shelf; skipping status update",
-        );
-        return None;
-    };
-
-    let new_power_state = observed.pstate.to_lowercase();
     let new_status = match state.status.as_ref() {
         Some(existing) => PowerShelfStatus {
             shelf_name: existing.shelf_name.clone(),
-            power_state: new_power_state.clone(),
+            power_state: observed_power_state.to_owned(),
             health_status: existing.health_status.clone(),
         },
         None => PowerShelfStatus {
             shelf_name: state.config.name.clone(),
-            power_state: new_power_state.clone(),
+            power_state: observed_power_state.to_owned(),
             health_status: String::new(),
         },
     };
@@ -248,8 +240,8 @@ async fn persist_observed_power_state(
 
     tracing::info!(
         power_shelf_id = %power_shelf_id,
-        power_state = %new_power_state,
-        "PowerShelf Ready: persisted observed power state from RMS",
+        power_state = %observed_power_state,
+        "PowerShelf Ready: persisted observed power state",
     );
 
     Some(txn)

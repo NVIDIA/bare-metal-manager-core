@@ -15,7 +15,7 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/extra/bunotel"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // Session is a wrapper for an ORM DB object

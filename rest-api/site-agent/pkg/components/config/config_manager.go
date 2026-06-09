@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/conftypes"
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/conftypes"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"

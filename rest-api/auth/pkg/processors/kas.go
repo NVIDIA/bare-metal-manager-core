@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	commonConfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwfuwf "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/user"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	commonConfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwfuwf "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/user"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
@@ -37,17 +37,17 @@ type KASProcessor struct {
 }
 
 // HandleToken processes KAS JWT tokens
-func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *config.JwksConfig, logger zerolog.Logger) (*cdbm.User, *util.APIError) {
+func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *config.JwksConfig, logger zerolog.Logger) (*cdbm.User, *cutil.APIError) {
 	claims := &claim.NgcKasClaims{}
 
 	token, err := jwksCfg.ValidateToken(tokenStr, claims)
 	if err != nil {
 		if strings.Contains(err.Error(), jwt.ErrTokenExpired.Error()) {
 			logger.Error().Err(err).Msg("Token expired")
-			return nil, util.NewAPIError(http.StatusUnauthorized, "Authorization token in request has expired", nil)
+			return nil, cutil.NewAPIError(http.StatusUnauthorized, "Authorization token in request has expired", nil)
 		} else {
 			logger.Error().Err(err).Msg("failed to validate JWT token in authorization header")
-			return nil, util.NewAPIError(http.StatusUnauthorized, "Invalid authorization token in request", nil)
+			return nil, cutil.NewAPIError(http.StatusUnauthorized, "Invalid authorization token in request", nil)
 		}
 	}
 
@@ -55,12 +55,12 @@ func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *co
 	claims, ok := token.Claims.(*claim.NgcKasClaims)
 	if !ok || claims == nil {
 		logger.Error().Msg("claims are nil after type assertion")
-		return nil, util.NewAPIError(http.StatusUnauthorized, "Invalid claims in authorization token", nil)
+		return nil, cutil.NewAPIError(http.StatusUnauthorized, "Invalid claims in authorization token", nil)
 	}
 
 	auxID, _ := token.Claims.GetSubject()
 	if auxID == "" {
-		return nil, util.NewAPIError(http.StatusUnauthorized, "Invalid authorization token, could not find subject ID in claim", nil)
+		return nil, cutil.NewAPIError(http.StatusUnauthorized, "Invalid authorization token, could not find subject ID in claim", nil)
 	}
 
 	// First try to find user by auxiliary ID
@@ -69,11 +69,11 @@ func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *co
 	users, _, err := userDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 		AuxiliaryIDs: []string{auxID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get user by auxiliary ID")
-		return nil, util.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record, DB error", nil)
+		return nil, cutil.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record, DB error", nil)
 	}
 
 	var dbUser *cdbm.User
@@ -86,7 +86,7 @@ func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *co
 
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to execute workflow to retrieve latest user org/role info from NGC")
-			return nil, util.NewAPIError(http.StatusUnauthorized, "Failed to retrieve latest user org/role info from NGC", nil)
+			return nil, cutil.NewAPIError(http.StatusUnauthorized, "Failed to retrieve latest user org/role info from NGC", nil)
 		}
 
 		logger.Info().Str("Workflow ID", *wid).Msg("executed workflow to update user data from NGC")
@@ -95,18 +95,18 @@ func (h *KASProcessor) ProcessToken(c echo.Context, tokenStr string, jwksCfg *co
 		users, _, err = userDAO.GetAll(context.Background(), nil, cdbm.UserFilterInput{
 			AuxiliaryIDs: []string{auxID},
 		}, paginator.PageInput{
-			Limit: cdb.GetIntPtr(1),
+			Limit: cutil.GetPtr(1),
 		}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to retrieve user from DB")
-			return nil, util.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record, DB error", nil)
+			return nil, cutil.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record, DB error", nil)
 		}
 
 		if len(users) > 0 {
 			dbUser = &users[0]
 		} else {
 			logger.Error().Msg("user not found after workflow execution")
-			return nil, util.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record after workflow execution", nil)
+			return nil, cutil.NewAPIError(http.StatusUnauthorized, "Failed to retrieve user record after workflow execution", nil)
 		}
 
 	}

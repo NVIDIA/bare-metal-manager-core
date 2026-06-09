@@ -6,7 +6,7 @@ package scheduler
 import (
 	"context"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/types"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/types"
 )
 
 // maxQueueSize is the default upper limit for the relay's in-memory queue.

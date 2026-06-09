@@ -13,8 +13,14 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use carbide_uuid::machine::MachineId;
 use model::machine::{FailureDetails, ManagedHostState};
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{
+    SpdmAttestationStatus, SpdmListAttestationMachinesRequest,
+    SpdmListAttestationMachinesRequestSelector, SpdmMachineAttestationStatus,
+    spdm_list_attestation_machines_request,
+};
 use sqlx::{Postgres, Transaction};
 use tonic::Request;
 
@@ -40,28 +46,19 @@ pub(crate) async fn spdm_attestation_run_to_failed_then_to_success(
 
     // make sure the attestation is in progress
     // device attestations should be created now
-    let machine_ids = env
-        .api
-        .find_machine_ids_under_attestation(Request::new(()))
+    let statuses = list_machines_under_attestation(env)
         .await
-        .expect("Didn't find a machine under attestation")
-        .into_inner();
+        .expect("Didn't find a machine under attestation");
 
-    assert_eq!(1, machine_ids.machine_ids.len());
+    assert_eq!(1, statuses.len());
 
-    let machine_id = machine_ids.machine_ids[0];
+    let machine_id = statuses[0].machine_id.expect("missing machine id");
 
     // check that attestation's status is InProgress
-    let response = env
-        .api
-        .get_machine_attestation_status(Request::new(machine_id))
-        .await
-        .expect("Could not get machine attestation status")
-        .into_inner();
-
     assert_eq!(
         rpc::forge::SpdmAttestationStatus::SpdmAttInProgress,
-        response.attestation_status()
+        rpc::forge::SpdmAttestationStatus::try_from(statuses[0].attestation_status)
+            .expect("Could not convert attestation status")
     );
 
     // move the attestation until it reaches the Failed state
@@ -69,16 +66,13 @@ pub(crate) async fn spdm_attestation_run_to_failed_then_to_success(
         env.run_spdm_controller_iteration_no_requeue().await;
     }
 
-    let response = env
-        .api
-        .get_machine_attestation_status(Request::new(machine_id))
+    let attestation_status = fetch_machine_attestation_status(env, machine_id)
         .await
-        .expect("Could not get machine attestation status")
-        .into_inner();
+        .expect("Could not get machine attestation status");
 
     assert_eq!(
         rpc::forge::SpdmAttestationStatus::SpdmAttFailed,
-        response.attestation_status()
+        attestation_status
     );
 
     // since we set the NRAS verifier mock flag to fail,
@@ -128,15 +122,46 @@ pub(crate) async fn spdm_attestation_run_to_failed_then_to_success(
     for _ in 0..10 {
         env.run_spdm_controller_iteration_no_requeue().await;
     }
-    let response = env
-        .api
-        .get_machine_attestation_status(Request::new(machine_id))
+    let attestation_status = fetch_machine_attestation_status(env, machine_id)
         .await
-        .expect("Could not get machine attestation status")
-        .into_inner();
+        .expect("Could not get machine attestation status");
 
     assert_eq!(
         rpc::forge::SpdmAttestationStatus::SpdmAttPassed,
-        response.attestation_status()
+        attestation_status
     );
+}
+
+async fn list_machines_under_attestation(
+    env: &TestEnv,
+) -> Result<Vec<SpdmMachineAttestationStatus>, tonic::Status> {
+    env.api
+        .list_attestation_machines(Request::new(SpdmListAttestationMachinesRequest {
+            variant: Some(spdm_list_attestation_machines_request::Variant::Selector(
+                SpdmListAttestationMachinesRequestSelector::SpdmListInProgress.into(),
+            )),
+        }))
+        .await
+        .map(|response| response.into_inner().statuses)
+}
+
+async fn fetch_machine_attestation_status(
+    env: &TestEnv,
+    machine_id: MachineId,
+) -> Result<SpdmAttestationStatus, tonic::Status> {
+    let mut statuses = env
+        .api
+        .list_attestation_machines(Request::new(SpdmListAttestationMachinesRequest {
+            variant: Some(spdm_list_attestation_machines_request::Variant::MachineId(
+                machine_id,
+            )),
+        }))
+        .await?
+        .into_inner()
+        .statuses;
+
+    Ok(statuses
+        .pop()
+        .expect("missing machine attestation status")
+        .attestation_status())
 }

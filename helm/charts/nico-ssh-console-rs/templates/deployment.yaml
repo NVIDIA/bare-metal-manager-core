@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-ssh-console-rs
+  name: {{ include "nico-ssh-console-rs.name" . }}
   namespace: {{ include "nico-ssh-console-rs.namespace" . }}
   labels:
     {{- include "nico-ssh-console-rs.labels" . | nindent 4 }}
   annotations:
-    {{- toYaml .Values.annotations | nindent 4 }}
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   # Bumped from default 600s — on a cold cluster, vault-pki-config hook + cert-manager
@@ -22,7 +22,7 @@ spec:
       labels:
         {{- include "nico-ssh-console-rs.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: nico-ssh-console-rs
+      serviceAccountName: {{ include "nico-ssh-console-rs.name" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -54,9 +54,9 @@ spec:
           resources: {}
           volumeMounts:
             # Mount config at both paths so the binary finds it regardless of nico/carbide image variant.
-            - name: ssh-console-rs-config-files
+            - name: {{ include "nico-ssh-console-rs.name" . }}-config-files
               mountPath: /etc/forge/ssh-console
-            - name: ssh-console-rs-config-files
+            - name: {{ include "nico-ssh-console-rs.name" . }}-config-files
               mountPath: /etc/nico/ssh-console
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
@@ -86,12 +86,12 @@ spec:
               mountPath: /var/lib/otelcol/filelog-checkpoints
         {{ end }}
       volumes:
-        - name: ssh-console-rs-config-files
+        - name: {{ include "nico-ssh-console-rs.name" . }}-config-files
           configMap:
-            name: ssh-console-rs-config-files
+            name: {{ include "nico-ssh-console-rs.name" . }}-config-files
         - name: spiffe
           secret:
-            secretName: nico-ssh-console-rs-certificate
+            secretName: {{ include "nico-ssh-console-rs.name" . }}-certificate
         - name: ssh-host-key
           secret:
             secretName: ssh-host-key
@@ -107,5 +107,5 @@ spec:
           emptyDir: {}
         - name: otelcol-config
           configMap:
-            name: ssh-console-rs-otelcol-config
+            name: {{ include "nico-ssh-console-rs.name" . }}-otelcol-config
         {{ end }}

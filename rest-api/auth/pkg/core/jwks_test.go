@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -160,21 +160,21 @@ func TestNewJWKSFromURL(t *testing.T) {
 			args: args{
 				url: testServer.URL + "/kas",
 			},
-			wantLegacyKasKid: cdb.GetStrPtr("B3D2:ZQHB:M5YX:NFBJ:DFI4:U4WX:PH5E:4JXH:CNAY:WYTJ:AZWC:RALK"),
+			wantLegacyKasKid: cutil.GetPtr("B3D2:ZQHB:M5YX:NFBJ:DFI4:U4WX:PH5E:4JXH:CNAY:WYTJ:AZWC:RALK"),
 		},
 		{
 			name: "fetch and validate SSA JWKS",
 			args: args{
 				url: testServer.URL + "/ssa",
 			},
-			wantSsaKid: cdb.GetStrPtr("2c58e180-149a-4818-9bfc-5f2a6b6dbd8a"),
+			wantSsaKid: cutil.GetPtr("2c58e180-149a-4818-9bfc-5f2a6b6dbd8a"),
 		},
 		{
 			name: "fetch and validate Keycloak JWKS",
 			args: args{
 				url: testServer.URL + "/keycloak",
 			},
-			wantKeycloakKid: cdb.GetStrPtr("2qPROcQfHMCXUi4rKt-CRB5iG4Z-5rfbP7zHOsxWA28"),
+			wantKeycloakKid: cutil.GetPtr("2qPROcQfHMCXUi4rKt-CRB5iG4Z-5rfbP7zHOsxWA28"),
 		},
 		{
 			name: "handle server error",

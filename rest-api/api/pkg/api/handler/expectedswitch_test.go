@@ -11,14 +11,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -135,7 +136,7 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -159,12 +160,12 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:55",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "SWITCH123",
-				NvOsUsername:       cdb.GetStrPtr("nvos-admin"),
-				NvOsPassword:       cdb.GetStrPtr("nvos-password"),
-				BmcIpAddress:       cdb.GetStrPtr("192.168.1.10"),
+				NvOsUsername:       cutil.GetPtr("nvos-admin"),
+				NvOsPassword:       cutil.GetPtr("nvos-password"),
+				BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 				Labels:             map[string]string{"env": "test"},
 			},
 			setupContext: func(c echo.Context) {
@@ -179,8 +180,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:77",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "SWITCH125",
 			},
 			setupContext: func(c echo.Context) {
@@ -194,8 +195,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "SWITCH126",
 			},
 			setupContext: func(c echo.Context) {
@@ -210,8 +211,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             "12345678-1234-1234-1234-123456789099",
 				BmcMacAddress:      "00:11:22:33:44:88",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "SWITCH127",
 			},
 			setupContext: func(c echo.Context) {
@@ -226,8 +227,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             unmanagedSite.ID.String(),
 				BmcMacAddress:      "00:11:22:33:44:99",
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "SWITCH128",
 			},
 			setupContext: func(c echo.Context) {
@@ -242,8 +243,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 			requestBody: model.APIExpectedSwitchCreateRequest{
 				SiteID:             site.ID.String(),
 				BmcMacAddress:      existingMAC,
-				DefaultBmcUsername: cdb.GetStrPtr("admin"),
-				DefaultBmcPassword: cdb.GetStrPtr("password"),
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "DUPLICATE-SWITCH-999",
 				Labels:             map[string]string{"env": "duplicate-test"},
 			},
@@ -349,7 +350,7 @@ func TestGetAllExpectedSwitchHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -536,7 +537,7 @@ func TestGetExpectedSwitchHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -696,7 +697,7 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -720,7 +721,7 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 			name: "successful update",
 			id:   testES.ID.String(),
 			requestBody: model.APIExpectedSwitchUpdateRequest{
-				SwitchSerialNumber: cdb.GetStrPtr("UPDATED-SWITCH-123"),
+				SwitchSerialNumber: cutil.GetPtr("UPDATED-SWITCH-123"),
 				Labels:             map[string]string{"env": "updated"},
 			},
 			setupContext: func(c echo.Context) {
@@ -734,7 +735,7 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 			name: "successful update with BmcIpAddress",
 			id:   testES.ID.String(),
 			requestBody: model.APIExpectedSwitchUpdateRequest{
-				BmcIpAddress: cdb.GetStrPtr("192.168.1.42"),
+				BmcIpAddress: cutil.GetPtr("192.168.1.42"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -747,8 +748,8 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 			name: "body ID mismatch with URL should return 400",
 			id:   testES.ID.String(),
 			requestBody: model.APIExpectedSwitchUpdateRequest{
-				ID:                 cdb.GetStrPtr(uuid.New().String()),
-				SwitchSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				ID:                 cutil.GetPtr(uuid.New().String()),
+				SwitchSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -761,7 +762,7 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 			name: "cannot update on unmanaged site",
 			id:   unmanagedES.ID.String(),
 			requestBody: model.APIExpectedSwitchUpdateRequest{
-				SwitchSerialNumber: cdb.GetStrPtr("SHOULD-NOT-UPDATE"),
+				SwitchSerialNumber: cutil.GetPtr("SHOULD-NOT-UPDATE"),
 				Labels:             map[string]string{"env": "fail"},
 			},
 			setupContext: func(c echo.Context) {
@@ -874,7 +875,7 @@ func TestDeleteExpectedSwitchHandler_Handle(t *testing.T) {
 
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,

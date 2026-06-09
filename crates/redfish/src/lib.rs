@@ -15,5 +15,6 @@
  * limitations under the License.
  */
 
+pub mod boot_interface;
 pub mod libredfish;
 pub mod nv_redfish;

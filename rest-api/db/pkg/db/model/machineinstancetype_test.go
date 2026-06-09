@@ -8,9 +8,10 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -41,7 +42,7 @@ func testMachineInstanceTypeBuildInstanceType(t *testing.T, dbSession *db.Sessio
 
 	itsd := NewInstanceTypeDAO(dbSession)
 	ins, err := itsd.Create(
-		context.Background(), nil, InstanceTypeCreateInput{Name: s, DisplayName: db.GetStrPtr(s + " display name"), Description: db.GetStrPtr(s + " description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
+		context.Background(), nil, InstanceTypeCreateInput{Name: s, DisplayName: cutil.GetPtr(s + " display name"), Description: cutil.GetPtr(s + " description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
 			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: nil, SiteID: &site.ID, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 
@@ -57,7 +58,7 @@ func TestMachineInstanceTypeSQLDAO_CreateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testMachineInstanceTypeSetupSchema(t, dbSession)
 	ip, site, ins := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
-	mc := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(ins.ID), ins.ControllerMachineType)
+	mc := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ins.ID), ins.ControllerMachineType)
 	mitsd := NewMachineInstanceTypeDAO(dbSession)
 
 	// OTEL Spanner configuration
@@ -147,7 +148,7 @@ func testMachineInstanceTypePopulateDB(t *testing.T) (int, [5]string, []*Instanc
 
 		// Create Machine IDs
 		for j := 0; j < instanceTypeCount; j++ {
-			mc := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(ins.ID), ins.ControllerMachineType)
+			mc := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(ins.ID), ins.ControllerMachineType)
 			machineIDs = append(machineIDs, mc.ID)
 		}
 	}
@@ -276,7 +277,7 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	}
 
 	// Verify GetAll, no filters
-	nv, _, err := mitsd.GetAll(ctx, nil, nil, nil, nil, nil, db.GetIntPtr(50), nil)
+	nv, _, err := mitsd.GetAll(ctx, nil, nil, nil, nil, nil, cutil.GetPtr(50), nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, nv)
 	assert.Equal(t, len(nv), numInstances*numInstances)
@@ -289,13 +290,13 @@ func TestMachineInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	}
 
 	// Verify GetAll, no filters, offset
-	nv, total, err := mitsd.GetAll(ctx, nil, nil, nil, nil, db.GetIntPtr(10), nil, nil)
+	nv, total, err := mitsd.GetAll(ctx, nil, nil, nil, nil, cutil.GetPtr(10), nil, nil)
 	assert.Nil(t, err)
 	assert.Equal(t, numInstances*numInstances-10, len(nv))
 	assert.Equal(t, numInstances*numInstances, total)
 
 	// Verify GetAll, no filters, limit
-	nv, total, err = mitsd.GetAll(ctx, nil, nil, nil, nil, nil, db.GetIntPtr(10), nil)
+	nv, total, err = mitsd.GetAll(ctx, nil, nil, nil, nil, nil, cutil.GetPtr(10), nil)
 	assert.Nil(t, err)
 	assert.Equal(t, 10, len(nv))
 	assert.Equal(t, numInstances*numInstances, total)

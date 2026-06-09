@@ -5,14 +5,15 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // APIInterfaceCreateRequest is the data structure to capture user request to create a new Interface
@@ -23,6 +24,8 @@ type APIInterfaceCreateOrUpdateRequest struct {
 	VpcPrefixID *string `json:"vpcPrefixId"`
 	// IPAddress is the explicitly requested IP address for the Interface
 	IPAddress *string `json:"ipAddress"`
+	// InlineRoutingProfile narrows VPC routing-profile options for this Interface.
+	InlineRoutingProfile *APIInterfaceInlineRoutingProfile `json:"inlineRoutingProfile"`
 	// Device is the device name of the Interface
 	Device *string `json:"device"`
 	// DeviceInstance is the ID of the DeviceInstance
@@ -31,6 +34,66 @@ type APIInterfaceCreateOrUpdateRequest struct {
 	VirtualFunctionID *int `json:"virtualFunctionId"`
 	// IsPhysical indicates whether the Subnet is bound on a physical Interface
 	IsPhysical bool `json:"isPhysical"`
+}
+
+// APIInterfaceInlineRoutingProfile captures inline interface-local routing profile options.
+type APIInterfaceInlineRoutingProfile struct {
+	// AllowedAnycastPrefixes is the list of CIDR prefixes this interface may announce as anycast.
+	AllowedAnycastPrefixes []string `json:"allowedAnycastPrefixes"`
+}
+
+// Validate ensures the routing profile contains valid CIDR prefixes.
+func (rp *APIInterfaceInlineRoutingProfile) Validate() error {
+	if rp == nil {
+		return nil
+	}
+	if rp.AllowedAnycastPrefixes == nil {
+		rp.AllowedAnycastPrefixes = []string{}
+	}
+	err := validation.Validate(rp.AllowedAnycastPrefixes,
+		validation.Each(validation.By(validateInterfaceAnycastPrefix)),
+	)
+	if err != nil {
+		return validation.Errors{
+			"allowedAnycastPrefixes": err,
+		}
+	}
+	return nil
+}
+
+func validateInterfaceAnycastPrefix(value any) error {
+	prefix, ok := value.(string)
+	if !ok {
+		return nil
+	}
+	if _, err := netip.ParsePrefix(prefix); err != nil {
+		return fmt.Errorf("invalid anycast prefix `%s`", prefix)
+	}
+	return nil
+}
+
+// ToDB converts the API routing profile into the DB model shape.
+func (rp *APIInterfaceInlineRoutingProfile) ToDB() *cdbm.InterfaceInlineRoutingProfile {
+	if rp == nil {
+		return nil
+	}
+	prefixes := []string{}
+	if rp.AllowedAnycastPrefixes != nil {
+		prefixes = append(prefixes, rp.AllowedAnycastPrefixes...)
+	}
+	return &cdbm.InterfaceInlineRoutingProfile{AllowedAnycastPrefixes: prefixes}
+}
+
+// FromDB populates the API routing profile from the DB model shape.
+func (rp *APIInterfaceInlineRoutingProfile) FromDB(dbProfile *cdbm.InterfaceInlineRoutingProfile) {
+	if rp == nil || dbProfile == nil {
+		return
+	}
+	prefixes := []string{}
+	if dbProfile.AllowedAnycastPrefixes != nil {
+		prefixes = append(prefixes, dbProfile.AllowedAnycastPrefixes...)
+	}
+	rp.AllowedAnycastPrefixes = prefixes
 }
 
 func (ifcr APIInterfaceCreateOrUpdateRequest) IsMultiEthernetInterface() bool {
@@ -66,6 +129,7 @@ func (ifcr APIInterfaceCreateOrUpdateRequest) Validate() error {
 		validation.Field(&ifcr.IPAddress,
 			validation.When(ifcr.IPAddress != nil, validation.By(validateInterfaceRequestedIpAddressHostBit)),
 		),
+		validation.Field(&ifcr.InlineRoutingProfile),
 		validation.Field(&ifcr.DeviceInstance,
 			validation.Min(0).Error("deviceInstance must be equal or greater than 0")),
 		validation.Field(&ifcr.VirtualFunctionID,
@@ -82,6 +146,12 @@ func (ifcr APIInterfaceCreateOrUpdateRequest) Validate() error {
 	if ifcr.IPAddress != nil && ifcr.SubnetID != nil {
 		return validation.Errors{
 			"ipAddress": errors.New("cannot be specified for Subnet based Interfaces"),
+		}
+	}
+
+	if ifcr.InlineRoutingProfile != nil && ifcr.SubnetID != nil {
+		return validation.Errors{
+			"inlineRoutingProfile": errors.New("cannot be specified for Subnet based Interfaces"),
 		}
 	}
 
@@ -149,6 +219,8 @@ type APIInterface struct {
 	IPAddresses []string `json:"ipAddresses"`
 	// RequestedIpAddress is the explicitly requested IP address for the Interface
 	RequestedIpAddress *string `json:"requestedIpAddress"`
+	// InlineRoutingProfile contains interface-local routing profile options.
+	InlineRoutingProfile *APIInterfaceInlineRoutingProfile `json:"inlineRoutingProfile"`
 	// Status is the status of the Interface
 	Status string `json:"status"`
 	// Created is the date and time the entity was created
@@ -171,12 +243,17 @@ func NewAPIInterface(dbis *cdbm.Interface) *APIInterface {
 		Updated:            dbis.Updated,
 	}
 
+	if dbis.InlineRoutingProfile != nil {
+		apiInterface.InlineRoutingProfile = &APIInterfaceInlineRoutingProfile{}
+		apiInterface.InlineRoutingProfile.FromDB(dbis.InlineRoutingProfile)
+	}
+
 	if dbis.Instance != nil {
 		apiInterface.Instance = NewAPIInstanceSummary(dbis.Instance)
 	}
 
 	if dbis.SubnetID != nil {
-		apiInterface.SubnetID = cdb.GetStrPtr(dbis.SubnetID.String())
+		apiInterface.SubnetID = cutil.GetPtr(dbis.SubnetID.String())
 	}
 
 	if dbis.Subnet != nil {
@@ -184,7 +261,7 @@ func NewAPIInterface(dbis *cdbm.Interface) *APIInterface {
 	}
 
 	if dbis.VpcPrefixID != nil {
-		apiInterface.VpcPrefixID = cdb.GetStrPtr(dbis.VpcPrefixID.String())
+		apiInterface.VpcPrefixID = cutil.GetPtr(dbis.VpcPrefixID.String())
 	}
 
 	if dbis.VpcPrefix != nil {

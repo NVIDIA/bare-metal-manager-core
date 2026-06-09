@@ -4,10 +4,10 @@
 package managertypes
 
 import (
-	bootstraptypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/bootstrap"
-	coregrpctypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/coregrpc"
-	flowgrpctypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/flowgrpc"
-	workflowtypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/workflow"
+	bootstraptypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/bootstrap"
+	coregrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/coregrpc"
+	flowgrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/flowgrpc"
+	workflowtypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/workflow"
 )
 
 // Managers - manager ds

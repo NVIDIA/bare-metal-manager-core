@@ -6,8 +6,8 @@ package pagination
 import (
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,19 +33,19 @@ func TestPageRequest_Validate(t *testing.T) {
 		{
 			name: "test Page Request validate success, all values specified",
 			fields: fields{
-				PageNumber: cdb.GetIntPtr(1),
-				PageSize:   cdb.GetIntPtr(10),
-				OrderByStr: cdb.GetStrPtr("NAME_ASC"),
+				PageNumber: cutil.GetPtr(1),
+				PageSize:   cutil.GetPtr(10),
+				OrderByStr: cutil.GetPtr("NAME_ASC"),
 			},
 			args: args{
 				orderByFields: []string{"name"},
 			},
 			want: &PageRequest{
-				PageNumber: cdb.GetIntPtr(1),
-				PageSize:   cdb.GetIntPtr(10),
-				OrderByStr: cdb.GetStrPtr("NAME_ASC"),
-				Offset:     cdb.GetIntPtr(0),
-				Limit:      cdb.GetIntPtr(10),
+				PageNumber: cutil.GetPtr(1),
+				PageSize:   cutil.GetPtr(10),
+				OrderByStr: cutil.GetPtr("NAME_ASC"),
+				Offset:     cutil.GetPtr(0),
+				Limit:      cutil.GetPtr(10),
 				OrderBy: &cdbp.OrderBy{
 					Field: "name",
 					Order: cdbp.OrderAscending,
@@ -60,17 +60,17 @@ func TestPageRequest_Validate(t *testing.T) {
 				orderByFields: []string{"name"},
 			},
 			want: &PageRequest{
-				Offset: cdb.GetIntPtr(0),
-				Limit:  cdb.GetIntPtr(cdbp.DefaultLimit),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(cdbp.DefaultLimit),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test Page Request validate error, negative page number",
 			fields: fields{
-				PageNumber: cdb.GetIntPtr(-1),
-				PageSize:   cdb.GetIntPtr(10),
-				OrderByStr: cdb.GetStrPtr("NAME_ASC"),
+				PageNumber: cutil.GetPtr(-1),
+				PageSize:   cutil.GetPtr(10),
+				OrderByStr: cutil.GetPtr("NAME_ASC"),
 			},
 			args: args{
 				orderByFields: []string{"name"},
@@ -80,9 +80,9 @@ func TestPageRequest_Validate(t *testing.T) {
 		{
 			name: "test Page Request validate error, page too large",
 			fields: fields{
-				PageNumber: cdb.GetIntPtr(-1),
-				PageSize:   cdb.GetIntPtr(MaxPageSize + 10),
-				OrderByStr: cdb.GetStrPtr("NAME_ASC"),
+				PageNumber: cutil.GetPtr(-1),
+				PageSize:   cutil.GetPtr(MaxPageSize + 10),
+				OrderByStr: cutil.GetPtr("NAME_ASC"),
 			},
 			args: args{
 				orderByFields: []string{"name"},
@@ -92,9 +92,9 @@ func TestPageRequest_Validate(t *testing.T) {
 		{
 			name: "test Page Request validate error, invalid order by",
 			fields: fields{
-				PageNumber: cdb.GetIntPtr(-1),
-				PageSize:   cdb.GetIntPtr(MaxPageSize + 10),
-				OrderByStr: cdb.GetStrPtr("FOO_CASC"),
+				PageNumber: cutil.GetPtr(-1),
+				PageSize:   cutil.GetPtr(MaxPageSize + 10),
+				OrderByStr: cutil.GetPtr("FOO_CASC"),
 			},
 			args: args{
 				orderByFields: []string{"name"},
@@ -104,15 +104,15 @@ func TestPageRequest_Validate(t *testing.T) {
 		{
 			name: "test Page Request validate success, order by with multiple underscores",
 			fields: fields{
-				OrderByStr: cdb.GetStrPtr("DISPLAY_NAME_ASC"),
+				OrderByStr: cutil.GetPtr("DISPLAY_NAME_ASC"),
 			},
 			args: args{
 				orderByFields: []string{"display_name"},
 			},
 			want: &PageRequest{
-				Offset:     cdb.GetIntPtr(0),
-				Limit:      cdb.GetIntPtr(cdbp.DefaultLimit),
-				OrderByStr: cdb.GetStrPtr("DISPLAY_NAME_ASC"),
+				Offset:     cutil.GetPtr(0),
+				Limit:      cutil.GetPtr(cdbp.DefaultLimit),
+				OrderByStr: cutil.GetPtr("DISPLAY_NAME_ASC"),
 				OrderBy: &cdbp.OrderBy{
 					Field: "display_name",
 					Order: cdbp.OrderAscending,

@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-pxe
+  name: {{ include "nico-pxe.name" . }}
   namespace: {{ include "nico-pxe.namespace" . }}
   labels:
     {{- include "nico-pxe.labels" . | nindent 4 }}
   annotations:
-    {{- toYaml .Values.annotations | nindent 4 }}
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   strategy:
@@ -19,9 +19,9 @@ spec:
       labels:
         {{- include "nico-pxe.labels" . | nindent 8 }}
       annotations:
-        kubectl.kubernetes.io/default-container: nico-pxe
+        kubectl.kubernetes.io/default-container: {{ include "nico-pxe.name" . }}
     spec:
-      serviceAccountName: nico-pxe
+      serviceAccountName: {{ include "nico-pxe.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -50,7 +50,7 @@ spec:
         {{- end }}
       {{- end }}
       containers:
-        - name: nico-pxe
+        - name: {{ include "nico-pxe.name" . }}
           image: "{{ include "nico-pxe.image" . }}"
           # Pick whichever binary is in the image (nico-named or carbide-named).
           command:
@@ -67,7 +67,7 @@ spec:
           {{- if .Values.envFrom }}
           envFrom:
             - configMapRef:
-                name: {{ .Values.envFrom.pxeEnvConfig.configMapName }}
+                name: {{ include "nico-pxe.name" . }}-env-config
                 optional: {{ .Values.envFrom.pxeEnvConfig.optional | default true }}
           {{- end }}
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
@@ -92,7 +92,7 @@ spec:
       volumes:
         - name: spiffe
           secret:
-            secretName: nico-pxe-certificate
+            secretName: {{ include "nico-pxe.name" . }}-certificate
         {{- if .Values.bootArtifactContainers }}
         - name: boot-artifacts
           emptyDir: {}

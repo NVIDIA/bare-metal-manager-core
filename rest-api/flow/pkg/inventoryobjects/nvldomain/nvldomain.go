@@ -6,7 +6,7 @@ package nvldomain
 import (
 	"errors"
 
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/google/uuid"
 )
 

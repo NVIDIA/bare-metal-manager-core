@@ -2,12 +2,12 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: nico-dsx-exchange-consumer-metrics
+  name: {{ include "nico-dsx-exchange-consumer.name" . }}-metrics
   namespace: {{ include "nico-dsx-exchange-consumer.namespace" . }}
   labels:
     {{- include "nico-dsx-exchange-consumer.labels" . | nindent 4 }}
-    app: nico-dsx-exchange-consumer
+    app: {{ include "nico-dsx-exchange-consumer.name" . }}
     prometheus: nico-monitoring
 spec:
-  {{- include "nico-dsx-exchange-consumer.serviceMonitorSpec" (dict "name" "nico-dsx-exchange-consumer" "port" "metrics" "monitor" .Values.serviceMonitor "namespace" (include "nico-dsx-exchange-consumer.namespace" .)) | nindent 2 }}
+  {{- include "nico-dsx-exchange-consumer.serviceMonitorSpec" (dict "name" (include "nico-dsx-exchange-consumer.name" .) "port" "metrics" "monitor" .Values.serviceMonitor "namespace" (include "nico-dsx-exchange-consumer.namespace" .)) | nindent 2 }}
 {{- end }}

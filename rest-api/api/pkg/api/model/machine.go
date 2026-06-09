@@ -16,13 +16,13 @@ import (
 
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	camu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
+	camu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -75,19 +75,19 @@ var (
 	machineHealthAttributeDeprecations = []DeprecatedEntity{
 		{
 			OldValue:     "health.observed_at",
-			NewValue:     cdb.GetStrPtr("health.observedAt"),
+			NewValue:     cutil.GetPtr("health.observedAt"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
 		{
 			OldValue:     "health.alerts.in_alert_since",
-			NewValue:     cdb.GetStrPtr("health.alerts.inAlertSince"),
+			NewValue:     cutil.GetPtr("health.alerts.inAlertSince"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
 		{
 			OldValue:     "health.alerts.tenant_message",
-			NewValue:     cdb.GetStrPtr("health.alerts.tenantMessage"),
+			NewValue:     cutil.GetPtr("health.alerts.tenantMessage"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: machineHealthAttributeDeprecatedTime,
 		},
@@ -272,7 +272,7 @@ func (mur APIMachineUpdateRequest) Validate() error {
 	return err
 }
 
-func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID string) (*cwssaws.InsertHealthReportOverrideRequest, error) {
+func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*cwssaws.InsertMachineHealthReportRequest, error) {
 	mhi := mur.HealthIssue
 
 	m, err := json.Marshal(struct {
@@ -291,9 +291,9 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID s
 
 	alert := &cwssaws.HealthProbeAlert{
 		Id:            MachineHealthAlertIDOnlineRepair,
-		Target:        cdb.GetStrPtr(MachineTenantReportedIssueAlertID),
+		Target:        cutil.GetPtr(MachineTenantReportedIssueAlertID),
 		Message:       msg,
-		TenantMessage: cdb.GetStrPtr(fmt.Sprintf("TenantReportedIssue: %s", *mhi.Summary)),
+		TenantMessage: cutil.GetPtr(fmt.Sprintf("TenantReportedIssue: %s", *mhi.Summary)),
 		Classifications: []string{
 			MachineAlertClassificationPreventAllocations,
 			MachineAlertClassificationPreventInstanceDeletion,
@@ -304,17 +304,17 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportOverrideProto(machineID s
 		Source: MachineHealthOverrideSourceOnlineRepair,
 		Alerts: []*cwssaws.HealthProbeAlert{alert},
 	}
-	return &cwssaws.InsertHealthReportOverrideRequest{
+	return &cwssaws.InsertMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: machineID},
-		Override: &cwssaws.HealthReportOverride{
+		HealthReportEntry: &cwssaws.HealthReportEntry{
 			Report: hr,
-			Mode:   cwssaws.OverrideMode_Merge,
+			Mode:   cwssaws.HealthReportApplyMode_Merge,
 		},
 	}, nil
 }
 
-func (mur APIMachineUpdateRequest) ToRemoveHealthReportOverrideProto(machineID string) (*cwssaws.RemoveHealthReportOverrideRequest, error) {
-	return &cwssaws.RemoveHealthReportOverrideRequest{
+func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*cwssaws.RemoveMachineHealthReportRequest, error) {
+	return &cwssaws.RemoveMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: machineID},
 		Source:    MachineHealthOverrideSourceOnlineRepair,
 	}, nil
@@ -542,7 +542,7 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	}
 
 	if dbm.InstanceTypeID != nil {
-		apim.InstanceTypeID = cdb.GetStrPtr(dbm.InstanceTypeID.String())
+		apim.InstanceTypeID = cutil.GetPtr(dbm.InstanceTypeID.String())
 	}
 
 	if dbm.InstanceType != nil {
@@ -550,9 +550,9 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	}
 
 	if dbins != nil {
-		apim.InstanceID = cdb.GetStrPtr(dbins.ID.String())
+		apim.InstanceID = cutil.GetPtr(dbins.ID.String())
 		apim.Instance = NewAPIInstanceSummary(dbins)
-		apim.TenantID = cdb.GetStrPtr(dbins.TenantID.String())
+		apim.TenantID = cutil.GetPtr(dbins.TenantID.String())
 		if dbins.Tenant != nil {
 			apim.Tenant = NewAPITenantSummary(dbins.Tenant)
 		}

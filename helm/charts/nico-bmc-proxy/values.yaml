@@ -27,10 +27,9 @@ image:
 namespaceOverride: ""
 
 replicas: 2
-serviceAccountName: nico-bmc-proxy
 automountServiceAccountToken: true
 annotations:
-  configmap.reloader.stakater.com/reload: "nico-bmc-proxy-config-files, nico-bmc-proxy-site-config-files"
+  configmap.reloader.stakater.com/reload: '{{ include "nico-bmc-proxy.name" . }}-config-files, {{ include "nico-bmc-proxy.name" . }}-site-config-files'
 
 resources:
   limits:
@@ -47,7 +46,14 @@ service:
     port: 1080
 
 certificate:
-  serviceName: nico-bmc-proxy
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
   extraDnsNames: []
   extraUris: []
 
@@ -94,6 +100,12 @@ serviceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 25s
+
+auth:
+  ## Namespace component accepted in SPIFFE service/machine IDs. Empty = deploy ns.
+  namespace: ""
+  ## SPIFFE service-id of the API allowed full access (allowed_principals + ACL).
+  apiPrincipal: nico-api
 
 configFiles:
   nicoBmcProxyConfig: ""

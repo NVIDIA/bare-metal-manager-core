@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -23,13 +24,13 @@ func TestAPITenantAccountCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "errors when infrastructureProviderID is not provided",
-			obj:       APITenantAccountCreateRequest{TenantID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APITenantAccountCreateRequest{TenantID: cutil.GetPtr(uuid.New().String())},
 			expectErr: true,
 			errStr:    "infrastructureProviderId: " + validationErrorValueRequired + ".",
 		},
 		{
 			desc:      "errors when infrastructureProviderID is invalid",
-			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: "non-uuid", TenantID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: "non-uuid", TenantID: cutil.GetPtr(uuid.New().String())},
 			expectErr: true,
 			errStr:    "infrastructureProviderId: " + validationErrorInvalidUUID + ".",
 		},
@@ -41,24 +42,24 @@ func TestAPITenantAccountCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "error when TenantID is invalid",
-			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantID: cdb.GetStrPtr("non-uuid")},
+			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantID: cutil.GetPtr("non-uuid")},
 			expectErr: true,
 			errStr:    "tenantId: " + validationErrorInvalidUUID + ".",
 		},
 		{
 			desc:      "error when TenantOrg is invalid",
-			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantOrg: cdb.GetStrPtr("n")},
+			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantOrg: cutil.GetPtr("n")},
 			expectErr: true,
 			errStr:    "tenantOrg: " + validationErrorStringLength + ".",
 		},
 		{
 			desc:      "ok with valid values - with tenantID",
-			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantID: cutil.GetPtr(uuid.New().String())},
 			expectErr: false,
 		},
 		{
 			desc:      "ok with valid values - with tenantOrg",
-			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantOrg: cdb.GetStrPtr("SomeOrgName")},
+			obj:       APITenantAccountCreateRequest{InfrastructureProviderID: uuid.New().String(), TenantOrg: cutil.GetPtr("SomeOrgName")},
 			expectErr: false,
 		},
 	}
@@ -82,7 +83,7 @@ func TestAPITenantAccountUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "errors when tenantContactID is invalid",
-			obj:       APITenantAccountUpdateRequest{TenantContactID: cdb.GetStrPtr("non-uuid")},
+			obj:       APITenantAccountUpdateRequest{TenantContactID: cutil.GetPtr("non-uuid")},
 			expectErr: true,
 			errStr:    "tenantContactId: " + validationErrorInvalidUUID + ".",
 		},
@@ -93,7 +94,7 @@ func TestAPITenantAccountUpdateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when tenantContactID is valid",
-			obj:       APITenantAccountUpdateRequest{TenantContactID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APITenantAccountUpdateRequest{TenantContactID: cutil.GetPtr(uuid.New().String())},
 			expectErr: false,
 		},
 	}
@@ -112,36 +113,36 @@ func TestAPITenantAccountNew(t *testing.T) {
 	dbObj := &cdbm.TenantAccount{
 		ID:                        uuid.New(),
 		AccountNumber:             "acctNum",
-		TenantID:                  cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                  cutil.GetPtr(uuid.New()),
 		TenantOrg:                 "testOrg",
 		InfrastructureProviderID:  uuid.New(),
 		InfrastructureProviderOrg: "testIPOrg",
-		SubscriptionID:            cdb.GetStrPtr(uuid.New().String()),
-		SubscriptionTier:          cdb.GetStrPtr("someTier"),
-		TenantContactID:           cdb.GetUUIDPtr(uuid.New()),
+		SubscriptionID:            cutil.GetPtr(uuid.New().String()),
+		SubscriptionTier:          cutil.GetPtr("someTier"),
+		TenantContactID:           cutil.GetPtr(uuid.New()),
 		Status:                    "Invited",
 		Created:                   cdb.GetCurTime(),
 		Updated:                   cdb.GetCurTime(),
 	}
 	dbUsr := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("sf"),
-		FirstName:   cdb.GetStrPtr("t"),
-		LastName:    cdb.GetStrPtr("s"),
+		StarfleetID: cutil.GetPtr("sf"),
+		FirstName:   cutil.GetPtr("t"),
+		LastName:    cutil.GetPtr("s"),
 		Created:     cdb.GetCurTime(),
 		Updated:     cdb.GetCurTime(),
 	}
 	dbObj2 := &cdbm.TenantAccount{
 		ID:                        uuid.New(),
 		AccountNumber:             "acctNum",
-		TenantID:                  cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                  cutil.GetPtr(uuid.New()),
 		TenantOrg:                 "testOrg",
 		InfrastructureProviderID:  uuid.New(),
 		InfrastructureProviderOrg: "testIPOrg",
-		SubscriptionID:            cdb.GetStrPtr(uuid.New().String()),
-		SubscriptionTier:          cdb.GetStrPtr("someTier"),
+		SubscriptionID:            cutil.GetPtr(uuid.New().String()),
+		SubscriptionTier:          cutil.GetPtr("someTier"),
 		TenantContact:             dbUsr,
-		TenantContactID:           cdb.GetUUIDPtr(uuid.New()),
+		TenantContactID:           cutil.GetPtr(uuid.New()),
 		Status:                    "Invited",
 		Created:                   cdb.GetCurTime(),
 		Updated:                   cdb.GetCurTime(),
@@ -177,7 +178,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				InfrastructureProviderOrg: dbObj.InfrastructureProviderOrg,
 				SubscriptionID:            dbObj.SubscriptionID,
 				SubscriptionTier:          dbObj.SubscriptionTier,
-				TenantID:                  cdb.GetStrPtr(dbObj.TenantID.String()),
+				TenantID:                  cutil.GetPtr(dbObj.TenantID.String()),
 				TenantOrg:                 dbObj.TenantOrg,
 				TenantContact:             nil,
 				AllocationCount:           2,
@@ -198,7 +199,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				InfrastructureProviderOrg: dbObj.InfrastructureProviderOrg,
 				SubscriptionID:            dbObj2.SubscriptionID,
 				SubscriptionTier:          dbObj2.SubscriptionTier,
-				TenantID:                  cdb.GetStrPtr(dbObj2.TenantID.String()),
+				TenantID:                  cutil.GetPtr(dbObj2.TenantID.String()),
 				TenantOrg:                 dbObj.TenantOrg,
 				TenantContact:             apiUsr,
 				AllocationCount:           2,

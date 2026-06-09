@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	ipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -30,82 +31,82 @@ func TestAPIIPBlockCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "error when Name is not provided",
-			obj:       APIIPBlockCreateRequest{Description: cdb.GetStrPtr("ab"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Description: cutil.GetPtr("ab"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIIPBlockCreateRequest{Name: "a", Description: cdb.GetStrPtr("ab"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "a", Description: cutil.GetPtr("ab"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is empty",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr(""), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr(""), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: false,
 		},
 		{
 			desc:      "error when SiteID is not valid uuid",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: "baduuid", RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: "baduuid", RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when RoutingType is not valid",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: "unknown routing type", Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: "unknown routing type", Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Prefix is not valid ip address",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "bad-ip-address", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "bad-ip-address", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Prefix is not valid ipv4 address",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "::2001", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "::2001", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when min PrefixLength is not valid for IPv4",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen0, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen0, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when max PrefixLength is not valid for ipv4",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen33, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen33, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when min PrefixLength is not valid for IPv6",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "2001:aabb::0", PrefixLength: prefLen0, ProtocolVersion: cdbm.IPBlockProtocolVersionV6},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "2001:aabb::0", PrefixLength: prefLen0, ProtocolVersion: cdbm.IPBlockProtocolVersionV6},
 			expectErr: true,
 		},
 		{
 			desc:      "error when max PrefixLength is not valid for ipv6",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "2001:aabb::0", PrefixLength: prefLen129, ProtocolVersion: cdbm.IPBlockProtocolVersionV6},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "2001:aabb::0", PrefixLength: prefLen129, ProtocolVersion: cdbm.IPBlockProtocolVersionV6},
 			expectErr: true,
 		},
 		{
 			desc:      "error when max prefix does not match block size",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "100.100.11.11", PrefixLength: prefLen19, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "100.100.11.11", PrefixLength: prefLen19, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when ProtocolVersion is invalid",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: "ipv4"},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: "ipv4"},
 			expectErr: true,
 		},
 		{
 			desc:      "error when neither BlockSize is specified",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", BlockSize: cdb.GetIntPtr(28), ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", BlockSize: cutil.GetPtr(28), ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "error when prefixLength is not specified",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when all fields are speced with prefixLength",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cdb.GetStrPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
+			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", PrefixLength: prefLen, ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: false,
 		},
 		{
@@ -133,27 +134,27 @@ func TestAPIIPBlockUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "ok when Name is not provided",
-			obj:       APIIPBlockUpdateRequest{Description: cdb.GetStrPtr("ab")},
+			obj:       APIIPBlockUpdateRequest{Description: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "ok when Description is not provided",
-			obj:       APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("ab")},
+			obj:       APIIPBlockUpdateRequest{Name: cutil.GetPtr("ab")},
 			expectErr: false,
 		},
 		{
 			desc:      "error when Name is provided but is empty",
-			obj:       APIIPBlockUpdateRequest{Name: cdb.GetStrPtr(""), Description: cdb.GetStrPtr("ab")},
+			obj:       APIIPBlockUpdateRequest{Name: cutil.GetPtr(""), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "error when Name is no valid string",
-			obj:       APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("a"), Description: cdb.GetStrPtr("ab")},
+			obj:       APIIPBlockUpdateRequest{Name: cutil.GetPtr("a"), Description: cutil.GetPtr("ab")},
 			expectErr: true,
 		},
 		{
 			desc:      "ok when description is not valid with empty",
-			obj:       APIIPBlockUpdateRequest{Name: cdb.GetStrPtr("ab"), Description: cdb.GetStrPtr("")},
+			obj:       APIIPBlockUpdateRequest{Name: cutil.GetPtr("ab"), Description: cutil.GetPtr("")},
 			expectErr: false,
 		},
 	}
@@ -174,7 +175,7 @@ func TestAPIIPBlockNew(t *testing.T) {
 		Name:                     "test",
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
 		RoutingType:              cdbm.IPBlockRoutingTypePublic,
 		Prefix:                   "192.168.0.0",
 		PrefixLength:             16,
@@ -276,7 +277,7 @@ func TestAPIIPBlockNewIPBlockSummary(t *testing.T) {
 		Name:                     "test",
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
-		TenantID:                 cdb.GetUUIDPtr(uuid.New()),
+		TenantID:                 cutil.GetPtr(uuid.New()),
 		RoutingType:              cdbm.IPBlockRoutingTypePublic,
 		Prefix:                   "192.168.0.0",
 		PrefixLength:             16,

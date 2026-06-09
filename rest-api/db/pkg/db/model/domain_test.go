@@ -11,9 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -40,10 +41,10 @@ func testDomainSetupSchema(t *testing.T, dbSession *db.Session) {
 func testDomainBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -243,7 +244,7 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:               "GetAll with hostname filter returns objects",
-			hostname:           db.GetStrPtr("test1.com"),
+			hostname:           cutil.GetPtr("test1.com"),
 			org:                nil,
 			controllerDomainID: nil,
 			expectedCnt:        2,
@@ -252,7 +253,7 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with org filter returns objects",
 			hostname:           nil,
-			org:                db.GetStrPtr("testOrg2"),
+			org:                cutil.GetPtr("testOrg2"),
 			controllerDomainID: nil,
 			expectedCnt:        2,
 			expectedError:      false,
@@ -267,16 +268,16 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:               "GetAll with multiple filters returns objects",
-			hostname:           db.GetStrPtr("test1.com"),
-			org:                db.GetStrPtr("testOrg1"),
+			hostname:           cutil.GetPtr("test1.com"),
+			org:                cutil.GetPtr("testOrg1"),
 			controllerDomainID: &controllerDomainID,
 			expectedCnt:        1,
 			expectedError:      false,
 		},
 		{
 			desc:               "GetAll with multiple filters returns no objects",
-			hostname:           db.GetStrPtr("notfound.com"),
-			org:                db.GetStrPtr("testOrg1"),
+			hostname:           cutil.GetPtr("notfound.com"),
+			org:                cutil.GetPtr("testOrg1"),
 			controllerDomainID: &controllerDomainID,
 			expectedCnt:        0,
 			expectedError:      false,
@@ -287,7 +288,7 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 			org:                nil,
 			controllerDomainID: nil,
 			expectedCnt:        3,
-			status:             db.GetStrPtr(DomainStatusPending),
+			status:             cutil.GetPtr(DomainStatusPending),
 			expectedError:      false,
 		},
 		{
@@ -296,7 +297,7 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 			org:                nil,
 			controllerDomainID: nil,
 			expectedCnt:        0,
-			status:             db.GetStrPtr(DomainStatusError),
+			status:             cutil.GetPtr(DomainStatusError),
 			expectedError:      false,
 		},
 	}
@@ -361,12 +362,12 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			desc:                       "can update hostname",
 			id:                         domain.ID,
 			paramDomain:                domain,
-			paramHostname:              db.GetStrPtr("updated.com"),
+			paramHostname:              cutil.GetPtr("updated.com"),
 			paramOrg:                   nil,
 			paramControllerDomainID:    nil,
 			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
 			expectedOrg:                &domain.Org,
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
@@ -376,12 +377,12 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			desc:                       "error when updating object doesnt exist",
 			id:                         uuid.New(),
 			paramDomain:                domain,
-			paramHostname:              db.GetStrPtr("updated.com"),
+			paramHostname:              cutil.GetPtr("updated.com"),
 			paramOrg:                   nil,
 			paramControllerDomainID:    nil,
 			paramStatus:                nil,
 			expectedError:              true,
-			expectedHostname:           db.GetStrPtr("updated.com"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
 			expectedOrg:                &domain.Org,
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
@@ -391,12 +392,12 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			id:                         domain.ID,
 			paramDomain:                domain,
 			paramHostname:              nil,
-			paramOrg:                   db.GetStrPtr("updatedOrg"),
+			paramOrg:                   cutil.GetPtr("updatedOrg"),
 			paramControllerDomainID:    nil,
 			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: domain.ControllerDomainID,
 			expectedStatus:             &domain.Status,
 		},
@@ -409,8 +410,8 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			paramControllerDomainID:    &updatedControllerDomainID,
 			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
 			expectedStatus:             &domain.Status,
 		},
@@ -421,26 +422,26 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			paramHostname:              nil,
 			paramOrg:                   nil,
 			paramControllerDomainID:    nil,
-			paramStatus:                db.GetStrPtr(DomainStatusReady),
+			paramStatus:                cutil.GetPtr(DomainStatusReady),
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 		},
 		{
 			desc:                       "can update multiple fields",
 			id:                         domain2.ID,
 			paramDomain:                domain2,
-			paramHostname:              db.GetStrPtr("updated.com"),
-			paramOrg:                   db.GetStrPtr("updatedOrg"),
+			paramHostname:              cutil.GetPtr("updated.com"),
+			paramOrg:                   cutil.GetPtr("updatedOrg"),
 			paramControllerDomainID:    &updatedControllerDomainID,
-			paramStatus:                db.GetStrPtr(DomainStatusReady),
+			paramStatus:                cutil.GetPtr(DomainStatusReady),
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 			tx:                         tx1,
 		},
 		{
@@ -452,10 +453,10 @@ func TestDomainSQLDAO_UpdateFromParams(t *testing.T) {
 			paramControllerDomainID:    nil,
 			paramStatus:                nil,
 			expectedError:              false,
-			expectedHostname:           db.GetStrPtr("updated.com"),
-			expectedOrg:                db.GetStrPtr("updatedOrg"),
+			expectedHostname:           cutil.GetPtr("updated.com"),
+			expectedOrg:                cutil.GetPtr("updatedOrg"),
 			expectedControllerDomainID: &updatedControllerDomainID,
-			expectedStatus:             db.GetStrPtr(DomainStatusReady),
+			expectedStatus:             cutil.GetPtr(DomainStatusReady),
 		},
 	}
 	for _, tc := range tests {

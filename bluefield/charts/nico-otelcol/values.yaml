@@ -24,6 +24,33 @@ image:
   repository: ""
   pullPolicy: IfNotPresent
   tag: ""
+# node-exporter sidecar: provides the host metrics scraped by the
+# prometheus/node receiver in otel_config.yaml at localhost:<port>.
+# It binds to loopback only, so it is never exposed on the host's external
+# interfaces. Pinned public multi-arch image (includes arm64 for BlueField).
+nodeExporter:
+  image:
+    repository: quay.io/prometheus/node-exporter
+    tag: v1.9.1
+    pullPolicy: IfNotPresent
+  # Must match the prometheus/node scrape target (localhost:9200) in otel_config.yaml.
+  port: 9200
+  resources: {}
+# transceiver-exporter sidecar: provides optical transceiver (DOM) metrics
+# scraped by the prometheus/transceiver receiver in otel_config.yaml at
+# localhost:<port>. It binds to loopback only, so it is never exposed on the
+# host's external interfaces. Unlike node-exporter there is no public image, so
+# it is built from the wobcom transceiver-exporter release and published
+# alongside otelcol-contrib (see bluefield/containers/transceiver-exporter).
+transceiverExporter:
+  image:
+    repository: nvcr.io/0837451325059433/carbide-dev/transceiver-exporter
+    # Defaults to the otelcol-contrib image tag (built in the same CI run).
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Must match the prometheus/transceiver scrape target (localhost:9300) in otel_config.yaml.
+  port: 9300
+  resources: {}
 imagePullSecrets: []
 podSecurityContext: {}
 securityContext:

@@ -7,8 +7,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )
@@ -31,12 +32,16 @@ type APIInfiniBandPartitionCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (ibpcr APIInfiniBandPartitionCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&ibpcr,
+func (ibpcr *APIInfiniBandPartitionCreateRequest) Validate() error {
+	err := validation.ValidateStruct(ibpcr,
 		validation.Field(&ibpcr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
+		validation.Field(&ibpcr.Description,
+			validation.When(ibpcr.Description != nil,
+				validation.Length(0, 1024).Error(validationErrorDescriptionStringLength)),
+		),
 		validation.Field(&ibpcr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -47,6 +52,25 @@ func (ibpcr APIInfiniBandPartitionCreateRequest) Validate() error {
 	}
 
 	return util.ValidateLabels(ibpcr.Labels)
+}
+
+// ToProto builds the workflow request that asks a Site to create this
+// InfiniBand Partition for this API request. `ibp` is the
+// just-persisted DB record; its `ToProto()` is the source of the
+// canonical wire fields (Id / Config.Name / Config.TenantOrganizationId
+// / Metadata) which the create request reuses verbatim.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see (org/tenant association, Site readiness, name
+// uniqueness). It returns no error.
+func (ibpcr *APIInfiniBandPartitionCreateRequest) ToProto(ibp *cdbm.InfiniBandPartition) *cwssaws.IBPartitionCreationRequest {
+	ibpProto := ibp.ToProto()
+	return &cwssaws.IBPartitionCreationRequest{
+		Id:       ibpProto.Id,
+		Config:   ibpProto.Config,
+		Metadata: ibpProto.Metadata,
+	}
 }
 
 // APIInfiniBandPartitionUpdateRequest is the data structure to capture user request to update a InfiniBandPartition
@@ -60,12 +84,15 @@ type APIInfiniBandPartitionUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (ibpur APIInfiniBandPartitionUpdateRequest) Validate() error {
-	err := validation.ValidateStruct(&ibpur,
+func (ibpur *APIInfiniBandPartitionUpdateRequest) Validate() error {
+	err := validation.ValidateStruct(ibpur,
 		validation.Field(&ibpur.Name,
 			validation.When(ibpur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(ibpur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(ibpur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
+		validation.Field(&ibpur.Description,
+			validation.When(ibpur.Description != nil, validation.Length(0, 1024).Error(validationErrorDescriptionStringLength)),
+		),
 	)
 
 	if err != nil {
@@ -73,6 +100,24 @@ func (ibpur APIInfiniBandPartitionUpdateRequest) Validate() error {
 	}
 
 	return util.ValidateLabels(ibpur.Labels)
+}
+
+// ToProto builds the workflow request that pushes this Update's
+// merged-into-DB state to a Site. The persisted `ibp` is the source
+// of the wire fields because the handler has already merged the
+// request's (sparse) update fields into the entity by the time this
+// is called; sending the post-merge state matches the pre-existing
+// handler behaviour and keeps unchanged fields populated.
+//
+// The method trusts that the request has already been Validated. It
+// returns no error.
+func (ibpur *APIInfiniBandPartitionUpdateRequest) ToProto(ibp *cdbm.InfiniBandPartition) *cwssaws.IBPartitionUpdateRequest {
+	ibpProto := ibp.ToProto()
+	return &cwssaws.IBPartitionUpdateRequest{
+		Id:       ibpProto.Id,
+		Config:   ibpProto.Config,
+		Metadata: ibpProto.Metadata,
+	}
 }
 
 // APIInfiniBandPartition is the data structure to capture API representation of a InfiniBand Partition
@@ -108,7 +153,7 @@ type APIInfiniBandPartition struct {
 	// Labels is the labels of the InfiniBand Partition
 	Labels map[string]string `json:"labels"`
 	// Status is the status o the InfiniBand Partition
-	Status string `json:"status"`
+	Status cdbm.InfiniBandPartitionStatus `json:"status"`
 	// StatusHistory is the status detail records for the InfiniBand Partition over time
 	StatusHistory []APIStatusDetail `json:"statusHistory"`
 	// Created indicates the ISO datetime string for when the InfiniBand Partition was created
@@ -167,7 +212,7 @@ type APIInfiniBandPartitionSummary struct {
 	// Controller IB Partition is the ID of the Site Controller Partition corresponding to the InfiniBand Partition
 	ControllerIBPartitionID *string `json:"controllerIBPartitionId"`
 	// Status is the status of the InfiniBand Partition
-	Status string `json:"status"`
+	Status cdbm.InfiniBandPartitionStatus `json:"status"`
 }
 
 // NewAPIInfiniBandPartitionSummary accepts a DB layer InfiniBandPartition object returns an API layer object

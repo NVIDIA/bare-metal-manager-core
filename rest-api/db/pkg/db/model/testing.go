@@ -7,10 +7,11 @@ import (
 	"context"
 	"testing"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 )
 
 // TestSetupSchema creates/resets the schema
@@ -147,9 +148,9 @@ func TestBuildUser(t *testing.T, dbSession *db.Session, starfleetID string, org 
 
 	input := UserCreateInput{
 		StarfleetID: &starfleetID,
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData:     orgData,
 	}
 	u, err := uDAO.Create(context.Background(), nil, input)
@@ -162,7 +163,7 @@ func TestBuildUser(t *testing.T, dbSession *db.Session, starfleetID string, org 
 func TestBuildInfrastructureProvider(t *testing.T, dbSession *db.Session, name string, org string, user *User) *InfrastructureProvider {
 	ipDAO := NewInfrastructureProviderDAO(dbSession)
 
-	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, db.GetStrPtr("Test Provider"), org, db.GetStrPtr(org), user)
+	ip, err := ipDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Provider"), org, cutil.GetPtr(org), user)
 	assert.Nil(t, err)
 
 	return ip
@@ -174,7 +175,7 @@ func TestBuildTenant(t *testing.T, dbSession *db.Session, name string, org strin
 
 	tncfg := TenantConfig{}
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, db.GetStrPtr("Test Tenant"), org, db.GetStrPtr(org), &tncfg, user)
+	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, cutil.GetPtr(org), &tncfg, user)
 	assert.Nil(t, err)
 
 	return tn
@@ -186,19 +187,19 @@ func TestBuildSite(t *testing.T, dbSession *db.Session, ip *InfrastructureProvid
 
 	st, err := stDAO.Create(context.Background(), nil, SiteCreateInput{
 		Name:                          name,
-		DisplayName:                   db.GetStrPtr("Test Site"),
-		Description:                   db.GetStrPtr("Test Site Description"),
+		DisplayName:                   cutil.GetPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           ip.Org,
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              db.GetStrPtr("1.0.0"),
-		RegistrationToken:             db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(db.GetCurTime()),
 		IsInfinityEnabled:             true,
-		SerialConsoleHostname:         db.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("TestSshHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      db.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: db.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Status:                        SiteStatusPending,
 		CreatedBy:                     user.ID,
 	})
@@ -229,7 +230,7 @@ func TestBuildInstanceType(t *testing.T, dbSession *db.Session, name string, ip 
 		ID:                       uuid.New(),
 		Name:                     name,
 		DisplayName:              &name,
-		Description:              db.GetStrPtr("Instance Type Description"),
+		Description:              cutil.GetPtr("Instance Type Description"),
 		ControllerMachineType:    nil,
 		InfrastructureProviderID: ip.ID,
 		SiteID:                   &site.ID,
@@ -260,7 +261,7 @@ func TestBuildIPBlock(t *testing.T, dbSession *db.Session, name string, site *Si
 			PrefixLength:             blockSize,
 			ProtocolVersion:          protocolVersion,
 			Status:                   IPBlockStatusPending,
-			CreatedBy:                db.GetUUIDPtr(uuid.New()),
+			CreatedBy:                cutil.GetPtr(uuid.New()),
 		},
 	)
 	assert.Nil(t, err)
@@ -274,7 +275,7 @@ func TestBuildAllocation(t *testing.T, dbSession *db.Session, name string, st *S
 
 	al, err := alDAO.Create(context.Background(), nil, AllocationCreateInput{
 		Name:                     name,
-		Description:              db.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -308,7 +309,7 @@ func TestBuildVPC(t *testing.T, dbSession *db.Session, name string, ip *Infrastr
 
 	input := VpcCreateInput{
 		Name:                      name,
-		Description:               db.GetStrPtr("Test Vpc"),
+		Description:               cutil.GetPtr("Test Vpc"),
 		Org:                       tn.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
@@ -333,7 +334,7 @@ func TestBuildSubnet(t *testing.T, dbSession *db.Session, name string, tn *Tenan
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, SubnetCreateInput{
 		Name:                       name,
-		Description:                db.GetStrPtr("Test Subnet"),
+		Description:                cutil.GetPtr("Test Subnet"),
 		Org:                        tn.Org,
 		SiteID:                     vpc.SiteID,
 		VpcID:                      vpc.ID,
@@ -394,7 +395,7 @@ func TestBuildOperatingSystem(t *testing.T, dbSession *db.Session, name string, 
 	operatingSystem := &OperatingSystem{
 		ID:        uuid.New(),
 		Name:      name,
-		TenantID:  db.GetUUIDPtr(tn.ID),
+		TenantID:  cutil.GetPtr(tn.ID),
 		Status:    status,
 		CreatedBy: user.ID,
 	}

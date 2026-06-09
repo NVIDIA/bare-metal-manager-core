@@ -10,14 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -183,7 +184,7 @@ func testBuildUser(t *testing.T, dbSession *db.Session, id *uuid.UUID, starfleet
 
 	user := &User{
 		ID:          uid,
-		StarfleetID: db.GetStrPtr(starfleetID),
+		StarfleetID: cutil.GetPtr(starfleetID),
 		Email:       email,
 		FirstName:   firstName,
 		LastName:    lastName,
@@ -270,7 +271,7 @@ func testBuildFabric(t *testing.T, dbSession *db.Session, id *string, org string
 	return fb
 }
 
-func testBuildInfiniBandPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, controllerIBInfiniBandPartitionID *uuid.UUID, partitionKey *string, partitionName *string, serviceLevel *int, rateLimit *float32, mtu *int, enableSharp *bool, labels map[string]string, status *string, createdBy uuid.UUID) *InfiniBandPartition {
+func testBuildInfiniBandPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, controllerIBInfiniBandPartitionID *uuid.UUID, partitionKey *string, partitionName *string, serviceLevel *int, rateLimit *float32, mtu *int, enableSharp *bool, labels map[string]string, status *InfiniBandPartitionStatus, createdBy uuid.UUID) *InfiniBandPartition {
 	pid := uuid.New()
 	if id != nil {
 		pid = *id
@@ -313,7 +314,7 @@ func testBuildInfiniBandInterface(t *testing.T, dbSession *db.Session, id *uuid.
 	}
 
 	if status == nil {
-		status = db.GetStrPtr(InfiniBandInterfaceStatusPending)
+		status = cutil.GetPtr(InfiniBandInterfaceStatusPending)
 	}
 
 	ibif := &InfiniBandInterface{
@@ -336,7 +337,7 @@ func testBuildInfiniBandInterface(t *testing.T, dbSession *db.Session, id *uuid.
 	return ibif
 }
 
-func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *string, createdBy uuid.UUID) *NVLinkLogicalPartition {
+func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *NVLinkLogicalPartitionStatus, createdBy uuid.UUID) *NVLinkLogicalPartition {
 	pid := uuid.New()
 	if id != nil {
 		pid = *id
@@ -371,7 +372,7 @@ func testBuildNVLinkInterface(t *testing.T, dbSession *db.Session, id *uuid.UUID
 	}
 
 	if status == nil {
-		status = db.GetStrPtr(NVLinkInterfaceStatusPending)
+		status = cutil.GetPtr(NVLinkInterfaceStatusPending)
 	}
 
 	nvli := &NVLinkInterface{
@@ -434,13 +435,13 @@ func testBuildImageOperatingSystem(t *testing.T, dbSession *db.Session, name str
 		InfrastructureProviderID: ipID,
 		TenantID:                 tenantID,
 		Type:                     "Image",
-		ImageURL:                 db.GetStrPtr("imageURL"),
-		ImageSHA:                 db.GetStrPtr("imageSHA"),
-		ImageAuthType:            db.GetStrPtr("imageAuthType"),
-		ImageAuthToken:           db.GetStrPtr("imageAuthToken"),
-		ImageDisk:                db.GetStrPtr("imageDisk"),
-		RootFsID:                 db.GetStrPtr("rootFsId"),
-		RootFsLabel:              db.GetStrPtr("rootFsLabel"),
+		ImageURL:                 cutil.GetPtr("imageURL"),
+		ImageSHA:                 cutil.GetPtr("imageSHA"),
+		ImageAuthType:            cutil.GetPtr("imageAuthType"),
+		ImageAuthToken:           cutil.GetPtr("imageAuthToken"),
+		ImageDisk:                cutil.GetPtr("imageDisk"),
+		RootFsID:                 cutil.GetPtr("rootFsId"),
+		RootFsLabel:              cutil.GetPtr("rootFsLabel"),
 		Version:                  version,
 		EnableBlockStorage:       enabelBS,
 		Status:                   status,

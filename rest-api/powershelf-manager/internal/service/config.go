@@ -6,10 +6,10 @@ package service
 import (
 	"os"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/credentials"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/pmcregistry"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/powershelfmanager"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/credentials"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/pmcregistry"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/powershelfmanager"
 )
 
 // Config captures runtime settings for running the gRPC service, including the public port,

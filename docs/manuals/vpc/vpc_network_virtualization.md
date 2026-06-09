@@ -15,6 +15,8 @@ explaining the system to a network team.
 - [IP Resource Pools](../networking/ip_resource_pools.md) — IP pool configuration
 - [Networking Requirements](../networking_requirements.md) — underlay and EVPN prerequisites
 - [DPU Configuration](../../dpu-management/dpu_configuration.md) — declarative DPU config flow
+- [Flat VPCs and Zero-DPU Hosts](flat_vpcs_zero_dpu.md) — the operator-managed
+  alternative for hosts without a NICo-managed DPU (no DPU overlay)
 
 ---
 

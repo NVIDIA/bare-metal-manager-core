@@ -8,8 +8,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/NVIDIA/infra-controller-rest/cert-manager/pkg/certs"
-	"github.com/NVIDIA/infra-controller-rest/cert-manager/pkg/core"
+	"github.com/NVIDIA/infra-controller/rest-api/cert-manager/pkg/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/cert-manager/pkg/core"
 	cli "github.com/urfave/cli/v2"
 )
 

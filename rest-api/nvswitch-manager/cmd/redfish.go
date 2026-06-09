@@ -6,11 +6,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/secretstring"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/common/util"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/bmc"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/redfish"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretstring"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/common/util"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/bmc"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/redfish"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

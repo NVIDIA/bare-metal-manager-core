@@ -16,10 +16,11 @@
  */
 
 use carbide_uuid::rack::RackId;
-use common::api_fixtures::create_test_env;
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{AdminForceDeleteRackRequest, DeleteRackRequest};
+use tonic::Code;
 
-use crate::tests::common;
+use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 #[crate::sqlx_test]
@@ -108,4 +109,108 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
     assert!(racks[0].created.is_some());
     assert!(racks[0].deleted.is_none());
     assert!(!racks[0].version.is_empty());
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_rack_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let rack_id: RackId = "ForceDeleteRack".parse().unwrap();
+    let mut txn = env.pool.acquire().await.unwrap();
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .unwrap();
+    drop(txn);
+
+    let response = env
+        .api
+        .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.rack_id, rack_id.to_string());
+
+    let racks = env
+        .api
+        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id.clone()],
+        }))
+        .await?
+        .into_inner()
+        .racks;
+
+    assert!(racks.is_empty(), "Rack should be hard-deleted");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_rack_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id: RackId = "MissingRack".parse().unwrap();
+    let result = env
+        .api
+        .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
+            rack_id: Some(non_existent_id),
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_rack_already_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let rack_id: RackId = "SoftDeletedRack".parse().unwrap();
+    let mut txn = env.pool.acquire().await.unwrap();
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .unwrap();
+    drop(txn);
+
+    env.api
+        .delete_rack(tonic::Request::new(DeleteRackRequest {
+            id: rack_id.to_string(),
+        }))
+        .await?;
+
+    let response = env
+        .api
+        .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
+            rack_id: Some(rack_id.clone()),
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.rack_id, rack_id.to_string());
+
+    let racks = env
+        .api
+        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+            rack_ids: vec![rack_id],
+        }))
+        .await?
+        .into_inner()
+        .racks;
+
+    assert!(racks.is_empty(), "Rack should be hard-deleted");
+
+    Ok(())
 }

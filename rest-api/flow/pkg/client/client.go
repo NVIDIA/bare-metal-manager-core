@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/types"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 // Client is the gRPC client for interacting with the Flow service.

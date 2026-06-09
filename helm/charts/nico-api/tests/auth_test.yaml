@@ -1,0 +1,52 @@
+suite: API authorization config (default nico, override carbide/forge)
+templates:
+  - configmap.yaml
+release:
+  namespace: nico-system
+tests:
+  - it: defaults trust domain, SPIFFE base paths, and casbin principals to nico
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'spiffe_trust_domain = "nico\.local"'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '"/nico-system/sa/"'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'spiffe_machine_base_path = "/nico-system/machine/"'
+      - matchRegex:
+          path: data["casbin-policy.csv"]
+          pattern: 'g, spiffe-service-id/nico-dhcp, nico-dhcp'
+      - matchRegex:
+          path: data["casbin-policy.csv"]
+          pattern: 'g, spiffe-service-id/nico-dns, nico-dns'
+
+  - it: flips trust domain, base-path namespace, and principals to forge/carbide
+    documentIndex: 0
+    set:
+      global:
+        spiffe:
+          trustDomain: forge.local
+      auth:
+        namespace: forge-system
+        principals:
+          dhcp: carbide-dhcp
+          dns: carbide-dns
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'spiffe_trust_domain = "forge\.local"'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '"/forge-system/sa/"'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'spiffe_machine_base_path = "/forge-system/machine/"'
+      - matchRegex:
+          path: data["casbin-policy.csv"]
+          pattern: 'g, spiffe-service-id/carbide-dhcp, nico-dhcp'
+      - matchRegex:
+          path: data["casbin-policy.csv"]
+          pattern: 'g, spiffe-service-id/carbide-dns, nico-dns'

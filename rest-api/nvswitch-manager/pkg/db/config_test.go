@@ -4,8 +4,9 @@
 package db
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
 	"testing"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 
 	"github.com/stretchr/testify/assert"
 )

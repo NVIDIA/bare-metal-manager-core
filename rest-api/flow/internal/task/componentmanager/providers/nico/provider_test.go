@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 )
 
 func TestConfigName(t *testing.T) {

@@ -6,13 +6,13 @@ package handler
 import (
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cauth "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
@@ -71,7 +71,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	var serr error
 	if len(ips) == 0 {
 		// Create Infrastructure Provider
-		ip, serr = ipDAO.CreateFromParams(ctx, nil, org, nil, org, cdb.GetStrPtr(org), dbUser)
+		ip, serr = ipDAO.CreateFromParams(ctx, nil, org, nil, org, cutil.GetPtr(org), dbUser)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Infrastructure Provider DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Infrastructure Provider for org, DB error", nil)
@@ -97,7 +97,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 			// Enable targeted instance creation for org
 			TargetedInstanceCreation: true,
 		}
-		tn, serr = tnDAO.CreateFromParams(ctx, nil, org, nil, org, cdb.GetStrPtr(org), tenantConfig, dbUser)
+		tn, serr = tnDAO.CreateFromParams(ctx, nil, org, nil, org, cutil.GetPtr(org), tenantConfig, dbUser)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Tenant DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Tenant for org, DB error", nil)

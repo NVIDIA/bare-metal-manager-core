@@ -7,10 +7,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
@@ -29,8 +31,8 @@ type APINVLinkLogicalPartitionCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (anlpcr APINVLinkLogicalPartitionCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&anlpcr,
+func (anlpcr *APINVLinkLogicalPartitionCreateRequest) Validate() error {
+	err := validation.ValidateStruct(anlpcr,
 		validation.Field(&anlpcr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
@@ -45,6 +47,22 @@ func (anlpcr APINVLinkLogicalPartitionCreateRequest) Validate() error {
 	return nil
 }
 
+// ToProto builds the workflow request that asks a Site to create the
+// NVLink Logical Partition represented by this API request. `nvllp` is
+// the just-persisted DB record; its `ToProto()` is the source of the
+// canonical wire fields (id, metadata, tenant organization id).
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see.
+func (anlpcr *APINVLinkLogicalPartitionCreateRequest) ToProto(nvllp *cdbm.NVLinkLogicalPartition) *cwssaws.NVLinkLogicalPartitionCreationRequest {
+	entityProto := nvllp.ToProto()
+	return &cwssaws.NVLinkLogicalPartitionCreationRequest{
+		Id:     entityProto.Id,
+		Config: entityProto.Config,
+	}
+}
+
 // APINVLinkLogicalPartitionUpdateRequest is the data structure to capture user request to update a NVLinkLogicalPartition
 type APINVLinkLogicalPartitionUpdateRequest struct {
 	// Name is the name of the NVLinkLogicalPartition
@@ -54,13 +72,32 @@ type APINVLinkLogicalPartitionUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (anlpur APINVLinkLogicalPartitionUpdateRequest) Validate() error {
-	return validation.ValidateStruct(&anlpur,
+func (anlpur *APINVLinkLogicalPartitionUpdateRequest) Validate() error {
+	return validation.ValidateStruct(anlpur,
 		validation.Field(&anlpur.Name,
 			validation.When(anlpur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(anlpur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(anlpur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
 	)
+}
+
+// ToProto builds the workflow request that asks a Site to update the
+// NVLink Logical Partition represented by this API request. `nvllp` is
+// the post-update DB record; its `ToProto()` is the source of the
+// canonical wire fields. NICo requires Metadata.Name on every update,
+// which the entity's `ToProto()` always populates from the entity's
+// current Name (preserving the existing handler comment's intent even
+// when the client sends only `description`).
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see.
+func (anlpur *APINVLinkLogicalPartitionUpdateRequest) ToProto(nvllp *cdbm.NVLinkLogicalPartition) *cwssaws.NVLinkLogicalPartitionUpdateRequest {
+	entityProto := nvllp.ToProto()
+	return &cwssaws.NVLinkLogicalPartitionUpdateRequest{
+		Id:     entityProto.Id,
+		Config: entityProto.Config,
+	}
 }
 
 // APINVLinkLogicalPartition is the data structure to capture API representation of a NVLinkLogicalPartition
@@ -86,7 +123,7 @@ type APINVLinkLogicalPartition struct {
 	// NVLinkLogicalPartitionStats holds GPU and instance counts for a NVLinkLogicalPartition
 	NVLinkLogicalPartitionStats *APINVLinkLogicalPartitionStats `json:"nvLinkLogicalPartitionStats"`
 	// Status is the status o the NVLinkLogicalPartition
-	Status string `json:"status"`
+	Status cdbm.NVLinkLogicalPartitionStatus `json:"status"`
 	// StatusHistory is the status detail records for the NVLinkLogicalPartition over time
 	StatusHistory []APIStatusDetail `json:"statusHistory"`
 	// Created indicates the ISO datetime string for when the NVLinkLogicalPartition was created
@@ -144,7 +181,7 @@ type APINVLinkLogicalPartitionSummary struct {
 	// SiteID is the ID of the Site
 	SiteID string `json:"siteId"`
 	// Status is the status of the NVLinkLogicalPartition
-	Status string `json:"status"`
+	Status cdbm.NVLinkLogicalPartitionStatus `json:"status"`
 }
 
 // NewAPINVLinkLogicalPartitionSummary accepts a DB layer NVLinkLogicalPartition object returns an API layer object

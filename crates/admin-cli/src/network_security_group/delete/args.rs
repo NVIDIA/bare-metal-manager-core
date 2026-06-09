@@ -19,6 +19,14 @@ use clap::Parser;
 use rpc::forge::DeleteNetworkSecurityGroupRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a network security group:
+    $ carbide-admin-cli network-security-group delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    --tenant-organization-id fds34511233a
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "Network security group ID to delete")]
     pub id: String,

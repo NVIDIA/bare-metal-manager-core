@@ -6,14 +6,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	cerr "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"net/http"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	cerr "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
-	"net/http"
 )
 
 func handleEntityStatusDetails(ctx context.Context, echoCtx echo.Context, dbSession *cdb.Session, entityID string, logger zerolog.Logger) ([]model.APIStatusDetail, error) {

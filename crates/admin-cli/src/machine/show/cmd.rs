@@ -428,6 +428,7 @@ pub async fn get_next_free_machine(
     api_client: &ApiClient,
     machine_ids: &mut VecDeque<MachineId>,
     min_interface_count: usize,
+    zero_dpu: bool,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
         tracing::debug!("Checking {}", id);
@@ -435,6 +436,9 @@ pub async fn get_next_free_machine(
             if machine.state != "Ready" {
                 tracing::debug!("Machine is not ready");
                 continue;
+            }
+            if zero_dpu {
+                return Some(machine);
             }
             if let Some(discovery_info) = &machine.discovery_info {
                 let dpu_interfaces = discovery_info

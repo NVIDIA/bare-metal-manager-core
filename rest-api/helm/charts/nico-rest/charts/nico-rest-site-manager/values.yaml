@@ -34,6 +34,11 @@ certificate:
   duration: 2160h
   renewBefore: 360h
   commonName: nico-rest-site-manager
+  # -- Fully override the certificate dnsNames. When empty, dnsNames are
+  # generated from the chart name and namespace (plus localhost).
+  dnsNames: []
+  # -- SPIFFE/SAN URIs for the certificate. When empty, no uris are set.
+  uris: []
   subject:
     # -- List of organizations for the certificate subject
     organizations: []

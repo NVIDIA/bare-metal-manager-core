@@ -21,6 +21,13 @@ use carbide_uuid::machine::MachineInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Assign a static address to a machine interface:
+    $ carbide-admin-cli machine-interfaces assign-address 12345678-1234-5678-90ab-cdef01234567 192.0.2.20
+
+")]
 pub struct Args {
     #[clap(help = "The machine interface ID to assign the address to")]
     pub interface_id: MachineInterfaceId,

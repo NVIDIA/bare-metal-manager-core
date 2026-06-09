@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	handler "github.com/NVIDIA/infra-controller-rest/auth/pkg/api"
+	handler "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/api"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/middleware"
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	cerr "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/middleware"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	cerr "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
 	"github.com/getsentry/sentry-go"
 	sentryZerolog "github.com/getsentry/sentry-go/zerolog"
@@ -30,14 +30,14 @@ import (
 	tsdkClient "go.temporal.io/sdk/client"
 	tsdkConverter "go.temporal.io/sdk/converter"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authn "github.com/NVIDIA/infra-controller-rest/auth/pkg/authentication"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authn "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authentication"
 	otprop "go.opentelemetry.io/contrib/propagators/ot"
 	"go.opentelemetry.io/otel"
 	"go.temporal.io/sdk/contrib/opentelemetry"
@@ -45,7 +45,7 @@ import (
 	"golang.org/x/time/rate"
 
 	// Imports for API doc generation
-	_ "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	_ "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 )
 
 func InitTemporalClients(tcfg *cconfig.TemporalConfig, tracingEnabled bool) (tsdkClient.Client, tsdkClient.NamespaceClient, error) {

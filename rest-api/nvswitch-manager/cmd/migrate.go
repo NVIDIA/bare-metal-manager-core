@@ -5,10 +5,11 @@ package cmd
 
 import (
 	"context"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db/migrations"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/db/postgres"
 	"time"
+
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db/migrations"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/db/postgres"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

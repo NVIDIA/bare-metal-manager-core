@@ -9,11 +9,11 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskmanager "github.com/NVIDIA/infra-controller-rest/flow/internal/task/manager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // Query core to get IDs of leaking machines and submit power-off tasks for each

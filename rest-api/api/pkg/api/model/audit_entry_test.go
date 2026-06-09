@@ -4,14 +4,15 @@
 package model
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewAPIAuditEntry(t *testing.T) {
@@ -22,10 +23,10 @@ func TestNewAPIAuditEntry(t *testing.T) {
 
 	dbUser := cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr("test111"),
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr("test111"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 
 	dbAuditEntry := cdbm.AuditEntry{

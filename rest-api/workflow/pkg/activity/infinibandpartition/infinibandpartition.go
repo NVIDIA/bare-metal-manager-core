@@ -10,14 +10,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageInfiniBandPartition is an activity wrapper for managing InfiniBandPartition lifecycle that allows
@@ -59,7 +59,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		cdbm.InfiniBandPartitionFilterInput{
 			SiteIDs: []uuid.UUID{site.ID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -116,7 +116,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if ibp.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 			isUpdateRequired = true
 		}
 
@@ -197,14 +197,16 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 
 		// Update status if necessary
 		if controllerIbp.Status != nil {
-			if ibp.Status == cdbm.InfiniBandInterfaceStatusDeleting {
+			if ibp.Status == cdbm.InfiniBandPartitionStatusDeleting {
 				continue
 			}
 
-			status, statusMessage := getInfiniBandPartitionStatus(controllerIbp.Status.State)
+			var status cdbm.InfiniBandPartitionStatus
+			status.FromProto(controllerIbp.Status.State)
 
-			if status != nil && *status != ibp.Status {
-				err = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, status, statusMessage)
+			if status != "" && status != ibp.Status {
+				message := status.Message()
+				err = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, &status, &message)
 				if err != nil {
 					slogger.Error().Err(err).Msg("failed to update InfiniBand Partition status detail in DB")
 				}
@@ -239,7 +241,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		slogger := logger.With().Str("Partition ID", ibp.ID.String()).Logger()
 
 		// If the InfiniBandPartition was already being deleted, we can proceed with removing it from the DB
-		if ibp.Status == cdbm.InfiniBandInterfaceStatusDeleting {
+		if ibp.Status == cdbm.InfiniBandPartitionStatusDeleting {
 			serr := ibpDAO.Delete(ctx, nil, ibp.ID)
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to delete InfiniBand Partition from DB")
@@ -256,7 +258,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 				nil,
 				cdbm.InfiniBandPartitionUpdateInput{
 					InfiniBandPartitionID: ibp.ID,
-					IsMissingOnSite:       cdb.GetBoolPtr(true),
+					IsMissingOnSite:       cwutil.GetPtr(true),
 				},
 			)
 			if serr != nil {
@@ -264,9 +266,10 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 				continue
 			}
 
-			serr = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusError), cdb.GetStrPtr("InfiniBand Partition is missing on Site"))
+			errStatus := cdbm.InfiniBandPartitionStatusError
+			serr = mibp.updateIBPStatusInDB(ctx, nil, ibp.ID, &errStatus, cwutil.GetPtr("InfiniBand Partition is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update InfiniBand Partition status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update InfiniBand Partition status detail in DB")
 			}
 		}
 	}
@@ -275,7 +278,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 }
 
 // updateIBPStatusInDB is helper function to write InfiniBandPartition updates to DB
-func (mibp ManageInfiniBandPartition) updateIBPStatusInDB(ctx context.Context, tx *cdb.Tx, ibpID uuid.UUID, status *string, statusMessage *string) error {
+func (mibp ManageInfiniBandPartition) updateIBPStatusInDB(ctx context.Context, tx *cdb.Tx, ibpID uuid.UUID, status *cdbm.InfiniBandPartitionStatus, statusMessage *string) error {
 	if status != nil {
 		ibpDAO := cdbm.NewInfiniBandPartitionDAO(mibp.dbSession)
 
@@ -292,28 +295,12 @@ func (mibp ManageInfiniBandPartition) updateIBPStatusInDB(ctx context.Context, t
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(mibp.dbSession)
-		_, err = statusDetailDAO.CreateFromParams(ctx, tx, ibpID.String(), *status, statusMessage)
+		_, err = statusDetailDAO.CreateFromParams(ctx, tx, ibpID.String(), string(*status), statusMessage)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// Utility function to get InfiniBand Partition status from Controller IBPartition state
-func getInfiniBandPartitionStatus(controllerIBPartitionTenantState cwssaws.TenantState) (*string, *string) {
-	switch controllerIBPartitionTenantState {
-	case cwssaws.TenantState_PROVISIONING:
-		return cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusProvisioning), cdb.GetStrPtr("InfiniBand Partition is being provisioned on Site")
-	case cwssaws.TenantState_CONFIGURING:
-		return cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusConfiguring), cdb.GetStrPtr("InfiniBand Partition is being configured on Site")
-	case cwssaws.TenantState_READY:
-		return cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), cdb.GetStrPtr("InfiniBand Partition is ready for use")
-	case cwssaws.TenantState_FAILED:
-		return cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusError), cdb.GetStrPtr("InfiniBand Partition is in error state")
-	default:
-		return nil, nil
-	}
 }
 
 // NewManageInfiniBandPartition returns a new ManageInfiniBandPartition activity

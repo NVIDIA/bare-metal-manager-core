@@ -199,81 +199,171 @@ pub async fn find_machine_ids_for_attestation(
     Ok(object_ids)
 }
 
-pub async fn get_attestation_status_for_machine_id(
+pub enum ListSelector {
+    None,
+    Unsuccessful,
+    InProgress,
+}
+
+// list_all_attestation_statuses (selector)
+pub async fn list_all_attestation_statuses(
     txn: &mut PgConnection,
-    machine_id: &MachineId,
-) -> Result<SpdmAttestationStatus, DatabaseError> {
-    // get states for all devices under attestation for a given
-    // machine
-    let query = r#"
+    selector: ListSelector,
+) -> Result<Vec<(MachineId, SpdmAttestationStatus)>, DatabaseError> {
+    let query = match selector {
+        ListSelector::None => {
+            r#"
+        WITH machine_attestation_statuses AS (
+            SELECT
+                machine_id,
+                CASE
+                    WHEN bool_or(state NOT IN ('"Passed"'::jsonb, '"Cancelled"'::jsonb) AND NOT (state ? 'Failed'))
+                        THEN 'in_progress'
+                    WHEN bool_or(state ? 'Failed')
+                        THEN 'failed'
+                    WHEN bool_and(state = '"Cancelled"'::jsonb)
+                        THEN 'cancelled'
+                    WHEN bool_and(state = '"Passed"'::jsonb)
+                        THEN 'passed'
+                END AS attestation_status
+            FROM spdm_machine_devices_attestation
+            GROUP BY machine_id
+        )
         SELECT
-            state
-        FROM
-            spdm_machine_devices_attestation
-        WHERE
-            machine_id = $1
-    "#;
+            machine_id,
+            attestation_status
+        FROM machine_attestation_statuses;
+            "#
+        }
+        ListSelector::Unsuccessful => {
+            r#"
+        WITH machine_attestation_statuses AS (
+            SELECT
+                machine_id,
+                CASE
+                    WHEN bool_or(state NOT IN ('"Passed"'::jsonb, '"Cancelled"'::jsonb) AND NOT (state ? 'Failed'))
+                        THEN 'in_progress'
+                    WHEN bool_or(state ? 'Failed')
+                        THEN 'failed'
+                    WHEN bool_and(state = '"Cancelled"'::jsonb)
+                        THEN 'cancelled'
+                    WHEN bool_and(state = '"Passed"'::jsonb)
+                        THEN 'passed'
+                END AS attestation_status
+            FROM spdm_machine_devices_attestation
+            GROUP BY machine_id
+        )
+        SELECT
+            machine_id,
+            attestation_status
+        FROM machine_attestation_statuses
+        WHERE attestation_status = 'failed';
+        "#
+        }
+        ListSelector::InProgress => {
+            r#"
+        WITH machine_attestation_statuses AS (
+            SELECT
+                machine_id,
+                CASE
+                    WHEN bool_or(state NOT IN ('"Passed"'::jsonb, '"Cancelled"'::jsonb) AND NOT (state ? 'Failed'))
+                        THEN 'in_progress'
+                    WHEN bool_or(state ? 'Failed')
+                        THEN 'failed'
+                    WHEN bool_and(state = '"Cancelled"'::jsonb)
+                        THEN 'cancelled'
+                    WHEN bool_and(state = '"Passed"'::jsonb)
+                        THEN 'passed'
+                END AS attestation_status
+            FROM spdm_machine_devices_attestation
+            GROUP BY machine_id
+        )
+        SELECT
+            machine_id,
+            attestation_status
+        FROM machine_attestation_statuses
+        WHERE attestation_status = 'in_progress';
+        "#
+        }
+    };
 
     let attestation_status_rows = sqlx::query(query)
-        .bind(machine_id)
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
     if attestation_status_rows.is_empty() {
+        return Ok(std::vec::Vec::new());
+    }
+
+    let attestation_statuses = attestation_status_rows
+        .iter()
+        .map(|elem| {
+            let machine_id: MachineId = elem
+                .try_get("machine_id")
+                .map_err(|e| DatabaseError::new(query, e))?;
+            let status: String = elem
+                .try_get("attestation_status")
+                .map_err(|e| DatabaseError::new(query, e))?;
+
+            Ok((
+                machine_id,
+                convert_status_str_to_model_status(status.as_str())?,
+            ))
+        })
+        .collect::<Result<Vec<_>, DatabaseError>>()?;
+
+    Ok(attestation_statuses)
+}
+
+pub async fn list_single_machine_attestation_status(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<SpdmAttestationStatus, DatabaseError> {
+    let query = r#"
+        SELECT
+            CASE
+                WHEN bool_or(state NOT IN ('"Passed"'::jsonb, '"Cancelled"'::jsonb) AND NOT (state ? 'Failed'))
+                    THEN 'in_progress'
+                WHEN bool_or(state ? 'Failed')
+                    THEN 'failed'
+                WHEN bool_and(state = '"Cancelled"'::jsonb)
+                    THEN 'cancelled'
+                WHEN bool_and(state = '"Passed"'::jsonb)
+                    THEN 'passed'
+            END AS attestation_status
+        FROM spdm_machine_devices_attestation
+        WHERE machine_id = $1
+        HAVING count(*) > 0
+    "#;
+
+    let status = sqlx::query_scalar::<_, String>(query)
+        .bind(machine_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    let Some(status) = status else {
         return Err(DatabaseError::NotFoundError {
             kind: "SPDM Attestation Record",
             id: machine_id.to_string(),
         });
-    }
+    };
 
-    // if all passed - PASSED
-    // if all cancelled - CANCELLED
-    // if any failed && none not in progress - FAILED
-    // else - IN PROGRESS
+    convert_status_str_to_model_status(status.as_str())
+}
 
-    // define masks
-    const PASSED_MASK: u8 = 0b0000_0001;
-    const CANCELLELD_MASK: u8 = 0b0000_0010;
-    const FAILED_MASK: u8 = 0b0000_0100;
-    const INPROGRESS_MASK: u8 = 0b0000_1000;
-
-    // this is a bitfield to keep track occurrences
-    // of values
-    let mut flags: u8 = 0;
-
-    for pg_row in attestation_status_rows {
-        let state_json: sqlx::types::Json<SpdmAttestationState> =
-            pg_row
-                .try_get("state")
-                .map_err(|e| DatabaseError::Internal {
-                    message: format!("Could not get SpdmAttestationState from DB record: {}", e),
-                })?;
-        let state = state_json.0;
-        match state {
-            SpdmAttestationState::Passed => {
-                flags |= PASSED_MASK;
-            }
-            SpdmAttestationState::Cancelled => {
-                flags |= CANCELLELD_MASK;
-            }
-            SpdmAttestationState::Failed(_) => {
-                flags |= FAILED_MASK;
-            }
-            _ => {
-                flags |= INPROGRESS_MASK;
-            }
-        }
-    }
-
-    // some failed and none in progress
-    if FAILED_MASK & flags != 0 && INPROGRESS_MASK & flags == 0 {
-        return Ok(SpdmAttestationStatus::Failed);
-    }
-    match flags {
-        PASSED_MASK => Ok(SpdmAttestationStatus::Passed),
-        CANCELLELD_MASK => Ok(SpdmAttestationStatus::Cancelled),
-        _ => Ok(SpdmAttestationStatus::InProgress),
+fn convert_status_str_to_model_status(
+    status: &str,
+) -> Result<SpdmAttestationStatus, DatabaseError> {
+    match status {
+        "in_progress" => Ok(SpdmAttestationStatus::InProgress),
+        "failed" => Ok(SpdmAttestationStatus::Failed),
+        "cancelled" => Ok(SpdmAttestationStatus::Cancelled),
+        "passed" => Ok(SpdmAttestationStatus::Passed),
+        other => Err(DatabaseError::Internal {
+            message: format!("Unexpected SPDM attestation status from DB: {other}"),
+        }),
     }
 }
 

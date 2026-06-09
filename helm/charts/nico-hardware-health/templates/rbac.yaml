@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: nico-hardware-health
+  name: {{ include "nico-hardware-health.name" . }}
   namespace: {{ include "nico-hardware-health.namespace" . }}
   labels:
     {{- include "nico-hardware-health.labels" . | nindent 4 }}
@@ -9,7 +9,7 @@ metadata:
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: nico-hardware-health
+  name: {{ include "nico-hardware-health.name" . }}
   namespace: {{ include "nico-hardware-health.namespace" . }}
   labels:
     {{- include "nico-hardware-health.labels" . | nindent 4 }}
@@ -21,15 +21,15 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: nico-hardware-health
+  name: {{ include "nico-hardware-health.name" . }}
   namespace: {{ include "nico-hardware-health.namespace" . }}
   labels:
     {{- include "nico-hardware-health.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: nico-hardware-health
+  name: {{ include "nico-hardware-health.name" . }}
 subjects:
   - kind: ServiceAccount
-    name: nico-hardware-health
+    name: {{ include "nico-hardware-health.name" . }}
     namespace: {{ include "nico-hardware-health.namespace" . }}

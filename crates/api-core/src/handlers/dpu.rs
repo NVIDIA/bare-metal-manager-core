@@ -795,9 +795,6 @@ pub(crate) async fn record_dpu_network_status(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    // TODO: persist this somewhere
-    let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
-
     let mut txn = api.txn_begin().await?;
 
     // Load the DPU Object. We require it to update the health report based
@@ -1113,9 +1110,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .classifications
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
-        return Err(CarbideError::InvalidArgument(
-            "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
-        ).into());
+        return Err(CarbideError::InvalidArgument(format!(
+            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+        )).into());
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
@@ -1195,7 +1192,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    "No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs.".to_string(),
+                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
                 )
                     .into());
             }

@@ -353,6 +353,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             compute_tray_index: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         }
     }
 }

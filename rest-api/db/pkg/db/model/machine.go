@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 // Represents status of the machine
@@ -159,6 +159,45 @@ func (m *Machine) GetControllerState() string {
 	}
 
 	return m.Metadata.GetNormalizedState()
+}
+
+// ToMaintenanceRequestProto builds the workflow request to enable or
+// disable maintenance mode on this Machine. operation selects the mode;
+// reference is an optional human-readable note recorded with the
+// maintenance event (typically only set when enabling). Returns nil for
+// a nil receiver.
+func (m *Machine) ToMaintenanceRequestProto(operation cwssaws.MaintenanceOperation, reference *string) *cwssaws.MaintenanceRequest {
+	if m == nil {
+		return nil
+	}
+	return &cwssaws.MaintenanceRequest{
+		HostId:    &cwssaws.MachineId{Id: m.ID},
+		Operation: operation,
+		Reference: reference,
+	}
+}
+
+// ToMetadataUpdateRequestProto builds the workflow request that pushes
+// the supplied labels to a Site as a metadata update for this Machine.
+// The Site Controller stores the Machine ID as the metadata Name and
+// requires a non-empty Name on every update; this method reads it from
+// the machine's stored metadata when present and non-empty, falling
+// back to the Machine ID itself. Returns nil for a nil receiver.
+func (m *Machine) ToMetadataUpdateRequestProto(labels []*cwssaws.Label) *cwssaws.MachineMetadataUpdateRequest {
+	if m == nil {
+		return nil
+	}
+	machineName := m.ID
+	if m.Metadata != nil && m.Metadata.Metadata != nil && m.Metadata.Metadata.Name != "" {
+		machineName = m.Metadata.Metadata.Name
+	}
+	return &cwssaws.MachineMetadataUpdateRequest{
+		MachineId: &cwssaws.MachineId{Id: m.ID},
+		Metadata: &cwssaws.Metadata{
+			Name:   machineName,
+			Labels: labels,
+		},
+	}
 }
 
 // MachineCreateInput input parameters for Create method

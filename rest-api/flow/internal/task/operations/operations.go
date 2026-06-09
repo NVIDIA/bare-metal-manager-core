@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
 // ExtractRuleID peeks at the "rule_id" field in a serialized operation info

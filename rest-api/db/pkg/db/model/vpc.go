@@ -8,10 +8,10 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -176,11 +176,7 @@ func (vpc *Vpc) toMetadataProto() *cwssaws.Metadata {
 		md.Description = *vpc.Description
 	}
 	if vpc.Labels != nil {
-		labels := make([]*cwssaws.Label, 0, len(vpc.Labels))
-		for k, v := range vpc.Labels {
-			labels = append(labels, &cwssaws.Label{Key: k, Value: &v})
-		}
-		md.Labels = labels
+		md.Labels = vpc.Labels.ToProto()
 	}
 	return md
 }
@@ -271,14 +267,6 @@ func (vpc *Vpc) FromProto(proto *cwssaws.Vpc) {
 	} else {
 		vpc.Description = nil
 		vpc.Labels = nil
-	}
-}
-
-// ToDeletionRequestProto builds the workflow request that asks a Site to
-// delete this VPC.
-func (vpc *Vpc) ToDeletionRequestProto() *cwssaws.VpcDeletionRequest {
-	return &cwssaws.VpcDeletionRequest{
-		Id: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
 	}
 }
 

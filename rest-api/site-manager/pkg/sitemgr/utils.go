@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	csmtypes "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/types"
+	"github.com/rs/zerolog"
+
+	csmtypes "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/types"
 )
 
 const (

@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.envFrom.nicoDnsConfig.configMapName }}
+  name: {{ include "nico-dns.name" . }}
   namespace: {{ include "nico-dns.namespace" . }}
   labels:
     {{- include "nico-dns.labels" . | nindent 4 }}
 data:
-  NICO_API: {{ printf "https://nico-api.%s.svc.cluster.local:%s" (include "nico-dns.namespace" .) (.Values.config.nicoApiPort | default "1079") | quote }}
-  NICO_API_HOST: {{ printf "nico-api.%s.svc.cluster.local" (include "nico-dns.namespace" .) | quote }}
+  NICO_API: {{ printf "https://%s.%s.svc.cluster.local:%s" .Values.apiServiceName (include "nico-dns.namespace" .) (.Values.config.nicoApiPort | default "1079") | quote }}
+  NICO_API_HOST: {{ printf "%s.%s.svc.cluster.local" .Values.apiServiceName (include "nico-dns.namespace" .) | quote }}
   NICO_API_PORT: {{ .Values.config.nicoApiPort | default "1079" | quote }}
   {{- range $key, $value := .Values.config.extraData }}
   {{ $key }}: {{ $value | quote }}

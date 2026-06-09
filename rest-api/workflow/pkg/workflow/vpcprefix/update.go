@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -15,8 +15,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	vpcPrefixActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpcprefix"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	vpcPrefixActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcprefix"
 )
 
 // UpdateVpcPrefixInventory is a workflow called by Site Agent to update vpc prefixes for a Site

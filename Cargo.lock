@@ -1065,6 +1065,7 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
+ "pandoc",
  "prettytable-rs",
  "reqwest 0.13.4",
  "serde",
@@ -1226,7 +1227,6 @@ dependencies = [
  "carbide-nvlink-manager",
  "carbide-power-shelf-controller",
  "carbide-preingestion-manager",
- "carbide-prost-builder",
  "carbide-rack",
  "carbide-rack-controller",
  "carbide-redfish",
@@ -1241,6 +1241,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
+ "carbide-vpc-prefix-controller",
  "casbin",
  "chrono",
  "clap",
@@ -1696,6 +1697,7 @@ dependencies = [
  "eyre",
  "hickory-resolver",
  "hickory-server",
+ "lru 0.18.0",
  "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2357,10 +2359,8 @@ dependencies = [
 name = "carbide-macros"
 version = "0.0.0"
 dependencies = [
- "eyre",
  "proc-macro2",
  "quote",
- "sqlx",
  "sqlx-macros-core",
  "syn 2.0.117",
 ]
@@ -2494,6 +2494,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
+ "component-manager",
  "config-version",
  "eyre",
  "librms",
@@ -2664,6 +2665,7 @@ dependencies = [
  "carbide-libmlx-model",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-prost-builder",
  "carbide-secrets",
  "carbide-tls",
  "carbide-utils",
@@ -2735,17 +2737,26 @@ dependencies = [
 name = "carbide-rvs"
 version = "0.0.1"
 dependencies = [
+ "axum",
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
+ "clap",
  "figment",
+ "futures",
+ "hex",
+ "jsonpath-rust",
  "logfmt",
+ "reqwest 0.13.4",
  "serde",
+ "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
  "tonic",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2830,6 +2841,8 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-explorer",
+ "bmc-vendor",
+ "carbide-api-core",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
@@ -2837,7 +2850,9 @@ dependencies = [
  "carbide-ipmi",
  "carbide-network",
  "carbide-redfish",
+ "carbide-rpc",
  "carbide-secrets",
+ "carbide-test-harness",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2858,7 +2873,9 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic",
  "tracing",
+ "uuid",
  "version-compare 0.2.1",
 ]
 
@@ -2999,12 +3016,11 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-metrics",
  "carbide-secrets",
- "carbide-site-explorer",
  "carbide-utils",
  "carbide-uuid",
+ "component-manager",
  "config-version",
  "eyre",
- "librms",
  "mac_address",
  "opentelemetry",
  "sqlx",
@@ -3019,6 +3035,29 @@ dependencies = [
  "eyre",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "carbide-test-harness"
+version = "0.0.0"
+dependencies = [
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-macros",
+ "carbide-network-segment-controller",
+ "carbide-sqlx-testing",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "ctor",
+ "ipnetwork",
+ "sqlx",
+ "state-controller",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "uuid",
 ]
 
 [[package]]
@@ -3070,6 +3109,22 @@ dependencies = [
 [[package]]
 name = "carbide-version"
 version = "0.0.0"
+
+[[package]]
+name = "carbide-vpc-prefix-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "eyre",
+ "sqlx",
+ "state-controller",
+ "tracing",
+]
 
 [[package]]
 name = "cargo_metadata"
@@ -5995,6 +6050,15 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -6473,11 +6537,12 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.4#dd2152ac5642c5256b893e396647e159003d0071"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.8#a1b98328b67394eb38fc8088273e0f84c1432ffd"
 dependencies = [
  "chrono",
  "clap",
  "log",
+ "mac_address",
  "regex",
  "reqwest 0.12.28",
  "serde",
@@ -6496,10 +6561,7 @@ version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
- "bitflags 2.11.1",
  "libc",
- "plain",
- "redox_syscall 0.8.0",
 ]
 
 [[package]]
@@ -7452,6 +7514,7 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+ "glob",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -7764,6 +7827,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pandoc"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "463d53d1a77a4291203dbf9d461365609e6857c95bd7d807098bffdc0a02a65c"
+dependencies = [
+ "itertools 0.12.1",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7787,7 +7859,7 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall 0.5.18",
+ "redox_syscall",
  "smallvec",
  "windows-link",
 ]
@@ -8134,12 +8206,6 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
-
-[[package]]
-name = "plain"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plotters"
@@ -8956,15 +9022,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "redox_syscall"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c7591fa2c6b601dfcfe5f043f65a1c39fcdf50efefcd7f1572e538c1f4b398d"
-dependencies = [
- "bitflags 2.11.1",
-]
-
-[[package]]
 name = "redox_users"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9637,22 +9694,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "sbom"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "itertools 0.14.0",
- "lazy_static",
- "regex",
- "serde",
- "serde_json",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -10765,12 +10806,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
-
-[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11582,19 +11617,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-appender"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
-dependencies = [
- "crossbeam-channel",
- "symlink",
- "thiserror 2.0.18",
- "time",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -12820,6 +12842,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "cargo_metadata",
  "clap",
  "eyre",
  "similar 3.1.1",

@@ -17,7 +17,7 @@ env:
 jobs:
   style:
     name: Style Check
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -100,7 +100,7 @@ jobs:
 
   check-generated-files:
     name: Check Generated Files
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     defaults:
       run:
@@ -145,7 +145,7 @@ jobs:
 
   check-protobuf-generated:
     name: Check Protobuf Generated Code
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -195,7 +195,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.module }})
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     strategy:
       fail-fast: false

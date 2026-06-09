@@ -22,3 +22,6 @@ reqwest = { workspace = true, features = ["json"] }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+carbide-secrets = { path = "../secrets", features = ["test-support"] }

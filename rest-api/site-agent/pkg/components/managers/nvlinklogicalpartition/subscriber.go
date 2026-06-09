@@ -4,8 +4,8 @@
 package nvlinklogicalpartition
 
 import (
-	swa "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	sww "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/workflow"
+	swa "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	sww "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/workflow"
 )
 
 // RegisterSubscriber registers NVLinkLogicalPartition CRUD workflows and activities with Temporal

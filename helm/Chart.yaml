@@ -32,6 +32,9 @@ dependencies:
   - name: nico-hardware-health
     version: "0.1.0"
     condition: nico-hardware-health.enabled
+  - name: nico-ntp
+    version: "0.1.0"
+    condition: nico-ntp.enabled
   - name: nico-pxe
     version: "0.1.0"
     condition: nico-pxe.enabled

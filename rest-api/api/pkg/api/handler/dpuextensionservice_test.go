@@ -13,14 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -29,8 +30,8 @@ import (
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // TestCreateDpuExtensionServiceHandler_Handle tests the Create DPU Extension Service handler
@@ -129,14 +130,14 @@ func TestCreateDpuExtensionServiceHandler_Handle(t *testing.T) {
 
 	okBody := model.APIDpuExtensionServiceCreateRequest{
 		Name:        "test-service",
-		Description: cdb.GetStrPtr("Test Description"),
+		Description: cutil.GetPtr("Test Description"),
 		ServiceType: model.DpuExtensionServiceTypeKubernetesPod,
 		SiteID:      st1.ID.String(),
 		Data:        "apiVersion: v1\nkind: Pod",
 		Credentials: &model.APIDpuExtensionServiceCredentials{
 			RegistryURL: "https://registry.example.com",
-			Username:    cdb.GetStrPtr("testuser"),
-			Password:    cdb.GetStrPtr("testpass"),
+			Username:    cutil.GetPtr("testuser"),
+			Password:    cutil.GetPtr("testpass"),
 		},
 		Observability: expectedObservability,
 	}
@@ -692,26 +693,26 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 	}
 
 	okBody := model.APIDpuExtensionServiceUpdateRequest{
-		Name:        cdb.GetStrPtr("updated-service-name"),
-		Description: cdb.GetStrPtr("Updated Description"),
+		Name:        cutil.GetPtr("updated-service-name"),
+		Description: cutil.GetPtr("Updated Description"),
 	}
 	okBodyBytes, _ := json.Marshal(okBody)
 
 	nameClashBody := model.APIDpuExtensionServiceUpdateRequest{
-		Name: cdb.GetStrPtr("service-2"),
+		Name: cutil.GetPtr("service-2"),
 	}
 	nameClashBodyBytes, _ := json.Marshal(nameClashBody)
 
 	invalidBodyBytes := []byte(`{"name": ""}`)
 
 	okBody2 := model.APIDpuExtensionServiceUpdateRequest{
-		Name:        cdb.GetStrPtr("updated-service-name-2"),
-		Description: cdb.GetStrPtr("Updated Description"),
-		Data:        cdb.GetStrPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated-service"),
+		Name:        cutil.GetPtr("updated-service-name-2"),
+		Description: cutil.GetPtr("Updated Description"),
+		Data:        cutil.GetPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated-service"),
 		Credentials: &model.APIDpuExtensionServiceCredentials{
 			RegistryURL: "https://registry.hub.docker.com",
-			Username:    cdb.GetStrPtr("testuser"),
-			Password:    cdb.GetStrPtr("testpass"),
+			Username:    cutil.GetPtr("testuser"),
+			Password:    cutil.GetPtr("testpass"),
 		},
 		Observability: &model.APIDpuExtensionServiceObservability{
 			Configs: []model.APIDpuExtensionServiceObservabilityConfig{
@@ -1275,7 +1276,7 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 	// Add a new version to the service
 	des2OldVersion := *des2.Version
 
-	des2.Version = cdb.GetStrPtr("V2-T1770859063836809")
+	des2.Version = cutil.GetPtr("V2-T1770859063836809")
 	des2.VersionInfo = &cdbm.DpuExtensionServiceVersionInfo{
 		Version:        *des2.Version,
 		Data:           "apiVersion: v1\nkind: Pod",
@@ -1293,7 +1294,7 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 	des3OldVersion := *des3.Version
 	des3OldVersionInfo := *des3.VersionInfo
 
-	des3.Version = cdb.GetStrPtr("V2-T1770859101840849")
+	des3.Version = cutil.GetPtr("V2-T1770859101840849")
 	des3.VersionInfo = &cdbm.DpuExtensionServiceVersionInfo{
 		Version:        *des3.Version,
 		Data:           "apiVersion: v1\nkind: Pod",
@@ -1450,7 +1451,7 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 			user:                  tnu1,
 			expectedErr:           false,
 			expectedStatus:        http.StatusNoContent,
-			expectedVersion:       cdb.GetStrPtr(des2.ActiveVersions[0]),
+			expectedVersion:       cutil.GetPtr(des2.ActiveVersions[0]),
 		},
 		{
 			name:                  "success deleting latest DPU Extension Service version",
@@ -1460,7 +1461,7 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 			user:                  tnu1,
 			expectedErr:           false,
 			expectedStatus:        http.StatusNoContent,
-			expectedVersion:       cdb.GetStrPtr(des3OldVersion),
+			expectedVersion:       cutil.GetPtr(des3OldVersion),
 		},
 	}
 

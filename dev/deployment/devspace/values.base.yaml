@@ -81,6 +81,9 @@ nico-api:
       iteration_time = "30s"
       max_concurrency = 100
 
+      [vpc_prefix_state_controller]
+      vpc_prefix_drain_time = "5m"
+
       [machine_validation_config]
       enabled = false
 

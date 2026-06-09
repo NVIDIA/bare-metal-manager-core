@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
 )
 
 // BMC specifies the information for a BMC which includes MAC address, IP

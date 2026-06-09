@@ -525,6 +525,8 @@ async fn register(
         },
         false,
         !agent.machine.is_fake_dpu,
+        ::rpc::MachineDiscoveryReporter::DpuAgent,
+        Some(carbide_version::v!(build_version).to_string()),
     )
     .await?;
 
