@@ -53,59 +53,223 @@ func operationTypeFromAPI(s string) (flowv1.OperationType, error) {
 	return v, nil
 }
 
-// APITaskRule is the API response model for an Operation Rule.
-// Top-level metadata uses camelCase; nested ruleDefinition uses snake_case to
-// round-trip 1:1 with Flow's documented YAML/JSON schema so users converting
-// existing YAML rule files only need to drop the same keys into the JSON body.
+// APITaskRule is the API response model for an Operation Rule. All keys
+// use camelCase per the REST convention applied throughout this package.
+// Conversion to Flow's snake_case rule_definition_json blob happens in
+// (*APITaskRule).FromProto and (*APITaskRuleCreateRequest).ToProto via the
+// flow*Wire helpers below.
 type APITaskRule struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	OperationType  string            `json:"operationType"`
-	OperationCode  string            `json:"operationCode"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	Description    string                `json:"description,omitempty"`
+	OperationType  string                `json:"operationType"`
+	OperationCode  string                `json:"operationCode"`
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
-	IsDefault      bool              `json:"isDefault"`
-	Created        time.Time         `json:"created"`
-	Updated        time.Time         `json:"updated"`
+	IsDefault      bool                  `json:"isDefault"`
+	Created        time.Time             `json:"created"`
+	Updated        time.Time             `json:"updated"`
 }
 
-// APITaskRuleDefinition is the executable body of a rule. The shape matches
-// flow/internal/task/operationrules.RuleDefinition exactly so we can
-// unmarshal Flow's RuleDefinitionJson straight into it.
+// APITaskRuleDefinition is the executable body of a rule.
 type APITaskRuleDefinition struct {
-	Version string            `json:"version"`
+	Version string                    `json:"version"`
 	Steps   []APITaskRuleSequenceStep `json:"steps,omitempty"`
 }
 
-// APITaskRuleSequenceStep mirrors operationrules.SequenceStep. Durations are kept as
-// strings (Go duration syntax, e.g. "30s", "2m") so the round-trip with Flow
-// preserves the exact form the user authored and Flow does the parsing.
+// APITaskRuleSequenceStep describes one stage of execution. Durations are
+// kept as strings (Go duration syntax, e.g. "30s", "2m") so the round-trip
+// with Flow preserves the exact form the user authored and Flow does the
+// parsing.
 type APITaskRuleSequenceStep struct {
-	ComponentType string            `json:"component_type"`
-	Stage         int               `json:"stage"`
-	MaxParallel   int               `json:"max_parallel"`
-	Timeout       string            `json:"timeout,omitempty"`
+	ComponentType string                    `json:"componentType"`
+	Stage         int                       `json:"stage"`
+	MaxParallel   int                       `json:"maxParallel"`
+	Timeout       string                    `json:"timeout,omitempty"`
 	Retry         *APITaskRuleRetryPolicy   `json:"retry,omitempty"`
-	PreOperation  []APITaskRuleActionConfig `json:"pre_operation,omitempty"`
-	MainOperation APITaskRuleActionConfig   `json:"main_operation"`
-	PostOperation []APITaskRuleActionConfig `json:"post_operation,omitempty"`
-	DelayAfter    string            `json:"delay_after,omitempty"`
+	PreOperation  []APITaskRuleActionConfig `json:"preOperation,omitempty"`
+	MainOperation APITaskRuleActionConfig   `json:"mainOperation"`
+	PostOperation []APITaskRuleActionConfig `json:"postOperation,omitempty"`
+	DelayAfter    string                    `json:"delayAfter,omitempty"`
 }
 
-// APITaskRuleActionConfig mirrors operationrules.ActionConfig.
+// APITaskRuleActionConfig configures a single action within a step. The
+// `parameters` map is intentionally free-form: keys and values are action-
+// specific and pass through to Flow's executor unchanged.
 type APITaskRuleActionConfig struct {
+	Name         string         `json:"name"`
+	Timeout      string         `json:"timeout,omitempty"`
+	PollInterval string         `json:"pollInterval,omitempty"`
+	Parameters   map[string]any `json:"parameters,omitempty"`
+}
+
+// APITaskRuleRetryPolicy describes retry behavior for a step's workflow.
+type APITaskRuleRetryPolicy struct {
+	MaxAttempts        int     `json:"maxAttempts"`
+	InitialInterval    string  `json:"initialInterval"`
+	BackoffCoefficient float64 `json:"backoffCoefficient"`
+	MaxInterval        string  `json:"maxInterval,omitempty"`
+}
+
+// flow*Wire types mirror the API-facing rule definition structs above but
+// carry snake_case JSON tags. They exist solely to (de)serialize Flow's
+// rule_definition_json blob, which preserves the snake_case spelling used by
+// Flow's YAML rule files. Keep these in lock-step with the corresponding
+// API types when adding fields.
+type flowRuleDefinitionWire struct {
+	Version string                 `json:"version"`
+	Steps   []flowSequenceStepWire `json:"steps,omitempty"`
+}
+
+type flowSequenceStepWire struct {
+	ComponentType string                 `json:"component_type"`
+	Stage         int                    `json:"stage"`
+	MaxParallel   int                    `json:"max_parallel"`
+	Timeout       string                 `json:"timeout,omitempty"`
+	Retry         *flowRetryPolicyWire   `json:"retry,omitempty"`
+	PreOperation  []flowActionConfigWire `json:"pre_operation,omitempty"`
+	MainOperation flowActionConfigWire   `json:"main_operation"`
+	PostOperation []flowActionConfigWire `json:"post_operation,omitempty"`
+	DelayAfter    string                 `json:"delay_after,omitempty"`
+}
+
+type flowActionConfigWire struct {
 	Name         string         `json:"name"`
 	Timeout      string         `json:"timeout,omitempty"`
 	PollInterval string         `json:"poll_interval,omitempty"`
 	Parameters   map[string]any `json:"parameters,omitempty"`
 }
 
-// APITaskRuleRetryPolicy mirrors operationrules.RetryPolicy.
-type APITaskRuleRetryPolicy struct {
+type flowRetryPolicyWire struct {
 	MaxAttempts        int     `json:"max_attempts"`
 	InitialInterval    string  `json:"initial_interval"`
 	BackoffCoefficient float64 `json:"backoff_coefficient"`
 	MaxInterval        string  `json:"max_interval,omitempty"`
+}
+
+// toFlowJSON serialises the API-facing rule definition into Flow's blob
+// form (snake_case).
+func (def APITaskRuleDefinition) toFlowJSON() ([]byte, error) {
+	return json.Marshal(flowRuleDefinitionWire{
+		Version: def.Version,
+		Steps:   sequenceStepsToWire(def.Steps),
+	})
+}
+
+// fromFlowJSON populates def from Flow's blob form.
+func (def *APITaskRuleDefinition) fromFlowJSON(raw []byte) error {
+	var w flowRuleDefinitionWire
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return err
+	}
+	def.Version = w.Version
+	def.Steps = sequenceStepsFromWire(w.Steps)
+	return nil
+}
+
+func sequenceStepsToWire(in []APITaskRuleSequenceStep) []flowSequenceStepWire {
+	if in == nil {
+		return nil
+	}
+	out := make([]flowSequenceStepWire, len(in))
+	for i, s := range in {
+		out[i] = flowSequenceStepWire{
+			ComponentType: s.ComponentType,
+			Stage:         s.Stage,
+			MaxParallel:   s.MaxParallel,
+			Timeout:       s.Timeout,
+			Retry:         retryPolicyToWire(s.Retry),
+			PreOperation:  actionConfigsToWire(s.PreOperation),
+			MainOperation: actionConfigToWire(s.MainOperation),
+			PostOperation: actionConfigsToWire(s.PostOperation),
+			DelayAfter:    s.DelayAfter,
+		}
+	}
+	return out
+}
+
+func sequenceStepsFromWire(in []flowSequenceStepWire) []APITaskRuleSequenceStep {
+	if in == nil {
+		return nil
+	}
+	out := make([]APITaskRuleSequenceStep, len(in))
+	for i, s := range in {
+		out[i] = APITaskRuleSequenceStep{
+			ComponentType: s.ComponentType,
+			Stage:         s.Stage,
+			MaxParallel:   s.MaxParallel,
+			Timeout:       s.Timeout,
+			Retry:         retryPolicyFromWire(s.Retry),
+			PreOperation:  actionConfigsFromWire(s.PreOperation),
+			MainOperation: actionConfigFromWire(s.MainOperation),
+			PostOperation: actionConfigsFromWire(s.PostOperation),
+			DelayAfter:    s.DelayAfter,
+		}
+	}
+	return out
+}
+
+func actionConfigToWire(ac APITaskRuleActionConfig) flowActionConfigWire {
+	return flowActionConfigWire{
+		Name:         ac.Name,
+		Timeout:      ac.Timeout,
+		PollInterval: ac.PollInterval,
+		Parameters:   ac.Parameters,
+	}
+}
+
+func actionConfigFromWire(ac flowActionConfigWire) APITaskRuleActionConfig {
+	return APITaskRuleActionConfig{
+		Name:         ac.Name,
+		Timeout:      ac.Timeout,
+		PollInterval: ac.PollInterval,
+		Parameters:   ac.Parameters,
+	}
+}
+
+func actionConfigsToWire(in []APITaskRuleActionConfig) []flowActionConfigWire {
+	if in == nil {
+		return nil
+	}
+	out := make([]flowActionConfigWire, len(in))
+	for i, a := range in {
+		out[i] = actionConfigToWire(a)
+	}
+	return out
+}
+
+func actionConfigsFromWire(in []flowActionConfigWire) []APITaskRuleActionConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]APITaskRuleActionConfig, len(in))
+	for i, a := range in {
+		out[i] = actionConfigFromWire(a)
+	}
+	return out
+}
+
+func retryPolicyToWire(rp *APITaskRuleRetryPolicy) *flowRetryPolicyWire {
+	if rp == nil {
+		return nil
+	}
+	return &flowRetryPolicyWire{
+		MaxAttempts:        rp.MaxAttempts,
+		InitialInterval:    rp.InitialInterval,
+		BackoffCoefficient: rp.BackoffCoefficient,
+		MaxInterval:        rp.MaxInterval,
+	}
+}
+
+func retryPolicyFromWire(rp *flowRetryPolicyWire) *APITaskRuleRetryPolicy {
+	if rp == nil {
+		return nil
+	}
+	return &APITaskRuleRetryPolicy{
+		MaxAttempts:        rp.MaxAttempts,
+		InitialInterval:    rp.InitialInterval,
+		BackoffCoefficient: rp.BackoffCoefficient,
+		MaxInterval:        rp.MaxInterval,
+	}
 }
 
 // FromProto populates an APITaskRule from a Flow protobuf OperationRule.
@@ -131,7 +295,7 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	}
 
 	if raw := pbRule.GetRuleDefinitionJson(); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &r.RuleDefinition); err != nil {
+		if err := r.RuleDefinition.fromFlowJSON([]byte(raw)); err != nil {
 			return fmt.Errorf("invalid ruleDefinition from Flow: %w", err)
 		}
 	}
@@ -195,7 +359,7 @@ func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest
 	if err != nil {
 		return nil, err
 	}
-	rdJSON, err := json.Marshal(r.RuleDefinition)
+	rdJSON, err := r.RuleDefinition.toFlowJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
 	}
@@ -248,7 +412,7 @@ func (r *APITaskRuleUpdateRequest) ToProto(ruleID string) (*flowv1.UpdateOperati
 		Description: r.Description,
 	}
 	if r.RuleDefinition != nil {
-		rdJSON, err := json.Marshal(r.RuleDefinition)
+		rdJSON, err := r.RuleDefinition.toFlowJSON()
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
 		}

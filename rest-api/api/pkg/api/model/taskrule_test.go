@@ -313,7 +313,7 @@ func TestAPIListRulesRequest_QueryValues(t *testing.T) {
 func TestAPIOperationRule_FromProto(t *testing.T) {
 	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	updated := created.Add(time.Hour)
-	rdJSON, err := json.Marshal(sampleRuleDefinition())
+	rdJSON, err := sampleRuleDefinition().toFlowJSON()
 	require.NoError(t, err)
 
 	pbRule := &flowv1.OperationRule{

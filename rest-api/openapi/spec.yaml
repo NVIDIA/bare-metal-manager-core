@@ -18021,11 +18021,11 @@ components:
       type: object
       description: A single execution step inside a `RuleDefinition`.
       required:
-        - component_type
+        - componentType
         - stage
-        - main_operation
+        - mainOperation
       properties:
-        component_type:
+        componentType:
           type: string
           description: |-
             Component type this step targets (e.g. `Compute`, `NVLSwitch`,
@@ -18036,7 +18036,7 @@ components:
           description: |-
             Stage number; steps with the same stage run in parallel, lower stages run
             first. Component types must be unique within a stage.
-        max_parallel:
+        maxParallel:
           type: integer
           minimum: 0
           description: |-
@@ -18049,19 +18049,19 @@ components:
             (e.g. `30s`, `2m`). Applies to pre + main + post combined.
         retry:
           $ref: '#/components/schemas/RetryPolicy'
-        pre_operation:
+        preOperation:
           type: array
           description: Actions to run before the main operation.
           items:
             $ref: '#/components/schemas/ActionConfig'
-        main_operation:
+        mainOperation:
           $ref: '#/components/schemas/ActionConfig'
-        post_operation:
+        postOperation:
           type: array
           description: Actions to run after the main operation.
           items:
             $ref: '#/components/schemas/ActionConfig'
-        delay_after:
+        delayAfter:
           type: string
           description: |-
             Deprecated legacy field — sleep duration after this step, as a Go
@@ -18096,7 +18096,7 @@ components:
           description: |-
             Optional per-action timeout override as a Go duration string
             (e.g. `30s`, `2m`).
-        poll_interval:
+        pollInterval:
           type: string
           description: |-
             Poll interval for actions that loop (e.g. `FirmwareControl`,
@@ -18117,22 +18117,22 @@ components:
       type: object
       description: Retry behavior for a step's child workflow.
       required:
-        - max_attempts
-        - initial_interval
-        - backoff_coefficient
+        - maxAttempts
+        - initialInterval
+        - backoffCoefficient
       properties:
-        max_attempts:
+        maxAttempts:
           type: integer
           minimum: 1
           description: Maximum number of attempts including the first.
-        initial_interval:
+        initialInterval:
           type: string
           description: Initial retry interval, as a Go duration string (e.g. `1s`).
-        backoff_coefficient:
+        backoffCoefficient:
           type: number
           minimum: 1
           description: Exponential backoff multiplier; must be `>= 1.0`.
-        max_interval:
+        maxInterval:
           type: string
           description: Optional cap on retry interval, as a Go duration string.
     CreateRuleRequest:
