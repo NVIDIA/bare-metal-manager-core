@@ -22,6 +22,16 @@ use rpc::{CredentialType, forge as forgerpc};
 use crate::credential::common::BmcCredentialType;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete the site-wide BMC root credential:
+    $ carbide-admin-cli credential delete-bmc --kind=site-wide-root
+
+Delete a per-BMC root credential for a specific MAC address:
+    $ carbide-admin-cli credential delete-bmc --kind=bmc-root --mac-address 00:11:22:33:44:55
+
+")]
 pub struct Args {
     #[clap(
         long,

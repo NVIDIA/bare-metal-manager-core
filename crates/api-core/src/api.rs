@@ -2913,6 +2913,13 @@ impl Forge for Api {
         crate::handlers::managed_host::set_primary_dpu(self, request).await
     }
 
+    async fn set_primary_interface(
+        &self,
+        request: Request<rpc::SetPrimaryInterfaceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::managed_host::set_primary_interface(self, request).await
+    }
+
     async fn create_dpu_extension_service(
         &self,
         request: Request<rpc::CreateDpuExtensionServiceRequest>,

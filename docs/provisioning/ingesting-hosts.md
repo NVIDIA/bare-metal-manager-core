@@ -75,7 +75,7 @@ Alternatively to shorten the command line you can create a file named `carbide_a
 ```json
 {
   "carbide_api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
-  "forge_root_ca_path": "/path/to/ca.crt",
+  "root_ca_path": "/path/to/ca.crt",
   "client_cert_path": "/path/to/client.crt",
   "client_key_path": "/path/to/client.key"
 }

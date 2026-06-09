@@ -28,11 +28,10 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_host_inband_network_segment, create_underlay_network_segment,
 };
 
-// On a zero-DPU host the handler's interface scan never finds a row with a
-// matching `attached_dpu_machine_id`, which previously bubbled up as a
-// generic "Could not determine old primary interface id..." internal
-// error. Reject up-front with `FailedPrecondition` and a message that
-// names the underlying reason.
+// On a zero-DPU host, set-primary-dpu has no DPU to resolve to an interface, so
+// the alias rejects up-front with `FailedPrecondition` and a message that names
+// the underlying reason -- rather than failing later, more confusingly, when the
+// DPU-to-interface lookup comes up empty.
 #[crate::sqlx_test]
 async fn test_set_primary_dpu_rejects_zero_dpu_host(
     pool: sqlx::PgPool,

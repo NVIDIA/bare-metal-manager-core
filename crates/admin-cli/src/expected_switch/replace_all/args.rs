@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Replace all expected switches with the contents of a JSON file:
+    $ carbide-admin-cli expected-switch replace-all --filename ./switches.json
+
+")]
 pub struct Args {
     #[clap(short, long)]
     pub filename: String,

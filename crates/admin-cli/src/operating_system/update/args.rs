@@ -21,6 +21,21 @@ use clap::Parser;
 use crate::operating_system::common::parse_param;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Rename an OS definition and update its description:
+    $ carbide-admin-cli operating-system update 12345678-1234-5678-90ab-cdef01234567 \
+    --name ubuntu-22.04 --description \"Ubuntu 22.04 base\"
+
+Deactivate an OS definition:
+    $ carbide-admin-cli operating-system update 12345678-1234-5678-90ab-cdef01234567 --is-active false
+
+Replace the iPXE boot script:
+    $ carbide-admin-cli operating-system update 12345678-1234-5678-90ab-cdef01234567 \
+    --ipxe-script \"#!ipxe …\"
+
+")]
 pub struct Args {
     #[clap(help = "UUID of the operating system definition to update.")]
     pub id: String,

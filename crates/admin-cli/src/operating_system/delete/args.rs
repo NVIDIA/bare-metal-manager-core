@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete an operating system definition by ID:
+    $ carbide-admin-cli operating-system delete 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "UUID of the operating system definition to delete.")]
     pub id: String,

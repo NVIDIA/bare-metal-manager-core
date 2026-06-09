@@ -80,3 +80,19 @@ rest-kind-reset: ## Spin up the local kind dev cluster: cluster + cert-manager +
 #   make rest-api/generate-sdk
 rest-api/%:
 	$(MAKE) -C rest-api $*
+
+proto-breaking:
+	@echo "Checking for proto breaking changes..."
+	@if ! command -v buf >/dev/null 2>&1; then \
+		echo "buf is not installed. Please install buf: https://buf.build/docs/installation"; \
+		exit 1; \
+	fi
+	buf breaking crates/rpc/proto --against 'https://github.com/NVIDIA/infra-controller.git#branch=main,subdir=crates/rpc/proto'
+
+openapi-breaking:
+	@echo "Checking for openapi breaking changes..."
+	@if ! command -v oasdiff >/dev/null 2>&1; then \
+		echo "oasdiff is not installed. Please install oasdiff: https://github.com/oasdiff/oasdiff"; \
+		exit 1; \
+	fi
+	oasdiff breaking <(git show origin/main:rest-api/openapi/spec.yaml) rest-api/openapi/spec.yaml --fail-on ERR
