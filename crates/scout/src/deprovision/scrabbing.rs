@@ -63,7 +63,17 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
 static HDPARM_CLI_PROG: &str = "/usr/sbin/hdparm";
 static SG_SANITIZE_CLI_PROG: &str = "/usr/bin/sg_sanitize";
+static SG_OPCODES_CLI_PROG: &str = "/usr/bin/sg_opcodes";
 static DD_CLI_PROG: &str = "/usr/bin/dd";
+
+// SCSI SANITIZE command opcode (0x48) and its service actions (T10 SBC).
+static SCSI_SANITIZE_OPCODE: &str = "0x48";
+static SCSI_SANITIZE_SA_CRYPTO_ERASE: &str = "0x3";
+static SCSI_SANITIZE_SA_BLOCK_ERASE: &str = "0x2";
+
+// sg_sanitize erase-type flags.
+static SG_SANITIZE_CRYPTO_FLAG: &str = "-C";
+static SG_SANITIZE_BLOCK_FLAG: &str = "-B";
 static LENOVO_NVMI_CLI_PROG_CANDIDATES: [&str; 4] = [
     "/opt/forge/bin/mnv_cli",
     "/opt/forge/mnv_cli",
@@ -553,25 +563,129 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
     Ok(())
 }
 
-async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
-    // The supported SAS fleet uses SEDs; use crypto erase intentionally rather than --block.
-    cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", "-C", devpath]).await?;
-    // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
-    // Random data can accidentally match the AHDI (Atari HDD) partition signature, causing
-    // the Linux kernel to create phantom partition entries. Writing one sector of zeros with
-    // oflag=direct bypasses the SAS HBA cache and ensures LBA 0 is clean.
-    let of_arg = format!("of={devpath}");
-    cmdrun::run_prog(
-        DD_CLI_PROG,
+/// Parse the hex dump emitted by `sg_opcodes --hex` into the raw response bytes.
+/// Each line is `<offset>  <byte> <byte> ...`, where the offset column's width
+/// varies (e.g. "00" for a short response). On each line we drop the leading
+/// offset token, then take 2-hex-digit byte tokens until a non-hex token (any
+/// trailing ASCII rendering). Confirmed against the sg3-utils sg_opcodes output
+/// format. Dropping the offset is important: it can itself be two hex digits and
+/// would otherwise be mistaken for a data byte (shifting every index by one). A
+/// trailing ASCII token that happens to be two hex chars could be appended as a
+/// spurious byte, but it always follows the real data, so the low byte indices
+/// callers read (see rsoc_support_field) are never affected.
+fn parse_sg_opcodes_hex(output: &str) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for line in output.lines() {
+        let mut tokens = line.split_whitespace();
+        // First token on a data line is the byte offset; skip it.
+        if tokens.next().is_none() {
+            continue;
+        }
+        for tok in tokens {
+            if tok.len() == 2 && tok.bytes().all(|b| b.is_ascii_hexdigit()) {
+                if let Ok(b) = u8::from_str_radix(tok, 16) {
+                    bytes.push(b);
+                }
+            } else {
+                break; // reached the ASCII rendering or a non-data token
+            }
+        }
+    }
+    bytes
+}
+
+/// Extract the SUPPORT field from REPORT SUPPORTED OPERATION CODES `one_command`
+/// parameter data (SPC-4): byte 1, bits 2-0. Returns None if the response is too
+/// short to contain it. This is a standardized, device-returned value — it does
+/// not depend on the sg_opcodes version or its human-readable wording.
+fn rsoc_support_field(response: &[u8]) -> Option<u8> {
+    response.get(1).map(|b| b & 0x07)
+}
+
+/// Outcome of probing whether a drive supports a given SANITIZE service action.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SanitizeSupport {
+    /// The drive's response explicitly reports the action is supported.
+    Supported,
+    /// The drive's response explicitly reports the action is NOT supported.
+    NotSupported,
+    /// Support could not be determined: the probe failed, the drive does not
+    /// implement REPORT SUPPORTED OPERATION CODES, or the response was unparseable.
+    Unknown,
+}
+
+/// Map the SPC-4 SUPPORT field (byte 1, bits 2-0) to a tri-state. 011b (3) and
+/// 101b (5) are supported; 001b (1) is explicitly not supported; everything else
+/// (000b "data not available", reserved values) is Unknown.
+fn classify_support_field(support: u8) -> SanitizeSupport {
+    match support {
+        3 | 5 => SanitizeSupport::Supported,
+        1 => SanitizeSupport::NotSupported,
+        _ => SanitizeSupport::Unknown,
+    }
+}
+
+/// Read-only probe: ask the drive (SCSI REPORT SUPPORTED OPERATION CODES, via
+/// `sg_opcodes --hex`) for the raw response, then read the standardized SUPPORT
+/// field (byte 1, bits 2-0) — NOT the tool's English text, so this does not
+/// depend on the sg_opcodes version. `--no-inquiry --pdt=0` skips the INQUIRY so
+/// only the response bytes are emitted. A probe error, unparseable output, or a
+/// too-short response is reported as Unknown (see clean_this_block_device for how
+/// each SanitizeSupport value affects the chosen erase method).
+async fn scsi_sanitize_support(devpath: &str, service_action: &str) -> SanitizeSupport {
+    let op_arg = format!("--opcode={SCSI_SANITIZE_OPCODE}");
+    let sa_arg = format!("--sa={service_action}");
+    match cmdrun::run_prog(
+        SG_OPCODES_CLI_PROG,
         [
-            "if=/dev/zero",
-            &of_arg,
-            "bs=4096",
-            "count=1",
-            "oflag=direct",
+            "--hex",
+            "--no-inquiry",
+            "--pdt=0",
+            op_arg.as_str(),
+            sa_arg.as_str(),
+            devpath,
         ],
     )
-    .await?;
+    .await
+    {
+        Ok(out) => match rsoc_support_field(&parse_sg_opcodes_hex(&out)) {
+            Some(v) => classify_support_field(v),
+            None => SanitizeSupport::Unknown,
+        },
+        Err(e) => {
+            tracing::debug!(
+                "{}: sg_opcodes probe failed for SANITIZE sa={}: {}",
+                devpath,
+                service_action,
+                e
+            );
+            SanitizeSupport::Unknown
+        }
+    }
+}
+
+/// Run `sg_sanitize` with the chosen erase flag. A crypto erase additionally
+/// zeroes LBA 0 (a crypto-erase-specific fixup; see below).
+async fn run_scsi_sanitize(devpath: &str, erase_flag: &str) -> Result<(), CarbideClientError> {
+    cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", erase_flag, devpath]).await?;
+    if erase_flag == SG_SANITIZE_CRYPTO_FLAG {
+        // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
+        // Random data can accidentally match the AHDI (Atari HDD) partition signature, causing
+        // the Linux kernel to create phantom partition entries. Writing one sector of zeros with
+        // oflag=direct bypasses the SAS HBA cache and ensures LBA 0 is clean.
+        let of_arg = format!("of={devpath}");
+        cmdrun::run_prog(
+            DD_CLI_PROG,
+            [
+                "if=/dev/zero",
+                &of_arg,
+                "bs=4096",
+                "count=1",
+                "oflag=direct",
+            ],
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -587,14 +701,74 @@ fn is_sata_device(devname: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Erase a SAS/SCSI drive without crypto erase: block erase if the drive supports
+/// it, otherwise ATA Secure Erase, otherwise fail closed (so the machine is held
+/// out of the pool rather than returned unwiped).
+async fn scsi_erase_without_crypto(devpath: &str) -> Result<(), CarbideClientError> {
+    if scsi_sanitize_support(devpath, SCSI_SANITIZE_SA_BLOCK_ERASE).await
+        == SanitizeSupport::Supported
+    {
+        tracing::info!("{} using SCSI Sanitize (block erase)", devpath);
+        run_scsi_sanitize(devpath, SG_SANITIZE_BLOCK_FLAG).await
+    } else {
+        // ATA Secure Erase can still work for e.g. a SATA disk behind a SAS HBA.
+        tracing::warn!(
+            "{}: no supported SCSI SANITIZE service action; trying ATA Secure Erase",
+            devpath
+        );
+        try_ata_secure_erase(devpath).await.map_err(|e| {
+            CarbideClientError::GenericError(format!(
+                "no supported erase method for {devpath}: SCSI SANITIZE crypto/block \
+                 unsupported and ATA Secure Erase unavailable ({e})"
+            ))
+        })
+    }
+}
+
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
     let devname = devpath.trim_start_matches("/dev/");
+
     if is_sata_device(devname) {
+        // SATA: ATA Secure Erase (itself gated by hdparm -I).
         tracing::info!("{} detected as SATA, using ATA Secure Erase", devpath);
-        try_ata_secure_erase(devpath).await
-    } else {
-        tracing::info!("{} detected as SAS/SCSI, using SCSI Sanitize", devpath);
-        try_scsi_sanitize(devpath).await
+        return try_ata_secure_erase(devpath).await;
+    }
+
+    // SAS/SCSI decision tree, keyed on the drive's probed crypto-erase support:
+    //
+    //   Supported     -> crypto erase
+    //   NotSupported  -> block erase if supported, else ATA Secure Erase, else fail closed
+    //   Unknown       -> attempt crypto erase; on failure, block erase if supported,
+    //                    else ATA Secure Erase, else fail closed
+    //
+    // "Unknown" means the drive did not report capability (e.g. it does not implement
+    // REPORT SUPPORTED OPERATION CODES). Attempting crypto is the conservative default
+    // there (the drive may still be crypto-capable); the on-failure fallback recovers
+    // drives that cannot crypto erase. The non-crypto cases are handled by
+    // scsi_erase_without_crypto.
+    match scsi_sanitize_support(devpath, SCSI_SANITIZE_SA_CRYPTO_ERASE).await {
+        SanitizeSupport::Supported => {
+            tracing::info!("{} using SCSI Sanitize (crypto erase)", devpath);
+            run_scsi_sanitize(devpath, SG_SANITIZE_CRYPTO_FLAG).await
+        }
+        SanitizeSupport::NotSupported => scsi_erase_without_crypto(devpath).await,
+        SanitizeSupport::Unknown => {
+            tracing::info!(
+                "{} crypto sanitize support unreported; attempting crypto erase",
+                devpath
+            );
+            match run_scsi_sanitize(devpath, SG_SANITIZE_CRYPTO_FLAG).await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    tracing::warn!(
+                        "{}: crypto erase failed ({}); falling back to another method",
+                        devpath,
+                        e
+                    );
+                    scsi_erase_without_crypto(devpath).await
+                }
+            }
+        }
     }
 }
 
@@ -1280,5 +1454,83 @@ mod tests {
     fn test_sata_dev_re_does_not_match_nvme() {
         assert!(!SD_DEV_RE.is_match("/dev/nvme0"));
         assert!(!SD_DEV_RE.is_match("/dev/nvme0n1"));
+    }
+
+    // --- SCSI SANITIZE capability probe ----------------------------------
+    // The SAS/SCSI path probes which SANITIZE service action the drive supports
+    // by reading the standardized SUPPORT field from the REPORT SUPPORTED
+    // OPERATION CODES response (`sg_opcodes --hex`), NOT the tool's English text.
+    // These tests cover the pure helpers: hex-dump parsing, SUPPORT-field
+    // extraction, tri-state classification, and method selection. The SUPPORT
+    // values are T10-defined (SPC-4) and independent of the sg_opcodes version;
+    // a short or unparseable response maps to Unknown.
+
+    #[test]
+    fn test_parse_sg_opcodes_hex_extracts_bytes() {
+        // Real sg_opcodes --hex output (confirmed against sg3-utils on a scsi_debug
+        // device): a 2-digit offset column, then the response bytes, no ASCII tail.
+        // Here SUPPORT (byte index 1) = 0x01. The leading offset "00" must be
+        // dropped, NOT read as a data byte (otherwise every index shifts by one).
+        let dump = " 00     00 01 00 00";
+        let bytes = parse_sg_opcodes_hex(dump);
+        assert_eq!(bytes, vec![0x00, 0x01, 0x00, 0x00]);
+        assert_eq!(rsoc_support_field(&bytes), Some(1));
+
+        // Also handle a wider offset and a trailing ASCII rendering (defensive).
+        let dump2 = "0000  00 03 00 0a 48 03 e2 00  ff ff ff ff 00 00 ff ff    ..H.............";
+        let bytes2 = parse_sg_opcodes_hex(dump2);
+        assert_eq!(bytes2[0], 0x00);
+        assert_eq!(bytes2[1], 0x03);
+        assert_eq!(bytes2[4], 0x48);
+    }
+
+    #[test]
+    fn test_rsoc_support_field() {
+        assert_eq!(rsoc_support_field(&[0x00, 0x03]), Some(3));
+        assert_eq!(rsoc_support_field(&[0x00, 0x05]), Some(5));
+        assert_eq!(rsoc_support_field(&[0x00, 0x01]), Some(1));
+        // High bits (e.g. CTDP) are masked off; only bits 2-0 matter.
+        assert_eq!(rsoc_support_field(&[0x00, 0x83]), Some(3));
+        // Too short to contain the field -> None (caller treats as Unknown).
+        assert_eq!(rsoc_support_field(&[0x00]), None);
+        assert_eq!(rsoc_support_field(&[]), None);
+    }
+
+    #[test]
+    fn test_classify_support_field_tristate() {
+        // Supported: 011b (standard) and 101b (vendor specific).
+        assert_eq!(classify_support_field(3), SanitizeSupport::Supported);
+        assert_eq!(classify_support_field(5), SanitizeSupport::Supported);
+        // Explicit "not supported" (001b).
+        assert_eq!(classify_support_field(1), SanitizeSupport::NotSupported);
+        // Everything else (000b "data not available", reserved values) is Unknown.
+        assert_eq!(classify_support_field(0), SanitizeSupport::Unknown);
+        assert_eq!(classify_support_field(2), SanitizeSupport::Unknown);
+        assert_eq!(classify_support_field(4), SanitizeSupport::Unknown);
+    }
+
+    #[test]
+    fn test_probe_chain_tristate() {
+        // The pure parse+classify chain on representative sg_opcodes --hex output.
+        let classify = |s: &str| match rsoc_support_field(&parse_sg_opcodes_hex(s)) {
+            Some(v) => classify_support_field(v),
+            None => SanitizeSupport::Unknown,
+        };
+        // SUPPORT field 0x03 -> Supported.
+        assert_eq!(
+            classify(" 00     00 03 00 0a 48 03 e2 00 ff ff ff ff 00 00"),
+            SanitizeSupport::Supported
+        );
+        // SUPPORT field 0x01 (real scsi_debug output format) -> NotSupported.
+        assert_eq!(
+            classify(" 00     00 01 00 00"),
+            SanitizeSupport::NotSupported
+        );
+        // Garbage / short / empty -> Unknown.
+        assert_eq!(
+            classify("sg_opcodes: error opening /dev/sda: Invalid argument"),
+            SanitizeSupport::Unknown
+        );
+        assert_eq!(classify(""), SanitizeSupport::Unknown);
     }
 }
