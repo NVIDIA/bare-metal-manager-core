@@ -328,9 +328,8 @@ func TestAPIOperationRule_FromProto(t *testing.T) {
 		UpdatedAt:          timestamppb.New(updated),
 	}
 
-	got, err := NewAPITaskRule(pbRule)
-	require.NoError(t, err)
-	require.NotNil(t, got)
+	got := &APITaskRule{}
+	require.NoError(t, got.FromProto(pbRule))
 	assert.Equal(t, "rule-id", got.ID)
 	assert.Equal(t, "my-rule", got.Name)
 	assert.Equal(t, "desc", got.Description)
@@ -350,7 +349,8 @@ func TestAPIOperationRule_FromProto_InvalidJSON(t *testing.T) {
 		Id:                 &flowv1.UUID{Id: "rule-id"},
 		RuleDefinitionJson: "not valid json",
 	}
-	_, err := NewAPITaskRule(pbRule)
+	got := &APITaskRule{}
+	err := got.FromProto(pbRule)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid ruleDefinition")
 }

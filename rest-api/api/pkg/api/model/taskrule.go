@@ -312,15 +312,6 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	return nil
 }
 
-// NewAPITaskRule constructs an APITaskRule from a Flow proto rule.
-func NewAPITaskRule(pbRule *flowv1.OperationRule) (*APITaskRule, error) {
-	r := &APITaskRule{}
-	if err := r.FromProto(pbRule); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
 // ~~~~~ Create ~~~~~ //
 
 // APITaskRuleCreateRequest is the JSON body for POST /rule.

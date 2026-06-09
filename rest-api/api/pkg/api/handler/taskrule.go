@@ -331,8 +331,8 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Rule not found", nil)
 	}
 
-	apiRule, err := model.NewAPITaskRule(&flowResponse)
-	if err != nil {
+	apiRule := &model.APITaskRule{}
+	if err := apiRule.FromProto(&flowResponse); err != nil {
 		logger.Error().Err(err).Msg("failed to convert Flow rule to API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
 	}
@@ -445,9 +445,9 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 
 	apiRules := make([]*model.APITaskRule, 0, len(flowResponse.GetRules()))
 	for _, pbRule := range flowResponse.GetRules() {
-		r, cerr := model.NewAPITaskRule(pbRule)
-		if cerr != nil {
-			logger.Error().Err(cerr).Msg("failed to convert Flow rule to API model")
+		r := &model.APITaskRule{}
+		if err := r.FromProto(pbRule); err != nil {
+			logger.Error().Err(err).Msg("failed to convert Flow rule to API model")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
 		}
 		apiRules = append(apiRules, r)
