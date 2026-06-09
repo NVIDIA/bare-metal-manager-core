@@ -20,6 +20,20 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[clap(disable_help_flag = true)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all machines:
+    $ carbide-admin-cli machine show
+
+Show one machine by ID:
+    $ carbide-admin-cli machine show 12345678-1234-5678-90ab-cdef01234567
+
+Show only DPUs (or only hosts):
+    $ carbide-admin-cli machine show --dpus
+    $ carbide-admin-cli machine show --hosts
+
+")]
 pub struct Args {
     #[clap(long, action = clap::ArgAction::HelpLong)]
     pub help: Option<bool>,

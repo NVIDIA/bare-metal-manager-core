@@ -19,6 +19,21 @@ use carbide_uuid::instance::InstanceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Reboot an instance:
+    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567
+
+Reboot and apply any pending firmware updates:
+    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
+    --apply-updates-on-reboot
+
+Reboot into the custom PXE flow:
+    $ carbide-admin-cli instance reboot --instance 12345678-1234-5678-90ab-cdef01234567 \
+    --custom-pxe
+
+")]
 pub struct Args {
     #[clap(short, long)]
     pub instance: InstanceId,

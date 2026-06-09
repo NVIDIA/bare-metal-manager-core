@@ -11,6 +11,13 @@ use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove the mapping for a chassis serial:
+    $ carbide-admin-cli nvlink-nmxc-endpoints delete --chassis-serial 1234567890123
+
+")]
 pub struct Args {
     #[clap(long, value_name = "SERIAL")]
     pub chassis_serial: String,

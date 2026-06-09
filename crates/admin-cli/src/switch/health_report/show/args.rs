@@ -19,6 +19,13 @@ use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List the health report sources for a switch:
+    $ carbide-admin-cli switch health-report show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Switch ID to show health reports for")]
     pub switch_id: SwitchId,

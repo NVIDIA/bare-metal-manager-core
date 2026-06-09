@@ -20,6 +20,13 @@ use clap::Parser;
 use super::super::common::SshArgs;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Copy a BFB image to a DPU BMC's RSHIM:
+    $ carbide-admin-cli ssh copy-bfb 192.0.2.10:22 admin mypassword /path/to/image.bfb
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub ssh_args: SshArgs,

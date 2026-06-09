@@ -24,6 +24,13 @@ use crate::boot_override::common::BootOverride;
 // specific newtype to allow sharing of BootOverride, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show the boot override for a machine interface:
+    $ carbide-admin-cli boot-override get 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: BootOverride,

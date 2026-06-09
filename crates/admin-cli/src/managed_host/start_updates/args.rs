@@ -19,6 +19,17 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Start delayed updates for one or more machines now:
+    $ carbide-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567
+
+Schedule the update window for a specific start time:
+    $ carbide-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567 \
+    --start 2026-01-02T03:04:05
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "Machine IDs to update, space separated", num_args = 1.., value_delimiter = ' ')]
     pub machines: Vec<MachineId>,
