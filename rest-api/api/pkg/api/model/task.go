@@ -13,7 +13,7 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-var ProtoToAPIRackTaskStatusName = map[flowv1.TaskStatus]string{
+var ProtoToAPITaskStatusName = map[flowv1.TaskStatus]string{
 	flowv1.TaskStatus_TASK_STATUS_UNKNOWN:    "Unknown",
 	flowv1.TaskStatus_TASK_STATUS_PENDING:    "Pending",
 	flowv1.TaskStatus_TASK_STATUS_RUNNING:    "Running",
@@ -23,8 +23,11 @@ var ProtoToAPIRackTaskStatusName = map[flowv1.TaskStatus]string{
 	flowv1.TaskStatus_TASK_STATUS_WAITING:    "Waiting",
 }
 
-// APIRackTask is the API response model for a rack task (OpenAPI schema RackTask).
-type APIRackTask struct {
+// APITask is the API response model for a task (OpenAPI schema Task).
+// Tasks model any asynchronous, site-scoped operation against site
+// infrastructure — rack, tray, or otherwise — so the type is intentionally
+// scope-agnostic and shared across all task endpoints.
+type APITask struct {
 	ID          string     `json:"id"`
 	Status      string     `json:"status"`
 	Description string     `json:"description"`
@@ -43,14 +46,14 @@ type APIRackTask struct {
 	RuleID *string `json:"ruleId,omitempty"`
 }
 
-func (t *APIRackTask) FromProto(task *flowv1.Task) {
+func (t *APITask) FromProto(task *flowv1.Task) {
 	if task == nil {
 		return
 	}
 	if task.GetId() != nil {
 		t.ID = task.GetId().GetId()
 	}
-	t.Status = enumOr(ProtoToAPIRackTaskStatusName, task.GetStatus(), "Unknown")
+	t.Status = enumOr(ProtoToAPITaskStatusName, task.GetStatus(), "Unknown")
 	t.Description = task.GetDescription()
 	t.Message = task.GetMessage()
 	if ts := task.GetStartedAt(); ts != nil {
@@ -69,8 +72,8 @@ func (t *APIRackTask) FromProto(task *flowv1.Task) {
 	}
 }
 
-func NewAPIRackTask(task *flowv1.Task) *APIRackTask {
-	t := &APIRackTask{}
+func NewAPITask(task *flowv1.Task) *APITask {
+	t := &APITask{}
 	t.FromProto(task)
 	return t
 }

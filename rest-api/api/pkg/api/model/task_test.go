@@ -17,12 +17,12 @@ func TestNewAPIRackTask(t *testing.T) {
 	tests := []struct {
 		name     string
 		task     *flowv1.Task
-		expected *APIRackTask
+		expected *APITask
 	}{
 		{
-			name:     "nil task returns empty APIRackTask",
+			name:     "nil task returns empty APITask",
 			task:     nil,
-			expected: &APIRackTask{},
+			expected: &APITask{},
 		},
 		{
 			name: "task with all fields",
@@ -34,7 +34,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_RUNNING,
 				Message:     "Processing 3 of 5 components",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-123",
 				Status:      "Running",
 				Description: "Power on rack components",
@@ -48,7 +48,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Description: "Firmware upgrade",
 				Status:      flowv1.TaskStatus_TASK_STATUS_PENDING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-001",
 				Status:      "Pending",
 				Description: "Firmware upgrade",
@@ -62,7 +62,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_COMPLETED,
 				Message:     "All components ready",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-002",
 				Status:      "Succeeded",
 				Description: "Bring up rack",
@@ -77,7 +77,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:      flowv1.TaskStatus_TASK_STATUS_FAILED,
 				Message:     "BMC unreachable",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:          "task-003",
 				Status:      "Failed",
 				Description: "Power off rack",
@@ -90,7 +90,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Id:     &flowv1.UUID{Id: "task-004"},
 				Status: flowv1.TaskStatus_TASK_STATUS_UNKNOWN,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:     "task-004",
 				Status: "Unknown",
 			},
@@ -101,7 +101,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Description: "Orphan task",
 				Status:      flowv1.TaskStatus_TASK_STATUS_PENDING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				Status:      "Pending",
 				Description: "Orphan task",
 			},
@@ -113,7 +113,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Status:  flowv1.TaskStatus_TASK_STATUS_TERMINATED,
 				Message: "Expired: queue timeout reached",
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:      "task-005",
 				Status:  "Terminated",
 				Message: "Expired: queue timeout reached",
@@ -125,7 +125,7 @@ func TestNewAPIRackTask(t *testing.T) {
 				Id:     &flowv1.UUID{Id: "task-006"},
 				Status: flowv1.TaskStatus_TASK_STATUS_WAITING,
 			},
-			expected: &APIRackTask{
+			expected: &APITask{
 				ID:     "task-006",
 				Status: "Waiting",
 			},
@@ -134,7 +134,7 @@ func TestNewAPIRackTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NewAPIRackTask(tt.task)
+			result := NewAPITask(tt.task)
 			assert.NotNil(t, result)
 			assert.Equal(t, tt.expected.ID, result.ID)
 			assert.Equal(t, tt.expected.Status, result.Status)
@@ -149,14 +149,14 @@ func TestNewAPIRackTask(t *testing.T) {
 
 func TestNewAPIRackTask_RuleID(t *testing.T) {
 	t.Run("nil applied_rule_id leaves RuleID unset", func(t *testing.T) {
-		got := NewAPIRackTask(&flowv1.Task{
+		got := NewAPITask(&flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-a"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
 		})
 		assert.Nil(t, got.RuleID)
 	})
 	t.Run("empty-string id is treated as unset", func(t *testing.T) {
-		got := NewAPIRackTask(&flowv1.Task{
+		got := NewAPITask(&flowv1.Task{
 			Id:            &flowv1.UUID{Id: "task-b"},
 			Status:        flowv1.TaskStatus_TASK_STATUS_RUNNING,
 			AppliedRuleId: &flowv1.UUID{Id: ""},
@@ -164,7 +164,7 @@ func TestNewAPIRackTask_RuleID(t *testing.T) {
 		assert.Nil(t, got.RuleID)
 	})
 	t.Run("non-empty id is surfaced", func(t *testing.T) {
-		got := NewAPIRackTask(&flowv1.Task{
+		got := NewAPITask(&flowv1.Task{
 			Id:            &flowv1.UUID{Id: "task-c"},
 			Status:        flowv1.TaskStatus_TASK_STATUS_RUNNING,
 			AppliedRuleId: &flowv1.UUID{Id: "550e8400-e29b-41d4-a716-446655440000"},
@@ -189,7 +189,7 @@ func TestNewAPIRackTask_Timestamps(t *testing.T) {
 		FinishedAt: timestamppb.New(endTime),
 	}
 
-	result := NewAPIRackTask(task)
+	result := NewAPITask(task)
 
 	assert.True(t, result.Created.Equal(createdTime))
 	assert.True(t, result.Updated.Equal(updatedTime))
