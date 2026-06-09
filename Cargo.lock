@@ -2878,6 +2878,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "uuid",
  "version-compare 0.2.1",
 ]
 
@@ -6530,7 +6531,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.7#e463ca91e6e995a162e15f1b1ba7cf90869eb40a"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.8#a1b98328b67394eb38fc8088273e0f84c1432ffd"
 dependencies = [
  "chrono",
  "clap",
@@ -7507,6 +7508,7 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+ "glob",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -9680,22 +9682,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sbom"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "itertools 0.14.0",
- "lazy_static",
- "regex",
- "serde",
- "serde_json",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "scc"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10805,12 +10791,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
-
-[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11622,19 +11602,6 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-appender"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
-dependencies = [
- "crossbeam-channel",
- "symlink",
- "thiserror 2.0.18",
- "time",
- "tracing-subscriber",
 ]
 
 [[package]]

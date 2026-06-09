@@ -34,8 +34,8 @@ use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
 use eyre::WrapErr;
 use mac_address::MacAddress;
-use nvue_client::client::NvueClientError;
-use nvue_client::{NvueClient, NvueConfig};
+use nvue_client::client::{NvueClient, NvueClientError};
+use nvue_client::config::{NvueConfig, NvueConfigWithHeader};
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -656,7 +656,8 @@ pub async fn update_nvue(
             Ok(true)
         }
         NvueUpdateFlavor::RestApi { nvue_context } => {
-            let config = NvueConfig::from_yaml(&next_contents)
+            let config = NvueConfigWithHeader::from_yaml(&next_contents)
+                .map(|config_with_header| config_with_header.into_nvue_config())
                 .map_err(|e| eyre::eyre!("Couldn't parse NVUE config as YAML: {e}"))?;
             let revision_id = nvue_context
                 .update_config(&config)

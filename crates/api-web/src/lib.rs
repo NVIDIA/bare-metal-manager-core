@@ -562,6 +562,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/quarantine",
                 post(machine::quarantine),
             )
+            .route("/machine/{machine_id}/sku", post(machine::sku))
             .route(
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),

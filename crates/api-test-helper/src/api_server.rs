@@ -249,7 +249,7 @@ pub async fn start(
         autoupdate = true
         host_enable_autoupdate = []
         host_disable_autoupdate = []
-        run_interval = "5s"
+        run_interval = "1s"
         max_uploads = 4
         concurrency_limit = 16
         firmware_directory = "{firmware_directory_str}"

@@ -36,6 +36,7 @@
 			{% if !hw_sku.is_empty() %}
 			<a href="/admin/sku/{{ hw_sku }}">{{ hw_sku }}</a>
 			{% endif %}
+			<a href="#sku_view">(edit)</a>
 		</td>
 	</tr>
 		{% if has_instance_type %}
@@ -142,6 +143,64 @@
 			</form>
 		</td>
 	</tr>
+</table>
+
+<h3 id="sku_view">SKU</h3>
+<table class="detailsview">
+	<tr>
+		<th>Current SKU</th>
+		<td>
+			{% if !hw_sku.is_empty() %}
+			<a href="/admin/sku/{{ hw_sku }}">{{ hw_sku }}</a>
+			{% else %}
+			<i>None assigned</i>
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>Assign SKU</th>
+		<td>
+			<form id="assign_sku_action" method="POST" action="/admin/machine/{{ id }}/sku">
+				<input type="hidden" name="action" value="assign"/>
+				<div>
+					<label for="sku_id">SKU:</label>
+					<select id="sku_id" name="sku_id">
+						<option value="">-- select a SKU --</option>
+						{% for sku in available_skus %}
+						<option value="{{ sku }}"{% if hw_sku == *sku %} selected{% endif %}>{{ sku }}</option>
+						{% endfor %}
+					</select>
+				</div>
+				<div>
+					<label for="assign_force">Force:</label>
+					<input type="checkbox" id="assign_force" name="force"/>
+					<i>Override state checks and replace any existing SKU</i>
+				</div>
+				<button type="submit">Assign SKU</button>
+			</form>
+		</td>
+	</tr>
+	{% if !hw_sku.is_empty() %}
+	<tr>
+		<th>Remove SKU</th>
+		<td>
+			<form id="remove_sku_action" method="POST" action="/admin/machine/{{ id }}/sku">
+				<input type="hidden" name="action" value="remove"/>
+				<div>
+					<label for="remove_force">Force:</label>
+					<input type="checkbox" id="remove_force" name="force"/>
+					<i>Override state checks</i>
+				</div>
+				<button type="submit">Remove SKU</button>
+			</form>
+		</td>
+	</tr>
+	{% endif %}
+	{% if let Some(status) = action_status %}
+	{% if status.action == action_status::Type::Sku %}
+	<tr><td colspan="2">{{ status.action_result_script()|safe }}</td></tr>
+	{% endif %}
+	{% endif %}
 </table>
 {% endif %}
 
@@ -462,7 +521,7 @@ Missing BMC Data
 		maintenance_form.addEventListener("submit", are_you_sure_maintenance);
 		let quarantine_form = document.getElementById("quarantine_action");
 		quarantine_form.addEventListener("submit", are_you_sure_quarantine);
-		
+
 		// Set up Logs link
 		const machineId = "{{ id }}";
 		document.getElementById('logs-link').href = buildGrafanaLogsUrl(machineId);

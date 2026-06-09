@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
-	"github.com/google/uuid"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 // Component represents a hardware component with various properties and
@@ -24,6 +26,9 @@ type Component struct {
 	ComponentID     string                            `json:"component_id,omitempty"`
 	RackID          uuid.UUID                         `json:"rack_id"`
 	PowerState      string                            `json:"power_state,omitempty"`
+	// Status is the Flow-derived view of operability. Nil when no status
+	// has been computed yet (e.g. before the first inventory sync).
+	Status *types.ComponentStatus `json:"status,omitempty"`
 
 	bmcMacToID map[string]bmcID
 }
