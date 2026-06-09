@@ -35,6 +35,7 @@ impl Run for Args {
             &mut ctx.output_file,
             cmd,
             ctx.config.format,
+            ctx.config.page_size,
         )
         .await
     }

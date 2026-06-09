@@ -159,7 +159,9 @@ impl EndpointExplorationReport {
     }
 
     /// Finds the Redfish interface id of the host ethernet interface whose MAC
-    /// matches `mac`, if any.
+    /// matches `mac`, if any. An interface that reports an empty id is treated
+    /// as having none, so callers never capture an empty string as the id (which
+    /// would otherwise clobber a previously stored, valid one).
     ///
     /// Used to capture the boot interface's [stable] Redfish interface id
     /// alongside its MAC, giving setup calls a second, [stable] handle to target
@@ -169,7 +171,19 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.iter())
             .find(|e| e.mac_address == Some(mac))
-            .and_then(|e| e.id.as_deref())
+            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+    }
+
+    /// Yields a [`MachineBootInterface`] for every host ethernet interface that
+    /// reports both a MAC and a non-empty Redfish interface id -- for any NIC
+    /// type (integrated NICs, SuperNICs, DPUs in NIC mode, DPU host-PFs).
+    /// Interfaces missing either half are skipped (via
+    /// [`MachineBootInterface::from_parts`]).
+    pub fn complete_boot_interfaces(&self) -> impl Iterator<Item = MachineBootInterface> + '_ {
+        self.systems
+            .iter()
+            .flat_map(|s| s.ethernet_interfaces.iter())
+            .filter_map(|e| MachineBootInterface::from_parts(e.mac_address, e.id.clone()))
     }
 }
 
@@ -2107,6 +2121,89 @@ mod tests {
         };
         // MAC present but no interface id -> can't form a fully-populated pair.
         assert_eq!(report.find_interface_id_for_mac(mac), None);
+    }
+
+    #[test]
+    fn find_interface_id_for_mac_none_when_id_empty() {
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![EthernetInterface {
+                    id: Some(String::new()),
+                    mac_address: Some(mac),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // An empty id is not a usable interface id, so it's treated as absent --
+        // the capture then keeps the last-known-good stored boot interface
+        // rather than clobbering it with an empty string.
+        assert_eq!(report.find_interface_id_for_mac(mac), None);
+    }
+
+    #[test]
+    fn complete_boot_interfaces_yields_every_nic_regardless_of_type() {
+        let dpu_mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
+        let integrated_mac = MacAddress::new([0xD4, 0x04, 0xE6, 0x84, 0x13, 0x98]);
+        let id_less_mac = MacAddress::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+        let empty_id_mac = MacAddress::new([0x22, 0x33, 0x44, 0x55, 0x66, 0x77]);
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                ethernet_interfaces: vec![
+                    // A DPU host-PF -- the only kind the DPU-only capture reached...
+                    EthernetInterface {
+                        id: Some("NIC.Slot.7-1-1".to_string()),
+                        mac_address: Some(dpu_mac),
+                        ..Default::default()
+                    },
+                    // ...and a non-DPU integrated NIC, which is now yielded too.
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.1-1-1".to_string()),
+                        mac_address: Some(integrated_mac),
+                        ..Default::default()
+                    },
+                    // No id -> can't form a pair, skipped.
+                    EthernetInterface {
+                        id: None,
+                        mac_address: Some(id_less_mac),
+                        ..Default::default()
+                    },
+                    // No MAC -> nothing to key on, skipped.
+                    EthernetInterface {
+                        id: Some("NIC.Embedded.2-1-1".to_string()),
+                        mac_address: None,
+                        ..Default::default()
+                    },
+                    // Empty id -> not a usable id, skipped (don't clobber last-known-good).
+                    EthernetInterface {
+                        id: Some(String::new()),
+                        mac_address: Some(empty_id_mac),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let boot_interfaces: Vec<MachineBootInterface> =
+            report.complete_boot_interfaces().collect();
+        assert_eq!(
+            boot_interfaces,
+            vec![
+                MachineBootInterface {
+                    mac_address: dpu_mac,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                },
+                MachineBootInterface {
+                    mac_address: integrated_mac,
+                    interface_id: "NIC.Embedded.1-1-1".to_string(),
+                },
+            ],
+            "complete_boot_interfaces should yield a MachineBootInterface for every NIC with both a MAC and a non-empty id -- DPU or not -- and skip the rest",
+        );
     }
 
     #[test]

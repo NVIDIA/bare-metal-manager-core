@@ -160,6 +160,13 @@ pub(crate) fn set_dynamic_config(
             tracing::info!("site-explorer create_machines updated to '{}'", req.value);
         }
         rpc::ConfigSetting::TracingEnabled => {
+            if !api.runtime_config.tracing.allow_runtime_changes {
+                return Err(CarbideError::PermissionDeniedError(
+                    "This server does not allow runtime changes to tracing configuration"
+                        .to_string(),
+                )
+                .into());
+            }
             let enable = req.value.parse().map_err(|_| {
                 CarbideError::InvalidArgument(format!(
                     "Expected bool for TracingEnabled, got {}",

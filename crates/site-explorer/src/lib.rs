@@ -1003,11 +1003,44 @@ impl SiteExplorer {
 
         let mut managed_hosts = Vec::new();
         let mut boot_interfaces: Vec<(IpAddr, MachineBootInterface)> = Vec::new();
-        // Per-DPU (host PF MAC -> Redfish interface id) pairs to stamp onto their
-        // machine_interfaces rows so the primary row holds the full boot pair.
-        let mut interface_boot_ids: Vec<(MacAddress, String)> = Vec::new();
+        // Each host NIC's full boot interface (MAC + Redfish id), to record on
+        // its machine_interfaces row so the primary row holds the complete pair.
+        let mut nic_boot_interfaces: Vec<MachineBootInterface> = Vec::new();
 
         for (_, ep) in explored_hosts {
+            // Record every host NIC's boot interface (MAC + Redfish id) on its
+            // machine_interfaces row (matched by MAC), so the primary-flagged
+            // row holds the full pair -- whatever the NIC type (integrated NICs,
+            // SuperNICs, DPU host-PFs, DPUs in NIC mode). This sits before the
+            // zero-DPU/NoDpu and unmatched-host `continue`s below, so every
+            // explored host is covered -- including a zero-DPU host whose primary
+            // boots from a plain NIC. The UPDATE no-ops for MACs with no row
+            // (e.g. a never-cabled NIC). Last-known-good: only NICs that resolve
+            // a full pair in this report are recorded, so a wiped MAC keeps its
+            // prior id.
+            nic_boot_interfaces.extend(ep.report.complete_boot_interfaces());
+
+            // Surface partial records -- a host NIC reporting only one of (MAC,
+            // interface id). `complete_boot_interfaces` skips these, so log here
+            // to make it visible that we saw, and ignored, an incomplete NIC.
+            for iface in ep
+                .report
+                .systems
+                .iter()
+                .flat_map(|s| s.ethernet_interfaces.iter())
+            {
+                let has_mac = iface.mac_address.is_some();
+                let has_id = iface.id.as_deref().is_some_and(|s| !s.is_empty());
+                if has_mac != has_id {
+                    tracing::info!(
+                        address = %ep.address,
+                        mac = ?iface.mac_address,
+                        interface_id = ?iface.id,
+                        "site-explorer: host NIC reported with only one of (MAC, interface id) -- not recording its boot interface",
+                    );
+                }
+            }
+
             // Resolve the operator-declared DPU mode for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
             // below -- operator override wins over BF3 model heuristics)
@@ -1274,18 +1307,6 @@ impl SiteExplorer {
                 });
             }
 
-            // Capture each explored DPU interface's Redfish interface id onto its
-            // machine_interfaces row (matched by MAC), so the primary-flagged row
-            // holds the full boot pair (MAC + id). Last-known-good: only record
-            // when the id resolves from this report -- a wiped MAC keeps its prior id.
-            for dpu in &dpus_explored_for_host {
-                if let Some(mac) = dpu.host_pf_mac_address
-                    && let Some(interface_id) = ep.report.find_interface_id_for_mac(mac)
-                {
-                    interface_boot_ids.push((mac, interface_id.to_string()));
-                }
-            }
-
             // For NicMode hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
@@ -1332,10 +1353,15 @@ impl SiteExplorer {
             db::explored_endpoints::set_boot_interface(*address, boot_interface, &mut txn).await?;
         }
 
-        // Stamp each DPU interface's Redfish id onto its machine_interfaces row so the
+        // Record each host NIC's Redfish id on its machine_interfaces row so the
         // primary-flagged row is the host's complete boot interface (MAC + id).
-        for (mac, interface_id) in &interface_boot_ids {
-            db::machine_interface::set_boot_interface_id(*mac, interface_id, &mut txn).await?;
+        for boot_interface in &nic_boot_interfaces {
+            db::machine_interface::set_boot_interface_id(
+                boot_interface.mac_address,
+                &boot_interface.interface_id,
+                &mut txn,
+            )
+            .await?;
         }
 
         txn.commit().await?;

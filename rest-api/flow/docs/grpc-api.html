@@ -239,6 +239,10 @@
                 </li>
               
                 <li>
+                  <a href="#v1.ComponentStatus"><span class="badge">M</span>ComponentStatus</a>
+                </li>
+              
+                <li>
                   <a href="#v1.ComponentTarget"><span class="badge">M</span>ComponentTarget</a>
                 </li>
               
@@ -669,6 +673,10 @@
               
                 <li>
                   <a href="#v1.OverlapPolicy"><span class="badge">E</span>OverlapPolicy</a>
+                </li>
+              
+                <li>
+                  <a href="#v1.Phase"><span class="badge">E</span>Phase</a>
                 </li>
               
                 <li>
@@ -1177,6 +1185,13 @@ not returned as a conflict against the proposed replacement operation. </p></td>
                   <td><p>Current power state (synced from external system by inventory loop) </p></td>
                 </tr>
               
+                <tr>
+                  <td>status</td>
+                  <td><a href="#v1.ComponentStatus">ComponentStatus</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -1234,6 +1249,45 @@ not returned as a conflict against the proposed replacement operation. </p></td>
                   <td><a href="#v1.UUID">UUID</a></td>
                   <td></td>
                   <td><p>Flow internal component UUID </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="v1.ComponentStatus">ComponentStatus</h3>
+        <p>ComponentStatus is Flow's view of a component's operability. The</p><p>inventory loop computes it on every sync from core's controller_state.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>phase</td>
+                  <td><a href="#v1.Phase">Phase</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>reason</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>Human-readable detail (typically the raw core state string). </p></td>
+                </tr>
+              
+                <tr>
+                  <td>blocked_operations</td>
+                  <td><a href="#v1.OperationType">OperationType</a></td>
+                  <td>repeated</td>
+                  <td><p>Operations Flow will reject while the component is in this status.
+Empty when phase is READY. </p></td>
                 </tr>
               
             </tbody>
@@ -5035,6 +5089,53 @@ Wire value 1 preserves backward compatibility with the former bool true (queue).
                 <td>OVERLAP_POLICY_QUEUE</td>
                 <td>2</td>
                 <td><p>submit unconditionally; the task manager queues behind the active task</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+      
+        <h3 id="v1.Phase">Phase</h3>
+        <p>Phase is the coarse lifecycle bucket a component is in, derived from</p><p>core's per-component state machine. Shared across compute, nvswitch,</p><p>and power shelf.</p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>PHASE_UNKNOWN</td>
+                <td>0</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>PHASE_INITIALIZING</td>
+                <td>1</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>PHASE_READY</td>
+                <td>2</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>PHASE_IN_USE</td>
+                <td>3</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>PHASE_ERROR</td>
+                <td>4</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>PHASE_DELETING</td>
+                <td>5</td>
+                <td><p></p></td>
               </tr>
             
           </tbody>
