@@ -209,7 +209,7 @@ impl TestApiBuilder {
             site_explorer_enabled: runtime_config.site_explorer.enabled.clone(),
             create_machines: runtime_config.site_explorer.create_machines.clone(),
             bmc_proxy: runtime_config.site_explorer.bmc_proxy.clone(),
-            tracing_enabled: Arc::new(false.into()),
+            tracing_enabled: Arc::new(runtime_config.tracing.enabled.into()),
             log_stream: Default::default(),
         };
 

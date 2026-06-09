@@ -28,6 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/nvldomain"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 var (
@@ -619,6 +620,60 @@ func ComponentTo(c *component.Component) *pb.Component {
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
 		PowerState:      c.PowerState,
+		Status:          ComponentStatusTo(c.Status),
+	}
+}
+
+// PhaseTo converts an internal Phase to a protobuf Phase.
+func PhaseTo(p types.Phase) pb.Phase {
+	switch p {
+	case types.PhaseInitializing:
+		return pb.Phase_PHASE_INITIALIZING
+	case types.PhaseReady:
+		return pb.Phase_PHASE_READY
+	case types.PhaseInUse:
+		return pb.Phase_PHASE_IN_USE
+	case types.PhaseError:
+		return pb.Phase_PHASE_ERROR
+	case types.PhaseDeleting:
+		return pb.Phase_PHASE_DELETING
+	default:
+		return pb.Phase_PHASE_UNKNOWN
+	}
+}
+
+// operationTypeFromTypesTo converts a Flow types.OperationType into its
+// protobuf counterpart. Distinct from OperationTypeToProto (which converts
+// from taskcommon.TaskType).
+func operationTypeFromTypesTo(op types.OperationType) pb.OperationType {
+	switch op {
+	case types.OperationTypePowerControl:
+		return pb.OperationType_OPERATION_TYPE_POWER_CONTROL
+	case types.OperationTypeFirmwareControl:
+		return pb.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL
+	default:
+		return pb.OperationType_OPERATION_TYPE_UNKNOWN
+	}
+}
+
+// ComponentStatusTo converts the Flow-internal ComponentStatus to the
+// protobuf form. Returns nil if the input is nil so callers transparently
+// surface "no status yet" rather than a default-valued message.
+func ComponentStatusTo(s *types.ComponentStatus) *pb.ComponentStatus {
+	if s == nil {
+		return nil
+	}
+	var blocked []pb.OperationType
+	if len(s.BlockedOperations) > 0 {
+		blocked = make([]pb.OperationType, 0, len(s.BlockedOperations))
+		for _, op := range s.BlockedOperations {
+			blocked = append(blocked, operationTypeFromTypesTo(op))
+		}
+	}
+	return &pb.ComponentStatus{
+		Phase:             PhaseTo(s.Phase),
+		Reason:            s.Reason,
+		BlockedOperations: blocked,
 	}
 }
 

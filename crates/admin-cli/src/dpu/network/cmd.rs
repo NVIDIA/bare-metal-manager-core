@@ -32,12 +32,13 @@ pub async fn network(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     cmd: NetworkCommand,
     output_format: OutputFormat,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     match cmd {
         NetworkCommand::Config(query) => {
             show_dpu_network_config(api_client, output_file, query.machine_id, output_format).await
         }
-        NetworkCommand::Status => show_dpu_status(api_client, output_file).await,
+        NetworkCommand::Status => show_dpu_status(api_client, output_file, page_size).await,
     }
 }
 
@@ -198,6 +199,7 @@ pub async fn show_dpu_network_config(
 pub async fn show_dpu_status(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+    page_size: usize,
 ) -> CarbideCliResult<()> {
     let all_status = api_client
         .0
@@ -211,11 +213,18 @@ pub async fn show_dpu_status(
             .iter()
             .filter_map(|status| status.dpu_machine_id)
             .collect();
-        let all_dpus = api_client.get_machines_by_ids(&all_ids).await?.machines;
+        // The Forge API rejects requests carrying more than 100 IDs, and a zero
+        // page size would panic chunks(), so clamp into the valid 1..=100 range
+        // and fetch the backing machines in pages instead of one call (see #2137).
+        const MAX_IDS_PER_REQUEST: usize = 100;
+        let page_size = page_size.clamp(1, MAX_IDS_PER_REQUEST);
         let mut dpus_by_id = HashMap::new();
-        for dpu in all_dpus.into_iter() {
-            if let Some(id) = dpu.id {
-                dpus_by_id.insert(id, dpu);
+        for ids in all_ids.chunks(page_size) {
+            let dpus = api_client.get_machines_by_ids(ids).await?.machines;
+            for dpu in dpus.into_iter() {
+                if let Some(id) = dpu.id {
+                    dpus_by_id.insert(id, dpu);
+                }
             }
         }
 

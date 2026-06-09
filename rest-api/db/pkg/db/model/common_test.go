@@ -107,3 +107,61 @@ func TestLabels_FromProto_OverwritesExistingReceiver(t *testing.T) {
 		assert.Nil(t, l)
 	})
 }
+
+// labelsAsMap collapses a proto Label slice into a Labels map so assertions
+// don't depend on slice ordering (user labels come from a map iteration).
+func labelsAsMap(protoLabels []*cwssaws.Label) Labels {
+	var l Labels
+	l.FromProto(protoLabels)
+	return l
+}
+
+func TestExpectedComponentLabelsInput_ToProto(t *testing.T) {
+	t.Run("merges user labels with the flat device fields", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer:    cutil.GetPtr("NVIDIA"),
+			Model:           cutil.GetPtr("MGX"),
+			FirmwareVersion: cutil.GetPtr("25.06-2"),
+			SlotID:          cutil.GetPtr(int32(3)),
+			TrayIdx:         cutil.GetPtr(int32(0)), // zero is a valid position
+			HostID:          cutil.GetPtr(int32(1)),
+			Labels:          Labels{"environment": "prod", "team": "infra"},
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"environment":      "prod",
+			"team":             "infra",
+			"manufacturer":     "NVIDIA",
+			"model":            "MGX",
+			"firmware_version": "25.06-2",
+			"slot_id":          "3",
+			"tray_idx":         "0",
+			"host_id":          "1",
+		}, got)
+	})
+
+	t.Run("returns nil when there are no labels", func(t *testing.T) {
+		assert.Nil(t, expectedComponentLabelsInput{}.ToProto())
+	})
+
+	t.Run("device fields only, no user labels", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			SlotID:       cutil.GetPtr(int32(0)),
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"manufacturer": "NVIDIA",
+			"slot_id":      "0",
+		}, got)
+	})
+
+	t.Run("system field wins over a conflicting user label", func(t *testing.T) {
+		got := labelsAsMap(expectedComponentLabelsInput{
+			Manufacturer: cutil.GetPtr("NVIDIA"),
+			Labels:       Labels{"manufacturer": "user-supplied", "extra": "kept"},
+		}.ToProto())
+		assert.Equal(t, Labels{
+			"manufacturer": "NVIDIA", // system value wins
+			"extra":        "kept",   // non-conflicting user label preserved
+		}, got)
+	})
+}

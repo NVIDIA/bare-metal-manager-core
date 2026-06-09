@@ -42,7 +42,7 @@ ncx-infra-controller-core/
 ├── helm/                # Helm chart for Kubernetes deployment
 ├── bluefield/           # BlueField DPU-specific components
 ├── pxe/                 # PXE boot artifact generation
-├── lints/               # Custom Clippy lints (nico-lints crate)
+├── lints/               # Custom Clippy lints (carbide-lints crate)
 ├── include/             # Shared Makefile fragments
 ├── .github/             # GitHub Actions workflows and templates
 ├── Cargo.toml           # Workspace dependency management
@@ -104,9 +104,8 @@ cargo make pre-commit-verify-workspace
 
 # Individual checks:
 cargo make clippy              # Clippy linter (warnings = errors)
-cargo make nico-lints       # Custom nico lints (requires nightly setup)
-cargo make check-format-flow   # Check rustfmt formatting
-cargo make check-format-nightly # Check import grouping/sorting (requires nightly)
+cargo make carbide-lints       # Custom lints (requires nightly setup)
+cargo make check-format-nightly # Check rustfmt formatting
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -117,7 +116,7 @@ cargo make format-nightly      # Also sort imports
 ```
 
 > **Note:** The nightly toolchain is used only for `check-format-nightly` and
-> `nico-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
+> `carbide-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
 > for everything else.
 
 ### Top-level Makefile (rest-api entrypoint)
