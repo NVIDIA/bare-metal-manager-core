@@ -190,14 +190,6 @@ impl<IO: StateControllerIO> Builder<IO> {
 
         let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
-        let processor_span = tracing::span!(
-            parent: None,
-            tracing::Level::INFO,
-            "state_processor",
-            span_id,
-            controller = IO::LOG_SPAN_CONTROLLER_NAME,
-        );
         let processor_metric_emitter =
             meter.map(|meter| ProcessorMetricsEmitter::new(&controller_name, &meter));
 
@@ -220,7 +212,6 @@ impl<IO: StateControllerIO> Builder<IO> {
             last_log_time: std::time::Instant::now(),
             stats_since_last_log: Default::default(),
             last_metric_emission_time: std::time::Instant::now(),
-            processor_span,
             processor_id,
         };
 
