@@ -132,27 +132,26 @@ type flowTaskReportV1Step struct {
 	Error               string                `json:"error,omitempty"`
 }
 
-// parseTaskReportV1 decodes the JSON Flow writes into Task.report and
-// translates it into the REST-facing APITaskReportV1 (snake_case ->
-// camelCase). Returns nil for empty input. Returns nil if the payload
-// fails to parse or carries a version other than 1: omitting the field
-// is preferable to surfacing a stale/wrong shape behind a v1 contract.
-func parseTaskReportV1(raw string) *APITaskReportV1 {
-	if raw == "" {
-		return nil
-	}
+// UnmarshalJSON decodes Flow's snake_case wire format for Task.report
+// into the REST-facing APITaskReportV1. The marshal path is asymmetric:
+// json.Marshal walks the struct tags and emits camelCase per the REST
+// surface, while UnmarshalJSON intentionally only accepts Flow's
+// snake_case input. Round-tripping a marshalled APITaskReportV1 through
+// json.Unmarshal will therefore drop most fields; callers that need a
+// round-trippable form should decode into a map. Returns an error for
+// any payload that fails to parse or carries a version other than 1, so
+// FromProto can drop the field rather than surface an off-contract shape.
+func (r *APITaskReportV1) UnmarshalJSON(data []byte) error {
 	var src flowTaskReportV1
-	if err := json.Unmarshal([]byte(raw), &src); err != nil {
-		return nil
+	if err := json.Unmarshal(data, &src); err != nil {
+		return err
 	}
 	if src.Version != 1 {
-		return nil
+		return fmt.Errorf("unsupported task report version %d", src.Version)
 	}
-	out := &APITaskReportV1{
-		Version: src.Version,
-		Error:   src.Error,
-		Stages:  make([]APITaskReportV1Stage, 0, len(src.Stages)),
-	}
+	r.Version = src.Version
+	r.Error = src.Error
+	r.Stages = make([]APITaskReportV1Stage, 0, len(src.Stages))
 	for _, s := range src.Stages {
 		dstStage := APITaskReportV1Stage{
 			Number:     s.Number,
@@ -174,9 +173,9 @@ func parseTaskReportV1(raw string) *APITaskReportV1 {
 				Error:               p.Error,
 			})
 		}
-		out.Stages = append(out.Stages, dstStage)
+		r.Stages = append(r.Stages, dstStage)
 	}
-	return out
+	return nil
 }
 
 // APITaskOption configures optional fields populated on an APITask.
@@ -188,24 +187,12 @@ type apiTaskOptions struct {
 	withReport bool
 }
 
-// WithReport populates APITask.Report by decoding Task.report as
-// APITaskReportV1. Without this option, Report is left nil and is
-// omitted from the JSON response. A malformed or non-v1 payload also
-// yields nil so the response never carries an off-contract shape.
-func WithReport() APITaskOption {
+// WithTaskReport populates APITask.Report by decoding Task.report as
+// APITaskReportV1. Without it Report stays nil and is omitted from the
+// JSON response; a malformed or non-v1 payload also yields nil so the
+// response never carries an off-contract shape.
+func WithTaskReport() APITaskOption {
 	return func(o *apiTaskOptions) { o.withReport = true }
-}
-
-// BuildAPITaskOptions translates the opt-in toggles on an
-// APIGetTasksRequest into the APITaskOption slice the list-task
-// handlers pass to NewAPITask. Centralized so new opt-in fields
-// only need wiring in one place rather than in each list handler.
-func BuildAPITaskOptions(req APIGetTasksRequest) []APITaskOption {
-	var opts []APITaskOption
-	if req.IncludeReport {
-		opts = append(opts, WithReport())
-	}
-	return opts
 }
 
 func (t *APITask) FromProto(task *flowv1.Task, opts ...APITaskOption) {
@@ -233,7 +220,12 @@ func (t *APITask) FromProto(task *flowv1.Task, opts ...APITaskOption) {
 	t.Created = task.GetCreatedAt().AsTime().UTC()
 	t.Updated = task.GetUpdatedAt().AsTime().UTC()
 	if o.withReport {
-		t.Report = parseTaskReportV1(task.GetReport())
+		if raw := task.GetReport(); raw != "" {
+			var r APITaskReportV1
+			if err := json.Unmarshal([]byte(raw), &r); err == nil {
+				t.Report = &r
+			}
+		}
 	}
 }
 
@@ -281,6 +273,19 @@ func (r *APIGetTasksRequest) Validate() error {
 		return fmt.Errorf("siteId query parameter is required")
 	}
 	return nil
+}
+
+// TaskOptions returns the APITaskOption slice the list-task handlers
+// pass to NewAPITask, translating the opt-in toggles on this request
+// (IncludeReport today, more later) into the corresponding option
+// constructors. Centralized here so new opt-in fields wire up in one
+// place rather than in each list handler.
+func (r *APIGetTasksRequest) TaskOptions() []APITaskOption {
+	var opts []APITaskOption
+	if r.IncludeReport {
+		opts = append(opts, WithTaskReport())
+	}
+	return opts
 }
 
 // QueryValues returns query parameters that participate in deterministic

@@ -187,7 +187,7 @@ func TestNewAPITask_Report(t *testing.T) {
 		assert.Nil(t, result.Report, "Report must default to nil so the JSON field is omitted")
 	})
 
-	t.Run("WithReport decodes a v1 payload into the typed struct with camelCase keys", func(t *testing.T) {
+	t.Run("WithTaskReport decodes a v1 payload into the typed struct with camelCase keys", func(t *testing.T) {
 		body := `{
 			"version": 1,
 			"stages": [
@@ -214,7 +214,7 @@ func TestNewAPITask_Report(t *testing.T) {
 			Report: body,
 		}
 
-		result := NewAPITask(task, WithReport())
+		result := NewAPITask(task, WithTaskReport())
 
 		require.NotNil(t, result.Report)
 		assert.Equal(t, 1, result.Report.Version)
@@ -239,50 +239,51 @@ func TestNewAPITask_Report(t *testing.T) {
 		assert.NotContains(t, step, "component_type")
 	})
 
-	t.Run("WithReport on empty proto report yields nil", func(t *testing.T) {
+	t.Run("WithTaskReport on empty proto report yields nil", func(t *testing.T) {
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-3"},
 			Status: flowv1.TaskStatus_TASK_STATUS_PENDING,
 		}
 
-		result := NewAPITask(task, WithReport())
+		result := NewAPITask(task, WithTaskReport())
 
 		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
 	})
 
-	t.Run("WithReport on malformed JSON yields nil", func(t *testing.T) {
+	t.Run("WithTaskReport on malformed JSON yields nil", func(t *testing.T) {
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-4"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
 			Report: `{`,
 		}
 
-		result := NewAPITask(task, WithReport())
+		result := NewAPITask(task, WithTaskReport())
 
 		assert.Nil(t, result.Report, "Malformed report must not surface as a partial struct")
 	})
 
-	t.Run("WithReport on non-v1 payload yields nil", func(t *testing.T) {
+	t.Run("WithTaskReport on non-v1 payload yields nil", func(t *testing.T) {
 		task := &flowv1.Task{
 			Id:     &flowv1.UUID{Id: "task-rep-5"},
 			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
 			Report: `{"version":2,"stages":[]}`,
 		}
 
-		result := NewAPITask(task, WithReport())
+		result := NewAPITask(task, WithTaskReport())
 
 		assert.Nil(t, result.Report, "v2+ payload must not be exposed behind the v1 contract")
 	})
 }
 
-func TestBuildAPITaskOptions(t *testing.T) {
+func TestAPIGetTasksRequest_TaskOptions(t *testing.T) {
 	t.Run("default request yields no options", func(t *testing.T) {
-		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s"})
-		assert.Empty(t, opts)
+		req := APIGetTasksRequest{SiteID: "s"}
+		assert.Empty(t, req.TaskOptions())
 	})
 
-	t.Run("includeReport=true yields WithReport()", func(t *testing.T) {
-		opts := BuildAPITaskOptions(APIGetTasksRequest{SiteID: "s", IncludeReport: true})
+	t.Run("includeReport=true yields WithTaskReport()", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "s", IncludeReport: true}
+		opts := req.TaskOptions()
 		require.Len(t, opts, 1)
 
 		// The option must decode Task.report when the proto report is non-empty.

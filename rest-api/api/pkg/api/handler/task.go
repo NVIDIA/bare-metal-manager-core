@@ -183,7 +183,7 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Task not found", nil)
 	}
 
-	apiTask := model.NewAPITask(tasks[0], model.WithReport())
+	apiTask := model.NewAPITask(tasks[0], model.WithTaskReport())
 
 	logger.Info().Msg("finishing API handler")
 
@@ -354,7 +354,7 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task cancellation workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiTask := model.NewAPITask(flowResponse.GetTask(), model.WithReport())
+	apiTask := model.NewAPITask(flowResponse.GetTask(), model.WithTaskReport())
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusAccepted, apiTask)
@@ -529,7 +529,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
 	}
 
-	taskOpts := model.BuildAPITaskOptions(apiRequest)
+	taskOpts := apiRequest.TaskOptions()
 	apiTasks := make([]*model.APITask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
 		apiTasks = append(apiTasks, model.NewAPITask(t, taskOpts...))
@@ -715,7 +715,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
 	}
 
-	taskOpts := model.BuildAPITaskOptions(apiRequest)
+	taskOpts := apiRequest.TaskOptions()
 	apiTasks := make([]*model.APITask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
 		apiTasks = append(apiTasks, model.NewAPITask(t, taskOpts...))
