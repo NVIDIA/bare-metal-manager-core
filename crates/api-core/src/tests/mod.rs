@@ -202,6 +202,8 @@ mod service_health_metrics;
 #[cfg(test)]
 mod set_primary_dpu;
 #[cfg(test)]
+mod set_primary_interface;
+#[cfg(test)]
 mod site_explorer;
 #[cfg(test)]
 mod sku;

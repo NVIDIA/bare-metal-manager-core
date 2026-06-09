@@ -19,6 +19,16 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Generate SKU data from an existing machine:
+    $ carbide-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567
+
+Generate and override the resulting SKU ID:
+    $ carbide-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567 --id DGX-H100-640GB
+
+")]
 pub struct Args {
     #[clap(help = "The machine id of the machine to use to generate a SKU")]
     pub machine_id: MachineId,

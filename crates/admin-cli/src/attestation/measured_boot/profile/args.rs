@@ -77,6 +77,18 @@ pub enum CmdProfile {
 
 /// Create is used for creating profiles.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a profile for a vendor/product pair:
+    $ carbide-admin-cli attestation measured-boot profile create my-profile dell \
+    poweredge_r750
+
+Create a profile with extra attributes:
+    $ carbide-admin-cli attestation measured-boot profile create my-profile dell \
+    poweredge_r750 --extra-attrs region:us-west,rack:r1
+
+")]
 pub struct Create {
     #[clap(required = true, help = "Every profile gets a name.")]
     pub name: String,
@@ -103,6 +115,17 @@ pub struct Create {
 
 /// Delete a profile by ID or name.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a profile by name:
+    $ carbide-admin-cli attestation measured-boot profile delete my-profile
+
+Delete a profile selected explicitly by ID:
+    $ carbide-admin-cli attestation measured-boot profile delete \
+    12345678-1234-5678-90ab-cdef01234567 --is-id
+
+")]
 pub struct Delete {
     #[clap(help = "The profile ID or name.")]
     pub identifier: String,
@@ -128,6 +151,17 @@ impl IdNameIdentifier for Delete {
 /// A parser will parse the `identifier` to determine if
 /// the API should be called w/ an ID or name selector.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Rename a profile, letting the CLI detect ID vs name:
+    $ carbide-admin-cli attestation measured-boot profile rename old-name new-name
+
+Rename a profile selected explicitly by ID:
+    $ carbide-admin-cli attestation measured-boot profile rename \
+    12345678-1234-5678-90ab-cdef01234567 new-name --is-id
+
+")]
 pub struct Rename {
     #[clap(help = "The existing profile ID or name.")]
     pub identifier: String,
@@ -155,6 +189,20 @@ impl IdNameIdentifier for Rename {
 /// Show will get + display a profile for the given ID or name, or, if not set,
 /// it will display all profiles and their information.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all profiles:
+    $ carbide-admin-cli attestation measured-boot profile show
+
+Show one profile by ID:
+    $ carbide-admin-cli attestation measured-boot profile show \
+    12345678-1234-5678-90ab-cdef01234567 --is-id
+
+Show one profile by name:
+    $ carbide-admin-cli attestation measured-boot profile show my-profile --is-name
+
+")]
 pub struct Show {
     #[clap(help = "The optional profile ID or name.")]
     pub identifier: Option<String>,
@@ -178,6 +226,19 @@ impl IdNameIdentifier for Show {
 
 /// List provides a few ways to list things.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all profiles:
+    $ carbide-admin-cli attestation measured-boot profile list all
+
+List all bundles for a profile:
+    $ carbide-admin-cli attestation measured-boot profile list bundles my-profile
+
+List all machines for a profile:
+    $ carbide-admin-cli attestation measured-boot profile list machines my-profile
+
+")]
 pub enum List {
     #[clap(about = "List all profiles", visible_alias = "a")]
     All(ListAll),
@@ -197,10 +258,28 @@ pub enum List {
 
 /// ListAll will list all profiles.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all profiles:
+    $ carbide-admin-cli attestation measured-boot profile list all
+
+")]
 pub struct ListAll {}
 
 /// List all bundles for a given profile (by profile name or ID).
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all bundles for a profile by name:
+    $ carbide-admin-cli attestation measured-boot profile list bundles my-profile
+
+List all bundles for a profile selected explicitly by ID:
+    $ carbide-admin-cli attestation measured-boot profile list bundles \
+    12345678-1234-5678-90ab-cdef01234567 --is-id
+
+")]
 pub struct ListBundles {
     #[clap(help = "The profile ID or name.")]
     pub identifier: String,
@@ -224,6 +303,17 @@ impl IdNameIdentifier for ListBundles {
 
 /// List all machines for a given profile (by profile name or ID).
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all machines for a profile by name:
+    $ carbide-admin-cli attestation measured-boot profile list machines my-profile
+
+List all machines for a profile selected explicitly by ID:
+    $ carbide-admin-cli attestation measured-boot profile list machines \
+    12345678-1234-5678-90ab-cdef01234567 --is-id
+
+")]
 pub struct ListMachines {
     #[clap(help = "The profile ID or name.")]
     pub identifier: String,

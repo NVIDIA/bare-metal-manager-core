@@ -23,9 +23,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostMachineInfo, HostnameQuerying,
-    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostMachineInfo,
+    HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
+    SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -230,6 +230,8 @@ impl MachineStateMachine {
                         serial: h.serial,
                         dpus: h.dpus.into_iter().map(Into::into).collect(),
                         non_dpu_mac_address: h.non_dpu_mac_address,
+                        nvos_mac_addresses: h.nvos_mac_addresses,
+                        switch_serial_number: h.switch_serial_number,
                     }),
                 ),
                 PersistedMachine::Dpu(d) => (
@@ -942,6 +944,7 @@ impl MachineStateMachine {
         );
 
         let pw_override = match &self.machine_info {
+            MachineInfo::Host(host) if host.hw_type == HostHardwareType::LiteOnPowerShelf => None,
             MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
             MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
         };
@@ -986,7 +989,14 @@ impl MachineStateMachine {
     }
 
     fn is_bmc_only(info: &MachineInfo, config: &MachineConfig) -> bool {
-        matches!(info, MachineInfo::Dpu(_)) && config.dpus_in_nic_mode
+        match info {
+            MachineInfo::Dpu(_) => config.dpus_in_nic_mode,
+            MachineInfo::Host(host) => matches!(
+                host.hw_type,
+                bmc_mock::HostHardwareType::LiteOnPowerShelf
+                    | bmc_mock::HostHardwareType::NvidiaSwitchNd5200Ld
+            ),
+        }
     }
 }
 

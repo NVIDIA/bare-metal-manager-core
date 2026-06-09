@@ -126,7 +126,6 @@ pkcs1 = { workspace = true }
 p256 = { workspace = true }
 prometheus = { workspace = true }
 rand = { workspace = true }
-rcgen = { workspace = true, optional = true }
 regex = { workspace = true }
 reqwest = { workspace = true, default-features = false, features = [
   "rustls",
@@ -191,7 +190,6 @@ linux-build = ["tss-esapi"]
 # builds (resolver v2 keeps it out of the production `carbide-api` binary); only `carbide-api-web`'s
 # dev-dependency turns it on.
 test-support = [
-  "dep:rcgen",
   "carbide-ib-fabric/test-support",
   "carbide-machine-controller/test-support",
   "carbide-nvlink-manager/test-support",

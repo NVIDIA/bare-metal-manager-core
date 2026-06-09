@@ -18,4 +18,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all racks:
+    $ carbide-admin-cli rack list
+
+")]
 pub struct Args;

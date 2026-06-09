@@ -19,6 +19,16 @@ use clap::Parser;
 use clap::builder::BoolishValueParser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Enable OTLP trace/span export:
+    $ carbide-admin-cli set tracing-enabled true
+
+Disable OTLP trace/span export:
+    $ carbide-admin-cli set tracing-enabled false
+
+")]
 pub struct Args {
     #[arg(num_args = 1, value_parser = BoolishValueParser::new(), action = clap::ArgAction::Set, value_name = "true|false")]
     pub value: bool,

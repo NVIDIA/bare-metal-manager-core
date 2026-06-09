@@ -21,6 +21,19 @@ use ipnet::IpNet;
 use rpc::forge::VpcPrefixCreationRequest;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a prefix in a VPC:
+    $ carbide-admin-cli vpc-prefix create --vpc-id 12345678-1234-5678-90ab-cdef01234567 \
+    --prefix 10.0.0.0/24 --name web-tier
+
+Create a prefix with a description and labels:
+    $ carbide-admin-cli vpc-prefix create --vpc-id 12345678-1234-5678-90ab-cdef01234567 \
+    --prefix 10.0.0.0/24 --name web-tier --description \"Front-end subnet\" \
+    --label environment:production --label team:platform
+
+")]
 pub struct Args {
     #[clap(
         long,

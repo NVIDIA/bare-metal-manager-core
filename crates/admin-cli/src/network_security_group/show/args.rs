@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all network security groups:
+    $ carbide-admin-cli network-security-group show
+
+Show one network security group by ID:
+    $ carbide-admin-cli network-security-group show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Optional, network security group ID to restrict the search")]
     pub id: Option<String>,

@@ -38,7 +38,8 @@ type RackTask struct {
 	// Timestamp when the task was created.
 	Created *time.Time `json:"created,omitempty"`
 	// Timestamp when the task was last updated.
-	Updated *time.Time `json:"updated,omitempty"`
+	Updated *time.Time      `json:"updated,omitempty"`
+	Report  *RackTaskReport `json:"report,omitempty"`
 }
 
 // NewRackTask instantiates a new RackTask object
@@ -314,6 +315,38 @@ func (o *RackTask) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
+// GetReport returns the Report field value if set, zero value otherwise.
+func (o *RackTask) GetReport() RackTaskReport {
+	if o == nil || IsNil(o.Report) {
+		var ret RackTaskReport
+		return ret
+	}
+	return *o.Report
+}
+
+// GetReportOk returns a tuple with the Report field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *RackTask) GetReportOk() (*RackTaskReport, bool) {
+	if o == nil || IsNil(o.Report) {
+		return nil, false
+	}
+	return o.Report, true
+}
+
+// HasReport returns a boolean if a field has been set.
+func (o *RackTask) HasReport() bool {
+	if o != nil && !IsNil(o.Report) {
+		return true
+	}
+
+	return false
+}
+
+// SetReport gets a reference to the given RackTaskReport and assigns it to the Report field.
+func (o *RackTask) SetReport(v RackTaskReport) {
+	o.Report = &v
+}
+
 func (o RackTask) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -347,6 +380,9 @@ func (o RackTask) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
+	}
+	if !IsNil(o.Report) {
+		toSerialize["report"] = o.Report
 	}
 	return toSerialize, nil
 }

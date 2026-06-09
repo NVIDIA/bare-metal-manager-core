@@ -25,6 +25,24 @@ use serde::{Deserialize, Serialize};
 use crate::metadata::parse_rpc_labels;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add an expected power shelf with its BMC credentials and serial number:
+    $ carbide-admin-cli expected-power-shelf add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --shelf-serial-number DGX-H100-640GB
+
+Add an expected power shelf and associate it with a rack:
+    $ carbide-admin-cli expected-power-shelf add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --shelf-serial-number DGX-H100-640GB \
+    --rack_id 12345678-1234-5678-90ab-cdef01234567
+
+Add an expected power shelf with a BMC IP address and metadata name:
+    $ carbide-admin-cli expected-power-shelf add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --shelf-serial-number DGX-H100-640GB \
+    --bmc-ip-address 192.0.2.20 --meta-name shelf-01
+
+")]
 pub struct Args {
     #[clap(
         short = 'a',

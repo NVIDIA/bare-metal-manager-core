@@ -19,6 +19,14 @@ use clap::Parser;
 use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add the factory-default host BMC credential for a vendor:
+    $ carbide-admin-cli credential add-host-factory-default --vendor nvidia \
+    --username admin --password mypassword
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "Default username: root, ADMIN, etc")]
     pub username: String,

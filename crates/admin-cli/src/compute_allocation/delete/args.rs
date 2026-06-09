@@ -20,6 +20,14 @@ use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a compute allocation:
+    $ carbide-admin-cli compute-allocation delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    --tenant-organization-id fds34511233a
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "Compute allocation ID to delete")]
     pub id: ComputeAllocationId,
