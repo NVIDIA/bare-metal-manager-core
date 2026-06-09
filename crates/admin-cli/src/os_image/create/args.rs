@@ -22,6 +22,19 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::os_image::common::str_to_rpc_uuid;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create an OS image entry in a tenant's catalog:
+    $ carbide-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a
+
+Create one with a name/description and a Bearer auth token for the image URL:
+    $ carbide-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a \
+    --name ubuntu-22.04 --description \"Ubuntu 22.04 base\" --auth-type Bearer --auth-token <token>
+
+")]
 pub struct Args {
     #[clap(short = 'i', long, help = "uuid of the OS image to create.")]
     pub id: String,

@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Erase every expected machine (requires explicit confirmation):
+    $ carbide-admin-cli expected-machine erase --confirm
+
+")]
 pub struct Args {
     #[clap(long, help = "Confirm that you want to erase all records.")]
     pub confirm: bool,

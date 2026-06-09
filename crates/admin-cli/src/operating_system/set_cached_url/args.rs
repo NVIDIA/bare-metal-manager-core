@@ -34,6 +34,18 @@ fn parse_cached_url_update(s: &str) -> Result<IpxeTemplateArtifactUpdateRequest,
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Set the cached_url for an artifact:
+    $ carbide-admin-cli operating-system set-cached-url 12345678-1234-5678-90ab-cdef01234567 \
+    --set kernel=https://cache.example.com/vmlinuz
+
+Clear the cached_url for an artifact (NAME= with empty URL):
+    $ carbide-admin-cli operating-system set-cached-url 12345678-1234-5678-90ab-cdef01234567 \
+    --set kernel=
+
+")]
 pub struct Args {
     #[clap(help = "UUID of the operating system definition.")]
     pub id: String,

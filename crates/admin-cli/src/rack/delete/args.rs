@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a rack by ID:
+    $ carbide-admin-cli rack delete 12345678-1234-5678-90ab-cdef01234567
+
+Delete a rack by name:
+    $ carbide-admin-cli rack delete rack-01
+
+")]
 pub struct Args {
     #[clap(
         help = "Rack ID or name to delete (should not have any associated compute trays, nvlink switches or power shelves)"

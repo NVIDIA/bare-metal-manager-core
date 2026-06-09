@@ -31,19 +31,19 @@ pub fn generate(shell: Shell) -> CarbideCliResult<()> {
             clap_complete::generate(
                 clap_complete::shells::Bash,
                 &mut cmd,
-                "forge-admin-cli",
+                "carbide-admin-cli",
                 &mut io::stdout(),
             );
             // Make completion work for alias `fa`
             io::stdout().write_all(
-                b"complete -F _forge-admin-cli -o nosort -o bashdefault -o default fa\n",
+                b"complete -F _carbide-admin-cli -o nosort -o bashdefault -o default fa\n",
             )?;
         }
         Shell::Fish => {
             clap_complete::generate(
                 clap_complete::shells::Fish,
                 &mut cmd,
-                "forge-admin-cli",
+                "carbide-admin-cli",
                 &mut io::stdout(),
             );
         }
@@ -51,7 +51,7 @@ pub fn generate(shell: Shell) -> CarbideCliResult<()> {
             clap_complete::generate(
                 clap_complete::shells::Zsh,
                 &mut cmd,
-                "forge-admin-cli",
+                "carbide-admin-cli",
                 &mut io::stdout(),
             );
         }

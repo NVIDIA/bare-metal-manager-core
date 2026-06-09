@@ -23,6 +23,28 @@ use rpc::forge::DeletedFilter;
 use crate::vpc_prefix::common::VpcPrefixSelector;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all VPC prefixes:
+    $ carbide-admin-cli vpc-prefix show
+
+Show one prefix by ID:
+    $ carbide-admin-cli vpc-prefix show 12345678-1234-5678-90ab-cdef01234567
+
+Show one prefix by its exact CIDR:
+    $ carbide-admin-cli vpc-prefix show 10.0.0.0/24
+
+List the prefixes belonging to one VPC:
+    $ carbide-admin-cli vpc-prefix show --vpc-id 12345678-1234-5678-90ab-cdef01234567
+
+Find the prefix that contains an address:
+    $ carbide-admin-cli vpc-prefix show --contains 10.0.0.5
+
+Find the prefixes contained by a larger prefix:
+    $ carbide-admin-cli vpc-prefix show --contained-by 10.0.0.0/16
+
+")]
 pub struct Args {
     #[clap(
         name = "VpcPrefixSelector",

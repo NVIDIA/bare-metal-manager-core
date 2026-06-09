@@ -15,4 +15,5 @@
  * limitations under the License.
  */
 
+pub mod certs;
 pub mod test_meter;

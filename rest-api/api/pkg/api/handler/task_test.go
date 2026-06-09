@@ -189,7 +189,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 				return
 			}
 
-			var apiTask model.APIRackTask
+			var apiTask model.APITask
 			err = json.Unmarshal(rec.Body.Bytes(), &apiTask)
 			assert.NoError(t, err)
 			assert.Equal(t, taskUUID, apiTask.ID)
@@ -264,7 +264,7 @@ func ExecuteGetTasksHandlerTestCases(t *testing.T, pathFmt string, handle func(e
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var tasks []model.APIRackTask
+			var tasks []model.APITask
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
 			require.Len(t, tasks, len(tt.mockTasks))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"), "X-Pagination")
@@ -580,7 +580,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 				return
 			}
 
-			var apiTask model.APIRackTask
+			var apiTask model.APITask
 			err = json.Unmarshal(rec.Body.Bytes(), &apiTask)
 			assert.NoError(t, err)
 			assert.Equal(t, taskUUID, apiTask.ID)

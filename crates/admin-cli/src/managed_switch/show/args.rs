@@ -21,6 +21,16 @@ use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all managed switches:
+    $ carbide-admin-cli managed-switch show
+
+Show one managed switch by ID or name:
+    $ carbide-admin-cli managed-switch show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Switch ID or name to show details for (leave empty for all)")]
     pub identifier: Option<String>,

@@ -21,6 +21,13 @@ use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a managed switch by ID:
+    $ carbide-admin-cli managed-switch delete 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Switch ID to delete.")]
     pub switch_id: String,

@@ -20,6 +20,19 @@ use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group(ArgGroup::new("autoupdate_action").required(true).args(&["enable", "disable", "clear"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Force-enable firmware auto-update for a host:
+    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --enable
+
+Force-disable it:
+    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --disable
+
+Clear the per-machine override (fall back to global/config):
+    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --clear
+
+")]
 pub struct Args {
     #[clap(long, help = "Machine ID of the host to change")]
     pub machine: MachineId,

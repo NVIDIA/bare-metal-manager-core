@@ -329,6 +329,10 @@ pub struct PersistedHostMachine {
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
     pub non_dpu_mac_address: Option<MacAddress>,
+    #[serde(default)]
+    pub nvos_mac_addresses: Vec<MacAddress>,
+    #[serde(default)]
+    pub switch_serial_number: Option<String>,
     pub observed_machine_id: Option<MachineId>,
     pub installed_os: OsImage,
     pub tpm_ek_certificate: Option<Vec<u8>>,
@@ -344,6 +348,8 @@ impl From<PersistedHostMachine> for HostMachineInfo {
             serial: value.serial,
             dpus: value.dpus.into_iter().map(Into::into).collect(),
             non_dpu_mac_address: value.non_dpu_mac_address,
+            nvos_mac_addresses: value.nvos_mac_addresses,
+            switch_serial_number: value.switch_serial_number,
         }
     }
 }
