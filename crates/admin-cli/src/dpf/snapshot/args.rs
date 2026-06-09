@@ -19,6 +19,13 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Snapshot the DPF CRs for a host machine:
+    $ carbide-admin-cli dpf snapshot 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: SnapshotQuery,

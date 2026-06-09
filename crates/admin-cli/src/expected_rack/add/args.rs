@@ -22,6 +22,18 @@ use serde::{Deserialize, Serialize};
 use crate::metadata::parse_rpc_labels;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add an expected rack with its rack profile:
+    $ carbide-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
+    abcdef01-2345-6789-abcd-ef0123456789
+
+Add an expected rack with a metadata name and a label:
+    $ carbide-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
+    abcdef01-2345-6789-abcd-ef0123456789 --meta-name rack-01 --label DATACENTER:XYZ
+
+")]
 pub struct Args {
     #[clap(help = "Rack ID of the expected rack")]
     pub rack_id: RackId,

@@ -23,6 +23,16 @@ use crate::route_server::common::AddressArgs;
 // specific newtype to allow sharing of AddressArgs, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add one or more route server addresses:
+    $ carbide-admin-cli route-server add 10.0.0.1,10.0.0.2
+
+Add ephemerally against config-file entries (break-glass):
+    $ carbide-admin-cli route-server add 10.0.0.1 --source-type config_file
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: AddressArgs,

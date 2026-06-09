@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Reboot a machine:
+    $ carbide-admin-cli machine reboot --machine 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(long, help = "ID of the machine to reboot")]
     pub machine: String,

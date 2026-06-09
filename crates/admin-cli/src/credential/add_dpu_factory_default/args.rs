@@ -19,6 +19,13 @@ use clap::Parser;
 use rpc::{CredentialType, forge as forgerpc};
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Add the factory-default DPU BMC credential:
+    $ carbide-admin-cli credential add-dpu-factory-default --username admin --password mypassword
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "Default username: root, ADMIN, etc")]
     pub username: String,

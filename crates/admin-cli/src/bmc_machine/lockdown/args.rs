@@ -19,6 +19,22 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Enable lockdown on a machine:
+    $ carbide-admin-cli bmc-machine lockdown \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --enable
+
+Disable lockdown on a machine:
+    $ carbide-admin-cli bmc-machine lockdown \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --disable
+
+Enable lockdown and reboot to apply the change:
+    $ carbide-admin-cli bmc-machine lockdown \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --enable --reboot
+
+")]
 pub struct Args {
     #[clap(long, help = "ID of the machine to enable/disable lockdown")]
     pub machine: MachineId,

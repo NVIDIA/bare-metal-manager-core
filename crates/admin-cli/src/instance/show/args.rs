@@ -24,6 +24,28 @@ use clap::Parser;
 // TODO: Possibly add the ability to filter by a list of tenant
 // org IDs and/or VPC IDs.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all instances:
+    $ carbide-admin-cli instance show
+
+Show a single instance by id:
+    $ carbide-admin-cli instance show 12345678-1234-5678-90ab-cdef01234567
+
+List instances for one tenant org:
+    $ carbide-admin-cli instance show --tenant-org-id fds34511233a
+
+List instances in a VPC:
+    $ carbide-admin-cli instance show --vpc-id abcdef01-2345-6789-abcd-ef0123456789
+
+List instances matching a label:
+    $ carbide-admin-cli instance show --label-key role --label-value training
+
+List instances of an instance type:
+    $ carbide-admin-cli instance show --instance-type-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         default_value(""),

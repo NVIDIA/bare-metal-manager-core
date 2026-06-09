@@ -22,6 +22,36 @@ use rpc::forge::{InstanceOperatingSystemConfig, InstanceSpxConfig};
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Allocate one instance onto a VPC prefix:
+    $ carbide-admin-cli instance allocate --prefix-name eth0 \
+    --vpc-prefix-id 12345678-1234-5678-90ab-cdef01234567
+
+Allocate one instance onto a subnet:
+    $ carbide-admin-cli instance allocate --prefix-name eth0 --subnet 192.0.2.0/24
+
+Allocate several instances at once:
+    $ carbide-admin-cli instance allocate --number 4 --prefix-name eth0 \
+    --vpc-prefix-id 12345678-1234-5678-90ab-cdef01234567
+
+Allocate transactionally (all-or-nothing for --number > 1):
+    $ carbide-admin-cli instance allocate --number 4 --prefix-name eth0 \
+    --vpc-prefix-id 12345678-1234-5678-90ab-cdef01234567 --transactional
+
+Allocate onto specific machines:
+    $ carbide-admin-cli instance allocate --prefix-name eth0 \
+    --vpc-prefix-id 12345678-1234-5678-90ab-cdef01234567 \
+    --machine-id 12345678-1234-5678-90ab-cdef01234567
+
+Allocate with an expected instance type and a network security group:
+    $ carbide-admin-cli instance allocate --prefix-name eth0 \
+    --vpc-prefix-id 12345678-1234-5678-90ab-cdef01234567 \
+    --instance-type-id abcdef01-2345-6789-abcd-ef0123456789 \
+    --network-security-group-id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(short, long)]
     pub number: Option<u16>,

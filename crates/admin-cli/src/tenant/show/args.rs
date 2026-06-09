@@ -19,6 +19,16 @@ use clap::Parser;
 use rpc::forge::FindTenantRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all tenants:
+    $ carbide-admin-cli tenant show
+
+Show details for one tenant org:
+    $ carbide-admin-cli tenant show fds34511233a
+
+")]
 pub struct Args {
     #[clap(help = "Optional, tenant org ID to restrict the search")]
     pub tenant_org: Option<String>,

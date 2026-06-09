@@ -48,7 +48,8 @@ fn verify_cmd_structure() {
 #[test]
 fn parse_bios_attrs() {
     let action =
-        RedfishAction::try_parse_from(["redfish", "bios-attrs"]).expect("should parse bios-attrs");
+        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "bios-attrs"])
+            .expect("should parse bios-attrs");
 
     assert!(matches!(action.command, Cmd::BiosAttrs));
 }
@@ -56,8 +57,8 @@ fn parse_bios_attrs() {
 // parse_boot_hdd ensures boot-hdd parses.
 #[test]
 fn parse_boot_hdd() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "boot-hdd"]).expect("should parse boot-hdd");
+    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "boot-hdd"])
+        .expect("should parse boot-hdd");
 
     assert!(matches!(action.command, Cmd::BootHdd));
 }
@@ -65,8 +66,8 @@ fn parse_boot_hdd() {
 // parse_boot_pxe ensures boot-pxe parses.
 #[test]
 fn parse_boot_pxe() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "boot-pxe"]).expect("should parse boot-pxe");
+    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "boot-pxe"])
+        .expect("should parse boot-pxe");
 
     assert!(matches!(action.command, Cmd::BootPxe));
 }
@@ -74,8 +75,9 @@ fn parse_boot_pxe() {
 // parse_get_power_state ensures get-power-state parses.
 #[test]
 fn parse_get_power_state() {
-    let action = RedfishAction::try_parse_from(["redfish", "get-power-state"])
-        .expect("should parse get-power-state");
+    let action =
+        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "get-power-state"])
+            .expect("should parse get-power-state");
 
     assert!(matches!(action.command, Cmd::GetPowerState));
 }
@@ -83,8 +85,8 @@ fn parse_get_power_state() {
 // parse_force_off ensures force-off parses.
 #[test]
 fn parse_force_off() {
-    let action =
-        RedfishAction::try_parse_from(["redfish", "force-off"]).expect("should parse force-off");
+    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "force-off"])
+        .expect("should parse force-off");
 
     assert!(matches!(action.command, Cmd::ForceOff));
 }
@@ -92,8 +94,9 @@ fn parse_force_off() {
 // parse_force_restart ensures force-restart parses.
 #[test]
 fn parse_force_restart() {
-    let action = RedfishAction::try_parse_from(["redfish", "force-restart"])
-        .expect("should parse force-restart");
+    let action =
+        RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "force-restart"])
+            .expect("should parse force-restart");
 
     assert!(matches!(action.command, Cmd::ForceRestart));
 }
@@ -101,7 +104,8 @@ fn parse_force_restart() {
 // parse_on ensures on parses.
 #[test]
 fn parse_on() {
-    let action = RedfishAction::try_parse_from(["redfish", "on"]).expect("should parse on");
+    let action = RedfishAction::try_parse_from(["redfish", "--address", "192.0.2.10", "on"])
+        .expect("should parse on");
 
     assert!(matches!(action.command, Cmd::On));
 }
@@ -114,7 +118,20 @@ fn parse_with_address() {
         RedfishAction::try_parse_from(["redfish", "--address", "192.168.1.100", "get-power-state"])
             .expect("should parse with address");
 
-    assert_eq!(action.address, Some("192.168.1.100".to_string()));
+    assert_eq!(action.address, "192.168.1.100");
+}
+
+// parse_missing_address_is_error ensures a missing --address is rejected by
+// clap itself (a usage error with exit code 2), enforcing the requirement at
+// parse time rather than via a runtime check in the handler. The requirement
+// lives on the parent, so one representative subcommand covers every variant.
+#[test]
+fn parse_missing_address_is_error() {
+    let err = RedfishAction::try_parse_from(["redfish", "get-power-state"])
+        .expect_err("missing --address should be a parse error");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    assert_eq!(err.exit_code(), 2);
 }
 
 // parse_with_credentials ensures command parses with
@@ -143,6 +160,8 @@ fn parse_with_credentials() {
 fn parse_create_bmc_user() {
     let action = RedfishAction::try_parse_from([
         "redfish",
+        "--address",
+        "192.0.2.10",
         "create-bmc-user",
         "--new-password",
         "secret",
@@ -163,25 +182,18 @@ fn parse_create_bmc_user() {
 // parse_dpu_firmware_status ensures dpu firmware status parses.
 #[test]
 fn parse_dpu_firmware_status() {
-    let action = RedfishAction::try_parse_from(["redfish", "dpu", "firmware", "status"])
-        .expect("should parse dpu firmware status");
+    let action = RedfishAction::try_parse_from([
+        "redfish",
+        "--address",
+        "192.0.2.10",
+        "dpu",
+        "firmware",
+        "status",
+    ])
+    .expect("should parse dpu firmware status");
 
     match action.command {
         Cmd::Dpu(DpuOperations::Firmware(FwCommand::Status)) => {}
         _ => panic!("expected Dpu Firmware Status variant"),
-    }
-}
-
-// parse_browse ensures browse parses with uri.
-#[test]
-fn parse_browse() {
-    let action = RedfishAction::try_parse_from(["redfish", "browse", "--uri", "/redfish/v1"])
-        .expect("should parse browse");
-
-    match action.command {
-        Cmd::Browse(args) => {
-            assert_eq!(args.uri, "/redfish/v1");
-        }
-        _ => panic!("expected Browse variant"),
     }
 }

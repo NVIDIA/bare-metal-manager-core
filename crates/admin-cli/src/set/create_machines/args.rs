@@ -19,6 +19,16 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group = clap::ArgGroup::new("toggle").required(true))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Enable automatic machine creation:
+    $ carbide-admin-cli set create-machines --enable
+
+Disable automatic machine creation:
+    $ carbide-admin-cli set create-machines --disable
+
+")]
 pub struct Args {
     #[clap(long, group = "toggle", help = "Enable machine creation")]
     pub enable: bool,
