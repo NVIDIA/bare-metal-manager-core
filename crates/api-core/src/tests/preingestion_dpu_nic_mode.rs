@@ -32,16 +32,17 @@ use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     Inventory, NicMode, PowerState, PreingestionState, Service,
 };
+use model::test_support::DpuConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::Code;
 
+use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
 
 fn dpu_report(nic_mode: NicMode) -> EndpointExplorationReport {
     DpuConfig {
         nic_mode: Some(nic_mode),
-        ..Default::default()
+        ..DpuConfig::default()
     }
     .into()
 }

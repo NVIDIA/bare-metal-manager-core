@@ -41,6 +41,7 @@ use model::site_explorer::{
     InitialBmcResetPhase, InitialResetPhase, Inventory, PowerDrainState, PowerState,
     PreingestionState, Service, TimeSyncResetPhase,
 };
+use model::test_support::HardwareInfoTemplate;
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::{Action, LegacyAction};
@@ -54,7 +55,6 @@ use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_hardware_info_template, create_test_env,
 };
