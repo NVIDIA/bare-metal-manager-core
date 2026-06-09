@@ -272,7 +272,7 @@ write_files:
           ovs-vsctl set bridge {{ forge_hbn_bridge }} external_ids:ofport_index="${next_br_hbn_ofport_index}"
 
           # Add our patch port to br-hbn and set its ofport index to match what we set on the hbn bridge
-          ovs-vsctl --may-exist add-port {{ forge_hbn_bridge }} "${host_intercept_hbn_port}" -- set interface "${host_intercept_hbn_port}" type=patch options:peer="${host_intercept_bridge_port}" ofport_request="${next_br_hbn_ofport_index}" external_ids="{dependencies=${host_representor}_if_r, hbn_netdev=${host_representor}_if, hbn_rep_ofport=${host_representor}_if_r}"
+          ovs-vsctl --may-exist add-port {{ forge_hbn_bridge }} "${host_intercept_hbn_port}" -- set interface "${host_intercept_hbn_port}" type=patch options:peer="${host_intercept_bridge_port}" ofport_request="${next_br_hbn_ofport_index}" external_ids="{hbn_netdev=${host_representor}_if, hbn_rep_ofport=${host_representor}_if_r}"
 
           # Add our side of the patch to our new bridge
           ovs-vsctl --may-exist add-port "${host_intercept_bridge_name}" "${host_intercept_bridge_port}" -- set interface "${host_intercept_bridge_port}" type=patch options:peer="${host_intercept_hbn_port}"
