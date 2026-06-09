@@ -18,6 +18,19 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Find an object by its UUID (machine, instance, VPC, etc.):
+    $ carbide-admin-cli jump 12345678-1234-5678-90ab-cdef01234567
+
+Find whatever owns an IP address:
+    $ carbide-admin-cli jump 192.0.2.10
+
+Find a machine interface by its MAC address:
+    $ carbide-admin-cli jump 00:11:22:33:44:55
+
+")]
 pub struct Cmd {
     #[clap(required(true), help = "The machine ID, IP, UUID, etc, to find")]
     pub id: String,

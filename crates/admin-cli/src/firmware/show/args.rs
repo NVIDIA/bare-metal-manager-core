@@ -18,4 +18,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all available firmware:
+    $ carbide-admin-cli firmware show
+
+")]
 pub struct Args {}

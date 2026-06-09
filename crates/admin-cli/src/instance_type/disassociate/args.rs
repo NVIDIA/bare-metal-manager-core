@@ -20,6 +20,13 @@ use clap::Parser;
 use rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a machine's instance-type association:
+    $ carbide-admin-cli instance-type disassociate 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Machine Id")]
     pub machine_id: MachineId,

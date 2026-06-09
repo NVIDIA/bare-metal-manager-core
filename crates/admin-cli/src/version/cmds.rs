@@ -63,9 +63,9 @@ pub async fn handle_show_version(
         "carbide-api:\n\tbuild_version={}, build_date={}, git_sha={}, rust_version={}, build_user={}, build_hostname={}",
         v.build_version, v.build_date, v.git_sha, v.rust_version, v.build_user, v.build_hostname,
     );
-    // Same as running `forge-admin-cli --version`
+    // Same as running `carbide-admin-cli --version`
     println!();
-    println!("forge-admin-cli:\n\t{}", carbide_version::version!());
+    println!("carbide-admin-cli:\n\t{}", carbide_version::version!());
 
     if opts.show_runtime_config {
         let config = v

@@ -11,6 +11,14 @@ use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Insert a chassis serial to NMX-C endpoint mapping:
+    $ carbide-admin-cli nvlink-nmxc-endpoints create --chassis-serial 1234567890123 \
+    --endpoint https://192.0.2.10:50051
+
+")]
 pub struct Args {
     #[clap(long, value_name = "SERIAL")]
     pub chassis_serial: String,
