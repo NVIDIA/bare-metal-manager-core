@@ -89,6 +89,9 @@ pub fn instance_status_from_config_and_observation(
 ) -> Result<InstanceStatus, RpcDataConversionError> {
     let mut instance_config_synced = SyncState::Synced;
 
+    let operator_managed_networking =
+        !network_config.interfaces.is_empty() && network_config.is_host_inband();
+
     for network_obs in observations.network.values() {
         if let Some(version_obs) = network_obs.instance_config_version
             && instance_config.version != version_obs
@@ -162,6 +165,7 @@ pub fn instance_status_from_config_and_observation(
                 instance_config.os.phone_home_enabled,
                 phone_home_last_contact,
                 extension_services_ready,
+                operator_managed_networking,
                 host_health.repair_merge_active(),
             )?,
             true => {
@@ -309,6 +313,7 @@ mod tests {
                 SyncState::Synced,
                 false,
                 None,
+                false,
                 false,
                 false,
             )
