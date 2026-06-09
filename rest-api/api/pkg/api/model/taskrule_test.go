@@ -16,26 +16,26 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-func sampleRuleDefinition() APIRuleDefinition {
-	return APIRuleDefinition{
+func sampleRuleDefinition() APITaskRuleDefinition {
+	return APITaskRuleDefinition{
 		Version: "v1",
-		Steps: []APISequenceStep{
+		Steps: []APITaskRuleSequenceStep{
 			{
 				ComponentType: "Compute",
 				Stage:         1,
 				MaxParallel:   4,
 				Timeout:       "60s",
-				PreOperation: []APIActionConfig{
+				PreOperation: []APITaskRuleActionConfig{
 					{Name: "VerifyReachability", Timeout: "10s"},
 				},
-				MainOperation: APIActionConfig{
+				MainOperation: APITaskRuleActionConfig{
 					Name:    "PowerControl",
 					Timeout: "30s",
 					Parameters: map[string]any{
 						"operation": "on",
 					},
 				},
-				Retry: &APIRetryPolicy{
+				Retry: &APITaskRuleRetryPolicy{
 					MaxAttempts:        3,
 					InitialInterval:    "1s",
 					BackoffCoefficient: 2.0,
@@ -49,12 +49,12 @@ func sampleRuleDefinition() APIRuleDefinition {
 func TestAPICreateRuleRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     APICreateRuleRequest
+		req     APITaskRuleCreateRequest
 		wantErr string
 	}{
 		{
 			name: "valid",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				SiteID:         "site-id",
 				Name:           "my-rule",
 				OperationType:  APIOperationTypePowerControl,
@@ -64,7 +64,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "missing siteId",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				Name:          "x",
 				OperationType: APIOperationTypePowerControl,
 				OperationCode: "power_on",
@@ -73,7 +73,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "missing name",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				SiteID:        "site-id",
 				OperationType: APIOperationTypePowerControl,
 				OperationCode: "power_on",
@@ -82,7 +82,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "missing operationType",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				SiteID:        "site-id",
 				Name:          "x",
 				OperationCode: "power_on",
@@ -91,7 +91,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid operationType",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				SiteID:        "site-id",
 				Name:          "x",
 				OperationType: "bogus",
@@ -101,7 +101,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "missing operationCode",
-			req: APICreateRuleRequest{
+			req: APITaskRuleCreateRequest{
 				SiteID:        "site-id",
 				Name:          "x",
 				OperationType: APIOperationTypePowerControl,
@@ -124,7 +124,7 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 }
 
 func TestAPICreateRuleRequest_ToProto(t *testing.T) {
-	req := APICreateRuleRequest{
+	req := APITaskRuleCreateRequest{
 		SiteID:         "site-id",
 		Name:           "my-rule",
 		Description:    "desc",
@@ -159,29 +159,29 @@ func TestAPIUpdateRuleRequest_Validate(t *testing.T) {
 	name := "new-name"
 	tests := []struct {
 		name    string
-		req     APIUpdateRuleRequest
+		req     APITaskRuleUpdateRequest
 		wantErr string
 	}{
 		{
 			name: "valid - rename only",
-			req: APIUpdateRuleRequest{
+			req: APITaskRuleUpdateRequest{
 				SiteID: "site-id",
 				Name:   &name,
 			},
 		},
 		{
 			name:    "missing siteId",
-			req:     APIUpdateRuleRequest{Name: &name},
+			req:     APITaskRuleUpdateRequest{Name: &name},
 			wantErr: "siteId is required",
 		},
 		{
 			name:    "no fields to update",
-			req:     APIUpdateRuleRequest{SiteID: "site-id"},
+			req:     APITaskRuleUpdateRequest{SiteID: "site-id"},
 			wantErr: "at least one of name",
 		},
 		{
 			name: "empty name explicitly",
-			req: APIUpdateRuleRequest{
+			req: APITaskRuleUpdateRequest{
 				SiteID: "site-id",
 				Name:   stringPtr(""),
 			},
@@ -206,7 +206,7 @@ func TestAPIUpdateRuleRequest_ToProto(t *testing.T) {
 	name := "new-name"
 	desc := "new-desc"
 	rd := sampleRuleDefinition()
-	req := APIUpdateRuleRequest{
+	req := APITaskRuleUpdateRequest{
 		SiteID:         "site-id",
 		Name:           &name,
 		Description:    &desc,
@@ -224,7 +224,7 @@ func TestAPIUpdateRuleRequest_ToProto(t *testing.T) {
 
 func TestAPIUpdateRuleRequest_ToProto_OmitsRuleDef(t *testing.T) {
 	name := "new-name"
-	req := APIUpdateRuleRequest{
+	req := APITaskRuleUpdateRequest{
 		SiteID: "site-id",
 		Name:   &name,
 	}
@@ -234,33 +234,33 @@ func TestAPIUpdateRuleRequest_ToProto_OmitsRuleDef(t *testing.T) {
 }
 
 func TestAPIGetRuleRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIGetRuleRequest{}).Validate())
-	require.NoError(t, (&APIGetRuleRequest{SiteID: "site-id"}).Validate())
+	require.Error(t, (&APITaskRuleGetRequest{}).Validate())
+	require.NoError(t, (&APITaskRuleGetRequest{SiteID: "site-id"}).Validate())
 }
 
 func TestAPIDeleteRuleRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIDeleteRuleRequest{}).Validate())
-	require.NoError(t, (&APIDeleteRuleRequest{SiteID: "site-id"}).Validate())
+	require.Error(t, (&APITaskRuleDeleteRequest{}).Validate())
+	require.NoError(t, (&APITaskRuleDeleteRequest{SiteID: "site-id"}).Validate())
 }
 
 func TestAPIListRulesRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     APIListRulesRequest
+		req     APITaskRuleGetAllRequest
 		wantErr string
 	}{
-		{name: "valid - no filters", req: APIListRulesRequest{SiteID: "site-id"}},
+		{name: "valid - no filters", req: APITaskRuleGetAllRequest{SiteID: "site-id"}},
 		{
 			name: "valid - filters",
-			req: APIListRulesRequest{
+			req: APITaskRuleGetAllRequest{
 				SiteID:        "site-id",
 				OperationType: APIOperationTypePowerControl,
 			},
 		},
-		{name: "missing siteId", req: APIListRulesRequest{}, wantErr: "siteId"},
+		{name: "missing siteId", req: APITaskRuleGetAllRequest{}, wantErr: "siteId"},
 		{
 			name:    "invalid operationType",
-			req:     APIListRulesRequest{SiteID: "site-id", OperationType: "bogus"},
+			req:     APITaskRuleGetAllRequest{SiteID: "site-id", OperationType: "bogus"},
 			wantErr: "invalid operationType",
 		},
 	}
@@ -279,7 +279,7 @@ func TestAPIListRulesRequest_Validate(t *testing.T) {
 
 func TestAPIListRulesRequest_ToProto(t *testing.T) {
 	pageNum, pageSize := 2, 10
-	req := APIListRulesRequest{
+	req := APITaskRuleGetAllRequest{
 		SiteID:        "site-id",
 		OperationType: APIOperationTypePowerControl,
 	}
@@ -297,7 +297,7 @@ func TestAPIListRulesRequest_ToProto(t *testing.T) {
 
 func TestAPIListRulesRequest_QueryValues(t *testing.T) {
 	pageNum, pageSize := 1, 50
-	req := APIListRulesRequest{
+	req := APITaskRuleGetAllRequest{
 		SiteID:        "site-id",
 		OperationType: APIOperationTypePowerControl,
 	}
@@ -328,7 +328,7 @@ func TestAPIOperationRule_FromProto(t *testing.T) {
 		UpdatedAt:          timestamppb.New(updated),
 	}
 
-	got, err := NewAPIOperationRule(pbRule)
+	got, err := NewAPITaskRule(pbRule)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "rule-id", got.ID)
@@ -350,13 +350,13 @@ func TestAPIOperationRule_FromProto_InvalidJSON(t *testing.T) {
 		Id:                 &flowv1.UUID{Id: "rule-id"},
 		RuleDefinitionJson: "not valid json",
 	}
-	_, err := NewAPIOperationRule(pbRule)
+	_, err := NewAPITaskRule(pbRule)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid ruleDefinition")
 }
 
 func TestAPIOperationRule_FromProto_NilSafe(t *testing.T) {
-	r := &APIOperationRule{}
+	r := &APITaskRule{}
 	assert.NoError(t, r.FromProto(nil))
 }
 

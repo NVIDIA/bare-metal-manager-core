@@ -15,7 +15,7 @@ import (
 
 func ptrOperationType(v flowv1.OperationType) *flowv1.OperationType { return &v }
 
-func newManageRuleForTest() ManageRule {
+func newManageRuleForTest() ManageTaskRule {
 	mockFlowGrpcClient := cClient.NewMockFlowGrpcClient()
 	flowGrpcAtomicClient := cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})
 	flowGrpcAtomicClient.SwapClient(mockFlowGrpcClient)
@@ -49,7 +49,7 @@ func TestManageRule_CreateOperationRuleOnFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.CreateOperationRuleOnFlow(context.Background(), tt.request)
+			result, err := mr.CreateTaskRuleOnFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -104,7 +104,7 @@ func TestManageRule_GetOperationRuleFromFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.GetOperationRuleFromFlow(context.Background(), tt.request)
+			result, err := mr.GetTaskRuleFromFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -148,7 +148,7 @@ func TestManageRule_ListOperationRulesFromFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.ListOperationRulesFromFlow(context.Background(), tt.request)
+			result, err := mr.GetAllTaskRulesFromFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -194,7 +194,7 @@ func TestManageRule_UpdateOperationRuleOnFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.UpdateOperationRuleOnFlow(context.Background(), tt.request)
+			result, err := mr.UpdateTaskRuleOnFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -240,7 +240,7 @@ func TestManageRule_DeleteOperationRuleOnFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mr := newManageRuleForTest()
-			result, err := mr.DeleteOperationRuleOnFlow(context.Background(), tt.request)
+			result, err := mr.DeleteTaskRuleOnFlow(context.Background(), tt.request)
 
 			if tt.wantErr {
 				assert.Error(t, err)

@@ -34,7 +34,7 @@ func (s *CreateOperationRuleTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.CreateOperationRuleRequest{
 		Name:               "rule-1",
@@ -46,8 +46,8 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
 		Id: &flowv1.UUID{Id: "rule-id"},
 	}
 
-	s.env.RegisterActivity(ruleManager.CreateOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.CreateOperationRuleOnFlow, mock.Anything, mock.Anything).Return(expected, nil)
+	s.env.RegisterActivity(ruleManager.CreateTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.CreateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
 	s.env.ExecuteWorkflow(CreateOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -59,13 +59,13 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
 }
 
 func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_ActivityFails() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.CreateOperationRuleRequest{Name: "rule-1"}
 	errMsg := "flow rejected duplicate rule"
 
-	s.env.RegisterActivity(ruleManager.CreateOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.CreateOperationRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.RegisterActivity(ruleManager.CreateTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.CreateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(CreateOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -98,7 +98,7 @@ func (s *GetOperationRuleTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	ruleID := "rule-id"
 	request := &flowv1.GetOperationRuleRequest{
@@ -111,8 +111,8 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
 		OperationCode: "power_on",
 	}
 
-	s.env.RegisterActivity(ruleManager.GetOperationRuleFromFlow)
-	s.env.OnActivity(ruleManager.GetOperationRuleFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
+	s.env.RegisterActivity(ruleManager.GetTaskRuleFromFlow)
+	s.env.OnActivity(ruleManager.GetTaskRuleFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
 	s.env.ExecuteWorkflow(GetOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -125,13 +125,13 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
 }
 
 func (s *GetOperationRuleTestSuite) Test_GetOperationRule_ActivityFails() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.GetOperationRuleRequest{RuleId: &flowv1.UUID{Id: "rule-id"}}
 	errMsg := "rule not found"
 
-	s.env.RegisterActivity(ruleManager.GetOperationRuleFromFlow)
-	s.env.OnActivity(ruleManager.GetOperationRuleFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.RegisterActivity(ruleManager.GetTaskRuleFromFlow)
+	s.env.OnActivity(ruleManager.GetTaskRuleFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(GetOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -164,7 +164,7 @@ func (s *ListOperationRulesTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	opType := flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL
 	request := &flowv1.ListOperationRulesRequest{
@@ -177,8 +177,8 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
 		TotalCount: 1,
 	}
 
-	s.env.RegisterActivity(ruleManager.ListOperationRulesFromFlow)
-	s.env.OnActivity(ruleManager.ListOperationRulesFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
+	s.env.RegisterActivity(ruleManager.GetAllTaskRulesFromFlow)
+	s.env.OnActivity(ruleManager.GetAllTaskRulesFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
 	s.env.ExecuteWorkflow(ListOperationRules, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -191,13 +191,13 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
 }
 
 func (s *ListOperationRulesTestSuite) Test_ListOperationRules_ActivityFails() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.ListOperationRulesRequest{}
 	errMsg := "flow connection failed"
 
-	s.env.RegisterActivity(ruleManager.ListOperationRulesFromFlow)
-	s.env.OnActivity(ruleManager.ListOperationRulesFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.RegisterActivity(ruleManager.GetAllTaskRulesFromFlow)
+	s.env.OnActivity(ruleManager.GetAllTaskRulesFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(ListOperationRules, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -230,14 +230,14 @@ func (s *UpdateOperationRuleTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_Success() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.UpdateOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: "rule-id"},
 	}
 
-	s.env.RegisterActivity(ruleManager.UpdateOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.UpdateOperationRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
+	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
 
 	s.env.ExecuteWorkflow(UpdateOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -245,15 +245,15 @@ func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_Success() {
 }
 
 func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_ActivityFails() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.UpdateOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: "rule-id"},
 	}
 	errMsg := "rule not found"
 
-	s.env.RegisterActivity(ruleManager.UpdateOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.UpdateOperationRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(UpdateOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -286,14 +286,14 @@ func (s *DeleteOperationRuleTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_Success() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.DeleteOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: "rule-id"},
 	}
 
-	s.env.RegisterActivity(ruleManager.DeleteOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.DeleteOperationRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
+	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
 
 	s.env.ExecuteWorkflow(DeleteOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())
@@ -301,15 +301,15 @@ func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_Success() {
 }
 
 func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_ActivityFails() {
-	var ruleManager rActivity.ManageRule
+	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.DeleteOperationRuleRequest{
 		RuleId: &flowv1.UUID{Id: "rule-id"},
 	}
 	errMsg := "rule still associated with racks"
 
-	s.env.RegisterActivity(ruleManager.DeleteOperationRuleOnFlow)
-	s.env.OnActivity(ruleManager.DeleteOperationRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
+	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	s.env.ExecuteWorkflow(DeleteOperationRule, request)
 	s.True(s.env.IsWorkflowCompleted())

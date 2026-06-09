@@ -33,21 +33,21 @@ import (
 )
 
 // testRuleSampleAPIRequest returns a minimal valid create-rule API body.
-func testRuleSampleAPIRequest(siteID string) model.APICreateRuleRequest {
-	return model.APICreateRuleRequest{
+func testRuleSampleAPIRequest(siteID string) model.APITaskRuleCreateRequest {
+	return model.APITaskRuleCreateRequest{
 		SiteID:        siteID,
 		Name:          "rule-1",
 		Description:   "test rule",
 		OperationType: model.APIOperationTypePowerControl,
 		OperationCode: "power_on",
-		RuleDefinition: model.APIRuleDefinition{
+		RuleDefinition: model.APITaskRuleDefinition{
 			Version: "v1",
-			Steps: []model.APISequenceStep{
+			Steps: []model.APITaskRuleSequenceStep{
 				{
 					ComponentType: "Compute",
 					Stage:         1,
 					MaxParallel:   4,
-					MainOperation: model.APIActionConfig{Name: "PowerControl"},
+					MainOperation: model.APITaskRuleActionConfig{Name: "PowerControl"},
 				},
 			},
 		},
@@ -80,7 +80,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-create", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-rule-create", org, []string{authz.TenantAdminRole})
 
-	handler := NewCreateRuleHandler(dbSession, nil, scp, cfg)
+	handler := NewCreateTaskRuleHandler(dbSession, nil, scp, cfg)
 
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
 
@@ -112,7 +112,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 			name:   "failure - missing siteId",
 			reqOrg: org,
 			user:   providerUser,
-			body: func() model.APICreateRuleRequest {
+			body: func() model.APITaskRuleCreateRequest {
 				r := testRuleSampleAPIRequest(site.ID.String())
 				r.SiteID = ""
 				return r
@@ -123,7 +123,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 			name:   "failure - invalid operationType",
 			reqOrg: org,
 			user:   providerUser,
-			body: func() model.APICreateRuleRequest {
+			body: func() model.APITaskRuleCreateRequest {
 				r := testRuleSampleAPIRequest(site.ID.String())
 				r.OperationType = "bogus"
 				return r
@@ -182,7 +182,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 				return
 			}
 
-			var got model.APIOperationRule
+			var got model.APITaskRule
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, tt.mockResp.GetId().GetId(), got.ID)
 			assert.Equal(t, "rule-1", got.Name)
@@ -206,7 +206,7 @@ func TestGetRuleHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-get", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-rule-get", org, []string{authz.TenantAdminRole})
 
-	handler := NewGetRuleHandler(dbSession, nil, scp, cfg)
+	handler := NewGetTaskRuleHandler(dbSession, nil, scp, cfg)
 
 	ruleID := uuid.New().String()
 	rdJSON, err := json.Marshal(testRuleSampleAPIRequest(site.ID.String()).RuleDefinition)
@@ -316,7 +316,7 @@ func TestGetRuleHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var got model.APIOperationRule
+			var got model.APITaskRule
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, ruleID, got.ID)
 			assert.Equal(t, "rule-1", got.Name)
@@ -339,7 +339,7 @@ func TestListRulesHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-list", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-rule-list", org, []string{authz.TenantAdminRole})
 
-	handler := NewListRulesHandler(dbSession, nil, scp, cfg)
+	handler := NewGetAllTaskRuleHandler(dbSession, nil, scp, cfg)
 
 	rdJSON, err := json.Marshal(testRuleSampleAPIRequest(site.ID.String()).RuleDefinition)
 	require.NoError(t, err)
@@ -452,7 +452,7 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var got []*model.APIOperationRule
+			var got []*model.APITaskRule
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			require.Len(t, got, len(tt.mockRules))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"))
@@ -474,7 +474,7 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-update", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-rule-update", org, []string{authz.TenantAdminRole})
 
-	handler := NewUpdateRuleHandler(dbSession, nil, scp, cfg)
+	handler := NewUpdateTaskRuleHandler(dbSession, nil, scp, cfg)
 
 	ruleID := uuid.New().String()
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
@@ -493,42 +493,42 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 			name:           "success - 204",
 			user:           providerUser,
 			ruleID:         ruleID,
-			body:           model.APIUpdateRuleRequest{SiteID: site.ID.String(), Name: &name},
+			body:           model.APITaskRuleUpdateRequest{SiteID: site.ID.String(), Name: &name},
 			expectedStatus: http.StatusNoContent,
 		},
 		{
 			name:           "failure - invalid rule UUID",
 			user:           providerUser,
 			ruleID:         "not-a-uuid",
-			body:           model.APIUpdateRuleRequest{SiteID: site.ID.String(), Name: &name},
+			body:           model.APITaskRuleUpdateRequest{SiteID: site.ID.String(), Name: &name},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "failure - missing siteId",
 			user:           providerUser,
 			ruleID:         ruleID,
-			body:           model.APIUpdateRuleRequest{Name: &name},
+			body:           model.APITaskRuleUpdateRequest{Name: &name},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "failure - no fields to update",
 			user:           providerUser,
 			ruleID:         ruleID,
-			body:           model.APIUpdateRuleRequest{SiteID: site.ID.String()},
+			body:           model.APITaskRuleUpdateRequest{SiteID: site.ID.String()},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "failure - tenant access denied",
 			user:           tenantUser,
 			ruleID:         ruleID,
-			body:           model.APIUpdateRuleRequest{SiteID: site.ID.String(), Name: &name},
+			body:           model.APITaskRuleUpdateRequest{SiteID: site.ID.String(), Name: &name},
 			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "failure - workflow scheduling error",
 			user:           providerUser,
 			ruleID:         ruleID,
-			body:           model.APIUpdateRuleRequest{SiteID: site.ID.String(), Name: &name},
+			body:           model.APITaskRuleUpdateRequest{SiteID: site.ID.String(), Name: &name},
 			mockExecErr:    errors.New("temporal scheduling failed"),
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -576,7 +576,7 @@ func TestDeleteRuleHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-delete", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-rule-delete", org, []string{authz.TenantAdminRole})
 
-	handler := NewDeleteRuleHandler(dbSession, nil, scp, cfg)
+	handler := NewDeleteTaskRuleHandler(dbSession, nil, scp, cfg)
 
 	ruleID := uuid.New().String()
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")

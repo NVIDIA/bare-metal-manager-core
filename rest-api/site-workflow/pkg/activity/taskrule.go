@@ -16,21 +16,21 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// ManageRule is an activity wrapper for Operation Rule management via Flow
-type ManageRule struct {
+// ManageTaskRule is an activity wrapper for Operation Rule management via Flow
+type ManageTaskRule struct {
 	flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient
 }
 
-// NewManageRule returns a new ManageRule client
-func NewManageRule(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageRule {
-	return ManageRule{
+// NewManageRule returns a new ManageTaskRule client
+func NewManageRule(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageTaskRule {
+	return ManageTaskRule{
 		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
-// CreateOperationRuleOnFlow creates an Operation Rule via Flow.
-func (mr *ManageRule) CreateOperationRuleOnFlow(ctx context.Context, request *flowv1.CreateOperationRuleRequest) (*flowv1.CreateOperationRuleResponse, error) {
-	logger := log.With().Str("Activity", "CreateOperationRuleOnFlow").Logger()
+// CreateTaskRuleOnFlow creates an Operation Rule via Flow.
+func (mr *ManageTaskRule) CreateTaskRuleOnFlow(ctx context.Context, request *flowv1.CreateOperationRuleRequest) (*flowv1.CreateOperationRuleResponse, error) {
+	logger := log.With().Str("Activity", "CreateTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -56,9 +56,9 @@ func (mr *ManageRule) CreateOperationRuleOnFlow(ctx context.Context, request *fl
 	return response, nil
 }
 
-// GetOperationRuleFromFlow retrieves an Operation Rule by ID via Flow.
-func (mr *ManageRule) GetOperationRuleFromFlow(ctx context.Context, request *flowv1.GetOperationRuleRequest) (*flowv1.OperationRule, error) {
-	logger := log.With().Str("Activity", "GetOperationRuleFromFlow").Logger()
+// GetTaskRuleFromFlow retrieves an Operation Rule by ID via Flow.
+func (mr *ManageTaskRule) GetTaskRuleFromFlow(ctx context.Context, request *flowv1.GetOperationRuleRequest) (*flowv1.OperationRule, error) {
+	logger := log.With().Str("Activity", "GetTaskRuleFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	var err error
@@ -87,10 +87,10 @@ func (mr *ManageRule) GetOperationRuleFromFlow(ctx context.Context, request *flo
 	return response, nil
 }
 
-// ListOperationRulesFromFlow lists Operation Rules via Flow. Filters and pagination
+// GetAllTaskRulesFromFlow lists Operation Rules via Flow. Filters and pagination
 // fields on flowv1.ListOperationRulesRequest are honored by Flow.
-func (mr *ManageRule) ListOperationRulesFromFlow(ctx context.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
-	logger := log.With().Str("Activity", "ListOperationRulesFromFlow").Logger()
+func (mr *ManageTaskRule) GetAllTaskRulesFromFlow(ctx context.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
+	logger := log.With().Str("Activity", "GetAllTaskRulesFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -119,11 +119,11 @@ func (mr *ManageRule) ListOperationRulesFromFlow(ctx context.Context, request *f
 	return response, nil
 }
 
-// UpdateOperationRuleOnFlow updates an Operation Rule via Flow. Note that
+// UpdateTaskRuleOnFlow updates an Operation Rule via Flow. Note that
 // is_default is not updatable via this path on Flow; use SetRuleAsDefault for
 // that (not exposed in this MVP).
-func (mr *ManageRule) UpdateOperationRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
-	logger := log.With().Str("Activity", "UpdateOperationRuleOnFlow").Logger()
+func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Activity", "UpdateTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	var err error
@@ -152,9 +152,9 @@ func (mr *ManageRule) UpdateOperationRuleOnFlow(ctx context.Context, request *fl
 	return response, nil
 }
 
-// DeleteOperationRuleOnFlow deletes an Operation Rule via Flow.
-func (mr *ManageRule) DeleteOperationRuleOnFlow(ctx context.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
-	logger := log.With().Str("Activity", "DeleteOperationRuleOnFlow").Logger()
+// DeleteTaskRuleOnFlow deletes an Operation Rule via Flow.
+func (mr *ManageTaskRule) DeleteTaskRuleOnFlow(ctx context.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Activity", "DeleteTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	var err error

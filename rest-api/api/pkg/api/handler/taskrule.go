@@ -32,15 +32,15 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
-// errRuleResponseSent is a sentinel returned by ruleHandlerPrepare to tell the
+// errTaskRuleResponseSent is a sentinel returned by prepareTaskRuleHandler to tell the
 // caller that an HTTP error response has already been written and the handler
 // should bail. cutil.NewAPIErrorResponse returns nil on success, so we can't
 // just bubble its result up — we'd lose the signal that the request is done.
-var errRuleResponseSent = errors.New("response sent")
+var errTaskRuleResponseSent = errors.New("response sent")
 
-// ruleHandlerPrepare runs the auth + site lookup + Flow-enabled check + Temporal
+// prepareTaskRuleHandler runs the auth + site lookup + Flow-enabled check + Temporal
 // client retrieval common to every rule handler. On any failure it writes the
-// HTTP error response itself and returns errRuleResponseSent; the caller MUST
+// HTTP error response itself and returns errTaskRuleResponseSent; the caller MUST
 // return nil from Handle to avoid double-writing.
 //
 // We factor this out because the rule API has 5 sibling handlers that all share
@@ -48,7 +48,7 @@ var errRuleResponseSent = errors.New("response sent")
 // the savings are large enough to justify a helper, but the helper stays
 // pass-through (no business logic) so the per-handler control flow still reads
 // like task.go.
-func ruleHandlerPrepare(
+func prepareTaskRuleHandler(
 	c echo.Context,
 	dbSession *cdb.Session,
 	scp *sc.ClientPool,
@@ -61,7 +61,7 @@ func ruleHandlerPrepare(
 	if dbUser == nil {
 		logger.Error().Msg("invalid User object found in request context")
 		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	ok, err := auth.ValidateOrgMembership(dbUser, org)
@@ -72,20 +72,20 @@ func ruleHandlerPrepare(
 			logger.Warn().Msg("could not validate org membership for user, access denied")
 		}
 		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
 		logger.Warn().Msg("user does not have Provider Admin role, access denied")
 		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, dbSession, org)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
 		_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, dbSession)
@@ -99,12 +99,12 @@ func ruleHandlerPrepare(
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
 		}
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	if site.InfrastructureProviderID != infrastructureProvider.ID {
 		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	siteConfig := &cdbm.SiteConfig{}
@@ -114,14 +114,14 @@ func ruleHandlerPrepare(
 	if !siteConfig.Flow {
 		logger.Warn().Msg("site does not have NICo Flow enabled")
 		_ = cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	stc, err := scp.GetClientByID(site.ID)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
 		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
-		return nil, nil, errRuleResponseSent
+		return nil, nil, errTaskRuleResponseSent
 	}
 
 	return site, stc, nil
@@ -129,8 +129,8 @@ func ruleHandlerPrepare(
 
 // ~~~~~ Create Rule Handler ~~~~~ //
 
-// CreateRuleHandler is the API Handler for creating a new Operation Rule.
-type CreateRuleHandler struct {
+// CreateTaskRuleHandler is the API Handler for creating a new Operation Rule.
+type CreateTaskRuleHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -138,9 +138,9 @@ type CreateRuleHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewCreateRuleHandler initializes and returns a new handler for creating a Rule.
-func NewCreateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateRuleHandler {
-	return CreateRuleHandler{
+// NewCreateTaskRuleHandler initializes and returns a new handler for creating a Rule.
+func NewCreateTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateTaskRuleHandler {
+	return CreateTaskRuleHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -157,16 +157,16 @@ func NewCreateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param body body model.APICreateRuleRequest true "Create rule request"
-// @Success 201 {object} model.APIOperationRule
+// @Param body body model.APITaskRuleCreateRequest true "Create rule request"
+// @Success 201 {object} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule [post]
-func (h CreateRuleHandler) Handle(c echo.Context) error {
+func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Create", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
 
-	apiRequest := model.APICreateRuleRequest{}
+	apiRequest := model.APITaskRuleCreateRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -175,9 +175,9 @@ func (h CreateRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
 	}
 
-	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
 	if err != nil {
-		// errRuleResponseSent — error response already written.
+		// errTaskRuleResponseSent — error response already written.
 		return nil
 	}
 
@@ -218,7 +218,7 @@ func (h CreateRuleHandler) Handle(c echo.Context) error {
 
 	// Flow's CreateOperationRule returns only the new rule's ID; echo the
 	// request back so the client gets the canonical view without an extra GET.
-	created := &model.APIOperationRule{
+	created := &model.APITaskRule{
 		ID:             flowResponse.GetId().GetId(),
 		Name:           apiRequest.Name,
 		Description:    apiRequest.Description,
@@ -233,8 +233,8 @@ func (h CreateRuleHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Get Rule Handler ~~~~~ //
 
-// GetRuleHandler is the API Handler for getting an Operation Rule by ID.
-type GetRuleHandler struct {
+// GetTaskRuleHandler is the API Handler for getting an Operation Rule by ID.
+type GetTaskRuleHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -242,9 +242,9 @@ type GetRuleHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewGetRuleHandler initializes and returns a new handler for getting a Rule.
-func NewGetRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetRuleHandler {
-	return GetRuleHandler{
+// NewGetTaskRuleHandler initializes and returns a new handler for getting a Rule.
+func NewGetTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetTaskRuleHandler {
+	return GetTaskRuleHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -263,9 +263,9 @@ func NewGetRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Client
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Rule"
 // @Param siteId query string true "ID of the Site"
-// @Success 200 {object} model.APIOperationRule
+// @Success 200 {object} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule/{id} [get]
-func (h GetRuleHandler) Handle(c echo.Context) error {
+func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Get", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
@@ -277,7 +277,7 @@ func (h GetRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
 	}
 
-	var apiRequest model.APIGetRuleRequest
+	var apiRequest model.APITaskRuleGetRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -288,7 +288,7 @@ func (h GetRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
 	if err != nil {
 		return nil
 	}
@@ -331,7 +331,7 @@ func (h GetRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Rule not found", nil)
 	}
 
-	apiRule, err := model.NewAPIOperationRule(&flowResponse)
+	apiRule, err := model.NewAPITaskRule(&flowResponse)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to convert Flow rule to API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
@@ -343,8 +343,8 @@ func (h GetRuleHandler) Handle(c echo.Context) error {
 
 // ~~~~~ List Rules Handler ~~~~~ //
 
-// ListRulesHandler is the API Handler for listing Operation Rules.
-type ListRulesHandler struct {
+// GetAllTaskRuleHandler is the API Handler for listing Operation Rules.
+type GetAllTaskRuleHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -352,9 +352,9 @@ type ListRulesHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewListRulesHandler initializes a new ListRulesHandler.
-func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) ListRulesHandler {
-	return ListRulesHandler{
+// NewGetAllTaskRuleHandler initializes a new GetAllTaskRuleHandler.
+func NewGetAllTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetAllTaskRuleHandler {
+	return GetAllTaskRuleHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -375,15 +375,15 @@ func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Param operationType query string false "Filter by operation type (power_control|firmware_control)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
-// @Success 200 {array} model.APIOperationRule
+// @Success 200 {array} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule [get]
-func (h ListRulesHandler) Handle(c echo.Context) error {
+func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "List", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
 
-	var apiRequest model.APIListRulesRequest
+	var apiRequest model.APITaskRuleGetAllRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -394,7 +394,7 @@ func (h ListRulesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
 	if err != nil {
 		return nil
 	}
@@ -443,9 +443,9 @@ func (h ListRulesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule list workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiRules := make([]*model.APIOperationRule, 0, len(flowResponse.GetRules()))
+	apiRules := make([]*model.APITaskRule, 0, len(flowResponse.GetRules()))
 	for _, pbRule := range flowResponse.GetRules() {
-		r, cerr := model.NewAPIOperationRule(pbRule)
+		r, cerr := model.NewAPITaskRule(pbRule)
 		if cerr != nil {
 			logger.Error().Err(cerr).Msg("failed to convert Flow rule to API model")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
@@ -468,8 +468,8 @@ func (h ListRulesHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Update Rule Handler ~~~~~ //
 
-// UpdateRuleHandler is the API Handler for updating an Operation Rule.
-type UpdateRuleHandler struct {
+// UpdateTaskRuleHandler is the API Handler for updating an Operation Rule.
+type UpdateTaskRuleHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -477,9 +477,9 @@ type UpdateRuleHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewUpdateRuleHandler initializes a new UpdateRuleHandler.
-func NewUpdateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) UpdateRuleHandler {
-	return UpdateRuleHandler{
+// NewUpdateTaskRuleHandler initializes a new UpdateTaskRuleHandler.
+func NewUpdateTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) UpdateTaskRuleHandler {
+	return UpdateTaskRuleHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -497,10 +497,10 @@ func NewUpdateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Rule"
-// @Param body body model.APIUpdateRuleRequest true "Update rule request"
+// @Param body body model.APITaskRuleUpdateRequest true "Update rule request"
 // @Success 204 "No Content"
 // @Router /v2/org/{org}/nico/task/rule/{id} [patch]
-func (h UpdateRuleHandler) Handle(c echo.Context) error {
+func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Update", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
@@ -512,7 +512,7 @@ func (h UpdateRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
 	}
 
-	apiRequest := model.APIUpdateRuleRequest{}
+	apiRequest := model.APITaskRuleUpdateRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -521,7 +521,7 @@ func (h UpdateRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
 	}
 
-	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
 	if err != nil {
 		return nil
 	}
@@ -566,13 +566,13 @@ func (h UpdateRuleHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Delete Rule Handler ~~~~~ //
 
-// DeleteRuleHandler is the API Handler for deleting an Operation Rule.
+// DeleteTaskRuleHandler is the API Handler for deleting an Operation Rule.
 //
 // Flow rejects deletion of rules that are still associated with racks or that
 // are the active default for an operation. The caller must dissociate first;
 // this handler surfaces the Flow error verbatim via UnwrapWorkflowError so the
 // client gets a meaningful 4xx.
-type DeleteRuleHandler struct {
+type DeleteTaskRuleHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -580,9 +580,9 @@ type DeleteRuleHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewDeleteRuleHandler initializes a new DeleteRuleHandler.
-func NewDeleteRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) DeleteRuleHandler {
-	return DeleteRuleHandler{
+// NewDeleteTaskRuleHandler initializes a new DeleteTaskRuleHandler.
+func NewDeleteTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) DeleteTaskRuleHandler {
+	return DeleteTaskRuleHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -603,7 +603,7 @@ func NewDeleteRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Param siteId query string true "ID of the Site"
 // @Success 204 "No Content"
 // @Router /v2/org/{org}/nico/task/rule/{id} [delete]
-func (h DeleteRuleHandler) Handle(c echo.Context) error {
+func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Delete", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
@@ -615,7 +615,7 @@ func (h DeleteRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
 	}
 
-	var apiRequest model.APIDeleteRuleRequest
+	var apiRequest model.APITaskRuleDeleteRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -626,7 +626,7 @@ func (h DeleteRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
 	if err != nil {
 		return nil
 	}

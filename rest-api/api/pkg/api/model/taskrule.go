@@ -52,65 +52,65 @@ func operationTypeFromAPI(s string) (flowv1.OperationType, error) {
 	return v, nil
 }
 
-// APIOperationRule is the API response model for an Operation Rule.
+// APITaskRule is the API response model for an Operation Rule.
 // Top-level metadata uses camelCase; nested ruleDefinition uses snake_case to
 // round-trip 1:1 with Flow's documented YAML/JSON schema so users converting
 // existing YAML rule files only need to drop the same keys into the JSON body.
-type APIOperationRule struct {
+type APITaskRule struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	Description    string            `json:"description,omitempty"`
 	OperationType  string            `json:"operationType"`
 	OperationCode  string            `json:"operationCode"`
-	RuleDefinition APIRuleDefinition `json:"ruleDefinition"`
+	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 	IsDefault      bool              `json:"isDefault"`
 	Created        time.Time         `json:"created"`
 	Updated        time.Time         `json:"updated"`
 }
 
-// APIRuleDefinition is the executable body of a rule. The shape matches
+// APITaskRuleDefinition is the executable body of a rule. The shape matches
 // flow/internal/task/operationrules.RuleDefinition exactly so we can
 // unmarshal Flow's RuleDefinitionJson straight into it.
-type APIRuleDefinition struct {
+type APITaskRuleDefinition struct {
 	Version string            `json:"version"`
-	Steps   []APISequenceStep `json:"steps,omitempty"`
+	Steps   []APITaskRuleSequenceStep `json:"steps,omitempty"`
 }
 
-// APISequenceStep mirrors operationrules.SequenceStep. Durations are kept as
+// APITaskRuleSequenceStep mirrors operationrules.SequenceStep. Durations are kept as
 // strings (Go duration syntax, e.g. "30s", "2m") so the round-trip with Flow
 // preserves the exact form the user authored and Flow does the parsing.
-type APISequenceStep struct {
+type APITaskRuleSequenceStep struct {
 	ComponentType string            `json:"component_type"`
 	Stage         int               `json:"stage"`
 	MaxParallel   int               `json:"max_parallel"`
 	Timeout       string            `json:"timeout,omitempty"`
-	Retry         *APIRetryPolicy   `json:"retry,omitempty"`
-	PreOperation  []APIActionConfig `json:"pre_operation,omitempty"`
-	MainOperation APIActionConfig   `json:"main_operation"`
-	PostOperation []APIActionConfig `json:"post_operation,omitempty"`
+	Retry         *APITaskRuleRetryPolicy   `json:"retry,omitempty"`
+	PreOperation  []APITaskRuleActionConfig `json:"pre_operation,omitempty"`
+	MainOperation APITaskRuleActionConfig   `json:"main_operation"`
+	PostOperation []APITaskRuleActionConfig `json:"post_operation,omitempty"`
 	DelayAfter    string            `json:"delay_after,omitempty"`
 }
 
-// APIActionConfig mirrors operationrules.ActionConfig.
-type APIActionConfig struct {
+// APITaskRuleActionConfig mirrors operationrules.ActionConfig.
+type APITaskRuleActionConfig struct {
 	Name         string         `json:"name"`
 	Timeout      string         `json:"timeout,omitempty"`
 	PollInterval string         `json:"poll_interval,omitempty"`
 	Parameters   map[string]any `json:"parameters,omitempty"`
 }
 
-// APIRetryPolicy mirrors operationrules.RetryPolicy.
-type APIRetryPolicy struct {
+// APITaskRuleRetryPolicy mirrors operationrules.RetryPolicy.
+type APITaskRuleRetryPolicy struct {
 	MaxAttempts        int     `json:"max_attempts"`
 	InitialInterval    string  `json:"initial_interval"`
 	BackoffCoefficient float64 `json:"backoff_coefficient"`
 	MaxInterval        string  `json:"max_interval,omitempty"`
 }
 
-// FromProto populates an APIOperationRule from a Flow protobuf OperationRule.
+// FromProto populates an APITaskRule from a Flow protobuf OperationRule.
 // Returns an error if ruleDefinitionJson cannot be unmarshaled into the API
 // schema (this should never happen for rules that were written by Flow itself).
-func (r *APIOperationRule) FromProto(pbRule *flowv1.OperationRule) error {
+func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	if pbRule == nil {
 		return nil
 	}
@@ -137,9 +137,9 @@ func (r *APIOperationRule) FromProto(pbRule *flowv1.OperationRule) error {
 	return nil
 }
 
-// NewAPIOperationRule constructs an APIOperationRule from a Flow proto rule.
-func NewAPIOperationRule(pbRule *flowv1.OperationRule) (*APIOperationRule, error) {
-	r := &APIOperationRule{}
+// NewAPITaskRule constructs an APITaskRule from a Flow proto rule.
+func NewAPITaskRule(pbRule *flowv1.OperationRule) (*APITaskRule, error) {
+	r := &APITaskRule{}
 	if err := r.FromProto(pbRule); err != nil {
 		return nil, err
 	}
@@ -148,26 +148,26 @@ func NewAPIOperationRule(pbRule *flowv1.OperationRule) (*APIOperationRule, error
 
 // ~~~~~ Create ~~~~~ //
 
-// APICreateRuleRequest is the JSON body for POST /rule.
+// APITaskRuleCreateRequest is the JSON body for POST /rule.
 //
 // IsDefault is intentionally absent: rules are created as non-default and
 // promoted to default via a dedicated path (not exposed in this MVP). See the
 // rule API design doc for the rationale (atomic swap requires Flow's
 // SetRuleAsDefault RPC, which has different semantics than CRUD update).
-type APICreateRuleRequest struct {
+type APITaskRuleCreateRequest struct {
 	SiteID         string            `json:"siteId"`
 	Name           string            `json:"name"`
 	Description    string            `json:"description,omitempty"`
 	OperationType  string            `json:"operationType"`
 	OperationCode  string            `json:"operationCode"`
-	RuleDefinition APIRuleDefinition `json:"ruleDefinition"`
+	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 }
 
 // Validate runs basic shape validation. Deep validation (operation code
 // membership, rule definition semantics) lives in Flow and is surfaced via
 // the workflow error path; doing it again here would force the API layer to
 // track Flow's evolving allow-list.
-func (r *APICreateRuleRequest) Validate() error {
+func (r *APITaskRuleCreateRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
@@ -189,7 +189,7 @@ func (r *APICreateRuleRequest) Validate() error {
 // ToProto converts the request into the Flow CreateOperationRuleRequest.
 // Returns an error if the rule definition cannot be marshaled (shouldn't
 // happen for well-formed input).
-func (r *APICreateRuleRequest) ToProto() (*flowv1.CreateOperationRuleRequest, error) {
+func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest, error) {
 	opType, err := operationTypeFromAPI(r.OperationType)
 	if err != nil {
 		return nil, err
@@ -209,23 +209,23 @@ func (r *APICreateRuleRequest) ToProto() (*flowv1.CreateOperationRuleRequest, er
 
 // ~~~~~ Update ~~~~~ //
 
-// APIUpdateRuleRequest is the JSON body for PATCH /rule/{id}.
+// APITaskRuleUpdateRequest is the JSON body for PATCH /rule/{id}.
 //
 // All mutable fields are optional pointers so unset means "leave unchanged".
 // operationType / operationCode are intentionally immutable after creation
-// (mirroring Flow's UpdateRule constraint) — change them by creating a new
+// (mirroring Flow's UpdateTaskRule constraint) — change them by creating a new
 // rule and deleting the old one. is_default is also immutable here; see
-// APICreateRuleRequest comment.
-type APIUpdateRuleRequest struct {
+// APITaskRuleCreateRequest comment.
+type APITaskRuleUpdateRequest struct {
 	SiteID         string             `json:"siteId"`
 	Name           *string            `json:"name,omitempty"`
 	Description    *string            `json:"description,omitempty"`
-	RuleDefinition *APIRuleDefinition `json:"ruleDefinition,omitempty"`
+	RuleDefinition *APITaskRuleDefinition `json:"ruleDefinition,omitempty"`
 }
 
 // Validate enforces that the request actually carries at least one field to
 // update. siteId is always required as it routes to the right Flow.
-func (r *APIUpdateRuleRequest) Validate() error {
+func (r *APITaskRuleUpdateRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
@@ -240,7 +240,7 @@ func (r *APIUpdateRuleRequest) Validate() error {
 
 // ToProto converts the update request into the Flow UpdateOperationRuleRequest.
 // ruleID is the path parameter from the request URL.
-func (r *APIUpdateRuleRequest) ToProto(ruleID string) (*flowv1.UpdateOperationRuleRequest, error) {
+func (r *APITaskRuleUpdateRequest) ToProto(ruleID string) (*flowv1.UpdateOperationRuleRequest, error) {
 	req := &flowv1.UpdateOperationRuleRequest{
 		RuleId:      &flowv1.UUID{Id: ruleID},
 		Name:        r.Name,
@@ -259,24 +259,24 @@ func (r *APIUpdateRuleRequest) ToProto(ruleID string) (*flowv1.UpdateOperationRu
 
 // ~~~~~ Get / Delete (siteId via query) ~~~~~ //
 
-// APIGetRuleRequest captures query parameters for GET /rule/{id}.
-type APIGetRuleRequest struct {
+// APITaskRuleGetRequest captures query parameters for GET /rule/{id}.
+type APITaskRuleGetRequest struct {
 	SiteID string `query:"siteId"`
 }
 
-func (r *APIGetRuleRequest) Validate() error {
+func (r *APITaskRuleGetRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId query parameter is required")
 	}
 	return nil
 }
 
-// APIDeleteRuleRequest captures query parameters for DELETE /rule/{id}.
-type APIDeleteRuleRequest struct {
+// APITaskRuleDeleteRequest captures query parameters for DELETE /rule/{id}.
+type APITaskRuleDeleteRequest struct {
 	SiteID string `query:"siteId"`
 }
 
-func (r *APIDeleteRuleRequest) Validate() error {
+func (r *APITaskRuleDeleteRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId query parameter is required")
 	}
@@ -285,14 +285,14 @@ func (r *APIDeleteRuleRequest) Validate() error {
 
 // ~~~~~ List ~~~~~ //
 
-// APIListRulesRequest binds query parameters for GET /rule. Pagination is
+// APITaskRuleGetAllRequest binds query parameters for GET /rule. Pagination is
 // bound separately via pagination.PageRequest.
-type APIListRulesRequest struct {
+type APITaskRuleGetAllRequest struct {
 	SiteID        string `query:"siteId"`
 	OperationType string `query:"operationType"`
 }
 
-func (r *APIListRulesRequest) Validate() error {
+func (r *APITaskRuleGetAllRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId query parameter is required")
 	}
@@ -304,7 +304,7 @@ func (r *APIListRulesRequest) Validate() error {
 
 // ToProto converts the list filters into the Flow ListOperationRulesRequest.
 // Returns an error if operationType is invalid.
-func (r *APIListRulesRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRulesRequest, error) {
+func (r *APITaskRuleGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRulesRequest, error) {
 	req := &flowv1.ListOperationRulesRequest{}
 	if r.OperationType != "" {
 		opType, err := operationTypeFromAPI(r.OperationType)
@@ -329,7 +329,7 @@ func (r *APIListRulesRequest) ToProto(page pagination.PageRequest) (*flowv1.List
 // QueryValues returns query parameters that participate in deterministic
 // workflow ID hashing, including pagination fields so concurrent requests for
 // different filters/pages do not reuse the same workflow execution.
-func (r *APIListRulesRequest) QueryValues(page pagination.PageRequest) url.Values {
+func (r *APITaskRuleGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
 	v := url.Values{}
 	v.Set("siteId", r.SiteID)
 	if r.OperationType != "" {

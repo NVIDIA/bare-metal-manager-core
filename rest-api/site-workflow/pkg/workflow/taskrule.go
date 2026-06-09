@@ -37,12 +37,12 @@ func CreateOperationRule(ctx workflow.Context, request *flowv1.CreateOperationRu
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
 
-	var ruleManager activity.ManageRule
+	var ruleManager activity.ManageTaskRule
 	var response flowv1.CreateOperationRuleResponse
 
-	err := workflow.ExecuteActivity(ctx, ruleManager.CreateOperationRuleOnFlow, request).Get(ctx, &response)
+	err := workflow.ExecuteActivity(ctx, ruleManager.CreateTaskRuleOnFlow, request).Get(ctx, &response)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "CreateOperationRuleOnFlow").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "CreateTaskRuleOnFlow").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
@@ -57,12 +57,12 @@ func GetOperationRule(ctx workflow.Context, request *flowv1.GetOperationRuleRequ
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
 
-	var ruleManager activity.ManageRule
+	var ruleManager activity.ManageTaskRule
 	var response flowv1.OperationRule
 
-	err := workflow.ExecuteActivity(ctx, ruleManager.GetOperationRuleFromFlow, request).Get(ctx, &response)
+	err := workflow.ExecuteActivity(ctx, ruleManager.GetTaskRuleFromFlow, request).Get(ctx, &response)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "GetOperationRuleFromFlow").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "GetTaskRuleFromFlow").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
@@ -79,12 +79,12 @@ func ListOperationRules(ctx workflow.Context, request *flowv1.ListOperationRules
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
 
-	var ruleManager activity.ManageRule
+	var ruleManager activity.ManageTaskRule
 	var response flowv1.ListOperationRulesResponse
 
-	err := workflow.ExecuteActivity(ctx, ruleManager.ListOperationRulesFromFlow, request).Get(ctx, &response)
+	err := workflow.ExecuteActivity(ctx, ruleManager.GetAllTaskRulesFromFlow, request).Get(ctx, &response)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "ListOperationRulesFromFlow").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "GetAllTaskRulesFromFlow").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
@@ -104,12 +104,12 @@ func UpdateOperationRule(ctx workflow.Context, request *flowv1.UpdateOperationRu
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
 
-	var ruleManager activity.ManageRule
+	var ruleManager activity.ManageTaskRule
 	var response emptypb.Empty
 
-	err := workflow.ExecuteActivity(ctx, ruleManager.UpdateOperationRuleOnFlow, request).Get(ctx, &response)
+	err := workflow.ExecuteActivity(ctx, ruleManager.UpdateTaskRuleOnFlow, request).Get(ctx, &response)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "UpdateOperationRuleOnFlow").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "UpdateTaskRuleOnFlow").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
@@ -126,12 +126,12 @@ func DeleteOperationRule(ctx workflow.Context, request *flowv1.DeleteOperationRu
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
 
-	var ruleManager activity.ManageRule
+	var ruleManager activity.ManageTaskRule
 	var response emptypb.Empty
 
-	err := workflow.ExecuteActivity(ctx, ruleManager.DeleteOperationRuleOnFlow, request).Get(ctx, &response)
+	err := workflow.ExecuteActivity(ctx, ruleManager.DeleteTaskRuleOnFlow, request).Get(ctx, &response)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "DeleteOperationRuleOnFlow").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "DeleteTaskRuleOnFlow").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 

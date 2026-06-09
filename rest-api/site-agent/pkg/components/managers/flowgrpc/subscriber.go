@@ -151,20 +151,20 @@ func (flowgrpc *API) RegisterSubscriber() error {
 	// Register Operation Rule activities
 	ruleManager := swa.NewManageRule(ManagerAccess.Data.EB.Managers.FlowGrpc.Client)
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.CreateOperationRuleOnFlow)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateOperationRuleOnFlow activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.CreateTaskRuleOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateTaskRuleOnFlow activity")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.GetOperationRuleFromFlow)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetOperationRuleFromFlow activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.GetTaskRuleFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetTaskRuleFromFlow activity")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.ListOperationRulesFromFlow)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ListOperationRulesFromFlow activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.GetAllTaskRulesFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllTaskRulesFromFlow activity")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.UpdateOperationRuleOnFlow)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered UpdateOperationRuleOnFlow activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered UpdateTaskRuleOnFlow activity")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.DeleteOperationRuleOnFlow)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteOperationRuleOnFlow activity")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteTaskRuleOnFlow activity")
 
 	// Register the tray subscribers here
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Registering tray workflows")
