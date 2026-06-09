@@ -112,6 +112,7 @@ func ComponentFrom(dao model.Component) *component.Component {
 		ComponentID: componentID,
 		RackID:      dao.RackID,
 		PowerState:  powerStateFromDAO(dao.PowerState),
+		Status:      dao.Status,
 	}
 }
 

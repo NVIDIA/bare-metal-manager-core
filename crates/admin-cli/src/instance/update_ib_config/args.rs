@@ -20,6 +20,14 @@ use clap::Parser;
 use rpc::InstanceInfinibandConfig;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Update an instance's InfiniBand configuration:
+    $ carbide-admin-cli instance update-ib-config --instance 12345678-1234-5678-90ab-cdef01234567 \
+    --config '{\"partitions\":[]}'
+
+")]
 pub struct Args {
     #[clap(short, long, required(true))]
     pub instance: InstanceId,

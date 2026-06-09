@@ -10168,7 +10168,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10245,7 +10245,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10285,6 +10285,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10299,6 +10301,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10323,7 +10331,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -10937,6 +10945,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10951,6 +10961,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10975,7 +10991,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -17641,8 +17657,8 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
-    RackTask:
-      title: RackTask
+    Task:
+      title: Task
       type: object
       description: A task representing an asynchronous operation on rack infrastructure.
       properties:
@@ -17683,11 +17699,150 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
+        report:
+          allOf:
+            - $ref: '#/components/schemas/TaskReportV1'
+          description: |
+            Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.
+
+            A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump.
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          report:
+            version: 1
+            stages:
+              - number: 1
+                status: completed
+                startedAt: '2026-06-08T18:00:00Z'
+                finishedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: Compute
+                    status: completed
+                    totalComponents: 4
+                    startedAt: '2026-06-08T18:00:00Z'
+                    finishedAt: '2026-06-08T18:00:42Z'
+              - number: 2
+                status: running
+                startedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: NVLSwitch
+                    status: running
+                    totalComponents: 2
+                    startedAt: '2026-06-08T18:00:42Z'
+                  - componentType: PowerShelf
+                    status: skipped
+                    totalComponents: 0
+    TaskReportV1:
+      title: TaskReportV1
+      type: object
+      description: |
+        Structured execution report (version 1) for a Flow-scheduled task.
+        The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.
+
+        Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched.
+      required:
+        - version
+        - stages
+      properties:
+        version:
+          type: integer
+          enum: [1]
+          description: Schema version of this report. Always `1` for `TaskReportV1`.
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Stage'
+        error:
+          type: string
+          description: |
+            Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer.
+    TaskReportV1Stage:
+      title: TaskReportV1Stage
+      type: object
+      description: |
+        Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry.
+      required:
+        - number
+        - status
+        - steps
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: 1-based rule stage number.
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Step'
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the stage leaves `pending`.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the stage reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Step:
+      title: TaskReportV1Step
+      type: object
+      description: |
+        Execution state of one rule sequence step. Pairs 1:1 with the rule's ordered steps within the containing stage and shares its index.
+      required:
+        - componentType
+        - status
+      properties:
+        componentType:
+          type: string
+          description: 'Component class this step targets, e.g. `Compute`, `NVLSwitch`, `PowerShelf`.'
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        totalComponents:
+          type: integer
+          description: |
+            Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
+        completedComponents:
+          type: integer
+          description: |
+            Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
+        failedComponents:
+          type: integer
+          description: Reserved (see `completedComponents`).
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the step leaves `pending`. `skipped` steps carry no timestamp.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the step reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Status:
+      title: TaskReportV1Status
+      type: string
+      description: |
+        Per-stage and per-step execution status.
+
+        - `pending`   — workflow has not yet reached this stage/step.
+        - `running`   — execution is in progress.
+        - `completed` — execution finished successfully.
+        - `failed`    — execution finished with an error; see `error`.
+        - `skipped`   — the rule lists this component type but the task targets no components of that type, so the workflow will not invoke it.
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - skipped
     BatchTrayFirmwareUpdateRequest:
       title: BatchTrayFirmwareUpdateRequest
       type: object

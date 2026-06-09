@@ -58,6 +58,7 @@ carbide-rpc = { path = "../rpc", features = ["test-support"] }
 
 tokio = { workspace = true, features = ["macros", "rt"] }
 tonic = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

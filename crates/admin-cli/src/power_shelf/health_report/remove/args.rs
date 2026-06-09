@@ -19,6 +19,14 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Remove a health report source from a power shelf (source name from `health-report show`):
+    $ carbide-admin-cli power-shelf health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    internal-maintenance
+
+")]
 pub struct Args {
     pub power_shelf_id: PowerShelfId,
     pub report_source: String,

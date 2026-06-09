@@ -38,7 +38,7 @@ func (r ApiCancelTaskRequest) CancelTaskRequest(cancelTaskRequest CancelTaskRequ
 	return r
 }
 
-func (r ApiCancelTaskRequest) Execute() (*RackTask, *http.Response, error) {
+func (r ApiCancelTaskRequest) Execute() (*Task, *http.Response, error) {
 	return r.ApiService.CancelTaskExecute(r)
 }
 
@@ -77,13 +77,13 @@ func (a *TaskAPIService) CancelTask(ctx context.Context, org string, id string) 
 
 // Execute executes the request
 //
-//	@return RackTask
-func (a *TaskAPIService) CancelTaskExecute(r ApiCancelTaskRequest) (*RackTask, *http.Response, error) {
+//	@return Task
+func (a *TaskAPIService) CancelTaskExecute(r ApiCancelTaskRequest) (*Task, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *RackTask
+		localVarReturnValue *Task
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskAPIService.CancelTask")
@@ -204,7 +204,7 @@ func (r ApiGetTaskRequest) SiteId(siteId string) ApiGetTaskRequest {
 	return r
 }
 
-func (r ApiGetTaskRequest) Execute() (*RackTask, *http.Response, error) {
+func (r ApiGetTaskRequest) Execute() (*Task, *http.Response, error) {
 	return r.ApiService.GetTaskExecute(r)
 }
 
@@ -235,13 +235,13 @@ func (a *TaskAPIService) GetTask(ctx context.Context, org string, id string) Api
 
 // Execute executes the request
 //
-//	@return RackTask
-func (a *TaskAPIService) GetTaskExecute(r ApiGetTaskRequest) (*RackTask, *http.Response, error) {
+//	@return Task
+func (a *TaskAPIService) GetTaskExecute(r ApiGetTaskRequest) (*Task, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *RackTask
+		localVarReturnValue *Task
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskAPIService.GetTask")

@@ -184,7 +184,9 @@ mod tests {
 
     // Enumerate the startup config files from the agent crate's directory.
     fn enumerate_agent_configs() -> Vec<PathBuf> {
-        let repo_root = Path::new(std::env!("REPO_ROOT"));
+        let repo_root =
+            std::env::var("REPO_ROOT").expect("REPO_ROOT must be set to the repository root");
+        let repo_root = Path::new(&repo_root);
         let agent_templates_tests_dir = {
             let mut buf = repo_root.to_path_buf();
             buf.extend(["crates", "agent", "templates", "tests"]);

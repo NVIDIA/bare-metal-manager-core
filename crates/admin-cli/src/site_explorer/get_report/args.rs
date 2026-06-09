@@ -18,6 +18,19 @@
 use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug, PartialEq)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Dump the entire latest report as JSON:
+    $ carbide-admin-cli site-explorer get-report all
+
+Show discovered managed-host details:
+    $ carbide-admin-cli site-explorer get-report managed-host
+
+Show explored endpoint details:
+    $ carbide-admin-cli site-explorer get-report endpoint
+
+")]
 pub enum Args {
     #[clap(about = "Get everything in Json")]
     All,
@@ -29,6 +42,22 @@ pub enum Args {
 
 #[derive(Parser, Debug, PartialEq)]
 #[clap(group(ArgGroup::new("selector").required(false).args(&["erroronly", "successonly"])))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all explored endpoints:
+    $ carbide-admin-cli site-explorer get-report endpoint
+
+Show one endpoint by BMC IP:
+    $ carbide-admin-cli site-explorer get-report endpoint 192.0.2.10
+
+Show only endpoints that errored, filtered by vendor:
+    $ carbide-admin-cli site-explorer get-report endpoint --erroronly --vendor nvidia
+
+Show only endpoints not yet paired to a managed host:
+    $ carbide-admin-cli site-explorer get-report endpoint --unpairedonly
+
+")]
 pub struct EndpointInfo {
     #[clap(help = "BMC IP address of Endpoint.")]
     pub address: Option<String>,
@@ -55,6 +84,19 @@ pub struct EndpointInfo {
 }
 
 #[derive(Parser, Debug, PartialEq)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all discovered managed hosts:
+    $ carbide-admin-cli site-explorer get-report managed-host
+
+Show one managed host by its host/DPU BMC IP:
+    $ carbide-admin-cli site-explorer get-report managed-host 192.0.2.10
+
+Filter managed hosts by vendor:
+    $ carbide-admin-cli site-explorer get-report managed-host --vendor nvidia
+
+")]
 pub struct ManagedHostInfo {
     #[clap(help = "BMC IP address of host or DPU")]
     pub address: Option<String>,

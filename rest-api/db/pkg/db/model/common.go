@@ -4,6 +4,8 @@
 package model
 
 import (
+	"strconv"
+
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -62,4 +64,71 @@ func (l *Labels) FromProto(protoLabels []*cwssaws.Label) {
 		result[label.Key] = value
 	}
 	*l = result
+}
+
+// Expected-inventory metadata label keys. These mirror the flat source field
+// names from the REST API write path and are emitted as-is into Core's Metadata
+// labels, so Core persists the full inventory dataset and Flow can read it back
+// and structure it as it sees fit.
+//
+// TODO: replace this flat label passthrough with a structured InventoryData
+// type (device + rack-position fields) carried explicitly, rather than packing
+// the values into stringly-typed labels. Follow-up PR.
+const (
+	ExpectedComponentLabelManufacturer    = "manufacturer"
+	ExpectedComponentLabelModel           = "model"
+	ExpectedComponentLabelFirmwareVersion = "firmware_version"
+	ExpectedComponentLabelSlotID          = "slot_id"
+	ExpectedComponentLabelTrayIdx         = "tray_idx"
+	ExpectedComponentLabelHostID          = "host_id"
+)
+
+// expectedComponentLabelsInput carries the flat device/rack columns that its
+// ToProto method maps into an expected component's Metadata labels. Grouping
+// them into a struct keeps the call sites self-documenting and avoids a long,
+// transposition-prone arg list.
+type expectedComponentLabelsInput struct {
+	Manufacturer    *string
+	Model           *string
+	FirmwareVersion *string
+	SlotID          *int32
+	TrayIdx         *int32
+	HostID          *int32
+	Labels          Labels
+}
+
+// ToProto merges the input's labels with the flat device/rack columns, each
+// emitted as a label keyed by its source field name (see the
+// ExpectedComponentLabel* constants). A system field takes precedence over a
+// colliding user label, since the field value is the authoritative inventory
+// data. Returns nil when there are no labels at all. Name and description are
+// not labels -- callers set those on Metadata directly.
+func (in expectedComponentLabelsInput) ToProto() []*cwssaws.Label {
+	// Merge through a map so a system field overrides a colliding user label.
+	merged := make(map[string]string, len(in.Labels)+6)
+	for k, v := range in.Labels {
+		merged[k] = v
+	}
+	if in.Manufacturer != nil {
+		merged[ExpectedComponentLabelManufacturer] = *in.Manufacturer
+	}
+	if in.Model != nil {
+		merged[ExpectedComponentLabelModel] = *in.Model
+	}
+	if in.FirmwareVersion != nil {
+		merged[ExpectedComponentLabelFirmwareVersion] = *in.FirmwareVersion
+	}
+	if in.SlotID != nil {
+		merged[ExpectedComponentLabelSlotID] = strconv.FormatInt(int64(*in.SlotID), 10)
+	}
+	if in.TrayIdx != nil {
+		merged[ExpectedComponentLabelTrayIdx] = strconv.FormatInt(int64(*in.TrayIdx), 10)
+	}
+	if in.HostID != nil {
+		merged[ExpectedComponentLabelHostID] = strconv.FormatInt(int64(*in.HostID), 10)
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return Labels(merged).ToProto()
 }

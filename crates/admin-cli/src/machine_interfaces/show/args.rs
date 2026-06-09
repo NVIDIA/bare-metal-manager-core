@@ -19,6 +19,16 @@ use carbide_uuid::machine::MachineInterfaceId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all machine interfaces:
+    $ carbide-admin-cli machine-interfaces show
+
+Show one machine interface by ID:
+    $ carbide-admin-cli machine-interfaces show 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         short,

@@ -19,6 +19,16 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group = clap::ArgGroup::new("toggle").required(true))]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Enable site-explorer:
+    $ carbide-admin-cli set site-explorer --enable
+
+Disable site-explorer:
+    $ carbide-admin-cli set site-explorer --disable
+
+")]
 pub struct Args {
     #[clap(long, group = "toggle", help = "Enable site-explorer")]
     pub enable: bool,
