@@ -76,7 +76,6 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     /// The last time aggregate metrics had been emitted
     pub(super) last_metric_emission_time: std::time::Instant,
     pub(super) stats_since_last_log: StatsSinceLastLog,
-    pub(super) processor_span: tracing::Span,
     /// Globally unique ID that identifies the state controller (and processor) working on objects
     pub(super) processor_id: String,
     /// Emitter for broadcasting state change events to registered hooks.
@@ -143,7 +142,6 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         let max_jitter = (dispatch_interval.as_millis() / 3) as u64;
 
         loop {
-            let span = self.processor_span.clone();
             let start = Instant::now();
             let jitter = if max_jitter > 0 {
                 rand::rng().random::<u64>() % max_jitter
@@ -153,11 +151,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
             let iteration_time = dispatch_interval.saturating_add(Duration::from_millis(jitter));
             let mut next_dispatch_at = start.checked_add(iteration_time).unwrap_or(start);
 
-            match self
-                .run_single_iteration(iteration_time, true)
-                .instrument(span)
-                .await
-            {
+            match self.run_single_iteration(iteration_time, true).await {
                 Ok(result) => {
                     // If any task completed, then there's a chance we can dispatch more tasks
                     // Therefore run another iteration without backoff
@@ -211,39 +205,53 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         max_completion_wait_time: std::time::Duration,
         allow_requeue: bool,
     ) -> Result<SingleIterationResult, IterationError> {
-        let run_metrics = ProcessorIterationMetrics::default();
+        let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+        let iteration_span = tracing::span!(
+            parent: None,
+            tracing::Level::INFO,
+            "state_processor_iteration",
+            span_id,
+            carbide.trace_root = true,
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+        );
 
-        let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
-        // We are assuming that we dispatch as many tasks that are available and fit into
-        // the queue. Therefore its ok to wait until at least one task has been dequeued
-        // before evaluating any next steps.
-        let num_completed_tasks = self
-            .wait_and_process_object_handling_task_completions(
-                max_completion_wait_time,
-                allow_requeue,
-            )
-            .await;
+        async {
+            let run_metrics = ProcessorIterationMetrics::default();
 
-        // Delete the DB entries for tasks which finished in `wait_and_process_object_handling_task_completions`.
-        self.cleanup_completed_objects().await?;
+            let num_dispatched_tasks = self.dequeue_and_dispatch_object_handling_tasks().await?;
+            // We are assuming that we dispatch as many tasks that are available and fit into
+            // the queue. Therefore its ok to wait until at least one task has been dequeued
+            // before evaluating any next steps.
+            let num_completed_tasks = self
+                .wait_and_process_object_handling_task_completions(
+                    max_completion_wait_time,
+                    allow_requeue,
+                )
+                .await;
 
-        // Schedule handler again for objects which transitioned.
-        // We queue them using the latest iteration_id.
-        // This needs to happen after `cleanup_completed_objects` to remove
-        // the old entries from the DB first.
-        self.requeue_transitioned_objects().await?;
+            // Delete the DB entries for tasks which finished in `wait_and_process_object_handling_task_completions`.
+            self.cleanup_completed_objects().await?;
 
-        self.emit_metrics_if_necessary();
-        self.emit_periodic_log_if_necessary();
+            // Schedule handler again for objects which transitioned.
+            // We queue them using the latest iteration_id.
+            // This needs to happen after `cleanup_completed_objects` to remove
+            // the old entries from the DB first.
+            self.requeue_transitioned_objects().await?;
 
-        if let Some(emitter) = self.metric_emitter.as_ref() {
-            emitter.emit_run_counters_and_histograms(&run_metrics);
+            self.emit_metrics_if_necessary();
+            self.emit_periodic_log_if_necessary();
+
+            if let Some(emitter) = self.metric_emitter.as_ref() {
+                emitter.emit_run_counters_and_histograms(&run_metrics);
+            }
+
+            Ok(SingleIterationResult {
+                num_dispatched_tasks,
+                num_completed_tasks,
+            })
         }
-
-        Ok(SingleIterationResult {
-            num_dispatched_tasks,
-            num_completed_tasks,
-        })
+        .instrument(iteration_span.clone())
+        .await
     }
 
     /// Periodically calculates aggregate metrics for all objects that have been processed
@@ -304,10 +312,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         }
 
         self.last_log_time = now;
-        let db_query_metrics = {
-            let _e: tracing::span::Entered<'_> = self.processor_span.enter();
-            sqlx_query_tracing::fetch_and_update_current_span_attributes()
-        };
+        let db_query_metrics = sqlx_query_tracing::fetch_and_update_current_span_attributes();
 
         let stats = std::mem::take(&mut self.stats_since_last_log);
         let db_metrics_since_last_query = db_query_metrics.diff(&stats.db_query_metrics);
