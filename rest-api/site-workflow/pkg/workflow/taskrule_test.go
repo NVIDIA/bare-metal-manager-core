@@ -17,23 +17,23 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// CreateOperationRuleTestSuite tests the CreateOperationRule workflow
-type CreateOperationRuleTestSuite struct {
+// CreateTaskRuleTestSuite tests the CreateTaskRule workflow
+type CreateTaskRuleTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (s *CreateOperationRuleTestSuite) SetupTest() {
+func (s *CreateTaskRuleTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
 
-func (s *CreateOperationRuleTestSuite) AfterTest(suiteName, testName string) {
+func (s *CreateTaskRuleTestSuite) AfterTest(suiteName, testName string) {
 	s.env.AssertExpectations(s.T())
 }
 
-func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
+func (s *CreateTaskRuleTestSuite) Test_CreateTaskRule_Success() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.CreateOperationRuleRequest{
@@ -49,7 +49,7 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
 	s.env.RegisterActivity(ruleManager.CreateTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.CreateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
-	s.env.ExecuteWorkflow(CreateOperationRule, request)
+	s.env.ExecuteWorkflow(CreateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
@@ -58,7 +58,7 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_Success() {
 	s.Equal("rule-id", response.GetId().GetId())
 }
 
-func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_ActivityFails() {
+func (s *CreateTaskRuleTestSuite) Test_CreateTaskRule_ActivityFails() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.CreateOperationRuleRequest{Name: "rule-1"}
@@ -67,7 +67,7 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_ActivityFails() 
 	s.env.RegisterActivity(ruleManager.CreateTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.CreateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	s.env.ExecuteWorkflow(CreateOperationRule, request)
+	s.env.ExecuteWorkflow(CreateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -77,27 +77,27 @@ func (s *CreateOperationRuleTestSuite) Test_CreateOperationRule_ActivityFails() 
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func TestCreateOperationRuleTestSuite(t *testing.T) {
-	suite.Run(t, new(CreateOperationRuleTestSuite))
+func TestCreateTaskRuleTestSuite(t *testing.T) {
+	suite.Run(t, new(CreateTaskRuleTestSuite))
 }
 
-// GetOperationRuleTestSuite tests the GetOperationRule workflow
-type GetOperationRuleTestSuite struct {
+// GetTaskRuleTestSuite tests the GetTaskRule workflow
+type GetTaskRuleTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (s *GetOperationRuleTestSuite) SetupTest() {
+func (s *GetTaskRuleTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
 
-func (s *GetOperationRuleTestSuite) AfterTest(suiteName, testName string) {
+func (s *GetTaskRuleTestSuite) AfterTest(suiteName, testName string) {
 	s.env.AssertExpectations(s.T())
 }
 
-func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
+func (s *GetTaskRuleTestSuite) Test_GetTaskRule_Success() {
 	var ruleManager rActivity.ManageTaskRule
 
 	ruleID := "rule-id"
@@ -114,7 +114,7 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
 	s.env.RegisterActivity(ruleManager.GetTaskRuleFromFlow)
 	s.env.OnActivity(ruleManager.GetTaskRuleFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
-	s.env.ExecuteWorkflow(GetOperationRule, request)
+	s.env.ExecuteWorkflow(GetTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
@@ -124,7 +124,7 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_Success() {
 	s.Equal("rule-1", response.GetName())
 }
 
-func (s *GetOperationRuleTestSuite) Test_GetOperationRule_ActivityFails() {
+func (s *GetTaskRuleTestSuite) Test_GetTaskRule_ActivityFails() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.GetOperationRuleRequest{RuleId: &flowv1.UUID{Id: "rule-id"}}
@@ -133,7 +133,7 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_ActivityFails() {
 	s.env.RegisterActivity(ruleManager.GetTaskRuleFromFlow)
 	s.env.OnActivity(ruleManager.GetTaskRuleFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	s.env.ExecuteWorkflow(GetOperationRule, request)
+	s.env.ExecuteWorkflow(GetTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -143,27 +143,27 @@ func (s *GetOperationRuleTestSuite) Test_GetOperationRule_ActivityFails() {
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func TestGetOperationRuleTestSuite(t *testing.T) {
-	suite.Run(t, new(GetOperationRuleTestSuite))
+func TestGetTaskRuleTestSuite(t *testing.T) {
+	suite.Run(t, new(GetTaskRuleTestSuite))
 }
 
-// ListOperationRulesTestSuite tests the ListOperationRules workflow
-type ListOperationRulesTestSuite struct {
+// GetAllTaskRulesTestSuite tests the GetAllTaskRules workflow
+type GetAllTaskRulesTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (s *ListOperationRulesTestSuite) SetupTest() {
+func (s *GetAllTaskRulesTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
 
-func (s *ListOperationRulesTestSuite) AfterTest(suiteName, testName string) {
+func (s *GetAllTaskRulesTestSuite) AfterTest(suiteName, testName string) {
 	s.env.AssertExpectations(s.T())
 }
 
-func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
+func (s *GetAllTaskRulesTestSuite) Test_GetAllTaskRules_Success() {
 	var ruleManager rActivity.ManageTaskRule
 
 	opType := flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL
@@ -180,7 +180,7 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
 	s.env.RegisterActivity(ruleManager.GetAllTaskRulesFromFlow)
 	s.env.OnActivity(ruleManager.GetAllTaskRulesFromFlow, mock.Anything, mock.Anything).Return(expected, nil)
 
-	s.env.ExecuteWorkflow(ListOperationRules, request)
+	s.env.ExecuteWorkflow(GetAllTaskRules, request)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
@@ -190,7 +190,7 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_Success() {
 	s.Equal(int32(1), response.GetTotalCount())
 }
 
-func (s *ListOperationRulesTestSuite) Test_ListOperationRules_ActivityFails() {
+func (s *GetAllTaskRulesTestSuite) Test_GetAllTaskRules_ActivityFails() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.ListOperationRulesRequest{}
@@ -199,7 +199,7 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_ActivityFails() {
 	s.env.RegisterActivity(ruleManager.GetAllTaskRulesFromFlow)
 	s.env.OnActivity(ruleManager.GetAllTaskRulesFromFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	s.env.ExecuteWorkflow(ListOperationRules, request)
+	s.env.ExecuteWorkflow(GetAllTaskRules, request)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -209,27 +209,27 @@ func (s *ListOperationRulesTestSuite) Test_ListOperationRules_ActivityFails() {
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func TestListOperationRulesTestSuite(t *testing.T) {
-	suite.Run(t, new(ListOperationRulesTestSuite))
+func TestGetAllTaskRulesTestSuite(t *testing.T) {
+	suite.Run(t, new(GetAllTaskRulesTestSuite))
 }
 
-// UpdateOperationRuleTestSuite tests the UpdateOperationRule workflow
-type UpdateOperationRuleTestSuite struct {
+// UpdateTaskRuleTestSuite tests the UpdateTaskRule workflow
+type UpdateTaskRuleTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (s *UpdateOperationRuleTestSuite) SetupTest() {
+func (s *UpdateTaskRuleTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
 
-func (s *UpdateOperationRuleTestSuite) AfterTest(suiteName, testName string) {
+func (s *UpdateTaskRuleTestSuite) AfterTest(suiteName, testName string) {
 	s.env.AssertExpectations(s.T())
 }
 
-func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_Success() {
+func (s *UpdateTaskRuleTestSuite) Test_UpdateTaskRule_Success() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.UpdateOperationRuleRequest{
@@ -239,12 +239,12 @@ func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_Success() {
 	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
 
-	s.env.ExecuteWorkflow(UpdateOperationRule, request)
+	s.env.ExecuteWorkflow(UpdateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }
 
-func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_ActivityFails() {
+func (s *UpdateTaskRuleTestSuite) Test_UpdateTaskRule_ActivityFails() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.UpdateOperationRuleRequest{
@@ -255,7 +255,7 @@ func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_ActivityFails() 
 	s.env.RegisterActivity(ruleManager.UpdateTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.UpdateTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	s.env.ExecuteWorkflow(UpdateOperationRule, request)
+	s.env.ExecuteWorkflow(UpdateTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -265,27 +265,27 @@ func (s *UpdateOperationRuleTestSuite) Test_UpdateOperationRule_ActivityFails() 
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func TestUpdateOperationRuleTestSuite(t *testing.T) {
-	suite.Run(t, new(UpdateOperationRuleTestSuite))
+func TestUpdateTaskRuleTestSuite(t *testing.T) {
+	suite.Run(t, new(UpdateTaskRuleTestSuite))
 }
 
-// DeleteOperationRuleTestSuite tests the DeleteOperationRule workflow
-type DeleteOperationRuleTestSuite struct {
+// DeleteTaskRuleTestSuite tests the DeleteTaskRule workflow
+type DeleteTaskRuleTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func (s *DeleteOperationRuleTestSuite) SetupTest() {
+func (s *DeleteTaskRuleTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
 
-func (s *DeleteOperationRuleTestSuite) AfterTest(suiteName, testName string) {
+func (s *DeleteTaskRuleTestSuite) AfterTest(suiteName, testName string) {
 	s.env.AssertExpectations(s.T())
 }
 
-func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_Success() {
+func (s *DeleteTaskRuleTestSuite) Test_DeleteTaskRule_Success() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.DeleteOperationRuleRequest{
@@ -295,12 +295,12 @@ func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_Success() {
 	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(&emptypb.Empty{}, nil)
 
-	s.env.ExecuteWorkflow(DeleteOperationRule, request)
+	s.env.ExecuteWorkflow(DeleteTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 }
 
-func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_ActivityFails() {
+func (s *DeleteTaskRuleTestSuite) Test_DeleteTaskRule_ActivityFails() {
 	var ruleManager rActivity.ManageTaskRule
 
 	request := &flowv1.DeleteOperationRuleRequest{
@@ -311,7 +311,7 @@ func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_ActivityFails() 
 	s.env.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
 	s.env.OnActivity(ruleManager.DeleteTaskRuleOnFlow, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	s.env.ExecuteWorkflow(DeleteOperationRule, request)
+	s.env.ExecuteWorkflow(DeleteTaskRule, request)
 	s.True(s.env.IsWorkflowCompleted())
 	err := s.env.GetWorkflowError()
 	s.Error(err)
@@ -321,6 +321,6 @@ func (s *DeleteOperationRuleTestSuite) Test_DeleteOperationRule_ActivityFails() 
 	s.Equal(errMsg, applicationErr.Error())
 }
 
-func TestDeleteOperationRuleTestSuite(t *testing.T) {
-	suite.Run(t, new(DeleteOperationRuleTestSuite))
+func TestDeleteTaskRuleTestSuite(t *testing.T) {
+	suite.Run(t, new(DeleteTaskRuleTestSuite))
 }

@@ -326,9 +326,10 @@ func NewAPITaskRule(pbRule *flowv1.OperationRule) (*APITaskRule, error) {
 // APITaskRuleCreateRequest is the JSON body for POST /rule.
 //
 // IsDefault is intentionally absent: rules are created as non-default and
-// promoted to default via a dedicated path (not exposed in this MVP). See the
-// rule API design doc for the rationale (atomic swap requires Flow's
-// SetRuleAsDefault RPC, which has different semantics than CRUD update).
+// promoted to default via a dedicated path (not surfaced through this CRUD
+// API). See the rule API design doc for the rationale — the atomic swap
+// requires Flow's SetRuleAsDefault RPC, which has different semantics than a
+// CRUD update.
 type APITaskRuleCreateRequest struct {
 	SiteID         string                `json:"siteId"`
 	Name           string                `json:"name"`

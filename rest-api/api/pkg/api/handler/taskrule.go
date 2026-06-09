@@ -161,7 +161,7 @@ func NewCreateTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc
 // @Success 201 {object} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule [post]
 func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Create", c, h.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRule", "Create", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -199,9 +199,9 @@ func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateOperationRule", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateTaskRule", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateOperationRule workflow")
+		logger.Error().Err(err).Msg("failed to schedule CreateTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule creation workflow", nil)
 	}
 
@@ -209,14 +209,14 @@ func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "CreateOperationRule")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "CreateTaskRule")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateOperationRule workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule creation workflow on Site: %s", unwrapErr), nil)
 	}
 
-	// Flow's CreateOperationRule returns only the new rule's ID; echo the
+	// Flow's CreateTaskRule returns only the new rule's ID; echo the
 	// request back so the client gets the canonical view without an extra GET.
 	created := &model.APITaskRule{
 		ID:             flowResponse.GetId().GetId(),
@@ -266,7 +266,7 @@ func NewGetTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cl
 // @Success 200 {object} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule/{id} [get]
 func (h GetTaskRuleHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Get", c, h.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRule", "Get", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -308,9 +308,9 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetOperationRule", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTaskRule", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetOperationRule workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule retrieval workflow", nil)
 	}
 
@@ -318,12 +318,12 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "GetOperationRule")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "GetTaskRule")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
 		// Flow returns NotFound as gRPC code 5 → 404; UnwrapWorkflowError
 		// already maps it for us. Preserve that here.
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetOperationRule workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule retrieval workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -378,7 +378,7 @@ func NewGetAllTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc
 // @Success 200 {array} model.APITaskRule
 // @Router /v2/org/{org}/nico/task/rule [get]
 func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "List", c, h.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRule", "List", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -426,9 +426,9 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "ListOperationRules", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetAllTaskRules", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule ListOperationRules workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRules workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule list workflow", nil)
 	}
 
@@ -436,10 +436,10 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "ListOperationRules")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "GetAllTaskRules")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from ListOperationRules workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRules workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule list workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -501,7 +501,7 @@ func NewUpdateTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc
 // @Success 204 "No Content"
 // @Router /v2/org/{org}/nico/task/rule/{id} [patch]
 func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Update", c, h.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRule", "Update", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -543,9 +543,9 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "UpdateOperationRule", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "UpdateTaskRule", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule UpdateOperationRule workflow")
+		logger.Error().Err(err).Msg("failed to schedule UpdateTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule update workflow", nil)
 	}
 
@@ -553,10 +553,10 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "UpdateOperationRule")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "UpdateTaskRule")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from UpdateOperationRule workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from UpdateTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule update workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -604,7 +604,7 @@ func NewDeleteTaskRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc
 // @Success 204 "No Content"
 // @Router /v2/org/{org}/nico/task/rule/{id} [delete]
 func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Delete", c, h.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRule", "Delete", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -646,9 +646,9 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteOperationRule", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteTaskRule", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule DeleteOperationRule workflow")
+		logger.Error().Err(err).Msg("failed to schedule DeleteTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule deletion workflow", nil)
 	}
 
@@ -656,10 +656,10 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "DeleteOperationRule")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "TaskRule", "DeleteTaskRule")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from DeleteOperationRule workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from DeleteTaskRule workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule deletion workflow on Site: %s", unwrapErr), nil)
 	}
 

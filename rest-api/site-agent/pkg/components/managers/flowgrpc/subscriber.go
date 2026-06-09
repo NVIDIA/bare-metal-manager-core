@@ -133,20 +133,20 @@ func (flowgrpc *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetTasksFromFlow activity")
 
 	// Register Operation Rule workflows
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateOperationRule)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateOperationRule workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateTaskRule)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateTaskRule workflow")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetOperationRule)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetOperationRule workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetTaskRule)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetTaskRule workflow")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.ListOperationRules)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ListOperationRules workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetAllTaskRules)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllTaskRules workflow")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.UpdateOperationRule)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered UpdateOperationRule workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.UpdateTaskRule)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered UpdateTaskRule workflow")
 
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DeleteOperationRule)
-	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteOperationRule workflow")
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.DeleteTaskRule)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteTaskRule workflow")
 
 	// Register Operation Rule activities
 	ruleManager := swa.NewManageRule(ManagerAccess.Data.EB.Managers.FlowGrpc.Client)

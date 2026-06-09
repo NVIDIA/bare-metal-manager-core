@@ -120,8 +120,8 @@ func (mr *ManageTaskRule) GetAllTaskRulesFromFlow(ctx context.Context, request *
 }
 
 // UpdateTaskRuleOnFlow updates an Operation Rule via Flow. Note that
-// is_default is not updatable via this path on Flow; use SetRuleAsDefault for
-// that (not exposed in this MVP).
+// is_default is not updatable via this path on Flow; use SetRuleAsDefault
+// for that (not surfaced through this CRUD API).
 func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
 	logger := log.With().Str("Activity", "UpdateTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")

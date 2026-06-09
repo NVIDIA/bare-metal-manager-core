@@ -30,9 +30,9 @@ func ruleActivityOptions() workflow.ActivityOptions {
 	}
 }
 
-// CreateOperationRule is a workflow to create a new Operation Rule via Flow.
-func CreateOperationRule(ctx workflow.Context, request *flowv1.CreateOperationRuleRequest) (*flowv1.CreateOperationRuleResponse, error) {
-	logger := log.With().Str("Workflow", "Rule").Str("Action", "CreateOperationRule").Logger()
+// CreateTaskRule is a workflow to create a new Operation Rule via Flow.
+func CreateTaskRule(ctx workflow.Context, request *flowv1.CreateOperationRuleRequest) (*flowv1.CreateOperationRuleResponse, error) {
+	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Create").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
@@ -50,9 +50,9 @@ func CreateOperationRule(ctx workflow.Context, request *flowv1.CreateOperationRu
 	return &response, nil
 }
 
-// GetOperationRule is a workflow to retrieve an Operation Rule by ID via Flow.
-func GetOperationRule(ctx workflow.Context, request *flowv1.GetOperationRuleRequest) (*flowv1.OperationRule, error) {
-	logger := log.With().Str("Workflow", "Rule").Str("Action", "GetOperationRule").Logger()
+// GetTaskRule is a workflow to retrieve an Operation Rule by ID via Flow.
+func GetTaskRule(ctx workflow.Context, request *flowv1.GetOperationRuleRequest) (*flowv1.OperationRule, error) {
+	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Get").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
@@ -70,11 +70,11 @@ func GetOperationRule(ctx workflow.Context, request *flowv1.GetOperationRuleRequ
 	return &response, nil
 }
 
-// ListOperationRules is a workflow to list Operation Rules matching the
+// GetAllTaskRules is a workflow to list Operation Rules matching the
 // filters in the request (operation_type, operation_code, default_only) via
 // Flow. Pagination and totals are computed by Flow.
-func ListOperationRules(ctx workflow.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
-	logger := log.With().Str("Workflow", "Rule").Str("Action", "ListOperationRules").Logger()
+func GetAllTaskRules(ctx workflow.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
+	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "GetAll").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
@@ -95,11 +95,11 @@ func ListOperationRules(ctx workflow.Context, request *flowv1.ListOperationRules
 	return &response, nil
 }
 
-// UpdateOperationRule is a workflow to update an Operation Rule via Flow.
-// is_default cannot be updated via this path; use SetRuleAsDefault on Flow for
-// that (not exposed in this MVP).
-func UpdateOperationRule(ctx workflow.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
-	logger := log.With().Str("Workflow", "Rule").Str("Action", "UpdateOperationRule").Logger()
+// UpdateTaskRule is a workflow to update an Operation Rule via Flow.
+// is_default cannot be updated via this path; use Flow's SetRuleAsDefault
+// RPC for that (not surfaced through this CRUD API).
+func UpdateTaskRule(ctx workflow.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Update").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())
@@ -117,11 +117,11 @@ func UpdateOperationRule(ctx workflow.Context, request *flowv1.UpdateOperationRu
 	return &response, nil
 }
 
-// DeleteOperationRule is a workflow to delete an Operation Rule by ID via
+// DeleteTaskRule is a workflow to delete an Operation Rule by ID via
 // Flow. Flow rejects deletion of rules that are still associated with racks or
 // are the active default for an operation; the caller must dissociate first.
-func DeleteOperationRule(ctx workflow.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
-	logger := log.With().Str("Workflow", "Rule").Str("Action", "DeleteOperationRule").Logger()
+func DeleteTaskRule(ctx workflow.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Delete").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	ctx = workflow.WithActivityOptions(ctx, ruleActivityOptions())

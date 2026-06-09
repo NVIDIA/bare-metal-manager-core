@@ -158,7 +158,7 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 					resp.Id = tt.mockResp.Id
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateOperationRule", mock.Anything).Return(mockRun, tt.mockExecErr)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateTaskRule", mock.Anything).Return(mockRun, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
@@ -292,7 +292,7 @@ func TestGetRuleHandler_Handle(t *testing.T) {
 					resp.UpdatedAt = src.UpdatedAt
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetOperationRule", mock.Anything).Return(mockRun, nil)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTaskRule", mock.Anything).Return(mockRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
@@ -420,7 +420,7 @@ func TestListRulesHandler_Handle(t *testing.T) {
 					resp.TotalCount = int32(len(tt.mockRules))
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "ListOperationRules", mock.Anything).
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRules", mock.Anything).
 				Run(func(args mock.Arguments) {
 					if tt.assertFlowReq != nil {
 						req, ok := args.Get(3).(*flowv1.ListOperationRulesRequest)
@@ -540,7 +540,7 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			mockRun.Mock.On("Get", mock.Anything, mock.Anything).Return(tt.mockGetErr)
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateOperationRule", mock.Anything).Return(mockRun, tt.mockExecErr)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateTaskRule", mock.Anything).Return(mockRun, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
@@ -624,7 +624,7 @@ func TestDeleteRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			mockRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "DeleteOperationRule", mock.Anything).Return(mockRun, nil)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "DeleteTaskRule", mock.Anything).Return(mockRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
