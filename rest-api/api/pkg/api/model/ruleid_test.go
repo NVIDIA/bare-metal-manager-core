@@ -138,7 +138,7 @@ func TestRequestRuleIDValidation(t *testing.T) {
 				return (&APIBatchBringUpRackRequest{SiteID: "s", RuleID: &validUUID}).Validate()
 			},
 		},
-		// ---- nil vs empty pointer (all types share validateOptionalUUID semantics) ----
+		// ---- nil vs empty pointer (all types share the same optional-UUID semantics) ----
 		{
 			name: "APIBringUpRackRequest - nil ruleId is ok",
 			validate: func() error {

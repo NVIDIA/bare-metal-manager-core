@@ -10,9 +10,19 @@ import (
 	"strconv"
 	"time"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
+
+// validOperationTypesAny is the ozzo-friendly `[]any` form of the supported
+// operationType enum, used by validation.In on every request model that
+// accepts operationType.
+var validOperationTypesAny = []any{
+	APIOperationTypePowerControl,
+	APIOperationTypeFirmwareControl,
+}
 
 // Operation type strings exposed by the REST API. PascalCase follows the
 // convention used elsewhere on the REST surface for enum-like string fields
@@ -333,22 +343,16 @@ type APITaskRuleCreateRequest struct {
 // the workflow error path; doing it again here would force the API layer to
 // track Flow's evolving allow-list.
 func (r *APITaskRuleCreateRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
-	}
-	if r.Name == "" {
-		return fmt.Errorf("name is required")
-	}
-	if r.OperationType == "" {
-		return fmt.Errorf("operationType is required")
-	}
-	if _, err := operationTypeFromAPI(r.OperationType); err != nil {
-		return err
-	}
-	if r.OperationCode == "" {
-		return fmt.Errorf("operationCode is required")
-	}
-	return nil
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.Name, validation.Required.Error("name is required")),
+		validation.Field(&r.OperationType,
+			validation.Required.Error("operationType is required"),
+			validation.In(validOperationTypesAny...).Error(
+				fmt.Sprintf("operationType must be one of %v",
+					[]string{APIOperationTypePowerControl, APIOperationTypeFirmwareControl}))),
+		validation.Field(&r.OperationCode, validation.Required.Error("operationCode is required")),
+	)
 }
 
 // ToProto converts the request into the Flow CreateOperationRuleRequest.
@@ -391,14 +395,16 @@ type APITaskRuleUpdateRequest struct {
 // Validate enforces that the request actually carries at least one field to
 // update. siteId is always required as it routes to the right Flow.
 func (r *APITaskRuleUpdateRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
+	if err := validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.Name,
+			validation.When(r.Name != nil,
+				validation.Required.Error("name cannot be empty when provided"))),
+	); err != nil {
+		return err
 	}
 	if r.Name == nil && r.Description == nil && r.RuleDefinition == nil {
 		return fmt.Errorf("at least one of name, description, ruleDefinition must be provided")
-	}
-	if r.Name != nil && *r.Name == "" {
-		return fmt.Errorf("name cannot be empty when provided")
 	}
 	return nil
 }
@@ -430,10 +436,9 @@ type APITaskRuleGetRequest struct {
 }
 
 func (r *APITaskRuleGetRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId query parameter is required")
-	}
-	return nil
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
+	)
 }
 
 // APITaskRuleDeleteRequest captures query parameters for DELETE /rule/{id}.
@@ -442,10 +447,9 @@ type APITaskRuleDeleteRequest struct {
 }
 
 func (r *APITaskRuleDeleteRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId query parameter is required")
-	}
-	return nil
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
+	)
 }
 
 // ~~~~~ List ~~~~~ //
@@ -458,13 +462,14 @@ type APITaskRuleGetAllRequest struct {
 }
 
 func (r *APITaskRuleGetAllRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId query parameter is required")
-	}
-	if _, err := operationTypeFromAPI(r.OperationType); err != nil {
-		return err
-	}
-	return nil
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
+		validation.Field(&r.OperationType,
+			validation.When(r.OperationType != "",
+				validation.In(validOperationTypesAny...).Error(
+					fmt.Sprintf("operationType must be one of %v",
+						[]string{APIOperationTypePowerControl, APIOperationTypeFirmwareControl})))),
+	)
 }
 
 // ToProto converts the list filters into the Flow ListOperationRulesRequest.

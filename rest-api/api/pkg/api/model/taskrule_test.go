@@ -90,14 +90,14 @@ func TestAPICreateRuleRequest_Validate(t *testing.T) {
 			wantErr: "operationType is required",
 		},
 		{
-			name: "invalid operationType",
+			name: "unknown operationType",
 			req: APITaskRuleCreateRequest{
 				SiteID:        "site-id",
 				Name:          "x",
 				OperationType: "bogus",
 				OperationCode: "power_on",
 			},
-			wantErr: "invalid operationType",
+			wantErr: "operationType must be one of",
 		},
 		{
 			name: "missing operationCode",
@@ -259,9 +259,9 @@ func TestAPIListRulesRequest_Validate(t *testing.T) {
 		},
 		{name: "missing siteId", req: APITaskRuleGetAllRequest{}, wantErr: "siteId"},
 		{
-			name:    "invalid operationType",
+			name:    "unknown operationType",
 			req:     APITaskRuleGetAllRequest{SiteID: "site-id", OperationType: "bogus"},
-			wantErr: "invalid operationType",
+			wantErr: "operationType must be one of",
 		},
 	}
 	for _, tt := range tests {

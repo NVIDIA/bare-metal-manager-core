@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/url"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
@@ -518,10 +521,12 @@ type APIBringUpRackRequest struct {
 
 // Validate validates the bring up request
 func (r *APIBringUpRackRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
-	}
-	return validateOptionalUUID("ruleId", r.RuleID)
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.RuleID,
+			validation.When(r.RuleID != nil,
+				validationis.UUID.Error(validationErrorInvalidUUID))),
+	)
 }
 
 // ========== Bring Up Response ==========
@@ -564,8 +569,10 @@ type APIBatchBringUpRackRequest struct {
 
 // Validate checks required fields.
 func (r *APIBatchBringUpRackRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
-	}
-	return validateOptionalUUID("ruleId", r.RuleID)
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.RuleID,
+			validation.When(r.RuleID != nil,
+				validationis.UUID.Error(validationErrorInvalidUUID))),
+	)
 }
