@@ -546,12 +546,11 @@ dependencies = [
 workspace = false
 description = "Tasks that run on workspace level (not crate level) in pre-commit-verify"
 category = "CI"
-# clippy-flow, check-format-flow are default targets provided by cargo-make.
+# clippy-flow is a default target provided by cargo-make.
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to add it to the lint-police job in .github/workflows/ci.yaml too.
 dependencies = [
   "clippy-flow",
   "carbide-lints",
-  "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
   "check-isolated-package-builds",
