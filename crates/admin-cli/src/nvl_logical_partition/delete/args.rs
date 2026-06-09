@@ -22,6 +22,13 @@ use clap::Parser;
 use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a logical partition by name:
+    $ carbide-admin-cli logical-partition delete --name my-partition
+
+")]
 pub struct Args {
     #[clap(short = 'n', long, help = "name of the partition")]
     pub name: String,

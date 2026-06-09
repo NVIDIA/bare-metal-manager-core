@@ -23,6 +23,13 @@ use super::super::common::SshArgs;
 // specific newtype to allow sharing of SshArgs, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Disable the RSHIM interface on a DPU BMC:
+    $ carbide-admin-cli ssh disable-rshim 192.0.2.10:22 admin mypassword
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: SshArgs,

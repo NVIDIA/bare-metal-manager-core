@@ -21,6 +21,13 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a power shelf by ID:
+    $ carbide-admin-cli power-shelf delete 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(help = "Power Shelf ID to delete.")]
     pub power_shelf_id: String,

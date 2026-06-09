@@ -19,6 +19,19 @@ use carbide_uuid::network::NetworkSegmentId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all network segments:
+    $ carbide-admin-cli network-segment show
+
+Show one network segment by ID:
+    $ carbide-admin-cli network-segment show 12345678-1234-5678-90ab-cdef01234567
+
+Filter by tenant org:
+    $ carbide-admin-cli network-segment show --tenant-org-id fds34511233a
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),
