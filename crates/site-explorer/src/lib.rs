@@ -403,6 +403,7 @@ impl SiteExplorer {
             tracing::Level::INFO,
             "explore_site",
             span_id,
+            carbide.trace_root = true,
             otel.status_code = tracing::field::Empty,
             otel.status_message = tracing::field::Empty,
             created_machines = tracing::field::Empty,

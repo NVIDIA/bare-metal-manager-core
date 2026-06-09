@@ -581,10 +581,81 @@ fn sysfs_path_is_sata(path: &std::path::Path) -> bool {
     path.to_string_lossy().contains("/ata")
 }
 
+fn sysfs_symlink_basename(path: &std::path::Path) -> Option<String> {
+    fs::canonicalize(path).ok().and_then(|target| {
+        target
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+    })
+}
+
+fn sysfs_ancestor_is_usb(ancestor: &std::path::Path) -> bool {
+    if sysfs_symlink_basename(&ancestor.join("subsystem")).as_deref() == Some("usb") {
+        return true;
+    }
+
+    matches!(
+        sysfs_symlink_basename(&ancestor.join("driver")).as_deref(),
+        Some("usb-storage" | "uas")
+    )
+}
+
+fn sysfs_path_is_usb(path: &std::path::Path) -> bool {
+    path.ancestors().any(sysfs_ancestor_is_usb)
+}
+
 fn is_sata_device(devname: &str) -> bool {
     fs::canonicalize(format!("/sys/block/{devname}"))
         .map(|p| sysfs_path_is_sata(&p))
         .unwrap_or(false)
+}
+
+fn is_usb_device(devname: &str) -> bool {
+    fs::canonicalize(format!("/sys/block/{devname}"))
+        .map(|p| sysfs_path_is_usb(&p))
+        .unwrap_or(false)
+}
+
+fn read_block_sysfs_attr(devname: &str, attr: &str) -> Option<String> {
+    fs::read_to_string(format!("/sys/block/{devname}/{attr}"))
+        .ok()
+        .map(|value| value.trim().to_string())
+}
+
+enum BlockDeviceCleanupSkipReason {
+    Hidden,
+    Removable { removable: String },
+    UsbTransport,
+}
+
+impl std::fmt::Display for BlockDeviceCleanupSkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hidden => write!(f, "hidden block device"),
+            Self::Removable { removable } => {
+                write!(f, "removable block device (removable={removable})")
+            }
+            Self::UsbTransport => write!(f, "USB transport block device"),
+        }
+    }
+}
+
+fn block_device_cleanup_skip_reason(devname: &str) -> Option<BlockDeviceCleanupSkipReason> {
+    if read_block_sysfs_attr(devname, "hidden").is_some_and(|value| value == "1") {
+        return Some(BlockDeviceCleanupSkipReason::Hidden);
+    }
+
+    if let Some(removable) = read_block_sysfs_attr(devname, "removable")
+        && removable != "0"
+    {
+        return Some(BlockDeviceCleanupSkipReason::Removable { removable });
+    }
+
+    if is_usb_device(devname) {
+        return Some(BlockDeviceCleanupSkipReason::UsbTransport);
+    }
+
+    None
 }
 
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
@@ -609,6 +680,15 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
             let devname = entry.file_name().to_string_lossy().to_string();
             let devpath = format!("/dev/{devname}");
             if SD_DEV_RE.is_match(&devpath) {
+                if let Some(reason) = block_device_cleanup_skip_reason(&devname) {
+                    tracing::info!(
+                        device = %devpath,
+                        reason = %reason,
+                        "Skipping HDD/SAS cleanup candidate"
+                    );
+                    continue;
+                }
+
                 block_devicepaths.push(devpath);
             }
         }
@@ -1261,6 +1341,50 @@ mod tests {
         assert!(!sysfs_path_is_sata(Path::new(
             "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
         )));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb_by_subsystem_ancestor() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let usb_bus = tempdir.path().join("sys/bus/usb");
+        let usb_interface = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0");
+        let block_device = usb_interface.join("host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&usb_bus).unwrap();
+        std::fs::create_dir_all(&block_device).unwrap();
+        std::os::unix::fs::symlink(&usb_bus, usb_interface.join("subsystem")).unwrap();
+
+        assert!(sysfs_path_is_usb(&block_device));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb_by_driver_ancestor() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let uas_driver = tempdir.path().join("sys/bus/usb/drivers/uas");
+        let usb_interface = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0");
+        let block_device = usb_interface.join("host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&uas_driver).unwrap();
+        std::fs::create_dir_all(&block_device).unwrap();
+        std::os::unix::fs::symlink(&uas_driver, usb_interface.join("driver")).unwrap();
+
+        assert!(sysfs_path_is_usb(&block_device));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_usb_false_without_usb_ancestor_metadata() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let block_device = tempdir
+            .path()
+            .join("sys/devices/pci0000:00/0000:00:01.0/host0/target0:0:0/0:0:0:0/block/sda");
+
+        std::fs::create_dir_all(&block_device).unwrap();
+
+        assert!(!sysfs_path_is_usb(&block_device));
     }
 
     #[test]
