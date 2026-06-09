@@ -1618,7 +1618,7 @@ func ExecutePowerControlWorkflow(
 ) (*flowv1.SubmitTaskResponse, error) {
 	var workflowName string
 	var flowRequest interface{}
-	ruleUUID := ruleIDToProto(ruleID)
+	ruleUUID := GetFlowUUIDPtr(ruleID)
 
 	switch state {
 	case cam.PowerControlStateOn:
@@ -1712,7 +1712,7 @@ func ExecuteBringUpRackWorkflow(
 	flowRequest := &flowv1.BringUpRackRequest{
 		TargetSpec:  targetSpec,
 		Description: description,
-		RuleId:      ruleIDToProto(ruleID),
+		RuleId:      GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1775,7 +1775,7 @@ func ExecuteFirmwareUpdateWorkflow(
 		TargetVersion: version,
 		SubTargets:    targets,
 		Description:   fmt.Sprintf("API firmware update %s", entityName),
-		RuleId:        ruleIDToProto(ruleID),
+		RuleId:        GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1809,12 +1809,13 @@ func ExecuteFirmwareUpdateWorkflow(
 	return &flowResponse, nil
 }
 
-// ruleIDToProto converts an optional API rule-id string into Flow's proto UUID
-// wrapper. nil or "" means "no override" — Flow will fall back to its default
-// rule resolution. UUID syntax validation is the model layer's job.
-func ruleIDToProto(ruleID *string) *flowv1.UUID {
-	if ruleID == nil || *ruleID == "" {
+// GetFlowUUIDPtr converts an optional API ID string into Flow's proto UUID
+// wrapper. nil or "" means "no value provided" — callers (and Flow) treat
+// that as "leave unset" / "use default". UUID syntax validation is the
+// model layer's job; this helper only handles the pointer / wrapper plumbing.
+func GetFlowUUIDPtr(id *string) *flowv1.UUID {
+	if id == nil || *id == "" {
 		return nil
 	}
-	return &flowv1.UUID{Id: *ruleID}
+	return &flowv1.UUID{Id: *id}
 }

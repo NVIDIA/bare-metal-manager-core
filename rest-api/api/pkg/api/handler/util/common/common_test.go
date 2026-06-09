@@ -2596,22 +2596,22 @@ func TestQueryTagsFor(t *testing.T) {
 	assert.ElementsMatch(t, []string{"alpha", "beta"}, tags3)
 }
 
-// TestRuleIDToProto locks down the helper that the rack/tray Execute*
-// workflow helpers use to translate an optional API ruleId string into Flow's
-// proto UUID wrapper. nil and empty must both round-trip to a nil wrapper,
-// so the proto request gets no rule_id field and Flow falls back to its
-// default rule resolution.
-func TestRuleIDToProto(t *testing.T) {
+// TestGetFlowUUIDPtr locks down the helper used to translate an optional API
+// ID string into Flow's proto UUID wrapper. nil and empty must both round-
+// trip to a nil wrapper so the proto request gets no UUID field and Flow
+// treats the value as unset (e.g. falls back to default rule resolution for
+// ruleId callers).
+func TestGetFlowUUIDPtr(t *testing.T) {
 	t.Run("nil pointer returns nil", func(t *testing.T) {
-		assert.Nil(t, ruleIDToProto(nil))
+		assert.Nil(t, GetFlowUUIDPtr(nil))
 	})
 	t.Run("empty string returns nil", func(t *testing.T) {
 		s := ""
-		assert.Nil(t, ruleIDToProto(&s))
+		assert.Nil(t, GetFlowUUIDPtr(&s))
 	})
 	t.Run("non-empty string wraps into proto UUID", func(t *testing.T) {
 		s := "550e8400-e29b-41d4-a716-446655440000"
-		got := ruleIDToProto(&s)
+		got := GetFlowUUIDPtr(&s)
 		if assert.NotNil(t, got) {
 			assert.Equal(t, s, got.GetId())
 		}
