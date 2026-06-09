@@ -152,4 +152,3 @@ func validateFirmwareTargets(targets []string, version *string) error {
 	}
 	return nil
 }
-
