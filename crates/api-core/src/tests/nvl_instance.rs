@@ -20,13 +20,13 @@ use common::api_fixtures::create_managed_host_with_hardware_info_template;
 use common::api_fixtures::instance::{
     create_instance_with_nvlink_config, update_instance_nvlink_config,
 };
-use common::api_fixtures::managed_host::HardwareInfoTemplate;
 use common::api_fixtures::nvl_logical_partition::create_nvl_logical_partition;
 use libnmxc::nmxc_model::{
     CreatePartitionRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr,
     UpdatePartitionRequest,
 };
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::test_support::HardwareInfoTemplate;
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 

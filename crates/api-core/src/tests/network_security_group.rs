@@ -23,6 +23,7 @@ use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use model::instance::config::network::DeviceLocator;
 use model::metadata::Metadata;
+use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::health::HealthReport;
 use tonic::Code;
@@ -30,12 +31,11 @@ use uuid::uuid;
 
 use super::common::api_fixtures::TestEnv;
 use crate::cfg::file::default_max_network_security_group_size;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
+use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, interface_network_config_with_devices,
     single_interface_network_config,
 };
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     create_test_env, populate_network_security_groups, site_explorer,
 };

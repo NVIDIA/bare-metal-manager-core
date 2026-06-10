@@ -6,6 +6,9 @@ package model
 import (
 	"fmt"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
@@ -31,12 +34,19 @@ type APIUpdateFirmwareRequest struct {
 	// Flow proto field is named `sub_targets` and represents the same
 	// enum subset.
 	Targets []string `json:"targets,omitempty"`
+	// RuleID, when set, overrides the default rule resolution and pins this
+	// firmware operation to the named Operation Rule.
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate validates the firmware update request
 func (r *APIUpdateFirmwareRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
+	err := validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+	)
+	if err != nil {
+		return err
 	}
 	return validateFirmwareTargets(r.Targets, r.Version)
 }
@@ -74,14 +84,17 @@ type APIBatchRackFirmwareUpdateRequest struct {
 	SiteID  string      `json:"siteId"`
 	Filter  *RackFilter `json:"filter,omitempty"`
 	Version *string     `json:"version,omitempty"`
+	// RuleID, when set, pins every task spawned by this batch to the named
+	// Operation Rule.
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate checks required fields.
 func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
-	}
-	return nil
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+	)
 }
 
 // ========== Batch Tray Firmware Update Request ==========
@@ -95,12 +108,19 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 	// firmware sub-parts within each matched tray. Same semantics as the
 	// single-tray variant. When non-empty, requires Version.
 	Targets []string `json:"targets,omitempty"`
+	// RuleID, when set, pins every task spawned by this batch to the named
+	// Operation Rule.
+	RuleID *string `json:"ruleId"`
 }
 
 // Validate checks required fields and filter constraints.
 func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
-	if r.SiteID == "" {
-		return fmt.Errorf("siteId is required")
+	err := validation.ValidateStruct(r,
+		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+	)
+	if err != nil {
+		return err
 	}
 	if r.Filter != nil {
 		if err := r.Filter.Validate(); err != nil {

@@ -391,6 +391,10 @@ pub fn parse_carbide_config(
     // parsed config, before the web layer exists.
     crate::init_tools(config.web_ui_sidebar_tools.clone());
 
+    // Publish the deployment-wide host naming policy so the DB layer can read it
+    // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
+    db::host_naming::configure(config.host_naming_strategy);
+
     // Validate that the firmware profile config keys match their inner
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
@@ -1339,7 +1343,7 @@ pub async fn initialize_and_start_controllers<'a>(
             mqtt_client,
         };
 
-        let dpa_info = Some(Arc::new(info));
+        let dpa_info = Arc::new(info);
 
         DpaMonitor::new(
             db_pool.clone(),
@@ -1487,10 +1491,12 @@ mod tests {
         prefix: &str,
         segment_type: NetworkDefinitionSegmentType,
     ) -> NetworkDefinition {
+        let prefix = prefix.parse::<ipnetwork::IpNetwork>().unwrap();
         NetworkDefinition {
             segment_type,
-            prefix: prefix.to_string(),
-            gateway: "".to_string(),
+            prefix,
+            // Test helper placeholder; callers under test do not use this as a routable gateway.
+            gateway: prefix.network(),
             mtu: 0,
             reserve_first: 0,
             allocation_strategy: Default::default(),

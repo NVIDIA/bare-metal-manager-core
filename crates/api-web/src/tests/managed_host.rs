@@ -15,17 +15,19 @@
  * limitations under the License.
  */
 use axum::body::Body;
+use carbide_api_core::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_rpc_utils::ManagedHostOutput;
 use db::{machine, managed_host};
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use model::hardware_info::HardwareInfo;
 use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
+use model::test_support::{DpuConfig, ManagedHostConfig};
 use tower::ServiceExt;
 
 use crate::managed_host::ManagedHostRowDisplay;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     create_managed_host_multi_dpu, create_test_env, site_explorer,
 };

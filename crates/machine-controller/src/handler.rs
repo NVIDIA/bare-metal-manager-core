@@ -2911,22 +2911,12 @@ async fn handle_dpu_reprovision(
                         }
                     })?;
 
-                    let bmc_ip_address = state
-                        .host_snapshot
-                        .bmc_info
-                        .ip
-                        .clone()
-                        .ok_or_else(|| StateHandlerError::MissingData {
+                    let bmc_ip_address = state.host_snapshot.bmc_info.ip.ok_or_else(|| {
+                        StateHandlerError::MissingData {
                             object_id: state.host_snapshot.id.to_string(),
                             missing: "bmc_ip",
-                        })?
-                        .parse()
-                        .map_err(|e| {
-                            StateHandlerError::GenericError(eyre!(
-                                "parsing the host's BMC IP address failed: {}",
-                                e
-                            ))
-                        })?;
+                        }
+                    })?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
@@ -6339,10 +6329,10 @@ impl StateHandler for InstanceStateHandler {
                                 &mh_snapshot.instance,
                                 &mh_snapshot.host_snapshot.spx_status_observation,
                             ) {
-                                return Ok(StateHandlerOutcome::wait(
-                                        "Waiting for DPA agent(s) to apply network config and report healthy network"
-                                            .to_string()
-                                    ));
+                                return Ok(StateHandlerOutcome::wait(format!(
+                                    "Waiting for DPA agent {dpa_id} to apply network config and report healthy network",
+                                    dpa_id = dpa_interface.id,
+                                )));
                             }
                         }
                     }
@@ -6377,19 +6367,25 @@ impl StateHandler for InstanceStateHandler {
 }
 
 // Gets extension services status from DB, checks if any removed services are fully terminated
-// across all DPUs, if so, remove them from the instance config in the DB(without updating the version).
+// across targeted DPUs, if so, remove them from the instance config in the DB(without updating the version).
 fn get_extension_services_status(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
 ) -> InstanceExtensionServicesStatus {
-    let (_, dpu_id_to_device_map) = mh_snapshot
+    let (_, device_to_id_map) = mh_snapshot
         .host_snapshot
         .get_dpu_device_and_id_mappings()
         .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
 
-    // Gather instance extension services status from all DPU observations
+    let primary_dpu_machine_id = mh_snapshot.host_snapshot.primary_attached_dpu_machine_id();
+    let used_dpus = instance
+        .config
+        .network
+        .get_used_dpus(&device_to_id_map, primary_dpu_machine_id);
+
+    // Gather instance extension services status from targeted DPUs.
     InstanceExtensionServicesStatus::from_config_and_observations(
-        &dpu_id_to_device_map,
+        &used_dpus,
         Versioned::new(
             &instance.config.extension_services,
             instance.extension_services_config_version,
@@ -9492,18 +9488,9 @@ async fn do_ipmi_restart(
     let ip: IpAddr = machine
         .bmc_info
         .ip
-        .as_ref()
         .ok_or_else(|| StateHandlerError::MissingData {
             object_id: machine.id.to_string(),
             missing: "bmc_ip",
-        })?
-        .parse()
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!(
-                "parsing BMC IP address for {} failed: {}",
-                machine.id,
-                e
-            ))
         })?;
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {

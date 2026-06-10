@@ -23,6 +23,7 @@ use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -37,6 +38,14 @@ use crate::machine::spx::MachineSpxStatusObservation;
 use crate::state_history::StateHistoryRecord;
 
 mod slas;
+
+/// Interface type for the DPA interface
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "dpa_interface_type")]
+pub enum DpaInterfaceType {
+    Svpc,
+    Astra,
+}
 
 /// State of a dpa interface as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +228,8 @@ pub struct DpaInterface {
     pub history: Vec<StateHistoryRecord>,
 
     pub device_description: Option<String>,
+
+    pub interface_type: DpaInterfaceType,
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +239,7 @@ pub struct NewDpaInterface {
     pub device_type: String,
     pub pci_name: String,
     pub device_description: Option<String>,
+    pub interface_type: DpaInterfaceType,
 }
 
 impl NewDpaInterface {
@@ -240,13 +252,21 @@ impl NewDpaInterface {
     /// the base_mac was unset. Since the mac_address is the latter half of
     /// what is effectively a (machine_id, mac_address) compound primary key,
     /// it's kind of important to have.
-    pub fn from_device_info(machine_id: MachineId, info: &MlxDeviceInfo) -> Option<Self> {
+    pub fn from_device_info(
+        machine_id: MachineId,
+        base_mac: Option<MacAddress>,
+        device_type: String,
+        pci_name: String,
+        device_description: Option<String>,
+        interface_type: DpaInterfaceType,
+    ) -> Option<Self> {
         Some(Self {
             machine_id,
-            mac_address: info.base_mac?,
-            device_type: info.device_type.clone(),
-            pci_name: info.pci_name.clone(),
-            device_description: info.device_description.clone(),
+            mac_address: base_mac?,
+            device_type,
+            pci_name,
+            device_description,
+            interface_type,
         })
     }
 }
@@ -269,24 +289,57 @@ impl DpaInterface {
         instance: &Option<InstanceSnapshot>,
         spx_status_observation: &Option<MachineSpxStatusObservation>,
     ) -> bool {
-        let dpa_expected_version = match instance {
-            Some(instance) if !instance.config.spxconfig.spx_attachments.is_empty() => {
-                instance.spx_config_version
-            }
-            _ => self.network_config.version,
-        };
+        let mut dpa_expected_version = self.network_config.version;
 
+        // If we haven't yet seen any observations, we are not synced
         let Some(spx_status_observation) = spx_status_observation else {
+            tracing::info!(
+                "DPA interface {dpa_id} is not synced because no SPX status observation is available",
+                dpa_id = self.id
+            );
             return false;
         };
+
+        // If there is an instance, and the instance has SPX attachments,
+        // and one of the attachments matches our mac address and has a non-zero partition ID,
+        // then the DPA expected version should be the instance's SPX config version.
+        if let Some(instance) = instance
+            && instance
+                .config
+                .spxconfig
+                .spx_attachments
+                .iter()
+                .any(|attachment| {
+                    attachment.mac_address.as_deref().unwrap_or_default()
+                        == self.mac_address.to_string()
+                        && attachment.spx_partition_id != NULL_SPX_PARTITION_ID
+                })
+        {
+            dpa_expected_version = instance.spx_config_version;
+        }
 
         for obs in spx_status_observation.spx_attachments.iter() {
             if obs.mac_address == self.mac_address
                 && let Some(config_version) = obs.config_version
             {
-                return config_version == dpa_expected_version;
+                if config_version != dpa_expected_version {
+                    tracing::info!(
+                        "DPA interface {dpa_id} is not synced version mismatch: {config_version} != {dpa_expected_version}",
+                        dpa_id = self.id,
+                        config_version = config_version,
+                        dpa_expected_version = dpa_expected_version
+                    );
+                    return false;
+                }
+                return true;
             }
         }
+
+        tracing::info!(
+            "DPA interface {dpa_id} is not synced verrsion mismatch: {dpa_expected_version}",
+            dpa_id = self.id,
+            dpa_expected_version = dpa_expected_version
+        );
 
         false
     }
@@ -333,6 +386,7 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub history: Vec<StateHistoryRecord>,
     #[serde(default)]
     pub device_description: Option<String>,
+    pub interface_type: DpaInterfaceType,
 }
 
 impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
@@ -375,6 +429,7 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             underlay_ip: value.underlay_ip,
             overlay_ip: value.overlay_ip,
             device_description: value.device_description,
+            interface_type: value.interface_type,
         })
     }
 }
@@ -383,8 +438,6 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
 mod tests {
     use std::str::FromStr;
 
-    use carbide_libmlx_model::device::info::MlxDeviceInfo;
-
     use super::*;
 
     #[test]
@@ -392,22 +445,22 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
                 .unwrap();
-        let info = MlxDeviceInfo {
-            pci_name: "01:00.0".to_string(),
-            device_type: "BlueField3".to_string(),
-            psid: Some("MT_0000001069".to_string()),
-            device_description: Some("SuperNIC".to_string()),
-            part_number: Some("900-9D3D4-00EN-HA0".to_string()),
-            fw_version_current: Some("32.43.1014".to_string()),
-            pxe_version_current: None,
-            uefi_version_current: None,
-            uefi_version_virtio_blk_current: None,
-            uefi_version_virtio_net_current: None,
-            base_mac: Some(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
-            status: Some("OK".to_string()),
-        };
 
-        let new_intf = NewDpaInterface::from_device_info(machine_id, &info).unwrap();
+        let base_mac = MacAddress::from_str("00:11:22:33:44:55").unwrap();
+        let device_type = "BlueField3".to_string();
+        let pci_name = "01:00.0".to_string();
+        let device_description = Some("SuperNIC".to_string());
+        let interface_type = DpaInterfaceType::Svpc;
+
+        let new_intf = NewDpaInterface::from_device_info(
+            machine_id,
+            Some(base_mac),
+            device_type,
+            pci_name,
+            device_description,
+            interface_type,
+        )
+        .unwrap();
         assert_eq!(new_intf.machine_id, machine_id);
         assert_eq!(
             new_intf.mac_address,
@@ -422,22 +475,23 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
                 .unwrap();
-        let info = MlxDeviceInfo {
-            pci_name: "01:00.0".to_string(),
-            device_type: "BlueField3".to_string(),
-            psid: None,
-            device_description: None,
-            part_number: None,
-            fw_version_current: None,
-            pxe_version_current: None,
-            uefi_version_current: None,
-            uefi_version_virtio_blk_current: None,
-            uefi_version_virtio_net_current: None,
-            base_mac: None,
-            status: None,
-        };
+        let base_mac = None;
+        let device_type = "BlueField3".to_string();
+        let pci_name = "01:00.0".to_string();
+        let device_description = None;
+        let interface_type = DpaInterfaceType::Svpc;
 
-        assert!(NewDpaInterface::from_device_info(machine_id, &info).is_none());
+        assert!(
+            NewDpaInterface::from_device_info(
+                machine_id,
+                base_mac,
+                device_type,
+                pci_name,
+                device_description,
+                interface_type
+            )
+            .is_none()
+        );
     }
 
     #[test]

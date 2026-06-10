@@ -69,15 +69,12 @@ pub async fn expire_dhcp_lease(
         }
     };
 
-    // Clear the hostname so DNS stays consistent. The next DHCP discover will
-    // re-derive the hostname from the newly allocated IP.
+    // Sync the hostname to the remaining address state so DNS stays
+    // consistent: the IP style re-derives (and re-derives again from the next
+    // allocated IP on rediscovery); the other styles keep their names and only
+    // drop out of DNS while addressless.
     if deleted && let Some(iface) = interface {
-        db::machine_interface::sync_hostname_after_address_change(
-            &mut txn,
-            iface.id,
-            &iface.mac_address,
-        )
-        .await?;
+        db::machine_interface::sync_hostname_after_address_change(&mut txn, iface.id).await?;
     }
 
     txn.commit().await?;

@@ -40,6 +40,7 @@ use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_std_duration};
 use chrono::Duration;
+use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -158,6 +159,15 @@ pub struct CarbideConfig {
     /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
+
+    /// Strategy for deriving machine hostnames: `ip_address` (default), `fun`
+    /// (stable adjective-noun handles), `serial_number`, or `mac_address`.
+    /// Only `fun` leaves existing hostnames alone (it keeps any real name);
+    /// the others re-derive, so switching to one progressively renames
+    /// existing interfaces as they reconcile. `serial_number` errors on
+    /// duplicate serials rather than assigning a substitute name.
+    #[serde(default)]
+    pub host_naming_strategy: HostNamingStrategyKind,
 
     /// Pinger implementation type (e.g., "OobNetBind") used
     /// by the DPU network monitor to health-check DPU links.
@@ -3721,8 +3731,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("admin").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".to_string(),
-                gateway: "172.20.0.1".to_string(),
+                prefix: "172.20.0.0/24".parse().unwrap(),
+                gateway: "172.20.0.1".parse().unwrap(),
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3733,8 +3743,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("DEV1-C09-IPMI-01").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".to_string(),
-                gateway: "172.99.0.1".to_string(),
+                prefix: "172.99.0.0/26".parse().unwrap(),
+                gateway: "172.99.0.1".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),

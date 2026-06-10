@@ -43,6 +43,7 @@ pub mod extension_service;
 pub mod health_history;
 pub mod health_report;
 pub mod host_machine_update;
+pub mod host_naming;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;

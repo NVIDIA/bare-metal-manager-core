@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use rpc::forge::DpaInterfaceType;
 
 #[derive(Parser, Debug)]
 #[command(after_long_help = "\
@@ -40,6 +41,8 @@ pub struct Args {
     pub device_type: String,
     #[clap(help = "PCI name (e.g. 5e:00.0)")]
     pub pci_name: String,
+    #[clap(help = "Interface type (e.g. SVPC or ASTRA)", value_enum)]
+    pub interface_type: DpaInterfaceType,
     #[clap(help = "Device description (e.g. NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC)")]
     pub device_description: Option<String>,
 }
@@ -52,6 +55,7 @@ impl From<Args> for ::rpc::forge::DpaInterfaceCreationRequest {
             device_type: args.device_type,
             pci_name: args.pci_name,
             device_description: args.device_description,
+            interface_type: args.interface_type.into(),
         }
     }
 }

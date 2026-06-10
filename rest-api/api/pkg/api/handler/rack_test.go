@@ -1801,3 +1801,119 @@ func TestBatchUpdateRackFirmwareHandler_Handle(t *testing.T) {
 		})
 	}
 }
+
+// TestRackHandlers_RuleIDPassThrough asserts that a `ruleId` from the REST
+// request body lands in the Flow proto's `rule_id` field for each of the
+// three rack-scoped operation flows (power, firmware, bring-up). This locks
+// down the wiring through the shared Execute* helpers in handler/util/common.
+func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
+	e := echo.New()
+	dbSession := testRackInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org-rule-pass"
+	_, site, _ := testRackSetupTestData(t, dbSession, org)
+	providerUser := testRackBuildUser(t, dbSession, "provider-user-rule-pass", org, []string{authz.ProviderAdminRole})
+
+	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
+	rackID := uuid.New().String()
+	ruleID := uuid.NewString()
+
+	cases := []struct {
+		name       string
+		path       string
+		body       string
+		handler    echo.HandlerFunc
+		extractRID func(req interface{}) string
+	}{
+		{
+			name: "power - PowerOnRackRequest carries rule_id",
+			path: fmt.Sprintf("/v2/org/%s/nico/rack/%s/power", org, rackID),
+			body: fmt.Sprintf(`{"siteId":%q,"state":"on","ruleId":%q}`, site.ID.String(), ruleID),
+			handler: func() echo.HandlerFunc {
+				return NewUpdateRackPowerStateHandler(dbSession, nil, scp, cfg).Handle
+			}(),
+			extractRID: func(req interface{}) string {
+				r, ok := req.(*flowv1.PowerOnRackRequest)
+				if !ok {
+					return ""
+				}
+				return r.GetRuleId().GetId()
+			},
+		},
+		{
+			name: "firmware - UpgradeFirmwareRequest carries rule_id",
+			path: fmt.Sprintf("/v2/org/%s/nico/rack/%s/firmware", org, rackID),
+			body: fmt.Sprintf(`{"siteId":%q,"ruleId":%q}`, site.ID.String(), ruleID),
+			handler: func() echo.HandlerFunc {
+				return NewUpdateRackFirmwareHandler(dbSession, nil, scp, cfg).Handle
+			}(),
+			extractRID: func(req interface{}) string {
+				r, ok := req.(*flowv1.UpgradeFirmwareRequest)
+				if !ok {
+					return ""
+				}
+				return r.GetRuleId().GetId()
+			},
+		},
+		{
+			name: "bring-up - BringUpRackRequest carries rule_id",
+			path: fmt.Sprintf("/v2/org/%s/nico/rack/%s/bringup", org, rackID),
+			body: fmt.Sprintf(`{"siteId":%q,"ruleId":%q}`, site.ID.String(), ruleID),
+			handler: func() echo.HandlerFunc {
+				return NewBringUpRackHandler(dbSession, nil, scp, cfg).Handle
+			}(),
+			extractRID: func(req interface{}) string {
+				r, ok := req.(*flowv1.BringUpRackRequest)
+				if !ok {
+					return ""
+				}
+				return r.GetRuleId().GetId()
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var capturedReq interface{}
+
+			mockTemporalClient := &tmocks.Client{}
+			mockWorkflowRun := &tmocks.WorkflowRun{}
+			mockWorkflowRun.On("GetID").Return("test-workflow-id")
+			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
+				resp.TaskIds = []*flowv1.UUID{{Id: uuid.NewString()}}
+			}).Return(nil)
+			mockTemporalClient.Mock.On("ExecuteWorkflow",
+				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			).Run(func(args mock.Arguments) {
+				// (ctx, options, workflowName, flowRequest)
+				capturedReq = args.Get(3)
+			}).Return(mockWorkflowRun, nil)
+			scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+			req := httptest.NewRequest(http.MethodPatch, tc.path, strings.NewReader(tc.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			ec := e.NewContext(req, rec)
+			ec.SetParamNames("orgName", "id")
+			ec.SetParamValues(org, rackID)
+			ec.Set("user", providerUser)
+
+			ctx := context.WithValue(context.Background(), otelecho.TracerKey, tracer)
+			ec.SetRequest(ec.Request().WithContext(ctx))
+
+			err := tc.handler(ec)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+			require.NotNil(t, capturedReq, "ExecuteWorkflow was not called")
+			assert.Equal(t, ruleID, tc.extractRID(capturedReq))
+		})
+	}
+}

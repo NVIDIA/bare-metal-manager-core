@@ -7,7 +7,7 @@ NICo supports two ways of provisioning DPUs:
 1. iPXE based
 2. DPF based
 
-This manual covers deployment of **DPF based** provisioning as it is used by NICo.
+This manual covers deployment of **DPF based** provisioning as it is used by NICo. 
 It assumes that a working Kubernetes cluster is already available, and is intentionally
 agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clouds, etc.)—any
 conformant cluster that satisfies the DPF prerequisites is acceptable.
@@ -15,7 +15,7 @@ conformant cluster that satisfies the DPF prerequisites is acceptable.
 This guide is **not a replacement** for the official DPF documentation. The
 authoritative source for installing and configuring DPF is the upstream guide:
 
-- <https://docs.nvidia.com/networking/display/dpf25101>
+- https://docs.nvidia.com/networking/display/dpf25101
 
 NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
 
@@ -272,7 +272,7 @@ Without this binding cert-manager's controller cannot reference the policy and
 
 Follow the upstream DPF installation guide for the actual install procedure:
 
-- <https://docs.nvidia.com/networking/display/dpf25101>
+- https://docs.nvidia.com/networking/display/dpf25101
 
 When installing the DPF operator chart, two parameter overrides are required
 for a NICo-integrated deployment. The example command below illustrates how to

@@ -31,6 +31,8 @@ type BatchTrayFirmwareUpdateRequest struct {
 	Version NullableString `json:"version,omitempty"`
 	// Optional subset of firmware targets to update within each matched tray. Names are lowercase and select sub-parts of the tray (BMC, BIOS, etc.). The accepted set per tray type comes from the Flow service's NICo proto bindings (which mirror Core's per-tray-type enums in `NICo-core/crates/rpc/proto/forge.proto`), so the supported values track Core as new sub-parts are added:   - switch trays (NvSwitchComponent): currently bmc, cpld, bios, nvos   - powershelf trays (PowerShelfComponent): currently pmc, psu   - compute trays (ComputeTrayComponent): currently bmc, bios     (currently NOT honored end-to-end: the NICo compute-firmware     path goes through SetFirmwareUpdateTimeWindow + auto-update,     which has no per-target selection; the request is logged     and the whole bundle is applied. Will be honored once     compute moves to UpdateComponentFirmware.) Omitted or empty means \"update everything in the bundle\" (the historical default). Unknown names are rejected. Requires `version` to be set.
 	Targets []string `json:"targets,omitempty"`
+	// Optional Operation Rule UUID. When set, pins every task spawned by this batch to the named rule and overrides Flow's default rule resolution.
+	RuleId *string `json:"ruleId,omitempty"`
 }
 
 type _BatchTrayFirmwareUpdateRequest BatchTrayFirmwareUpdateRequest
@@ -184,6 +186,38 @@ func (o *BatchTrayFirmwareUpdateRequest) SetTargets(v []string) {
 	o.Targets = v
 }
 
+// GetRuleId returns the RuleId field value if set, zero value otherwise.
+func (o *BatchTrayFirmwareUpdateRequest) GetRuleId() string {
+	if o == nil || IsNil(o.RuleId) {
+		var ret string
+		return ret
+	}
+	return *o.RuleId
+}
+
+// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BatchTrayFirmwareUpdateRequest) GetRuleIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RuleId) {
+		return nil, false
+	}
+	return o.RuleId, true
+}
+
+// HasRuleId returns a boolean if a field has been set.
+func (o *BatchTrayFirmwareUpdateRequest) HasRuleId() bool {
+	if o != nil && !IsNil(o.RuleId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+func (o *BatchTrayFirmwareUpdateRequest) SetRuleId(v string) {
+	o.RuleId = &v
+}
+
 func (o BatchTrayFirmwareUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -203,6 +237,9 @@ func (o BatchTrayFirmwareUpdateRequest) ToMap() (map[string]interface{}, error) 
 	}
 	if !IsNil(o.Targets) {
 		toSerialize["targets"] = o.Targets
+	}
+	if !IsNil(o.RuleId) {
+		toSerialize["ruleId"] = o.RuleId
 	}
 	return toSerialize, nil
 }

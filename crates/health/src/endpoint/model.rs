@@ -145,13 +145,21 @@ pub struct BmcAddr {
 }
 
 impl BmcAddr {
+    /// Builds the BMC base URL. IPv6 literals are bracketed so the URL
+    /// authority parses — a bare `IpAddr` Display leaves IPv6 unbracketed,
+    /// which `Url::parse` would otherwise reject.
     pub fn to_url(&self) -> Result<Url, url::ParseError> {
         let scheme = if self.port.is_some_and(|v| v == 80) {
             "http"
         } else {
             "https"
         };
-        let mut url = Url::parse(&format!("{}://{}", scheme, self.ip))?;
+        // Bracket IPv6 hosts; IPv4 renders unchanged.
+        let host = match self.ip {
+            IpAddr::V4(v4) => v4.to_string(),
+            IpAddr::V6(v6) => format!("[{v6}]"),
+        };
+        let mut url = Url::parse(&format!("{scheme}://{host}"))?;
         let _ = url.set_port(self.port);
         Ok(url)
     }
@@ -172,4 +180,46 @@ impl From<BmcCredentials> for nv_redfish::bmc_http::BmcCredentials {
 
 pub trait EndpointSource: Send + Sync {
     fn fetch_bmc_hosts<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Arc<BmcEndpoint>>, HealthError>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
+
+    use super::BmcAddr;
+
+    fn addr(ip: &str, port: Option<u16>) -> BmcAddr {
+        BmcAddr {
+            ip: IpAddr::from_str(ip).unwrap(),
+            port,
+            mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+        }
+    }
+
+    // A v6 BMC IP must render as a bracketed URL authority, else Url::parse rejects it.
+    #[test]
+    fn to_url_brackets_ipv6() {
+        let url = addr("2001:db8::1", Some(443)).to_url().unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host_str(), Some("[2001:db8::1]"));
+    }
+
+    // v4 hosts are byte-identical to the old behaviour.
+    #[test]
+    fn to_url_v4_unchanged() {
+        let url = addr("10.0.0.5", Some(443)).to_url().unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host_str(), Some("10.0.0.5"));
+    }
+
+    // Port 80 selects the http scheme (v6 still bracketed).
+    #[test]
+    fn to_url_port_80_is_http() {
+        let url = addr("2001:db8::1", Some(80)).to_url().unwrap();
+        assert_eq!(url.scheme(), "http");
+        assert_eq!(url.host_str(), Some("[2001:db8::1]"));
+    }
 }

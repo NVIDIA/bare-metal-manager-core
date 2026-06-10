@@ -40,9 +40,8 @@ fn dpf_error(error: DpfError) -> StateHandlerError {
     ExternalServiceError::with_source("dpf", "", error.to_string(), "dpf_error", error).into()
 }
 
-// wrapper so we can get an error without copying it at every call site
-fn bmc_ip(machine: &Machine) -> Result<&str, StateHandlerError> {
-    machine.bmc_info.ip.as_deref().ok_or_else(|| {
+fn bmc_ip(machine: &Machine) -> Result<String, StateHandlerError> {
+    machine.bmc_info.ip.map(|ip| ip.to_string()).ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!("BMC IP is not set for machine {}", machine.id))
     })
 }
@@ -196,8 +195,8 @@ async fn create_and_register_dpudevices_and_dpunode(
             .unwrap_or_default();
         let device_info = carbide_dpf::DpuDeviceInfo {
             device_id: dpf_id(dpu)?,
-            dpu_bmc_ip: bmc_ip(dpu)?.to_string(),
-            host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
+            dpu_bmc_ip: bmc_ip(dpu)?,
+            host_bmc_ip: bmc_ip(&state.host_snapshot)?,
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
@@ -215,7 +214,7 @@ async fn create_and_register_dpudevices_and_dpunode(
         .collect::<Result<_, _>>()?;
     let node_info = carbide_dpf::DpuNodeInfo {
         node_id: dpf_id(&state.host_snapshot)?,
-        host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
+        host_bmc_ip: bmc_ip(&state.host_snapshot)?,
         device_ids,
     };
     dpf_sdk

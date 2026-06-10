@@ -16,8 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
-use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
@@ -465,10 +463,11 @@ pub(crate) async fn admin_force_delete_machine(
     }
 
     if let Some(machine) = &host_machine {
-        if let Some(ip) = machine.bmc_info.ip.as_deref() {
+        if let Some(ip) = machine.bmc_info.ip {
             if let Some(bmc_mac_address) = machine.bmc_info.mac {
+                let ip_address = ip.to_string();
                 tracing::info!(
-                    ip,
+                    %ip,
                     machine_id = %machine.id,
                     "BMC IP and MAC address for machine was found. Trying to perform Bios unlock",
                 );
@@ -476,7 +475,7 @@ pub(crate) async fn admin_force_delete_machine(
                 match api
                     .redfish_pool
                     .create_client(
-                        ip,
+                        &ip_address,
                         machine.bmc_info.port,
                         RedfishAuth::Key(CredentialKey::BmcCredentials {
                             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
@@ -583,13 +582,12 @@ pub(crate) async fn admin_force_delete_machine(
 
     if let Some(machine) = &host_machine {
         if request.delete_bmc_interfaces
-            && let Some(bmc_ip) = &machine.bmc_info.ip
+            && let Some(bmc_ip) = machine.bmc_info.ip
         {
             response.host_bmc_interface_associated = true;
-            if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                    .await?
-                    .is_some()
+            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
+                .await?
+                .is_some()
             {
                 response.host_bmc_interface_deleted = true;
             }
@@ -603,9 +601,7 @@ pub(crate) async fn admin_force_delete_machine(
             response.host_interfaces_deleted = true;
         }
 
-        if let Some(addr) = &machine.bmc_info.ip
-            && let Ok(addr) = IpAddr::from_str(addr)
-        {
+        if let Some(addr) = machine.bmc_info.ip {
             tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
 
             db::explored_endpoints::delete(&mut txn, addr).await?;
@@ -667,13 +663,12 @@ pub(crate) async fn admin_force_delete_machine(
         db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id).await?;
 
         if request.delete_bmc_interfaces
-            && let Some(bmc_ip) = &dpu_machine.bmc_info.ip
+            && let Some(bmc_ip) = dpu_machine.bmc_info.ip
         {
             response.dpu_bmc_interface_associated = true;
-            if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
-                    .await?
-                    .is_some()
+            if db::machine_interface::delete_by_ip(&mut txn, bmc_ip)
+                .await?
+                .is_some()
             {
                 response.dpu_bmc_interface_deleted = true;
             }
@@ -691,9 +686,7 @@ pub(crate) async fn admin_force_delete_machine(
             response.dpu_interfaces_deleted = true;
         }
 
-        if let Some(addr) = &dpu_machine.bmc_info.ip
-            && let Ok(addr) = IpAddr::from_str(addr)
-        {
+        if let Some(addr) = dpu_machine.bmc_info.ip {
             tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
 
             db::explored_endpoints::delete(&mut txn, addr).await?;

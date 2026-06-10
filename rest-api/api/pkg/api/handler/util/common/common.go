@@ -1601,6 +1601,10 @@ func QueryParamHash(params url.Values) string {
 
 // ExecutePowerControlWorkflow determines the appropriate power control workflow based on state,
 // executes it via Temporal, and returns the raw SubmitTaskResponse.
+//
+// ruleID, when non-nil and non-empty, pins the operation to a specific
+// Operation Rule (overrides Flow's default rule resolution). Must be a valid
+// UUID; callers validate at the API model layer.
 func ExecutePowerControlWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1608,11 +1612,13 @@ func ExecutePowerControlWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	state string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	var workflowName string
 	var flowRequest interface{}
+	ruleUUID := GetFlowUUIDPtr(ruleID)
 
 	switch state {
 	case cam.PowerControlStateOn:
@@ -1620,18 +1626,21 @@ func ExecutePowerControlWorkflow(
 		flowRequest = &flowv1.PowerOnRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power on %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power off %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power cycle %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateForceOff:
 		workflowName = "PowerOffRack"
@@ -1639,6 +1648,7 @@ func ExecutePowerControlWorkflow(
 			TargetSpec:  targetSpec,
 			Forced:      true,
 			Description: fmt.Sprintf("API force power off %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateForceCycle:
 		workflowName = "PowerResetRack"
@@ -1646,6 +1656,7 @@ func ExecutePowerControlWorkflow(
 			TargetSpec:  targetSpec,
 			Forced:      true,
 			Description: fmt.Sprintf("API force power cycle %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	default:
 		return nil, cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid power control state: %s", state), nil)
@@ -1684,6 +1695,9 @@ func ExecutePowerControlWorkflow(
 
 // ExecuteBringUpRackWorkflow builds a BringUpRackRequest, executes the BringUpRack
 // workflow via Temporal, and returns the raw SubmitTaskResponse.
+//
+// ruleID, when non-nil and non-empty, pins the bring-up to a specific
+// Operation Rule.
 func ExecuteBringUpRackWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1691,12 +1705,14 @@ func ExecuteBringUpRackWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	description string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.BringUpRackRequest{
 		TargetSpec:  targetSpec,
 		Description: description,
+		RuleId:      GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1739,6 +1755,9 @@ func ExecuteBringUpRackWorkflow(
 // the bundle" behavior. Names are passed through verbatim to Flow as
 // `sub_targets`, which resolves them against the tray-type-specific
 // component-manager enums (see flow/pkg/common/firmwarecomponents).
+//
+// ruleID, when non-nil and non-empty, pins the firmware update to a specific
+// Operation Rule.
 func ExecuteFirmwareUpdateWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1747,6 +1766,7 @@ func ExecuteFirmwareUpdateWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
 	targets []string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
@@ -1755,6 +1775,7 @@ func ExecuteFirmwareUpdateWorkflow(
 		TargetVersion: version,
 		SubTargets:    targets,
 		Description:   fmt.Sprintf("API firmware update %s", entityName),
+		RuleId:        GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1786,4 +1807,15 @@ func ExecuteFirmwareUpdateWorkflow(
 	}
 
 	return &flowResponse, nil
+}
+
+// GetFlowUUIDPtr converts an optional API ID string into Flow's proto UUID
+// wrapper. nil or "" means "no value provided" — callers (and Flow) treat
+// that as "leave unset" / "use default". UUID syntax validation is the
+// model layer's job; this helper only handles the pointer / wrapper plumbing.
+func GetFlowUUIDPtr(id *string) *flowv1.UUID {
+	if id == nil || *id == "" {
+		return nil
+	}
+	return &flowv1.UUID{Id: *id}
 }

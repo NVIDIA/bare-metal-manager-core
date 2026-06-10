@@ -975,7 +975,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 
             Ok((
                 rpc::BmcEndpointRequest {
-                    ip_address: bmc_ip.to_owned(),
+                    ip_address: bmc_ip.to_string(),
                     mac_address: Some(bmc_mac_address.to_string()),
                 },
                 Some(machine_id),

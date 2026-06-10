@@ -410,6 +410,12 @@ pub enum PreingestionState {
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,
+        /// How many full reset cycles have already been attempted for this
+        /// endpoint. Used to retry a transient clock failure a bounded number
+        /// of times before giving up. Defaults to 0 so states serialized
+        /// before this field existed still deserialize.
+        #[serde(default)]
+        attempt: u32,
     },
     UpgradeFirmwareWait {
         task_id: String,
@@ -561,7 +567,7 @@ impl ExploredDpu {
 
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             mac: self
                 .report
                 .managers
@@ -651,7 +657,7 @@ pub struct ExploredManagedHost {
 impl ExploredManagedHost {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.host_bmc_ip.to_string()),
+            ip: Some(self.host_bmc_ip),
             ..Default::default()
         }
     }
@@ -671,7 +677,7 @@ pub struct ExploredManagedSwitch {
 impl ExploredManagedSwitch {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             ..Default::default()
         }
     }
