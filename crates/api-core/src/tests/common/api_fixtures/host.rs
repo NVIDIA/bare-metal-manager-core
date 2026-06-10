@@ -22,6 +22,7 @@ use db::{ObjectColumnFilter, network_prefix};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
 use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_agent_control_response::LegacyAction;
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
@@ -31,12 +32,9 @@ use strum::IntoEnumIterator;
 use tonic::Request;
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{TestEnv, TestMachine, forge_agent_control};
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
-pub const X86_INFO_JSON: &[u8] =
-    include_bytes!("../../../../../api-model/src/hardware_info/test_data/x86_info.json");
 pub const GB200_COMPUTE_TRAY_1_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_1_info.json"
 );

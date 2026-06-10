@@ -190,6 +190,7 @@ linux-build = ["tss-esapi"]
 # builds (resolver v2 keeps it out of the production `carbide-api` binary); only `carbide-api-web`'s
 # dev-dependency turns it on.
 test-support = [
+  "carbide-api-model/test-support",
   "carbide-ib-fabric/test-support",
   "carbide-machine-controller/test-support",
   "carbide-nvlink-manager/test-support",
@@ -206,6 +207,9 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
+carbide-api-model = { path = "../api-model", default-features = false, features = [
+  "test-support",
+] }
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
 carbide-machine-controller = { path = "../machine-controller", features = [
   "test-support",

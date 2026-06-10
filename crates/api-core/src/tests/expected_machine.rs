@@ -28,6 +28,7 @@ use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common;
 use crate::{CarbideError, DatabaseError};
 
@@ -698,7 +699,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
     // Prep the data
 
     let env = create_test_env(pool.clone()).await;
-    let host_config = common::api_fixtures::managed_host::ManagedHostConfig::default();
+    let host_config = model::test_support::ManagedHostConfig::default();
     let bmc_mac = host_config.bmc_mac_address;
 
     let provided_id = Uuid::new_v4();

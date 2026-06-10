@@ -40,6 +40,7 @@ use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_std_duration};
 use chrono::Duration;
+use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -158,6 +159,15 @@ pub struct CarbideConfig {
     /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
+
+    /// Strategy for deriving machine hostnames: `ip_address` (default), `fun`
+    /// (stable adjective-noun handles), `serial_number`, or `mac_address`.
+    /// Only `fun` leaves existing hostnames alone (it keeps any real name);
+    /// the others re-derive, so switching to one progressively renames
+    /// existing interfaces as they reconcile. `serial_number` errors on
+    /// duplicate serials rather than assigning a substitute name.
+    #[serde(default)]
+    pub host_naming_strategy: HostNamingStrategyKind,
 
     /// Pinger implementation type (e.g., "OobNetBind") used
     /// by the DPU network monitor to health-check DPU links.

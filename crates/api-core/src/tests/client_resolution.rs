@@ -21,16 +21,17 @@ use common::api_fixtures::{
 };
 use ipnetwork::IpNetwork;
 use model::machine::{InstanceState, ManagedHostState, SpdmMeasuringState};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::IntoRequest;
 
 use crate::CarbideError;
 use crate::handlers::client_resolution::resolve_machine_interface;
+use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     create_host_inband_network_segment,

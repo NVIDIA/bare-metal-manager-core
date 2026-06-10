@@ -15,13 +15,12 @@
  * limitations under the License.
  */
 
-// Tests for common/mac_address_pool.rs
-// They can't be in the common file because otherwise every test crate would also run those tests.
+// Tests for test_support/mac_address_pool.rs
+// They can't be in the support file because otherwise every test crate would also run those tests.
 
-use common::mac_address_pool::{MacAddressPool, MacAddressPoolConfig};
 use mac_address::MacAddress;
 
-use crate::tests::common;
+use crate::test_support::mac_address_pool::{MacAddressPool, MacAddressPoolConfig};
 
 #[test]
 fn allocate_addresses() {

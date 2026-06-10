@@ -41,11 +41,12 @@ use model::rack_type::{
     RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProfile, RackProfileConfig,
 };
 use model::switch::{NewSwitch, SwitchConfig};
+use model::test_support::ManagedHostConfig;
 use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches, new_host};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,

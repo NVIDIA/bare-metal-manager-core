@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-//! Contains common functionality between integration tests
+//! Reusable model test fixtures.
 
-pub mod api_fixtures;
-// Only this crate's own `#[cfg(test)]` test cases use these attestation helpers (the `test-support`
-// consumers don't), so gate the module out of test-support-only builds to keep dead-code detection
-// honest and avoid pulling in unused imports.
-#[cfg(test)]
-pub mod attestation;
-pub mod endpoint;
-pub mod metadata;
-pub mod network_segment;
-pub mod rpc_builder;
-pub mod sqlx_fixtures;
+pub mod dpu;
+pub mod managed_host;
+
+pub use dpu::DpuConfig;
+pub use managed_host::ManagedHostConfig;
+
+#[derive(Debug, Clone)]
+pub enum HardwareInfoTemplate {
+    Default,
+    Custom(&'static [u8]),
+}

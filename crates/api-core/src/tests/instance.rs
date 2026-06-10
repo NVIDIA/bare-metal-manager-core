@@ -34,7 +34,6 @@ use common::api_fixtures::instance::{
     interface_network_config_with_devices, single_interface_network_config,
     single_interface_network_config_with_vpc_prefix, update_instance_network_status_observation,
 };
-use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::tenant::create_fixture_tenant;
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
@@ -70,6 +69,7 @@ use model::machine::{
 use model::metadata::Metadata;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
 use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
+use model::test_support::ManagedHostConfig;
 use model::vpc_prefix::VpcPrefixConfig;
 use rpc::forge::{
     DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
@@ -82,6 +82,7 @@ use tonic::Request;
 use crate::cfg::file::VmaasConfig;
 use crate::instance::{allocate_instance, allocate_network};
 use crate::network_segment::allocate::PrefixAllocator;
+use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     advance_created_instance_into_state, single_interface_network_config_with_vfs,

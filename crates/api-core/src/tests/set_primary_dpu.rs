@@ -17,11 +17,12 @@
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use ipnetwork::IpNetwork;
+use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
+use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::tests::common::api_fixtures;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,

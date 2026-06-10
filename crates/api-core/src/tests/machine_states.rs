@@ -57,6 +57,7 @@ use model::machine::{
     MachineState, MachineValidatingState, ManagedHostState, MeasuringState, PowerState, RetryInfo,
     SpdmMeasuringState, StateMachineArea, ValidationState,
 };
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::{Action, LegacyAction};
@@ -68,6 +69,7 @@ use tonic::{Code, Request};
 
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
@@ -75,7 +77,6 @@ use crate::tests::common::api_fixtures::dpu::{
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
     on_demand_machine_validation, update_time_params,
@@ -1663,7 +1664,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     let host_config = ManagedHostConfig {
         tpm_ek_cert: TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
 
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;

@@ -75,6 +75,7 @@ pub fn get() -> CarbideConfig {
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),
+        host_naming_strategy: <_ as Default>::default(),
         tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
             identity_pemfile_path: "Not a real pemfile".to_string(),
