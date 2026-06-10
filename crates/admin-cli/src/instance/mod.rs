@@ -16,7 +16,6 @@
  */
 
 mod allocate;
-pub(crate) mod common;
 mod reboot;
 mod release;
 mod show;
