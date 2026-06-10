@@ -61,14 +61,7 @@ certificate:
 command:
   - /bin/sh
   - -c
-  - |
-    if [ -x /opt/machine-a-tron/bin/machine-a-tron ]; then
-      exec /opt/machine-a-tron/bin/machine-a-tron
-    elif [ -x /opt/nico/machine-a-tron ]; then
-      exec /opt/nico/machine-a-tron
-    else
-      exec /opt/carbide/machine-a-tron
-    fi
+  - /opt/machine-a-tron/bin/machine-a-tron
 
 env:
   RUST_BACKTRACE: "full"
