@@ -143,7 +143,7 @@ async fn test_dns(pool: sqlx::PgPool) {
             .unwrap()
             .into_inner();
         assert_eq!(
-            topology.topology().bmc_info.ip.as_ref().unwrap().as_str(),
+            topology.topology().bmc_info.ip.unwrap().to_string(),
             &*bmc_record.records[0].content
         );
         assert_eq!(

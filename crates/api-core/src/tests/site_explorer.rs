@@ -1595,7 +1595,7 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         assert!(
             <Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
                 .iter()
-                .any(|x| { x.bmc_info.ip.clone().unwrap_or_default() == bmc_ip })
+                .any(|x| { x.bmc_info.ip.is_some_and(|ip| ip.to_string() == bmc_ip) })
         );
     }
     Ok(())
@@ -2317,12 +2317,10 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
 
     // Verify both endpoints still exist
     let mut txn = env.pool.begin().await?;
-    let host_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(host_ip)?, &mut txn).await?;
+    let host_endpoints = db::explored_endpoints::find_all_by_ip(*host_ip, &mut txn).await?;
     assert_eq!(host_endpoints.len(), 1);
 
-    let dpu_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(dpu_ip)?, &mut txn).await?;
+    let dpu_endpoints = db::explored_endpoints::find_all_by_ip(*dpu_ip, &mut txn).await?;
     assert_eq!(dpu_endpoints.len(), 1);
     txn.commit().await?;
 

@@ -1044,18 +1044,10 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(ip_str) = machine.bmc_info.ip.as_ref() else {
+        let Some(bmc_ip) = machine.bmc_info.ip else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC IP not configured".into(),
-            });
-            continue;
-        };
-
-        let Ok(bmc_ip) = ip_str.parse::<IpAddr>() else {
-            unresolved.push(UnresolvedDevice {
-                id: machine_id,
-                reason: format!("unparseable BMC IP: {ip_str}"),
             });
             continue;
         };

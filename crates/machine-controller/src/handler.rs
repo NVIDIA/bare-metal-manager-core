@@ -2911,22 +2911,12 @@ async fn handle_dpu_reprovision(
                         }
                     })?;
 
-                    let bmc_ip_address = state
-                        .host_snapshot
-                        .bmc_info
-                        .ip
-                        .clone()
-                        .ok_or_else(|| StateHandlerError::MissingData {
+                    let bmc_ip_address = state.host_snapshot.bmc_info.ip.ok_or_else(|| {
+                        StateHandlerError::MissingData {
                             object_id: state.host_snapshot.id.to_string(),
                             missing: "bmc_ip",
-                        })?
-                        .parse()
-                        .map_err(|e| {
-                            StateHandlerError::GenericError(eyre!(
-                                "parsing the host's BMC IP address failed: {}",
-                                e
-                            ))
-                        })?;
+                        }
+                    })?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
@@ -9498,18 +9488,9 @@ async fn do_ipmi_restart(
     let ip: IpAddr = machine
         .bmc_info
         .ip
-        .as_ref()
         .ok_or_else(|| StateHandlerError::MissingData {
             object_id: machine.id.to_string(),
             missing: "bmc_ip",
-        })?
-        .parse()
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!(
-                "parsing BMC IP address for {} failed: {}",
-                machine.id,
-                e
-            ))
         })?;
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {

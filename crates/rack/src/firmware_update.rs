@@ -86,7 +86,6 @@ pub async fn load_rack_firmware_inventory(
             .topology()
             .bmc_info
             .ip
-            .as_deref()
             .ok_or_else(|| eyre!("machine {} missing BMC IP", machine_id))?;
         let (bmc_username, bmc_password) =
             fetch_bmc_credentials(credential_manager, bmc_mac).await?;
