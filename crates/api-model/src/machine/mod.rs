@@ -1071,6 +1071,13 @@ impl Machine {
         )))
     }
 
+    pub fn primary_attached_dpu_machine_id(&self) -> Option<MachineId> {
+        self.interfaces
+            .iter()
+            .find(|iface| iface.primary_interface)
+            .and_then(|iface| iface.attached_dpu_machine_id)
+    }
+
     pub fn get_dpu_device_and_id_mappings(&self) -> ModelResult<DpuDeviceMappings> {
         if self.is_dpu() {
             return Err(ModelError::DpuMappingError(
