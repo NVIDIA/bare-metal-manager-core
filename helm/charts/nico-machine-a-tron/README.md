@@ -11,8 +11,8 @@ Machine-A-Tron creates simulated bare-metal machines that behave like real hosts
 
 ## Prerequisites
 
-- Kubernetes 1.19+
-- Helm 3.2.0+
+- Kubernetes 1.27+
+- Helm 3.12+
 - cert-manager for TLS certificate management
 - NICo API server deployed and accessible
 
@@ -53,7 +53,7 @@ The `machines` section supports **multiple named groups** with different hardwar
 machines:
   # Remove default section if not needed
   config: null
-  
+
   # Dell hosts with 2 DPUs each
   dell-hosts:
     hwType: dell_poweredge_r750
@@ -61,7 +61,7 @@ machines:
     dpuPerHostCount: 2
     oobDhcpRelayAddress: "192.168.192.1"
     adminDhcpRelayAddress: "192.168.176.1"
-  
+
   # NVIDIA DGX H100 hosts
   dgx-hosts:
     hwType: nvidia_dgx_h100
@@ -69,7 +69,7 @@ machines:
     dpuPerHostCount: 1
     oobDhcpRelayAddress: "192.168.192.1"
     adminDhcpRelayAddress: "192.168.176.1"
-  
+
   # Power shelves (no DPUs)
   power-shelves:
     hwType: liteon_power_shelf
