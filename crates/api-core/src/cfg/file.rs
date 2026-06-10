@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
@@ -109,12 +109,12 @@ pub struct CarbideConfig {
     /// DHCP server addresses announced to DPUs during
     /// network provisioning.
     #[serde(default)]
-    pub dhcp_servers: Vec<String>,
+    pub dhcp_servers: Vec<Ipv4Addr>,
 
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
-    pub route_servers: Vec<String>,
+    pub route_servers: Vec<IpAddr>,
 
     /// Enables route server injection into DPU FRR
     /// configs for L2VPN Ethernet Virtual networks.
@@ -2007,8 +2007,16 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_database_connections: value.max_database_connections,
             enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
             asn: value.asn,
-            dhcp_servers: value.dhcp_servers,
-            route_servers: value.route_servers,
+            dhcp_servers: value
+                .dhcp_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            route_servers: value
+                .route_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
             enable_route_servers: value.enable_route_servers,
             deny_prefixes: value
                 .deny_prefixes
@@ -2621,7 +2629,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
         assert!(config.route_servers.is_empty());
         assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
@@ -2782,14 +2790,14 @@ mod tests {
         assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,
-            vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+            vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
             Some(VpcPeeringPolicy::Mixed)
         );
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/path/to/cert"
@@ -3111,8 +3119,8 @@ mod tests {
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
         assert_eq!(config.bmc_session_lockout_threshold, 5);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/patched/path/to/cert"
@@ -3337,9 +3345,9 @@ mod tests {
             assert_eq!(config.asn, 777);
             assert_eq!(
                 config.dhcp_servers,
-                vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+                vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
             );
-            assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+            assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
             assert_eq!(config.dpu_network_monitor_pinger_type, None);
             assert_eq!(
                 config.tls.as_ref().unwrap().identity_pemfile_path,
