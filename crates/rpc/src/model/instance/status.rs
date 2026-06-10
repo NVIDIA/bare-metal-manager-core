@@ -103,10 +103,9 @@ pub fn instance_status_from_config_and_observation(
         // If observations.network.instance_config_version was None, then "ignore"
     }
 
-    let used_dpu_ids =
-        network_config
-            .value
-            .get_used_dpus(&dpu_id_to_device_map, primary_dpu_machine_id);
+    let used_dpu_ids = network_config
+        .value
+        .get_used_dpus(&dpu_id_to_device_map, primary_dpu_machine_id);
 
     let network =
         model::instance::status::network::InstanceNetworkStatus::from_config_and_observations(

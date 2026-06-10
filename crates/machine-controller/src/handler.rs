@@ -6387,9 +6387,7 @@ fn get_extension_services_status(
         .get_dpu_device_and_id_mappings()
         .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
 
-    let primary_dpu_machine_id = mh_snapshot
-        .host_snapshot
-        .primary_attached_dpu_machine_id();
+    let primary_dpu_machine_id = mh_snapshot.host_snapshot.primary_attached_dpu_machine_id();
     let used_dpus = instance
         .config
         .network
