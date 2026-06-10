@@ -113,7 +113,7 @@ pub async fn find_one_linked(
  em.serial_number,
  em.bmc_mac_address,
  mi.id AS interface_id,
- host(ee.address) AS address,
+ ee.address AS address,
  mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em
@@ -157,7 +157,7 @@ pub async fn find_all_linked(txn: impl DbReader<'_>) -> DatabaseResult<Vec<Linke
  em.serial_number,
  em.bmc_mac_address,
  mi.id AS interface_id,
- host(ee.address) AS address,
+ ee.address AS address,
  mi.machine_id,
  em.id AS expected_machine_id
 FROM expected_machines em

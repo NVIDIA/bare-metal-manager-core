@@ -172,7 +172,7 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
             chassis_serial_number: m.serial_number,
             bmc_mac_address: m.bmc_mac_address.to_string(),
             interface_id: m.interface_id.map(|u| u.to_string()),
-            explored_endpoint_address: m.address,
+            explored_endpoint_address: m.address.map(|addr| addr.to_string()),
             machine_id: m.machine_id,
             expected_machine_id: m.expected_machine_id.map(|id| crate::common::Uuid {
                 value: id.to_string(),

@@ -75,7 +75,7 @@ pub struct LinkedExpectedPowerShelf {
     pub bmc_mac_address: MacAddress, // from expected_power_shelves table
     pub power_shelf_id: Option<PowerShelfId>, // The power shelf
     pub expected_power_shelf_id: Option<Uuid>, // The expected power shelf ID
-    pub address: Option<String>,     // The explored BMC endpoint IP
+    pub address: Option<IpAddr>,     // The explored BMC endpoint IP
     pub rack_id: Option<RackId>,     // The rack this power shelf belongs to
 }
 
