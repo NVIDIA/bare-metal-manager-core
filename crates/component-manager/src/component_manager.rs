@@ -145,11 +145,22 @@ pub async fn build_component_manager(
     };
 
     let compute_tray: Arc<dyn ComputeTrayManager> = match config.compute_tray_backend {
-        // TODO: implement ComputeTrayManager for RmsBackend
         Backend::Rms => {
-            return Err(ComponentManagerError::InvalidArgument(
-                "compute_tray_backend 'rms' is not yet supported".into(),
-            ));
+            let client = rms_client.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "compute_tray_backend is 'rms' but RMS client is not configured".into(),
+                )
+            })?;
+            let db = db.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "compute_tray_backend is 'rms' but database pool is not configured".into(),
+                )
+            })?;
+            Arc::new(crate::rms::RmsBackend::new(
+                client,
+                rms_switch_system_image_client.clone(),
+                db,
+            ))
         }
         Backend::Core => {
             let pool = redfish_pool.ok_or_else(|| {
