@@ -32,7 +32,7 @@ type Task struct {
 	// Optional status or error message describing the current state or result.
 	Message *string `json:"message,omitempty"`
 	// Operation Rule that Flow resolved for this task — either because the caller pinned one via `ruleId` on the originating request or because Flow's default rule resolution picked it. Null if Flow has not yet recorded a resolution.
-	RuleId *string `json:"ruleId,omitempty"`
+	RuleId NullableString `json:"ruleId,omitempty"`
 	// Timestamp when the task started execution.
 	Started *time.Time `json:"started,omitempty"`
 	// Timestamp when the task finished (succeeded, failed or terminated).
@@ -190,36 +190,47 @@ func (o *Task) SetMessage(v string) {
 	o.Message = &v
 }
 
-// GetRuleId returns the RuleId field value if set, zero value otherwise.
+// GetRuleId returns the RuleId field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *Task) GetRuleId() string {
-	if o == nil || IsNil(o.RuleId) {
+	if o == nil || IsNil(o.RuleId.Get()) {
 		var ret string
 		return ret
 	}
-	return *o.RuleId
+	return *o.RuleId.Get()
 }
 
 // GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *Task) GetRuleIdOk() (*string, bool) {
-	if o == nil || IsNil(o.RuleId) {
+	if o == nil {
 		return nil, false
 	}
-	return o.RuleId, true
+	return o.RuleId.Get(), o.RuleId.IsSet()
 }
 
 // HasRuleId returns a boolean if a field has been set.
 func (o *Task) HasRuleId() bool {
-	if o != nil && !IsNil(o.RuleId) {
+	if o != nil && o.RuleId.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+// SetRuleId gets a reference to the given NullableString and assigns it to the RuleId field.
 func (o *Task) SetRuleId(v string) {
-	o.RuleId = &v
+	o.RuleId.Set(&v)
+}
+
+// SetRuleIdNil sets the value for RuleId to be an explicit nil
+func (o *Task) SetRuleIdNil() {
+	o.RuleId.Set(nil)
+}
+
+// UnsetRuleId ensures that no value is present for RuleId, not even an explicit nil
+func (o *Task) UnsetRuleId() {
+	o.RuleId.Unset()
 }
 
 // GetStarted returns the Started field value if set, zero value otherwise.
@@ -404,8 +415,8 @@ func (o Task) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Message) {
 		toSerialize["message"] = o.Message
 	}
-	if !IsNil(o.RuleId) {
-		toSerialize["ruleId"] = o.RuleId
+	if o.RuleId.IsSet() {
+		toSerialize["ruleId"] = o.RuleId.Get()
 	}
 	if !IsNil(o.Started) {
 		toSerialize["started"] = o.Started
