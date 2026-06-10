@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 NVIDIA Infra Controller REST API
 
@@ -28,6 +31,8 @@ type Task struct {
 	Description *string `json:"description,omitempty"`
 	// Optional status or error message describing the current state or result.
 	Message *string `json:"message,omitempty"`
+	// Operation Rule that Flow resolved for this task — either because the caller pinned one via `ruleId` on the originating request or because Flow's default rule resolution picked it. Null if Flow has not yet recorded a resolution.
+	RuleId *string `json:"ruleId,omitempty"`
 	// Timestamp when the task started execution.
 	Started *time.Time `json:"started,omitempty"`
 	// Timestamp when the task finished (succeeded, failed or terminated).
@@ -36,8 +41,6 @@ type Task struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Timestamp when the task was last updated.
 	Updated *time.Time `json:"updated,omitempty"`
-	// Operation Rule that Flow resolved for this task — either because the caller pinned one via `ruleId` on the originating request or because Flow's default rule resolution picked it. Omitted if Flow has not yet recorded a resolution.
-	RuleId *string `json:"ruleId,omitempty"`
 }
 
 // NewTask instantiates a new Task object
@@ -185,6 +188,38 @@ func (o *Task) SetMessage(v string) {
 	o.Message = &v
 }
 
+// GetRuleId returns the RuleId field value if set, zero value otherwise.
+func (o *Task) GetRuleId() string {
+	if o == nil || IsNil(o.RuleId) {
+		var ret string
+		return ret
+	}
+	return *o.RuleId
+}
+
+// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Task) GetRuleIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RuleId) {
+		return nil, false
+	}
+	return o.RuleId, true
+}
+
+// HasRuleId returns a boolean if a field has been set.
+func (o *Task) HasRuleId() bool {
+	if o != nil && !IsNil(o.RuleId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+func (o *Task) SetRuleId(v string) {
+	o.RuleId = &v
+}
+
 // GetStarted returns the Started field value if set, zero value otherwise.
 func (o *Task) GetStarted() time.Time {
 	if o == nil || IsNil(o.Started) {
@@ -313,38 +348,6 @@ func (o *Task) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
-// GetRuleId returns the RuleId field value if set, zero value otherwise.
-func (o *Task) GetRuleId() string {
-	if o == nil || IsNil(o.RuleId) {
-		var ret string
-		return ret
-	}
-	return *o.RuleId
-}
-
-// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Task) GetRuleIdOk() (*string, bool) {
-	if o == nil || IsNil(o.RuleId) {
-		return nil, false
-	}
-	return o.RuleId, true
-}
-
-// HasRuleId returns a boolean if a field has been set.
-func (o *Task) HasRuleId() bool {
-	if o != nil && !IsNil(o.RuleId) {
-		return true
-	}
-
-	return false
-}
-
-// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
-func (o *Task) SetRuleId(v string) {
-	o.RuleId = &v
-}
-
 func (o Task) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -367,6 +370,9 @@ func (o Task) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Message) {
 		toSerialize["message"] = o.Message
 	}
+	if !IsNil(o.RuleId) {
+		toSerialize["ruleId"] = o.RuleId
+	}
 	if !IsNil(o.Started) {
 		toSerialize["started"] = o.Started
 	}
@@ -378,9 +384,6 @@ func (o Task) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
-	}
-	if !IsNil(o.RuleId) {
-		toSerialize["ruleId"] = o.RuleId
 	}
 	return toSerialize, nil
 }
