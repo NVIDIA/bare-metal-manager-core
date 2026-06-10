@@ -6936,8 +6936,14 @@ message DpaInterface {
   optional string mlxconfig_profile = 19;
 
   optional string device_description = 20;
+
+  DpaInterfaceType interface_type = 21;
 }
 
+enum DpaInterfaceType {
+  DPA_INTERFACE_TYPE_SVPC = 0;
+  DPA_INTERFACE_TYPE_ASTRA = 1;
+}
 
 message DpaInterfaceCreationRequest {
   common.MachineId machine_id = 1;
@@ -6945,6 +6951,7 @@ message DpaInterfaceCreationRequest {
   string device_type = 3;
   string pci_name = 4;
   optional string device_description = 5;
+  DpaInterfaceType interface_type = 6;
 }
 
 message DpaInterfaceIdList {

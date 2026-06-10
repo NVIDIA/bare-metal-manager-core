@@ -6339,10 +6339,10 @@ impl StateHandler for InstanceStateHandler {
                                 &mh_snapshot.instance,
                                 &mh_snapshot.host_snapshot.spx_status_observation,
                             ) {
-                                return Ok(StateHandlerOutcome::wait(
-                                        "Waiting for DPA agent(s) to apply network config and report healthy network"
-                                            .to_string()
-                                    ));
+                                return Ok(StateHandlerOutcome::wait(format!(
+                                    "Waiting for DPA agent {dpa_id} to apply network config and report healthy network",
+                                    dpa_id = dpa_interface.id,
+                                )));
                             }
                         }
                     }

@@ -16,7 +16,7 @@
  */
 
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfacesByIdsRequest};
+use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfaceType, DpaInterfacesByIdsRequest};
 use rpc::forge_agent_control_response::{self as fac, Action};
 
 use crate::handlers::dpa::process_scout_req;
@@ -40,6 +40,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         pci_name: "0000:cc:00.0".to_string(),
         device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112
 ; PCIe Gen5.0 x16; 8 Arm cores; 16GB on-board DDR; integrated BMC; Crypto Enabled".to_string()),
+        interface_type: DpaInterfaceType::Svpc.into(),
     });
 
     let cr_resp = env
@@ -100,6 +101,7 @@ async fn dpa_scout_request_returns_typed_mlx_action(
             device_type: "BlueField3".to_string(),
             pci_name: "0000:cc:00.0".to_string(),
             device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112".to_string()),
+            interface_type: DpaInterfaceType::Svpc.into(),
         }))
         .await
         .unwrap()

@@ -1343,7 +1343,7 @@ pub async fn initialize_and_start_controllers<'a>(
             mqtt_client,
         };
 
-        let dpa_info = Some(Arc::new(info));
+        let dpa_info = Arc::new(info);
 
         DpaMonitor::new(
             db_pool.clone(),
