@@ -23,6 +23,13 @@ use super::super::common::ShowSkuOptions;
 // specific newtype to allow sharing of ShowSkuOptions, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show the machines assigned to a SKU:
+    $ carbide-admin-cli sku show-machines DGX-H100-640GB
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: ShowSkuOptions,

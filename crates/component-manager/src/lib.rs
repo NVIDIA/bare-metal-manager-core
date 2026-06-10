@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod component_common;
 pub mod component_manager;
 pub mod compute_tray_manager;
 pub mod config;

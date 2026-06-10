@@ -766,6 +766,9 @@ service Forge {
   // end DPU Remediation APIs
 
   rpc SetPrimaryDpu(SetPrimaryDpuRequest) returns (google.protobuf.Empty);
+  // Make any host interface (DPU or not) the primary / boot interface. This is
+  // the generic form of SetPrimaryDpu, which it deprecates.
+  rpc SetPrimaryInterface(SetPrimaryInterfaceRequest) returns (google.protobuf.Empty);
 
   // Extension service version management
   rpc CreateDpuExtensionService(CreateDpuExtensionServiceRequest) returns (DpuExtensionService);
@@ -7611,6 +7614,12 @@ message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
   bool reboot=3;
+}
+
+message SetPrimaryInterfaceRequest {
+  common.MachineId host_machine_id = 1;
+  common.MachineInterfaceId interface_id = 2;
+  bool reboot = 3;
 }
 
 // DPU Extension Service Types and Messages

@@ -25,8 +25,9 @@ use mac_address::MacAddress;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, InstanceOperatingSystemConfig,
-    MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest, VpcVirtualizationType,
+    ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedSwitch, InlineIpxe,
+    InstanceOperatingSystemConfig, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
+    VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -533,6 +534,55 @@ impl ApiClient {
                 bmc_retain_credentials: None,
                 dpu_mode: dpu_mode.map(|m| m as i32),
                 host_lifecycle_profile: None,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
+    }
+
+    /// Registers a mock expected power shelf.
+    pub async fn add_expected_power_shelf(
+        &self,
+        bmc_mac_address: String,
+        shelf_serial_number: String,
+    ) -> ClientApiResult<()> {
+        self.0
+            .add_expected_power_shelf(ExpectedPowerShelf {
+                expected_power_shelf_id: None,
+                bmc_mac_address,
+                bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
+                bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
+                shelf_serial_number,
+                bmc_ip_address: String::new(),
+                metadata: None,
+                rack_id: None,
+                bmc_retain_credentials: Some(true),
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)
+    }
+
+    /// Registers a mock expected switch.
+    pub async fn add_expected_switch(
+        &self,
+        bmc_mac_address: String,
+        switch_serial_number: String,
+        nvos_mac_addresses: Vec<String>,
+    ) -> ClientApiResult<()> {
+        self.0
+            .add_expected_switch(ExpectedSwitch {
+                expected_switch_id: None,
+                bmc_mac_address,
+                nvos_mac_addresses,
+                bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
+                bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
+                switch_serial_number,
+                nvos_username: None,
+                nvos_password: None,
+                bmc_ip_address: String::new(),
+                nvos_ip_address: None,
+                metadata: None,
+                rack_id: None,
+                bmc_retain_credentials: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

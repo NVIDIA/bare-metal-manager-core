@@ -26,7 +26,9 @@ use state_controller::state_handler::{
 use crate::context::SwitchStateHandlerContextObjects;
 
 /// Handles the Error state for a switch.
-/// If marked for deletion, transition to Deleting; otherwise wait for manual intervention.
+///
+/// Deletion takes precedence over a pending maintenance request so a stale
+/// request cannot block deletion.
 pub async fn handle_error(
     _switch_id: &SwitchId,
     state: &mut Switch,
@@ -34,10 +36,23 @@ pub async fn handle_error(
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     tracing::info!("Switch is in error state {}", _switch_id.to_string());
     if state.is_marked_as_deleted() {
-        Ok(StateHandlerOutcome::transition(
+        return Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Deleting,
-        ))
-    } else {
-        Ok(StateHandlerOutcome::do_nothing())
+        ));
     }
+
+    if let Some(req) = state.switch_maintenance_requested.as_ref() {
+        tracing::info!(
+            operation = ?req.operation,
+            initiator = %req.initiator,
+            "Switch maintenance requested from Error; transitioning to Maintenance"
+        );
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Maintenance {
+                operation: req.operation,
+            },
+        ));
+    }
+
+    Ok(StateHandlerOutcome::do_nothing())
 }

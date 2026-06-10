@@ -19,6 +19,14 @@ use ::rpc::forge as forgerpc;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Create a logical partition for a tenant:
+    $ carbide-admin-cli logical-partition create --name my-partition \
+    --tenant-organization-id fds34511233a
+
+")]
 pub struct Args {
     #[clap(short = 'n', long, help = "name of the partition")]
     pub name: String,

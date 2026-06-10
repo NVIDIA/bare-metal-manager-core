@@ -18,6 +18,7 @@
 //! Handler for PowerShelfControllerState::Ready.
 
 use carbide_uuid::power_shelf::PowerShelfId;
+use component_manager::component_common::{PowerStatePollOutcome, interpret_power_state_poll};
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfStatus};
 use sqlx::PgTransaction;
@@ -134,44 +135,44 @@ async fn poll_power_state(
         }
     };
 
-    let Some(result) = results.into_iter().next() else {
-        tracing::debug!(
-            power_shelf_id = %power_shelf_id,
-            backend = component_manager.power_shelf.name(),
-            "Power shelf get power state returned no result",
-        );
-        return None;
-    };
-
-    if let Some(error) = result.error {
-        tracing::warn!(
-            power_shelf_id = %power_shelf_id,
-            rack_id = %rack_id_str,
-            backend = component_manager.power_shelf.name(),
-            error = %error,
-            "Power shelf get power state returned an error result",
-        );
-        return None;
-    };
-
-    let Some(observed_power_state) = result.power_state else {
-        tracing::debug!(
-            power_shelf_id = %power_shelf_id,
-            backend = component_manager.power_shelf.name(),
-            "Power shelf get power state did not return a power state",
-        );
-        return None;
-    };
-
-    tracing::info!(
-        power_shelf_id = %power_shelf_id,
-        rack_id = %rack_id_str,
-        backend = component_manager.power_shelf.name(),
-        power_state = %observed_power_state,
-        "Power shelf get power state succeeded",
-    );
-
-    persist_observed_power_state(power_shelf_id, state, ctx, &observed_power_state).await
+    match interpret_power_state_poll(results) {
+        PowerStatePollOutcome::Observed(observed_power_state) => {
+            tracing::info!(
+                power_shelf_id = %power_shelf_id,
+                rack_id = %rack_id_str,
+                backend = component_manager.power_shelf.name(),
+                power_state = %observed_power_state,
+                "Power shelf get power state succeeded",
+            );
+            persist_observed_power_state(power_shelf_id, state, ctx, &observed_power_state).await
+        }
+        PowerStatePollOutcome::BackendError(error) => {
+            tracing::warn!(
+                power_shelf_id = %power_shelf_id,
+                rack_id = %rack_id_str,
+                backend = component_manager.power_shelf.name(),
+                error = %error,
+                "Power shelf get power state returned an error result",
+            );
+            None
+        }
+        PowerStatePollOutcome::NoPowerState => {
+            tracing::debug!(
+                power_shelf_id = %power_shelf_id,
+                backend = component_manager.power_shelf.name(),
+                "Power shelf get power state did not return a power state",
+            );
+            None
+        }
+        PowerStatePollOutcome::NoResult => {
+            tracing::debug!(
+                power_shelf_id = %power_shelf_id,
+                backend = component_manager.power_shelf.name(),
+                "Power shelf get power state returned no result",
+            );
+            None
+        }
+    }
 }
 
 /// Stamp the observed power state into `state.status` and persist it via

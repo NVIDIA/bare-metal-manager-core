@@ -20,6 +20,22 @@ use clap::Parser;
 use crate::component_manager::common::{PowerActionArg, PowerControlTargetArgs};
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Power on a switch:
+    $ carbide-admin-cli component-manager component-power-control switch \
+    --switch-id 12345678-1234-5678-90ab-cdef01234567 --action on
+
+Force off a compute tray:
+    $ carbide-admin-cli component-manager component-power-control compute-tray \
+    --machine-id 12345678-1234-5678-90ab-cdef01234567 --action force-off
+
+AC power-cycle a power shelf:
+    $ carbide-admin-cli component-manager component-power-control power-shelf \
+    --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --action ac-powercycle
+
+")]
 pub struct Args {
     #[clap(subcommand)]
     pub target: PowerControlTargetArgs,

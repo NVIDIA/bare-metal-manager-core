@@ -18,6 +18,18 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Download a debug bundle for a host over a time range:
+    $ carbide-admin-cli managed-host debug-bundle 12345678-1234-5678-90ab-cdef01234567 \
+    --start-time \"2026-01-02 03:04:05\" --end-time \"2026-01-02 04:00:00\"
+
+Collect from a start time to now, interpreting times as UTC:
+    $ carbide-admin-cli managed-host debug-bundle 12345678-1234-5678-90ab-cdef01234567 \
+    --start-time 03:04:05 --utc
+
+")]
 pub struct Args {
     #[clap(help = "The host machine ID to collect logs for")]
     pub host_id: String,

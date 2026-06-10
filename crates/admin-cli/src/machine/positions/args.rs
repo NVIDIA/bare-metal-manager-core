@@ -19,6 +19,16 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show rack positions for all machines:
+    $ carbide-admin-cli machine positions
+
+Show positions for specific machines:
+    $ carbide-admin-cli machine positions --machine 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         short = 'm',

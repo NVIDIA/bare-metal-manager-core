@@ -20,6 +20,13 @@ use clap::Parser;
 
 /// Reset host reprovisioning state
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Reset a host's reprovisioning back to CheckingFirmware:
+    $ carbide-admin-cli managed-host reset-host-reprovisioning --machine 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(long, required(true), help = "Machine ID to reset host reprovision on")]
     pub machine: MachineId,

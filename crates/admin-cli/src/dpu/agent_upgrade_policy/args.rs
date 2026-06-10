@@ -19,6 +19,22 @@ use clap::{Parser, ValueEnum};
 use rpc::forge::DpuAgentUpgradePolicyRequest;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show the current forge-dpu-agent upgrade policy:
+    $ carbide-admin-cli dpu agent-upgrade-policy
+
+Allow the agent to upgrade only (never downgrade):
+    $ carbide-admin-cli dpu agent-upgrade-policy --set up-only
+
+Allow the agent to both upgrade and downgrade:
+    $ carbide-admin-cli dpu agent-upgrade-policy --set up-down
+
+Disable automatic agent version changes:
+    $ carbide-admin-cli dpu agent-upgrade-policy --set off
+
+")]
 pub struct Args {
     #[clap(long)]
     pub set: Option<AgentUpgradePolicyChoice>,

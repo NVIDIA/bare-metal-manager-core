@@ -13,6 +13,16 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all chassis serial to NMX-C endpoint mappings:
+    $ carbide-admin-cli nvlink-nmxc-endpoints show
+
+Show the mapping for one chassis serial:
+    $ carbide-admin-cli nvlink-nmxc-endpoints show --chassis-serial 1234567890123
+
+")]
 pub struct Args {
     /// If set, show only this chassis serial
     #[clap(long, value_name = "SERIAL")]

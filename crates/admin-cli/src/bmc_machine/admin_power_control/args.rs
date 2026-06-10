@@ -21,6 +21,26 @@ use rpc::forge as forgerpc;
 use crate::bmc_machine::common::AdminPowerControlAction;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Power a machine on:
+    $ carbide-admin-cli bmc-machine admin-power-control \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --action on
+
+Gracefully shut a machine down:
+    $ carbide-admin-cli bmc-machine admin-power-control \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --action graceful-shutdown
+
+Force a machine off (immediate, no OS shutdown):
+    $ carbide-admin-cli bmc-machine admin-power-control \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --action force-off
+
+Gracefully restart a machine:
+    $ carbide-admin-cli bmc-machine admin-power-control \
+    --machine 12345678-1234-5678-90ab-cdef01234567 --action graceful-restart
+
+")]
 pub struct Args {
     #[clap(long, help = "ID of the machine to reboot")]
     pub machine: String,
