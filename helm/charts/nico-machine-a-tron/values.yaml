@@ -124,17 +124,6 @@ machineATron:
   mockBmcSshServer: true
   mockBmcSshPort: 2222
 
-  ## BMC mock tar files (templates for Redfish responses)
-  bmcMockHostTar: "/opt/machine-a-tron/dell_poweredge_r750.tar.gz"
-  bmcMockDpuTar: "/opt/machine-a-tron/nvidia_dpu.tar.gz"
-
-  ## Use PXE API instead of direct PXE server
-  usePxeApi: true
-
-  ## PXE server settings (only needed if usePxeApi: false)
-  pxeServerHost: ""
-  pxeServerPort: ""
-
   ## If set, machine-a-tron will configure NICo to use this as bmc_proxy host
   ## Combined with bmcMockPort to form host:port
   configureBmcProxyHost: ""
@@ -161,20 +150,23 @@ machineATron:
 ## Example:
 ##   machines:
 ##     dell-hosts:
-##       hwType: DellR760XA
+##       hwType: dell_poweredge_r750
 ##       hostCount: 10
 ##       dpuPerHostCount: 2
 ##       ...
-##     gigabyte-hosts:
-##       hwType: GigabyteG493
+##     dgx-hosts:
+##       hwType: nvidia_dgx_h100
 ##       hostCount: 5
 ##       dpuPerHostCount: 1
 ##       ...
 machines:
   ## Default section - can be renamed or have additional sections added
   config:
-    ## Hardware type: DellR760XA, DellR760, GigabyteG493, LiteOnPowerShelf, NvidiaSwitchNd5200Ld
-    hwType: DellR760XA
+    ## Hardware type (serde names from HostHardwareType enum):
+    ##   dell_poweredge_r750 (default), wiwynn_gb200_nvl, lenovo_gb300_nvl,
+    ##   nvidia_dgx_gb300, supermicro_gb300_nvl, liteon_power_shelf,
+    ##   nvidia_switch_nd5200_ld, nvidia_dgx_h100, generic_ami, generic_supermicro
+    hwType: dell_poweredge_r750
     ## Number of host machines to create
     hostCount: 10
     ## Number of VPCs to create
