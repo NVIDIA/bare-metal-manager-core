@@ -936,6 +936,7 @@ mod tests {
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
+            vpc_name: None,
         };
 
         let mut txn = pool.begin().await?;
@@ -972,6 +973,7 @@ mod tests {
             mtu: 1500,
             reserve_first: 3,
             allocation_strategy: Default::default(),
+            vpc_name: None,
         }
     }
 
