@@ -27,6 +27,6 @@ Delete a machine interface by ID (redeploy kea afterward):
 
 ")]
 pub struct Args {
-    #[clap(help = "The interface ID to delete. Redeploy kea after deleting machine interfaces.")]
+    #[clap(help = "The interface ID to delete.")]
     pub interface_id: MachineInterfaceId,
 }

@@ -20,6 +20,8 @@ mod tests;
 
 pub mod config;
 
+pub mod defaults;
+
 pub mod downloader;
 
 pub use config::{FirmwareConfig, FirmwareConfigSnapshot};

@@ -57,6 +57,8 @@ navigation:
             - page: DPF Setup for NICo Integration
               path: manuals/dpf.md
               slug: dpf-setup
+            - page: Day 0 Machine Identity
+              path: getting-started/installation-options/day0-machine-identity.md
           slug: installation-options
 
     - section: Architecture
@@ -119,6 +121,8 @@ navigation:
           path: configuration/tenant_management.md
         - page: Organization & Permissions
           path: configuration/org-permissions.md
+        - page: Machine Identity
+          path: configuration/machine_identity.md
 
     - section: Operations (Day 2)
       contents:
@@ -128,8 +132,14 @@ navigation:
               path: dpu-management/dpu-lifecycle-management.md
             - page: DPU Configuration
               path: dpu-management/dpu_configuration.md
+            - page: DPU Extension Service Management
+              path: manuals/dpu_extension_service.md
             - page: BlueField DPU Operations
               path: dpu-management/dpu-operations.md
+        - page: Firmware Updates
+          path: operations/firmware-updates.md
+        - page: Monitoring and Health
+          path: operations/monitoring-health.md
         - page: Tenant Lifecycle Cleanup
           path: operations/tenant-lifecycle-cleanup.md
         - page: Network Isolation
@@ -138,6 +148,12 @@ navigation:
           path: manuals/networking/network_security_groups.md
         - page: InfiniBand Partitioning
           path: manuals/networking/infiniband_partitioning.md
+        - page: Machine Identity KEK Rotation
+          path: manuals/machine_identity_kek_rotation.md
+        - page: Machine Identity Verification
+          path: manuals/machine_identity_verification.md
+        - page: Machine Identity Signing Key Rotation
+          path: manuals/machine_identity_signing_key_rotation.md
         - page: NVLink Partitioning
           path: manuals/nvlink_partitioning.md
         - page: Rack-Level Administration (RLA)

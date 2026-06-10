@@ -28,7 +28,7 @@ use health_report::{
 };
 use nv_redfish::resource::Health as BmcHealth;
 
-use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
+use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +94,27 @@ impl EventContext {
     pub fn switch_id(&self) -> Option<SwitchId> {
         match &self.metadata {
             Some(EndpointMetadata::Switch(switch)) => switch.id,
+            _ => None,
+        }
+    }
+
+    pub fn switch_serial(&self) -> Option<&str> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => Some(switch.serial.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn switch_endpoint_role(&self) -> Option<SwitchEndpointRole> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => Some(switch.endpoint_role),
+            _ => None,
+        }
+    }
+
+    pub fn switch_is_primary(&self) -> Option<bool> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => Some(switch.is_primary),
             _ => None,
         }
     }

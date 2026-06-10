@@ -764,7 +764,7 @@ impl EndpointExplorationReport {
     /// Return `true` if the explored endpoint is a PowerShelf.
     /// This checks if the chassis ID is /Chassis/powershelf, or,
     /// if that fails, checks to see if /Chassis/chassis has
-    /// a manufacturer containing "lite-on".
+    /// a manufacturer containing "lite-on" or "delta".
     ///
     /// TODO(chet): These are obviously workarounds for now while
     /// we work with vendors to update their BMC firmware.
@@ -772,9 +772,10 @@ impl EndpointExplorationReport {
         self.chassis.iter().any(|c| {
             c.id.to_lowercase().contains("powershelf")
                 || (c.id == "chassis"
-                    && c.manufacturer
-                        .as_ref()
-                        .is_some_and(|m| m.to_lowercase().contains("lite-on")))
+                    && c.manufacturer.as_ref().is_some_and(|m| {
+                        let m = m.to_lowercase();
+                        m.contains("lite-on") || m.contains("delta")
+                    }))
         })
     }
 
@@ -2212,6 +2213,19 @@ mod tests {
             chassis: vec![Chassis {
                 id: "chassis".to_string(),
                 manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_chassis_id_and_delta_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("DELTA".to_string()),
                 ..Default::default()
             }],
             ..Default::default()

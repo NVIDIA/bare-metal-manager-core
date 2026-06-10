@@ -30,6 +30,7 @@ test-support = [
   "dep:opentelemetry_sdk",
   "dep:prometheus",
   "dep:opentelemetry-prometheus",
+  "dep:rcgen",
 ]
 
 [dependencies]
@@ -44,6 +45,7 @@ opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 sqlx = { workspace = true, features = ["postgres"], optional = true }
 thiserror = { workspace = true }

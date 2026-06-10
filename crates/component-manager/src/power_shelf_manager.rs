@@ -60,6 +60,16 @@ pub struct PowerShelfPowerStateResult {
     pub error: Option<String>,
 }
 
+impl crate::component_common::ComponentPowerStateResult for PowerShelfPowerStateResult {
+    fn power_state(&self) -> Option<&str> {
+        self.power_state.as_deref()
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
+
 /// Backend trait for power shelf management operations.
 ///
 /// Implementations receive physical endpoint information (PMC IP/MAC + vendor)

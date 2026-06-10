@@ -393,7 +393,9 @@ async fn handle_action(
             } else {
                 Ok(())
             };
-            machine_validation::completed(config, machine_id, &id, None).await?;
+            let machine_validation_error = ret.as_ref().err().map(|err| err.to_string());
+            machine_validation::completed(config, machine_id, &id, machine_validation_error)
+                .await?;
             return ret;
         }
         fac::Action::MlxAction(mlx_action) => {
