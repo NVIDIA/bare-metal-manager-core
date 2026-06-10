@@ -16,11 +16,7 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// APIOperationType is the REST surface enum for operation types. PascalCase
-// values follow the convention used by other enum-like strings in this
-// package (TaskStatus, ComponentType, DiffType, BMCType). Flow's stored
-// rule files keep their snake_case spelling; conversion happens at the
-// boundary via (APIOperationType).ToProto and the protoToAPIOperationType map.
+// APIOperationType is the operationType field of an Operation Rule.
 type APIOperationType string
 
 const (
@@ -28,8 +24,7 @@ const (
 	APIOperationTypeFirmwareControl APIOperationType = "FirmwareControl"
 )
 
-// validOperationTypes lists the supported values; consumed by validation.In
-// on every request model that accepts operationType.
+// validOperationTypes lists the supported APIOperationType values.
 var validOperationTypes = []APIOperationType{
 	APIOperationTypePowerControl,
 	APIOperationTypeFirmwareControl,
@@ -43,7 +38,6 @@ var validOperationTypesAny = func() []any {
 	return out
 }()
 
-// protoToAPIOperationType maps Flow's protobuf enum to the REST string form.
 var protoToAPIOperationType = map[flowv1.OperationType]APIOperationType{
 	flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL:    APIOperationTypePowerControl,
 	flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL: APIOperationTypeFirmwareControl,
@@ -55,8 +49,7 @@ var apiToProtoOperationType = map[APIOperationType]flowv1.OperationType{
 }
 
 // ToProto converts to Flow's protobuf OperationType. The empty value maps
-// to OPERATION_TYPE_UNKNOWN (caller decides whether that is acceptable);
-// any other unknown value is an error so we don't silently forward garbage.
+// to OPERATION_TYPE_UNKNOWN; any unrecognized value returns an error.
 func (t APIOperationType) ToProto() (flowv1.OperationType, error) {
 	if t == "" {
 		return flowv1.OperationType_OPERATION_TYPE_UNKNOWN, nil
@@ -69,11 +62,7 @@ func (t APIOperationType) ToProto() (flowv1.OperationType, error) {
 	return v, nil
 }
 
-// APITaskRule is the API response model for an Operation Rule. All keys
-// use camelCase per the REST convention applied throughout this package.
-// Conversion to Flow's snake_case rule_definition_json blob happens in
-// (*APITaskRule).FromProto and (*APITaskRuleCreateRequest).ToProto via the
-// proto* mirror types and their toProto / toAPI methods below.
+// APITaskRule is the API response model for an Operation Rule.
 type APITaskRule struct {
 	ID             string                `json:"id"`
 	Name           string                `json:"name"`
@@ -92,10 +81,9 @@ type APITaskRuleDefinition struct {
 	Steps   []APITaskRuleSequenceStep `json:"steps"`
 }
 
-// APITaskRuleSequenceStep describes one stage of execution. Durations are
-// kept as strings (Go duration syntax, e.g. "30s", "2m") so the round-trip
-// with Flow preserves the exact form the user authored and Flow does the
-// parsing.
+// APITaskRuleSequenceStep describes one stage of execution. Duration fields
+// (Timeout, DelayAfter) are Go duration strings (e.g. "30s", "2m") parsed by
+// Flow.
 type APITaskRuleSequenceStep struct {
 	ComponentType string                    `json:"componentType"`
 	Stage         int                       `json:"stage"`
@@ -108,9 +96,8 @@ type APITaskRuleSequenceStep struct {
 	DelayAfter    string                    `json:"delayAfter"`
 }
 
-// APITaskRuleActionConfig configures a single action within a step. The
-// `parameters` map is intentionally free-form: keys and values are action-
-// specific and pass through to Flow's executor unchanged.
+// APITaskRuleActionConfig configures a single action within a step.
+// Parameters is action-specific and passes through to Flow unchanged.
 type APITaskRuleActionConfig struct {
 	Name         string         `json:"name"`
 	Timeout      string         `json:"timeout"`
@@ -126,11 +113,9 @@ type APITaskRuleRetryPolicy struct {
 	MaxInterval        string  `json:"maxInterval"`
 }
 
-// proto* types mirror the API-facing rule definition structs above but carry
-// snake_case JSON tags so they (de)serialize directly to and from Flow's
-// rule_definition_json blob — which uses the same shape Flow's protobuf
-// definitions would have if the rule body were modeled in proto today. Keep
-// each proto* type in lock-step with its API counterpart when adding fields.
+// proto* types mirror their APITaskRule* counterparts with snake_case JSON
+// tags for (de)serializing Flow's rule_definition_json blob. Keep each in
+// lock-step with its API counterpart when adding fields.
 type protoRuleDefinition struct {
 	Version string              `json:"version"`
 	Steps   []protoSequenceStep `json:"steps,omitempty"`
@@ -281,8 +266,7 @@ func (p protoRetryPolicy) toAPI() APITaskRuleRetryPolicy {
 }
 
 // FromProto populates an APITaskRule from a Flow protobuf OperationRule.
-// Returns an error if ruleDefinitionJson cannot be unmarshaled into the API
-// schema (this should never happen for rules that were written by Flow itself).
+// Returns an error if ruleDefinitionJson cannot be unmarshaled.
 func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	if pbRule == nil {
 		return nil
@@ -314,13 +298,9 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 
 // ~~~~~ Create ~~~~~ //
 
-// APITaskRuleCreateRequest is the JSON body for POST /rule.
-//
-// IsDefault is intentionally absent: rules are created as non-default and
-// promoted to default via a dedicated path (not surfaced through this CRUD
-// API). See the rule API design doc for the rationale — the atomic swap
-// requires Flow's SetRuleAsDefault RPC, which has different semantics than a
-// CRUD update.
+// APITaskRuleCreateRequest is the JSON body for POST /rule. isDefault is
+// not accepted — rules are created non-default; promotion uses Flow's
+// SetRuleAsDefault RPC, which is not surfaced through this CRUD API.
 type APITaskRuleCreateRequest struct {
 	SiteID         string                `json:"siteId"`
 	Name           string                `json:"name"`
@@ -330,10 +310,8 @@ type APITaskRuleCreateRequest struct {
 	RuleDefinition APITaskRuleDefinition `json:"ruleDefinition"`
 }
 
-// Validate runs basic shape validation. Deep validation (operation code
-// membership, rule definition semantics) lives in Flow and is surfaced via
-// the workflow error path; doing it again here would force the API layer to
-// track Flow's evolving allow-list.
+// Validate enforces shape only; semantic checks (operation code membership,
+// rule definition correctness) are performed by Flow.
 func (r *APITaskRuleCreateRequest) Validate() error {
 	return validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
@@ -347,8 +325,6 @@ func (r *APITaskRuleCreateRequest) Validate() error {
 }
 
 // ToProto converts the request into the Flow CreateOperationRuleRequest.
-// Returns an error if the rule definition cannot be marshaled (shouldn't
-// happen for well-formed input).
 func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest, error) {
 	opType, err := r.OperationType.ToProto()
 	if err != nil {
@@ -369,13 +345,9 @@ func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest
 
 // ~~~~~ Update ~~~~~ //
 
-// APITaskRuleUpdateRequest is the JSON body for PATCH /rule/{id}.
-//
-// All mutable fields are optional pointers so unset means "leave unchanged".
-// operationType / operationCode are intentionally immutable after creation
-// (mirroring Flow's UpdateTaskRule constraint) — change them by creating a new
-// rule and deleting the old one. is_default is also immutable here; see
-// APITaskRuleCreateRequest comment.
+// APITaskRuleUpdateRequest is the JSON body for PATCH /rule/{id}. Nil
+// pointer fields mean "leave unchanged". operationType, operationCode, and
+// isDefault are immutable after creation and not exposed here.
 type APITaskRuleUpdateRequest struct {
 	SiteID         string                 `json:"siteId"`
 	Name           *string                `json:"name"`
@@ -383,8 +355,7 @@ type APITaskRuleUpdateRequest struct {
 	RuleDefinition *APITaskRuleDefinition `json:"ruleDefinition"`
 }
 
-// Validate enforces that the request actually carries at least one field to
-// update. siteId is always required as it routes to the right Flow.
+// Validate enforces that the request carries at least one mutable field.
 func (r *APITaskRuleUpdateRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
@@ -401,7 +372,6 @@ func (r *APITaskRuleUpdateRequest) Validate() error {
 }
 
 // ToProto converts the update request into the Flow UpdateOperationRuleRequest.
-// ruleID is the path parameter from the request URL.
 func (r *APITaskRuleUpdateRequest) ToProto(ruleID string) (*flowv1.UpdateOperationRuleRequest, error) {
 	req := &flowv1.UpdateOperationRuleRequest{
 		RuleId:      &flowv1.UUID{Id: ruleID},
@@ -477,8 +447,7 @@ func (r *APITaskRuleGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1
 		limit := int32(*page.PageSize)
 		req.Limit = &limit
 	}
-	// Flow uses offset-based pagination. Translate (pageNumber, pageSize) into
-	// offset; this matches how task list pagination flows through Flow.
+	// Flow uses offset-based pagination; translate (pageNumber, pageSize).
 	if page.PageNumber != nil && page.PageSize != nil && *page.PageNumber > 0 && *page.PageSize > 0 {
 		offset := int32((*page.PageNumber - 1) * (*page.PageSize))
 		req.Offset = &offset
@@ -486,9 +455,8 @@ func (r *APITaskRuleGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1
 	return req, nil
 }
 
-// QueryValues returns query parameters that participate in deterministic
-// workflow ID hashing, including pagination fields so concurrent requests for
-// different filters/pages do not reuse the same workflow execution.
+// QueryValues returns the request fields that feed the workflow ID hash,
+// including pagination so different pages map to distinct workflow IDs.
 func (r *APITaskRuleGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
 	v := url.Values{}
 	v.Set("siteId", r.SiteID)

@@ -14,9 +14,8 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
-// ruleActivityOptions returns the shared activity options used by every rule
-// workflow. Mirrors task.go: short start-to-close, single retry to absorb
-// transient Flow blips, fail-fast on permanent errors.
+// ruleActivityOptions returns the activity options shared by every TaskRule
+// workflow: short start-to-close, single retry, fail-fast on permanent errors.
 func ruleActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * time.Minute,
@@ -69,9 +68,7 @@ func GetTaskRule(ctx workflow.Context, request *flowv1.GetOperationRuleRequest) 
 	return &response, nil
 }
 
-// GetAllTaskRules is a workflow to list Operation Rules matching the
-// filters in the request (operation_type, operation_code, default_only) via
-// Flow. Pagination and totals are computed by Flow.
+// GetAllTaskRules is a workflow to list Operation Rules via Flow.
 func GetAllTaskRules(ctx workflow.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
 	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "GetAll").Logger()
 	logger.Info().Msg("Starting workflow")
@@ -95,8 +92,6 @@ func GetAllTaskRules(ctx workflow.Context, request *flowv1.ListOperationRulesReq
 }
 
 // UpdateTaskRule is a workflow to update an Operation Rule via Flow.
-// is_default cannot be updated via this path; use Flow's SetRuleAsDefault
-// RPC for that (not surfaced through this CRUD API).
 func UpdateTaskRule(ctx workflow.Context, request *flowv1.UpdateOperationRuleRequest) error {
 	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Update").Logger()
 	logger.Info().Msg("Starting workflow")
@@ -114,9 +109,9 @@ func UpdateTaskRule(ctx workflow.Context, request *flowv1.UpdateOperationRuleReq
 	return nil
 }
 
-// DeleteTaskRule is a workflow to delete an Operation Rule by ID via
-// Flow. Flow rejects deletion of rules that are still associated with racks or
-// are the active default for an operation; the caller must dissociate first.
+// DeleteTaskRule is a workflow to delete an Operation Rule by ID via Flow.
+// Flow rejects deletion of rules still bound to racks or active as default
+// for an operation.
 func DeleteTaskRule(ctx workflow.Context, request *flowv1.DeleteOperationRuleRequest) error {
 	logger := log.With().Str("Workflow", "TaskRule").Str("Action", "Delete").Logger()
 	logger.Info().Msg("Starting workflow")

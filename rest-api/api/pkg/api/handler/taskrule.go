@@ -31,22 +31,13 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
-// errTaskRuleResponseSent is a sentinel returned by prepareTaskRuleHandler to tell the
-// caller that an HTTP error response has already been written and the handler
-// should bail. cutil.NewAPIErrorResponse returns nil on success, so we can't
-// just bubble its result up — we'd lose the signal that the request is done.
+// errTaskRuleResponseSent signals that prepareTaskRuleHandler has already
+// written an HTTP error response and the handler should return nil.
 var errTaskRuleResponseSent = errors.New("response sent")
 
-// prepareTaskRuleHandler runs the auth + site lookup + Flow-enabled check + Temporal
-// client retrieval common to every rule handler. On any failure it writes the
-// HTTP error response itself and returns errTaskRuleResponseSent; the caller MUST
-// return nil from Handle to avoid double-writing.
-//
-// We factor this out because the rule API has 5 sibling handlers that all share
-// the same preamble. Other resources (e.g. task.go) duplicate it inline; here
-// the savings are large enough to justify a helper, but the helper stays
-// pass-through (no business logic) so the per-handler control flow still reads
-// like task.go.
+// prepareTaskRuleHandler runs the auth + site lookup + Flow-enabled check +
+// Temporal client retrieval shared by every TaskRule handler. On failure it
+// writes the HTTP error response itself and returns errTaskRuleResponseSent.
 func prepareTaskRuleHandler(
 	c echo.Context,
 	dbSession *cdb.Session,

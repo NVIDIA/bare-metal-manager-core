@@ -86,8 +86,7 @@ func (mr *ManageTaskRule) GetTaskRuleFromFlow(ctx context.Context, request *flow
 	return response, nil
 }
 
-// GetAllTaskRulesFromFlow lists Operation Rules via Flow. Filters and pagination
-// fields on flowv1.ListOperationRulesRequest are honored by Flow.
+// GetAllTaskRulesFromFlow lists Operation Rules via Flow.
 func (mr *ManageTaskRule) GetAllTaskRulesFromFlow(ctx context.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
 	logger := log.With().Str("Activity", "GetAllTaskRulesFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
@@ -118,9 +117,7 @@ func (mr *ManageTaskRule) GetAllTaskRulesFromFlow(ctx context.Context, request *
 	return response, nil
 }
 
-// UpdateTaskRuleOnFlow updates an Operation Rule via Flow. Note that
-// is_default is not updatable via this path on Flow; use SetRuleAsDefault
-// for that (not surfaced through this CRUD API).
+// UpdateTaskRuleOnFlow updates an Operation Rule via Flow.
 func (mr *ManageTaskRule) UpdateTaskRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) error {
 	logger := log.With().Str("Activity", "UpdateTaskRuleOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
