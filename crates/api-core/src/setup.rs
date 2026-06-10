@@ -391,6 +391,10 @@ pub fn parse_carbide_config(
     // parsed config, before the web layer exists.
     crate::init_tools(config.web_ui_sidebar_tools.clone());
 
+    // Publish the deployment-wide host naming policy so the DB layer can read it
+    // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
+    db::host_naming::configure(config.host_naming_strategy);
+
     // Validate that the firmware profile config keys match their inner
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
