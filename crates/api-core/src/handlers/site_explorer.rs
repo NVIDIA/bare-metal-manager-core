@@ -163,6 +163,14 @@ pub(crate) async fn clear_site_exploration_error(
     let mut txn = api.txn_begin().await?;
 
     db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
+    // A terminal preingestion `Failed` state is the operator-visible error for a
+    // stuck host, but it lives in `preingestion_state`, not in the exploration
+    // report cleared above. Reset it to `Initial` here so clearing the error
+    // actually retries preingestion instead of requiring a force-delete of the
+    // endpoint. Non-failed states are left untouched.
+    if db::explored_endpoints::reset_failed_preingestion(bmc_ip, &mut txn).await? {
+        tracing::info!("Reset failed preingestion to initial for {bmc_ip} on error clear");
+    }
 
     txn.commit().await?;
 

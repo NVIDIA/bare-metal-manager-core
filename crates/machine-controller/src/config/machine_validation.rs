@@ -37,7 +37,7 @@ pub enum MachineValidationTestSelectionMode {
 /// Configuration for machine validation tests (memory
 /// latency, SSD I/O, etc.) run after ingestion to verify
 /// hardware health.
-#[derive(Default, Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MachineValidationConfig {
     /// Enables machine validation testing.
     #[serde(default)]
@@ -54,6 +54,15 @@ pub struct MachineValidationConfig {
         serialize_with = "as_std_duration"
     )]
     pub run_interval: std::time::Duration,
+
+    /// Grace period before an active validation run is considered stale after
+    /// its expected duration has elapsed.
+    #[serde(
+        default = "MachineValidationConfig::default_stale_run_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub stale_run_timeout: std::time::Duration,
 
     /// Per-test enable/disable overrides.
     #[serde(default)]
@@ -80,5 +89,21 @@ pub struct MachineValidationTestConfig {
 impl MachineValidationConfig {
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
+    }
+
+    const fn default_stale_run_timeout() -> std::time::Duration {
+        std::time::Duration::from_secs(24 * 60 * 60)
+    }
+}
+
+impl Default for MachineValidationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            test_selection_mode: MachineValidationTestSelectionMode::default(),
+            run_interval: Self::default_run_interval(),
+            stale_run_timeout: Self::default_stale_run_timeout(),
+            tests: Vec::new(),
+        }
     }
 }

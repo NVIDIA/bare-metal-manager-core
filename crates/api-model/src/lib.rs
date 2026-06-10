@@ -94,6 +94,8 @@ pub mod state_history;
 pub mod storage;
 pub mod switch;
 pub mod tenant;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod trim_table;
 pub mod vpc;
 pub mod vpc_prefix;

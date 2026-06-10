@@ -29,9 +29,10 @@ pub mod tests {
     };
     use model::metadata::Metadata;
     use model::sku::Sku;
+    use model::test_support::ManagedHostConfig;
     use sqlx::PgConnection;
 
-    use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+    use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
     use crate::tests::common::api_fixtures::{
         TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
         create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
@@ -589,7 +590,7 @@ pub mod tests {
 
         let config = ManagedHostConfig {
             auto_assign_sku_in_fixture: false,
-            ..Default::default()
+            ..ManagedHostConfig::default()
         };
 
         let mh = create_managed_host_with_config(&env, config).await;

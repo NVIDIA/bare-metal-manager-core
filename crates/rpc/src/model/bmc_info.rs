@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use mac_address::MacAddress;
 use model::bmc_info::{BmcInfo, UserRoles};
 
@@ -36,7 +38,12 @@ impl TryFrom<rpc::BmcInfo> for BmcInfo {
 
         Ok(BmcInfo {
             machine_interface_id: value.machine_interface_id,
-            ip: value.ip,
+            ip: match value.ip.as_deref() {
+                None | Some("") => None,
+                Some(ip) => Some(ip.parse::<IpAddr>().map_err(|_| {
+                    RpcDataConversionError::InvalidArgument(format!("Invalid BMC IP: {ip}"))
+                })?),
+            },
             port: value.port.map(|p| p as u16),
             mac,
             version: value.version,
@@ -49,7 +56,7 @@ impl From<BmcInfo> for rpc::BmcInfo {
     fn from(value: BmcInfo) -> Self {
         rpc::BmcInfo {
             machine_interface_id: value.machine_interface_id,
-            ip: value.ip,
+            ip: value.ip.map(|ip| ip.to_string()),
             port: value.port.map(|p| p as u32),
             mac: value.mac.map(|mac| mac.to_string()),
             version: value.version,

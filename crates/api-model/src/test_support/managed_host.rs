@@ -17,32 +17,23 @@
 
 use std::iter;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachineData;
-use model::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
-use model::machine::ManagedHostState;
-use model::site_explorer::{
+
+use crate::expected_machine::ExpectedMachineData;
+use crate::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
+use crate::machine::ManagedHostState;
+use crate::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     EthernetInterface, Inventory, Manager, NetworkAdapter, PCIeDevice, PowerState, Service,
     UefiDevicePath,
 };
+pub use crate::test_support::HardwareInfoTemplate;
+use crate::test_support::dpu::DpuConfig;
 
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::host::X86_INFO_JSON;
-use crate::tests::common::{ib_guid_pool, mac_address_pool};
-
-static NEXT_HOST_SERIAL: AtomicU32 = AtomicU32::new(1);
-const REQUIRED_IB_GUIDS: usize = 6;
-
-#[derive(Debug, Clone)]
-pub enum HardwareInfoTemplate {
-    Default,
-    Custom(&'static [u8]),
-}
+pub const X86_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/x86_info.json");
+pub const REQUIRED_IB_GUIDS: usize = 6;
 
 /// Describes a Managed Host
 #[derive(Clone)]
@@ -64,44 +55,13 @@ pub struct ManagedHostConfig {
     /// - bmc username/password are not required
     /// - serial number is copied from ManagedHostConfig
     pub expected_machine_data: Option<ExpectedMachineData>,
+    /// The BMC vendor the host's exploration report presents.
+    /// Default: Dell. Override to exercise vendor-dependent paths
+    /// (e.g. the post-`set_nic_mode` host power cycle).
+    pub vendor: Option<bmc_vendor::BMCVendor>,
 }
 
 impl ManagedHostConfig {
-    pub fn with_serial(serial: String) -> Self {
-        Self {
-            serial,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_dpus(dpus: Vec<DpuConfig>) -> Self {
-        Self {
-            dpus,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_expected_state(expected_state: ManagedHostState) -> Self {
-        Self {
-            expected_state,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_hardware_info_template(hardware_info_template: HardwareInfoTemplate) -> Self {
-        Self {
-            hardware_info_template,
-            ..Default::default()
-        }
-    }
-
-    pub fn with_expected_machine_data(expected_machine_data: ExpectedMachineData) -> Self {
-        Self {
-            expected_machine_data: Some(expected_machine_data),
-            ..Default::default()
-        }
-    }
-
     pub fn dhcp_mac_address(&self) -> MacAddress {
         if let Some(dpu) = self.dpus.first() {
             dpu.host_mac_address
@@ -117,29 +77,6 @@ impl ManagedHostConfig {
             panic!("Expected a single-DPU host, got {} DPUs", self.dpus.len());
         };
         single_dpu
-    }
-}
-
-impl Default for ManagedHostConfig {
-    fn default() -> Self {
-        Self {
-            serial: format!(
-                "VVG1{:05X}",
-                NEXT_HOST_SERIAL.fetch_add(1, Ordering::Relaxed)
-            ),
-            bmc_mac_address: mac_address_pool::HOST_BMC_MAC_ADDRESS_POOL.allocate(),
-            tpm_ek_cert: TpmEkCertificate::from(create_random_self_signed_cert()),
-            dpus: vec![DpuConfig::default()],
-            non_dpu_macs: vec![mac_address_pool::HOST_NON_DPU_MAC_ADDRESS_POOL.allocate()],
-            expected_state: ManagedHostState::Ready,
-            // Create 6 IB GUIDs - which is what is required by x86_info.json
-            ib_guids: std::iter::repeat_with(|| ib_guid_pool::IB_GUID_POOL.allocate())
-                .take(6)
-                .collect(),
-            auto_assign_sku_in_fixture: true,
-            hardware_info_template: HardwareInfoTemplate::Default,
-            expected_machine_data: None,
-        }
     }
 }
 
@@ -173,8 +110,8 @@ impl From<&ManagedHostConfig> for HardwareInfo {
                 pci_properties: None,
             }))
             .collect();
-        // Generate a unique GUID for each InfiniBand interface in the template
-        // For the moment this only supports hosts with a fixed amount of 6 interfaces
+        // Generate a unique GUID for each InfiniBand interface in the template.
+        // For the moment this only supports hosts with a fixed amount of 6 interfaces.
         assert_eq!(
             config.ib_guids.len(),
             REQUIRED_IB_GUIDS,
@@ -249,7 +186,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 }
             })
             .chain(value.dpus.iter().enumerate().map(|(index, dpu)| {
-                let slot = index + 5; // DPUs start with 5....
+                let slot = index + 5; // DPUs start with 5.
                 EthernetInterface {
                     id: Some(format!("NIC.Slot.{slot}-1")),
                     description: Some(format!("NIC in Slot {slot} Port 1")),
@@ -274,7 +211,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
             last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Dell),
+            vendor: value.vendor,
             managers: vec![Manager {
                 id: "iDRAC.Embedded.1".to_string(),
                 ethernet_interfaces: vec![EthernetInterface {

@@ -199,9 +199,9 @@ pub(crate) async fn find_bmc_ips(
             };
 
             // Get the BMC IP out of the machine topology
-            let bmc_ip = match machine_topology.topology.bmc_info.ip.map(|ip| ip.parse()) {
-                Some(Ok(ip)) => ip,
-                None | Some(Err(_)) => {
+            let bmc_ip = match machine_topology.topology.bmc_info.ip {
+                Some(ip) => ip,
+                None => {
                     return Ok(Response::new(rpc::BmcIpList::default()));
                 }
             };

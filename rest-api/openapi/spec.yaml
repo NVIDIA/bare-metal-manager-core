@@ -213,6 +213,9 @@ tags:
   - name: Task
     description: |-
       Task represents an asynchronous, site-scoped operation (for example firmware update, power state change, or rack bring-up). Tasks are created when operations run against Racks, Trays, or other components. Endpoints in this tag retrieve or cancel a Task by ID; list Tasks for a Rack or Tray under the Rack and Tray tags.
+  - name: Rule
+    description: |-
+      Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -10261,6 +10264,209 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Task
+  '/v2/org/{org}/nico/task/rule':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create an Operation Rule
+      operationId: create-rule
+      description: |-
+        Create a new Operation Rule on the target Site. The rule definition is validated
+        server-side by Flow; on validation failure no state changes (the request acts
+        as a dry-run by way of its own validation step).
+
+        Rules are site-scoped and per (operationType, operationCode) tuple. The response
+        echoes the submitted body with the assigned `id`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRuleRequest'
+      responses:
+        '201':
+          description: Rule was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+    get:
+      summary: List Operation Rules
+      operationId: list-rules
+      description: |-
+        List Operation Rules on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rules (rules are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+  '/v2/org/{org}/nico/task/rule/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Rule
+    get:
+      summary: Retrieve an Operation Rule
+      operationId: get-rule
+      description: |-
+        Get an Operation Rule by UUID.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    patch:
+      summary: Update an Operation Rule
+      operationId: update-rule
+      description: |-
+        Patch the mutable fields of an Operation Rule: `name`, `description`, and
+        `ruleDefinition`. Unset fields are left unchanged. The rule definition is
+        re-validated server-side; validation failure leaves the rule untouched.
+
+        `operationType` and `operationCode` are immutable after creation — create a
+        new rule and delete the old one to change them.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuleRequest'
+      responses:
+        '204':
+          description: Rule was updated.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    delete:
+      summary: Delete an Operation Rule
+      operationId: delete-rule
+      description: |-
+        Delete an Operation Rule by UUID. Flow rejects deletion of rules that are
+        still associated with a Rack or that are the active default for their
+        (operationType, operationCode) tuple; dissociate / un-default first.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '204':
+          description: Rule was deleted.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -17568,6 +17774,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchUpdateTrayPowerStateRequest:
       title: BatchUpdateTrayPowerStateRequest
       type: object
@@ -17591,6 +17804,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchRackFirmwareUpdateRequest:
       title: BatchRackFirmwareUpdateRequest
       type: object
@@ -17609,6 +17829,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BringUpRackRequest:
       title: BringUpRackRequest
       type: object
@@ -17623,6 +17850,12 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this bring-up to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
         - siteId: 550e8400-e29b-41d4-a716-446655440000
@@ -17643,6 +17876,13 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every bring-up task
+            spawned by this batch to the named rule and overrides Flow's default
+            rule resolution.
     BringUpRackResponse:
       title: BringUpRackResponse
       type: object
@@ -17660,7 +17900,7 @@ components:
     Task:
       title: Task
       type: object
-      description: A task representing an asynchronous operation on rack infrastructure.
+      description: A task representing an asynchronous, site-scoped operation against rack, tray, or other site infrastructure.
       properties:
         id:
           type: string
@@ -17683,6 +17923,16 @@ components:
         message:
           type: string
           description: Optional status or error message describing the current state or result.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule that Flow resolved for this task — either because
+            the caller pinned one via `ruleId` on the originating request or
+            because Flow's default rule resolution picked it. Null if Flow
+            has not yet recorded a resolution.
         started:
           type: string
           format: date-time
@@ -17711,6 +17961,7 @@ components:
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          ruleId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
           report:
             version: 1
             stages:
@@ -17735,6 +17986,258 @@ components:
                   - componentType: PowerShelf
                     status: skipped
                     totalComponents: 0
+    OperationRule:
+      title: OperationRule
+      type: object
+      description: |-
+        An Operation Rule template for a single (operationType, operationCode) tuple.
+        The `ruleDefinition` carries the executable schedule (stages, per-component
+        concurrency, actions, retry) Flow runs when this rule is selected for an
+        operation.
+      required:
+        - id
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+        - isDefault
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the rule.
+        name:
+          type: string
+          description: Human-readable name of the rule. Required and non-empty.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this rule applies to. Immutable after creation.
+        operationCode:
+          type: string
+          description: |-
+            Operation code within the operation type (e.g. `power_on`, `power_off`,
+            `upgrade`). Server-side validated against Flow's allow-list for the type.
+            Immutable after creation.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+        isDefault:
+          type: boolean
+          description: |-
+            Whether this rule is currently the default for its `(operationType,
+            operationCode)` tuple.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was last updated.
+    RuleDefinition:
+      title: RuleDefinition
+      type: object
+      description: |-
+        Executable definition of a rule. Mirrors Flow's wire schema 1:1 so existing
+        YAML rule files can be converted to JSON without any key renaming
+        (nested fields use `snake_case`).
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Schema version. Currently always `v1`.
+          enum:
+            - v1
+        steps:
+          type: array
+          description: |-
+            Ordered execution steps. Steps with the same `stage` run in parallel,
+            stages run sequentially in ascending numerical order. May be empty for
+            operations whose sequencing is hardcoded in Flow (e.g. bring-up,
+            firmware update).
+          items:
+            $ref: '#/components/schemas/SequenceStep'
+    SequenceStep:
+      title: SequenceStep
+      type: object
+      description: A single execution step inside a `RuleDefinition`.
+      required:
+        - componentType
+        - stage
+        - mainOperation
+      properties:
+        componentType:
+          type: string
+          description: |-
+            Component type this step targets (e.g. `Compute`, `NVLSwitch`,
+            `PowerShelf`). Validated against Flow's component-type set.
+        stage:
+          type: integer
+          minimum: 1
+          description: |-
+            Stage number; steps with the same stage run in parallel, lower stages run
+            first. Component types must be unique within a stage.
+        maxParallel:
+          type: integer
+          minimum: 0
+          description: |-
+            Maximum number of components of this type processed concurrently. `0`
+            means unlimited, `1` means strictly sequential.
+        timeout:
+          type: string
+          description: |-
+            Optional child-workflow timeout for this step, as a Go duration string
+            (e.g. `30s`, `2m`). Applies to pre + main + post combined.
+        retry:
+          $ref: '#/components/schemas/RetryPolicy'
+        preOperation:
+          type: array
+          description: Actions to run before the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        mainOperation:
+          $ref: '#/components/schemas/ActionConfig'
+        postOperation:
+          type: array
+          description: Actions to run after the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        delayAfter:
+          type: string
+          description: |-
+            Deprecated legacy field — sleep duration after this step, as a Go
+            duration string. Prefer encoding the wait as an explicit `Sleep`
+            post-operation action.
+    ActionConfig:
+      title: ActionConfig
+      type: object
+      description: Configuration for a single action within a step.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          enum:
+            - Sleep
+            - PowerControl
+            - VerifyPowerStatus
+            - VerifyReachability
+            - GetPowerStatus
+            - FirmwareControl
+            - VerifyFirmwareVersion
+            - VerifyFirmwareConsistency
+            - BringUpControl
+            - WaitBringUp
+            - InjectExpectation
+          description: |-
+            Executor-agnostic action name. Server-side validated; unknown names
+            fail the rule definition.
+        timeout:
+          type: string
+          description: |-
+            Optional per-action timeout override as a Go duration string
+            (e.g. `30s`, `2m`).
+        pollInterval:
+          type: string
+          description: |-
+            Poll interval for actions that loop (e.g. `FirmwareControl`,
+            `VerifyPowerStatus`) as a Go duration string.
+        parameters:
+          type: object
+          additionalProperties: true
+          description: |-
+            Action-specific parameters. Validated server-side against the action's
+            schema. Examples:
+              - `Sleep`: `{ duration: "30s" }`
+              - `PowerControl`: `{ operation: "on" }`
+              - `VerifyPowerStatus`: `{ expected_status: "on" }`
+              - `VerifyReachability`: `{ component_types: ["Compute"], require_all: true }`
+              - `FirmwareControl`: `{ poll_interval: "10s", poll_timeout: "30m" }`
+    RetryPolicy:
+      title: RetryPolicy
+      type: object
+      description: Retry behavior for a step's child workflow.
+      required:
+        - maxAttempts
+        - initialInterval
+        - backoffCoefficient
+      properties:
+        maxAttempts:
+          type: integer
+          minimum: 1
+          description: Maximum number of attempts including the first.
+        initialInterval:
+          type: string
+          description: Initial retry interval, as a Go duration string (e.g. `1s`).
+        backoffCoefficient:
+          type: number
+          minimum: 1
+          description: Exponential backoff multiplier; must be `>= 1.0`.
+        maxInterval:
+          type: string
+          description: Optional cap on retry interval, as a Go duration string.
+    CreateRuleRequest:
+      title: CreateRuleRequest
+      type: object
+      description: Request body for creating an Operation Rule.
+      required:
+        - siteId
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the rule on.
+        name:
+          type: string
+          description: Human-readable name of the rule.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Operation type the rule applies to.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `power_on`).
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+    UpdateRuleRequest:
+      title: UpdateRuleRequest
+      type: object
+      description: |-
+        Request body for patching an Operation Rule. All mutable fields are optional;
+        unset fields are left unchanged. At least one of `name`, `description`,
+        `ruleDefinition` must be provided.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the rule.
+        name:
+          type: string
+          description: New rule name. Must be non-empty when provided.
+        description:
+          type: string
+          description: New free-form description.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
     TaskReportV1:
       title: TaskReportV1
       type: object
@@ -17891,6 +18394,13 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
@@ -17924,6 +18434,12 @@ components:
             - `cycle`: Graceful power cycle (restart)
             - `forceoff`: Forced power off (immediate)
             - `forcecycle`: Forced power cycle (immediate restart)
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this operation to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           state: 'on'
@@ -17991,6 +18507,12 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this firmware update to
+            the named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           version: '24.11.0'

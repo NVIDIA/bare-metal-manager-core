@@ -1012,8 +1012,6 @@ impl Machine {
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
         self.bmc_info
             .ip
-            .as_ref()
-            .and_then(|ip| ip.parse().ok())
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 
@@ -1069,6 +1067,13 @@ impl Machine {
             "No device instance found for dpu {} in machine {}",
             dpu_machine_id, self.id
         )))
+    }
+
+    pub fn primary_attached_dpu_machine_id(&self) -> Option<MachineId> {
+        self.interfaces
+            .iter()
+            .find(|iface| iface.primary_interface)
+            .and_then(|iface| iface.attached_dpu_machine_id)
     }
 
     pub fn get_dpu_device_and_id_mappings(&self) -> ModelResult<DpuDeviceMappings> {

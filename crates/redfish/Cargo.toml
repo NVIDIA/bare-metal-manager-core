@@ -11,7 +11,12 @@ name = "carbide_redfish"
 
 [features]
 default = []
-test-support = ["dep:chrono", "dep:serde_json", "dep:tokio", "carbide-secrets/test-support"]
+test-support = [
+  "dep:chrono",
+  "dep:serde_json",
+  "dep:tokio",
+  "carbide-secrets/test-support",
+]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
@@ -30,7 +35,11 @@ chrono = { workspace = true, optional = true }
 http = { workspace = true }
 libredfish = { workspace = true }
 mac_address = { workspace = true }
-nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe", "session-service"] }
+nv-redfish = { workspace = true, features = [
+  "bmc-http",
+  "oem-hpe",
+  "session-service",
+] }
 reqwest = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }

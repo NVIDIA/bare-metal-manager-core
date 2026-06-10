@@ -22,6 +22,8 @@ pub mod hw;
 mod inventories;
 mod manager;
 mod network_adapter;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 use std::collections::HashMap;
 use std::convert::identity;
 use std::sync::Arc;
@@ -66,11 +68,10 @@ pub struct Config<'a, B: Bmc> {
     pub retry_timeout: Duration,
 }
 
-pub async fn nv_generate_exploration_report<B: Bmc>(
-    mut root: Arc<ServiceRoot<B>>,
-    config: &Config<'_, B>,
-) -> Result<EndpointExplorationReport, Error<B>> {
-    let chassis_explore_config = chassis::Config {
+/// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
+/// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
+fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
+    chassis::Config {
         network_adapter: network_adapter::Config {
             need_network_device_fns: root.vendor() == Some(Vendor::new("Dell")),
         },
@@ -86,7 +87,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
             && root.product() == Some(Product::new("BlueField-3 DPU")))
         .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
-    };
+    }
+}
+
+pub async fn nv_generate_exploration_report<B: Bmc>(
+    mut root: Arc<ServiceRoot<B>>,
+    config: &Config<'_, B>,
+) -> Result<EndpointExplorationReport, Error<B>> {
+    let chassis_explore_config = build_chassis_explore_config(&root);
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
@@ -179,7 +187,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
-            Some(hw::HwType::LenovoGb300) => {
+            Some(hw::HwType::LenovoGb300 | hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300) => {
                 let chassis_id = chassis.chassis.id().into_inner();
                 chassis_id.starts_with("HGX_GPU_")
             }
@@ -260,14 +268,37 @@ pub(crate) fn hw_type<B: Bmc>(
 ) -> Option<hw::HwType> {
     let system = &explored_system.system;
     let oem_id = root.oem_id().map(|v| v.into_inner());
+
+    // GB300 is an NVIDIA HGX platform identity, recognized by the NVIDIA "NVIDIA GB300"
+    // GPU chassis (`is_gb300()`) independent of the host BMC vendor. Resolve it before the
+    // host-vendor match below so platform classification is not gated on the host ODM; the
+    // ODM only selects the ODM-specific variant.
+    if explored_chassis.is_gb300() {
+        // Lenovo GB300: AMI host BMC + Lenovo host chassis.
+        if explored_chassis.is_lenovo() {
+            return Some(hw::HwType::LenovoGb300);
+        }
+        // DGX GB300: NVIDIA "GB BMC" host (same BMC family as GB200). Resolved here, ahead of
+        // the GB200 arm below, since it shares GB200's ServiceRoot signature -- the GB300 GPU
+        // chassis (`is_gb300()`) is what distinguishes it from a real GB200.
+        if root.vendor() == Some(Vendor::new("NVIDIA"))
+            && root.product() == Some(Product::new("GB BMC"))
+        {
+            return Some(hw::HwType::DgxGb300);
+        }
+        // SMC GB300: Supermicro host BMC. The tray scrape shows ServiceRoot vendor "Supermicro"
+        // (Product "GB NVL", no OEM key), so the vendor string carries it -- no chassis helper
+        // needed. See gb300-firmus-ingestion/triangulation-matrix.md.
+        if root.vendor() == Some(Vendor::new("Supermicro")) {
+            return Some(hw::HwType::SupermicroGb300);
+        }
+    }
+
     root.vendor()
         .map(|v| v.into_inner())
         .or_else(|| (oem_id == Some("Supermicro")).then_some("Supermicro"))
         .and_then(|vendor_id| match vendor_id {
             "AMI" if system.id().into_inner() == "DGX" => Some(hw::HwType::Viking),
-            "AMI" if explored_chassis.is_gb300() && explored_chassis.is_lenovo() => {
-                Some(hw::HwType::LenovoGb300)
-            }
             "AMI" => Some(hw::HwType::Ami),
             "Dell" => Some(hw::HwType::Dell),
             "Lenovo" if oem_id == Some("Ami") => Some(hw::HwType::LenovoAmi),
@@ -830,6 +861,37 @@ fn machine_setup_status<B: Bmc>(
             if let Some(mac) = boot_interface_mac {
                 // Looking for UEFI Device path:
                 // VenHw(REDACTED)/MemoryMapped(REDACTED)/PciRoot(0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC(020304050607,0x1)/IPv4(0.0.0.0)/Uri()
+                let actual = explored_system.boot_order_first_option();
+                let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
+                let expected = explored_system.boot_options.iter().find(|option| {
+                    option.uefi_device_path().is_some_and(|path| {
+                        path.inner().contains(&mac_str)
+                            && path.inner().contains("/IPv4(")
+                            && path.inner().ends_with("/Uri()")
+                    })
+                });
+                if let Some(diff) = compare_boot_options(expected, actual) {
+                    diffs.push(diff)
+                }
+            }
+        }
+
+        hw::HwType::DgxGb300 | hw::HwType::SupermicroGb300 => {
+            // GB300 platforms (DGX on the NVIDIA "GB BMC", SMC on a Supermicro OpenBMC) share
+            // the platform-level setup expectations: secure boot off and boot order by MAC.
+            // TODO(gb300): add per-ODM EXPECTED_BIOS_ATTRS tables once each GB300 tray's
+            // BIOS is characterized; until then no BIOS-attr verification is applied.
+            if explored_system
+                .secure_boot_status()
+                .is_ok_and(|s| s.is_enabled)
+            {
+                diffs.push(MachineSetupDiff {
+                    key: "SecureBoot".to_string(),
+                    expected: "false".to_string(),
+                    actual: "true".to_string(),
+                })
+            }
+            if let Some(mac) = boot_interface_mac {
                 let actual = explored_system.boot_order_first_option();
                 let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
                 let expected = explored_system.boot_options.iter().find(|option| {

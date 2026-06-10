@@ -446,6 +446,49 @@ fn bench_queue_key_construction(c: &mut Criterion) {
     group.finish();
 }
 
+fn make_sink_report(alert_count: usize, success_count: usize) -> HealthReport {
+    use carbide_health::sink::{HealthReportAlert, HealthReportSuccess};
+    HealthReport {
+        source: ReportSource::BmcSensors,
+        target: Some(carbide_health::sink::HealthReportTarget::Machine),
+        observed_at: Some(chrono::Utc::now()),
+        successes: (0..success_count)
+            .map(|i| HealthReportSuccess {
+                probe_id: carbide_health::sink::Probe::Sensor,
+                target: Some(format!("target-{i}")),
+            })
+            .collect(),
+        alerts: (0..alert_count)
+            .map(|i| HealthReportAlert {
+                probe_id: carbide_health::sink::Probe::Sensor,
+                target: Some(format!("target-{i}")),
+                message: format!("alert message for probe {i}"),
+                classifications: vec![Classification::SensorCritical],
+            })
+            .collect(),
+    }
+}
+
+fn bench_content_hash(c: &mut Criterion) {
+    let mut group = c.benchmark_group("health_report_content_hash");
+
+    for (label, alerts, successes) in [
+        ("empty", 0usize, 0usize),
+        ("small_success_only", 0, 8),
+        ("large_success_only", 0, 256),
+        ("small_with_alerts", 4, 4),
+        ("large_with_alerts", 64, 64),
+    ] {
+        let report = Arc::new(make_sink_report(alerts, successes));
+
+        group.bench_with_input(BenchmarkId::new("hash", label), &report, |b, report| {
+            b.iter(|| black_box(HealthReportSink::content_hash_for_bench(report)));
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_prometheus_sink,
@@ -453,5 +496,6 @@ criterion_group!(
     bench_health_report_sink,
     bench_otlp_sink,
     bench_queue_key_construction,
+    bench_content_hash,
 );
 criterion_main!(benches);

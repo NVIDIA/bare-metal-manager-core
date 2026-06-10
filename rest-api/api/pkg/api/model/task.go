@@ -28,15 +28,18 @@ var ProtoToAPITaskStatusName = map[flowv1.TaskStatus]string{
 // (OpenAPI schema Task). It covers both rack- and tray-scoped tasks
 // because Flow drives them through the same Task entity.
 type APITask struct {
-	ID          string           `json:"id"`
-	Status      string           `json:"status"`
-	Description string           `json:"description"`
-	Message     string           `json:"message"`
-	Started     *time.Time       `json:"started"`
-	Finished    *time.Time       `json:"finished"`
-	Created     time.Time        `json:"created"`
-	Updated     time.Time        `json:"updated"`
-	Report      *APITaskReportV1 `json:"report,omitempty"`
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Message     string `json:"message"`
+	// RuleID is the Operation Rule Flow resolved for this task; nil until
+	// Flow records a resolution. Sourced from Task.applied_rule_id.
+	RuleID   *string          `json:"ruleId"`
+	Started  *time.Time       `json:"started"`
+	Finished *time.Time       `json:"finished"`
+	Created  time.Time        `json:"created"`
+	Updated  time.Time        `json:"updated"`
+	Report   *APITaskReportV1 `json:"report,omitempty"`
 }
 
 // APITaskReportV1Status enumerates per-stage and per-step execution
@@ -219,6 +222,10 @@ func (t *APITask) FromProto(task *flowv1.Task, opts ...APITaskOption) {
 	}
 	t.Created = task.GetCreatedAt().AsTime().UTC()
 	t.Updated = task.GetUpdatedAt().AsTime().UTC()
+	if id := task.GetAppliedRuleId(); id != nil && id.GetId() != "" {
+		v := id.GetId()
+		t.RuleID = &v
+	}
 	if o.withReport {
 		if raw := task.GetReport(); raw != "" {
 			var r APITaskReportV1

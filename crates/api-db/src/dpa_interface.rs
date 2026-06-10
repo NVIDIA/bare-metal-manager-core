@@ -45,8 +45,8 @@ pub async fn persist(
     let state = DpaInterfaceControllerState::Provisioning;
     let description = value.device_description.unwrap_or_default();
 
-    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING row_to_json(dpa_interfaces.*)";
+    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description, interface_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING row_to_json(dpa_interfaces.*)";
 
     sqlx::query_as(query)
         .bind(value.machine_id.to_string())
@@ -58,6 +58,7 @@ pub async fn persist(
         .bind(value.device_type)
         .bind(value.pci_name)
         .bind(description)
+        .bind(value.interface_type)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -77,8 +78,8 @@ pub async fn ensure(
     let state = DpaInterfaceControllerState::Provisioning;
     let description = value.device_description.unwrap_or_default();
 
-    let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
+    let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description, interface_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
 
     let result: Option<DpaInterface> = sqlx::query_as(insert_query)
         .bind(value.machine_id.to_string())
@@ -90,6 +91,7 @@ pub async fn ensure(
         .bind(value.device_type)
         .bind(value.pci_name)
         .bind(description)
+        .bind(value.interface_type)
         .fetch_optional(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(insert_query, e))?;
@@ -546,7 +548,7 @@ mod test {
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
     use carbide_uuid::machine::MachineId;
     use mac_address::MacAddress;
-    use model::dpa_interface::NewDpaInterface;
+    use model::dpa_interface::{DpaInterfaceType, NewDpaInterface};
     use model::machine::ManagedHostState;
 
     use crate::machine;
@@ -566,6 +568,7 @@ mod test {
             device_type: "Bluefield 3".to_string(),
             pci_name: "5e:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         let intf = crate::dpa_interface::persist(new_intf, &mut txn).await?;
@@ -608,6 +611,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: "01:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         // First call should insert a new interface.
@@ -627,6 +631,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: "01:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
         let second = crate::dpa_interface::ensure(second_intf, &mut txn).await?;
         assert_eq!(second.id, first.id);
@@ -666,6 +671,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: pci_name.to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         crate::dpa_interface::persist(new_intf, &mut txn).await?;

@@ -15,31 +15,40 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use carbide_api_core::test_support::ApiMetricsEmitter;
 use carbide_api_core::test_support::builder::TestApiBuilder;
 use carbide_utils::test_support::test_meter::TestMeter;
 use db::work_lock_manager;
-use model::resource_pool;
+use model::resource_pool::ResourcePoolDef;
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::resource_pool::ResourcePoolBuilder;
 use crate::{ApiHandle, TestHarness};
 
 pub struct TestHarnessBuilder {
     pub(crate) db_pool: PgPool,
     pub(crate) test_meter: Option<TestMeter>,
     pub(crate) api: Option<ApiHandle>,
+    pub(crate) pools: Option<HashMap<String, ResourcePoolDef>>,
 }
 
 impl TestHarnessBuilder {
+    pub fn with_resource_pools(self, pools: HashMap<String, ResourcePoolDef>) -> Self {
+        Self {
+            pools: Some(pools),
+            ..self
+        }
+    }
+
     pub async fn build(self) -> TestHarness {
         let test_meter = self.test_meter.unwrap_or_default();
         let api = match self.api {
             Some(v) => v,
-            None => Self::build_default_api(self.db_pool, &test_meter).await,
+            None => Self::build_default_api(self.pools, self.db_pool, &test_meter).await,
         };
 
         TestHarness {
@@ -49,47 +58,15 @@ impl TestHarnessBuilder {
         }
     }
 
-    async fn build_default_api(db_pool: PgPool, test_meter: &TestMeter) -> ApiHandle {
+    async fn build_default_api(
+        resource_pools: Option<HashMap<String, ResourcePoolDef>>,
+        db_pool: PgPool,
+        test_meter: &TestMeter,
+    ) -> ApiHandle {
         let cancel_token = CancellationToken::new();
         let mut join_set = JoinSet::new();
 
-        let int_range_pool = |ranges: &[(u32, u32)]| resource_pool::ResourcePoolDef {
-            pool_type: resource_pool::ResourcePoolType::Integer,
-            ranges: ranges
-                .iter()
-                .map(|(start, end)| resource_pool::Range {
-                    start: start.to_string(),
-                    end: end.to_string(),
-                    auto_assign: true,
-                })
-                .collect(),
-            prefix: None,
-            delegate_prefix_len: None,
-        };
-
-        let pools = [
-            (
-                resource_pool::common::LOOPBACK_IP.to_string(),
-                resource_pool::ResourcePoolDef {
-                    pool_type: resource_pool::ResourcePoolType::Ipv4,
-                    prefix: Some("172.20.0.0/24".to_string()),
-                    ranges: vec![],
-                    delegate_prefix_len: None,
-                },
-            ),
-            (
-                resource_pool::common::VLANID.to_string(),
-                int_range_pool(&[(1, 2)]),
-            ),
-            (
-                resource_pool::common::VNI.to_string(),
-                int_range_pool(&[(10001, 10002)]),
-            ),
-            (
-                resource_pool::common::VPC_VNI.to_string(),
-                int_range_pool(&[(20001, 20002), (60001, 60002)]),
-            ),
-        ];
+        let pools = resource_pools.unwrap_or_else(|| ResourcePoolBuilder::default().build());
         let mut txn = db_pool.begin().await.unwrap();
         db::resource_pool::define_all_from(&mut txn, &pools.into_iter().collect())
             .await

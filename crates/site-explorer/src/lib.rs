@@ -197,16 +197,22 @@ pub(crate) async fn ensure_rack_exists(
 /// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
 pub async fn fetch_slot_and_tray(
     rms_client: &dyn librms::RmsApi,
-    request: librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest,
+    request: librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest,
 ) -> (Option<i32>, Option<i32>) {
-    match rms_client.get_device_info_by_device_list(request).await {
+    match rms_client.batch_get_node_device_info(request).await {
         Ok(info) => {
-            if !info.node_device_info.is_empty() {
-                let node_device_info = info.node_device_info.first().unwrap();
-                (node_device_info.slot_number, node_device_info.tray_index)
-            } else {
-                (None, None)
-            }
+            let Some(node_device_details) = info.node_device_details.first() else {
+                return (None, None);
+            };
+
+            let slot_number = node_device_details
+                .slot_number
+                .and_then(|value| i32::try_from(value).ok());
+            let tray_index = node_device_details
+                .tray_index
+                .and_then(|value| i32::try_from(value).ok());
+
+            (slot_number, tray_index)
         }
         Err(e) => {
             tracing::warn!(
@@ -1176,28 +1182,45 @@ impl SiteExplorer {
                         );
 
                         if !all_dpus_configured_properly_in_host {
-                            if ep.report.vendor.is_some_and(|vendor| vendor.is_dell()) {
-                                let time_since_redfish_powercycle = Utc::now()
-                                    .signed_duration_since(
-                                        ep.last_redfish_powercycle.unwrap_or_default(),
-                                    );
-                                if time_since_redfish_powercycle > self.config.reset_rate_limit {
-                                    tracing::warn!(
-                                        "power cycling Dell {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
-                                        ep.address,
-                                    );
+                            // A queued `set_nic_mode` only takes effect after a host
+                            // power cycle, so drive one for every vendor -- the
+                            // Redfish `ComputerSystem.Reset` action is standard
+                            // across BMCs -- throttled by `reset_rate_limit`. A BMC
+                            // that refuses the request surfaces the host as needing
+                            // a manual power cycle via the pairing-blocker metric.
+                            let time_since_redfish_powercycle = Utc::now().signed_duration_since(
+                                ep.last_redfish_powercycle.unwrap_or_default(),
+                            );
+                            if time_since_redfish_powercycle > self.config.reset_rate_limit {
+                                tracing::warn!(
+                                    "power cycling host {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
+                                    ep.address,
+                                );
 
-                                    self.redfish_powercycle(ep.address)
-                                        .await
-                                        .inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address))
-                                        .ok();
+                                if let Err(err) = self.redfish_powercycle(ep.address).await {
+                                    tracing::warn!(
+                                        "site explorer failed to power cycle host {} to apply DPU mode changes: {err}; a manual power cycle may be required",
+                                        ep.address
+                                    );
+                                    metrics.increment_host_dpu_pairing_blocker(
+                                        PairingBlockerReason::ManualPowerCycleRequired,
+                                    );
                                 }
                             } else {
-                                tracing::warn!(
-                                    "wait for manual power cycle of host {}; site explorer doesn't support power cycling vendor {:#?}",
-                                    ep.address,
-                                    ep.report.vendor
-                                );
+                                // We power-cycled within the rate limit and the
+                                // DPUs still aren't in the declared mode -- either
+                                // the change is mid-flight (the host is booting, a
+                                // pass or two of normal convergence) or this
+                                // vendor's `PowerCycle` is a warm reset that never
+                                // actually drops power. Keep the pairing-blocker
+                                // signal standing so a host stuck in the warm-reset
+                                // loop stays visible to operators instead of
+                                // rebooting hourly in silence.
+                                //
+                                // TODO(chet): If the power cycle doesn't appear to
+                                // be flipping the NIC to the expected mode, this is
+                                // where we'd want to introduce a cold power cycle
+                                // (`ForceOff`/`On` or similar).
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::ManualPowerCycleRequired,
                                 );
@@ -1559,20 +1582,8 @@ impl SiteExplorer {
                 .await;
             }
             for nic in &expected_machine.data.host_nics {
-                let Some(ip_str) = nic.fixed_ip.as_deref() else {
+                let Some(ip) = nic.fixed_ip else {
                     continue;
-                };
-                let ip: IpAddr = match ip_str.parse() {
-                    Ok(ip) => ip,
-                    Err(error) => {
-                        tracing::warn!(
-                            %error,
-                            nic_mac = %nic.mac_address,
-                            fixed_ip = %ip_str,
-                            "Site-explorer preallocation: invalid fixed_ip on expected_machine host NIC"
-                        );
-                        continue;
-                    }
                 };
                 try_preallocate_one(
                     &self.database_connection,

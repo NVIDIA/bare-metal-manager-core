@@ -36,6 +36,7 @@ use crate::model::instance::status::instance_status_from_config_and_observation;
 pub fn instance_snapshot_derive_status(
     snapshot: &InstanceSnapshot,
     dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
+    primary_dpu_machine_id: Option<MachineId>,
     managed_host_state: ManagedHostState,
     reprovision_request: Option<ReprovisionRequest>,
     ib_status: Option<&MachineInfinibandStatusObservation>,
@@ -45,6 +46,7 @@ pub fn instance_snapshot_derive_status(
 ) -> Result<InstanceStatus, RpcDataConversionError> {
     instance_status_from_config_and_observation(
         dpu_id_to_device_map,
+        primary_dpu_machine_id,
         Versioned::new(&snapshot.config, snapshot.config_version),
         Versioned::new(&snapshot.config.network, snapshot.network_config_version),
         Versioned::new(&snapshot.config.infiniband, snapshot.ib_config_version),
