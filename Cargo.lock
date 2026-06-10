@@ -1276,6 +1276,7 @@ dependencies = [
  "mac_address",
  "mockito",
  "mqttea",
+ "nico-test-support",
  "nras",
  "num_cpus",
  "nv-redfish",
@@ -1362,6 +1363,7 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "names",
+ "nico-test-support",
  "octseq",
  "regex",
  "rustc-hash",
@@ -1431,6 +1433,7 @@ dependencies = [
  "lazy_static",
  "libnmxm",
  "mac_address",
+ "nico-test-support",
  "nras",
  "once_cell",
  "p256 0.14.0-rc.9",
@@ -2209,6 +2212,7 @@ dependencies = [
  "hex",
  "hostname",
  "mac_address",
+ "nico-test-support",
  "once_cell",
  "prettytable-rs",
  "prost-types",
@@ -2870,6 +2874,7 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
+ "nico-test-support",
  "opentelemetry",
  "rand 0.10.1",
  "regex",
@@ -7196,6 +7201,10 @@ dependencies = [
  "log",
  "tokio",
 ]
+
+[[package]]
+name = "nico-test-support"
+version = "0.0.0"
 
 [[package]]
 name = "nix"
