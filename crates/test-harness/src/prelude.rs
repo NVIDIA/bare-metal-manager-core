@@ -20,4 +20,5 @@ pub use rpc::forge::forge_server::Forge;
 pub use sqlx::PgPool;
 pub use sqlx_testing;
 
+pub use crate::resource_pool::ResourcePoolBuilder;
 pub use crate::{Api, TestHarness, rpc};
