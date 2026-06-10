@@ -21,6 +21,25 @@ const (
 	TenantRelationName = "Tenant"
 )
 
+// TenantCreateInput input parameters for Create method
+type TenantCreateInput struct {
+	Name           string
+	DisplayName    *string
+	Org            string
+	OrgDisplayName *string
+	Config         *TenantConfig
+	CreatedBy      uuid.UUID
+}
+
+// TenantUpdateInput input parameters for Update method
+type TenantUpdateInput struct {
+	TenantID       uuid.UUID
+	Name           *string
+	DisplayName    *string
+	OrgDisplayName *string
+	Config         *TenantConfig
+}
+
 // TenantConfig is a data structure to capture configuration and capabilities for a Tenant
 // TODO: EnableSSHAccess is deprecated and should be removed.
 type TenantConfig struct {
@@ -96,11 +115,11 @@ type TenantDAO interface {
 	//
 	GetAllByOrg(ctx context.Context, tx *db.Tx, org string, includeRelations []string) ([]Tenant, error)
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx, name string, displayName *string, org string, orgDisplayName *string, config *TenantConfig, createdBy *User) (*Tenant, error)
+	Create(ctx context.Context, tx *db.Tx, input TenantCreateInput) (*Tenant, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, name *string, displayName *string, orgDisplayName *string, config *TenantConfig) (*Tenant, error)
+	Update(ctx context.Context, tx *db.Tx, input TenantUpdateInput) (*Tenant, error)
 	//
-	DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 }
 
 // TenantSQLDAO implements TenantDAO interface for SQL
@@ -164,24 +183,24 @@ func (tsd TenantSQLDAO) GetAllByOrg(ctx context.Context, tx *db.Tx, org string, 
 	return tns, nil
 }
 
-// CreateFromParams creates a new Tenant from parameters
-func (tsd TenantSQLDAO) CreateFromParams(ctx context.Context, tx *db.Tx, name string, displayName *string, org string, orgDisplayName *string, config *TenantConfig, createdBy *User) (*Tenant, error) {
+// Create creates a new Tenant from the given input
+func (tsd TenantSQLDAO) Create(ctx context.Context, tx *db.Tx, input TenantCreateInput) (*Tenant, error) {
 	// Create a child span and set the attributes for current request
-	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.CreateFromParams")
+	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.Create")
 	if tnDAOSpan != nil {
 		defer tnDAOSpan.End()
 
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "name", name)
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "name", input.Name)
 	}
 
 	tn := &Tenant{
 		ID:             uuid.New(),
-		Name:           name,
-		DisplayName:    displayName,
-		Org:            org,
-		OrgDisplayName: orgDisplayName,
-		Config:         config,
-		CreatedBy:      createdBy.ID,
+		Name:           input.Name,
+		DisplayName:    input.DisplayName,
+		Org:            input.Org,
+		OrgDisplayName: input.OrgDisplayName,
+		Config:         input.Config,
+		CreatedBy:      input.CreatedBy,
 	}
 
 	_, err := db.GetIDB(tx, tsd.dbSession).NewInsert().Model(tn).Exec(ctx)
@@ -197,55 +216,55 @@ func (tsd TenantSQLDAO) CreateFromParams(ctx context.Context, tx *db.Tx, name st
 	return ntn, nil
 }
 
-// UpdateFromParams updates the InfrastructureProvider with the given parameters
-func (tsd TenantSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, name *string, displayName *string, orgDisplayName *string, config *TenantConfig) (*Tenant, error) {
+// Update updates the Tenant with the given input
+func (tsd TenantSQLDAO) Update(ctx context.Context, tx *db.Tx, input TenantUpdateInput) (*Tenant, error) {
 	// Create a child span and set the attributes for current request
-	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.UpdateFromParams")
+	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.Update")
 	if tnDAOSpan != nil {
 		defer tnDAOSpan.End()
 
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "id", id.String())
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "id", input.TenantID.String())
 	}
 
 	tn := &Tenant{
-		ID: id,
+		ID: input.TenantID,
 	}
 
 	updatedFields := []string{}
 
-	if name != nil {
-		tn.Name = *name
+	if input.Name != nil {
+		tn.Name = *input.Name
 		updatedFields = append(updatedFields, "name")
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "name", *name)
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "name", *input.Name)
 	}
 
-	if displayName != nil {
-		tn.DisplayName = displayName
+	if input.DisplayName != nil {
+		tn.DisplayName = input.DisplayName
 		updatedFields = append(updatedFields, "display_name")
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "display_name", *displayName)
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "display_name", *input.DisplayName)
 	}
 
-	if orgDisplayName != nil {
-		tn.OrgDisplayName = orgDisplayName
+	if input.OrgDisplayName != nil {
+		tn.OrgDisplayName = input.OrgDisplayName
 		updatedFields = append(updatedFields, "org_display_name")
-		tsd.tracerSpan.SetAttribute(tnDAOSpan, "org_display_name", *orgDisplayName)
+		tsd.tracerSpan.SetAttribute(tnDAOSpan, "org_display_name", *input.OrgDisplayName)
 	}
 
-	if config != nil {
-		tn.Config = config
+	if input.Config != nil {
+		tn.Config = input.Config
 		updatedFields = append(updatedFields, "config")
 	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, tsd.dbSession).NewUpdate().Model(tn).Where("id = ?", id).Column(updatedFields...).Exec(ctx)
+		_, err := db.GetIDB(tx, tsd.dbSession).NewUpdate().Model(tn).Where("id = ?", input.TenantID).Column(updatedFields...).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	utn, err := tsd.GetByID(ctx, tx, id, nil)
+	utn, err := tsd.GetByID(ctx, tx, input.TenantID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -253,10 +272,10 @@ func (tsd TenantSQLDAO) UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid
 	return utn, nil
 }
 
-// DeleteByID deletes a Tenant by ID
-func (tsd TenantSQLDAO) DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
+// Delete soft-deletes a Tenant by ID
+func (tsd TenantSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
 	// Create a child span and set the attributes for current request
-	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.DeleteByID")
+	ctx, tnDAOSpan := tsd.tracerSpan.CreateChildInCurrentContext(ctx, "TenantDAO.Delete")
 	if tnDAOSpan != nil {
 		defer tnDAOSpan.End()
 

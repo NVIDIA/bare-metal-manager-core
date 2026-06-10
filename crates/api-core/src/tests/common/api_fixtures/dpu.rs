@@ -20,16 +20,14 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NicMode,
-    PowerState, Service, UefiDevicePath,
+    PCIeDevice, PowerState, Service, UefiDevicePath,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -37,7 +35,6 @@ use sqlx::PgConnection;
 use tonic::Request;
 
 use super::site_explorer;
-use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::tests::common::api_fixtures::managed_host::{HardwareInfoTemplate, ManagedHostConfig};
 use crate::tests::common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestManagedHost};
 use crate::tests::common::mac_address_pool;
@@ -50,6 +47,9 @@ pub const TEST_DPU_AGENT_VERSION: &str = "test";
 pub const TEST_DOCA_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// The version of doca-telemetry reported in unit-tests
 pub const TEST_DOCA_TELEMETRY_VERSION: &str = "1.14.2-doca2.2.0";
+
+/// The BF3 BMC firmware version reported by DPU fixtures.
+pub const TEST_BF3_BMC_FIRMWARE_VERSION: &str = carbide_firmware::defaults::BF3_BMC_VERSION;
 
 pub const DPU_INFO_JSON: &[u8] =
     include_bytes!("../../../../../api-model/src/hardware_info/test_data/dpu_info.json");
@@ -160,28 +160,17 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     nic_mode: value.nic_mode,
                     is_infinite_boot_enabled: None,
                 },
-                pcie_devices: vec![
-                    PCIeDevice {
-                        odata: OData {
-                            odata_id: "odata_id".to_string(),
-                            odata_type: "odata_type".to_string(),
-                            odata_etag: None,
-                            odata_context: None,
-                        },
-                        description: None,
-                        firmware_version: None,
-                        id: None,
-                        manufacturer: None,
-                        gpu_vendor: None,
-                        name: None,
-                        part_number: Some("900-9D3B6-00CV-AA0".to_string()),
-                        serial_number: Some(value.serial.clone()),
-                        status: None,
-                        slot: None,
-                        pcie_functions: None,
-                    }
-                    .into_model(),
-                ],
+                pcie_devices: vec![PCIeDevice {
+                    description: None,
+                    firmware_version: None,
+                    id: None,
+                    manufacturer: None,
+                    gpu_vendor: None,
+                    name: None,
+                    part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+                    serial_number: Some(value.serial.clone()),
+                    status: None,
+                }],
                 base_mac: Some(value.host_mac_address.into()),
                 power_state: PowerState::On,
                 sku: None,
@@ -217,13 +206,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     Inventory {
                         id: "BMC_Firmware".to_string(),
                         description: Some("Host image".to_string()),
-                        version: Some(
-                            InitialDpuConfig::default()
-                                .find_bf3_entry()
-                                .unwrap()
-                                .version
-                                .clone(),
-                        ),
+                        version: Some(TEST_BF3_BMC_FIRMWARE_VERSION.to_string()),
                         release_date: None,
                     },
                     Inventory {

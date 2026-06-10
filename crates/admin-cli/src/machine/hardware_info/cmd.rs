@@ -22,6 +22,7 @@ use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineId;
 
 use super::args::MachineHardwareInfoGpus;
+use crate::async_write;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
@@ -41,13 +42,34 @@ pub async fn handle_update_machine_hardware_info_gpus(
         .await
 }
 
-pub fn handle_show_machine_hardware_info(
-    _api_client: &ApiClient,
-    _output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-    _output_format: &OutputFormat,
-    _machine_id: MachineId,
+pub async fn handle_show_machine_hardware_info(
+    api_client: &ApiClient,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+    output_format: &OutputFormat,
+    machine_id: MachineId,
 ) -> CarbideCliResult<()> {
-    Err(CarbideCliError::NotImplemented(
-        "machine hardware output".to_string(),
-    ))
+    let machine = api_client.get_machine(machine_id).await?;
+    let discovery_info = machine.discovery_info.ok_or_else(|| {
+        CarbideCliError::GenericError(format!("Machine {machine_id} has no hardware info"))
+    })?;
+
+    match output_format {
+        OutputFormat::Json => {
+            async_write!(
+                output_file,
+                "{}",
+                serde_json::to_string_pretty(&discovery_info)?
+            )?;
+        }
+        OutputFormat::Yaml => {
+            async_write!(output_file, "{}", serde_yaml::to_string(&discovery_info)?)?;
+        }
+        OutputFormat::AsciiTable | OutputFormat::Csv => {
+            return Err(CarbideCliError::NotImplemented(
+                "ASCII table/CSV formatted output".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
 }

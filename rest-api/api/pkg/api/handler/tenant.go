@@ -166,7 +166,13 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 
 		if len(tns) == 0 {
 			// Create Tenant
-			created, derr := tnDAO.CreateFromParams(ctx, tx, userOrgDetails.Name, &userOrgDetails.DisplayName, org, nil, nil, dbUser)
+			created, derr := tnDAO.Create(ctx, tx, cdbm.TenantCreateInput{
+				Name:           userOrgDetails.Name,
+				DisplayName:    &userOrgDetails.DisplayName,
+				Org:            org,
+				OrgDisplayName: cutil.GetPtr(org),
+				CreatedBy:      dbUser.ID,
+			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Tenant DB entity")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant", nil)
@@ -184,7 +190,10 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		// Update Tenant if needed
 		existing := &tns[0]
 		if existing.OrgDisplayName == nil || *existing.OrgDisplayName != userOrgDetails.DisplayName {
-			updated, derr := tnDAO.UpdateFromParams(ctx, tx, existing.ID, nil, nil, cutil.GetPtr(userOrgDetails.DisplayName), nil)
+			updated, derr := tnDAO.Update(ctx, tx, cdbm.TenantUpdateInput{
+				TenantID:       existing.ID,
+				OrgDisplayName: cutil.GetPtr(userOrgDetails.DisplayName),
+			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Tenant DB entity")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant", nil)

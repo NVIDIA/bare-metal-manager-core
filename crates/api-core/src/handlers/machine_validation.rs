@@ -92,76 +92,32 @@ pub(crate) async fn mark_machine_validation_complete(
 
     let mut state = MachineValidationState::Success;
 
-    let machine_validation_results = match req.machine_validation_error {
+    let machine_validation_error = req.machine_validation_error;
+    let machine_validation_results = match machine_validation_error.as_ref() {
         Some(machine_validation_error) => {
-            db::machine::update_failure_details_by_machine_id(
-                &machine_id,
-                &mut txn,
-                FailureDetails {
-                    cause: FailureCause::MachineValidation {
-                        err: machine_validation_error.clone(),
-                    },
-                    failed_at: chrono::Utc::now(),
-                    source: FailureSource::Scout,
-                },
-            )
-            .await?;
-
-            // Update the Machine validation health report to include that the
-            // validation failed
-            let mut updated_validation_health_report = machine.machine_validation_health_report();
-            updated_validation_health_report.observed_at = Some(chrono::Utc::now());
-            updated_validation_health_report
-                .alerts
-                .push(health_report::HealthProbeAlert {
-                    id: "FailedValidationTestCompletion".parse().unwrap(),
-                    target: None,
-                    in_alert_since: Some(chrono::Utc::now()),
-                    message: format!(
-                        "Validation test failed to run to completion:\n{machine_validation_error}"
-                    ),
-                    tenant_message: None,
-                    classifications: vec![
-                        health_report::HealthAlertClassification::prevent_allocations(),
-                    ],
-                });
-
-            db::machine::update_machine_validation_health_report(
-                &mut txn,
-                &machine.id,
-                &updated_validation_health_report,
-            )
-            .await?;
             state = MachineValidationState::Failed;
-            machine_validation_error
+            machine_validation_error.clone()
         }
         None => "Success".to_owned(),
     };
 
+    let validation_result_error;
     let result =
         match db::machine_validation_result::validate_current_context(&mut txn, validation_id)
             .await?
         {
             Some(error_message) => {
-                db::machine::update_failure_details_by_machine_id(
-                    &machine_id,
-                    &mut txn,
-                    FailureDetails {
-                        cause: FailureCause::MachineValidation {
-                            err: error_message.clone(),
-                        },
-                        failed_at: chrono::Utc::now(),
-                        source: FailureSource::Scout,
-                    },
-                )
-                .await?;
                 state = MachineValidationState::Failed;
+                validation_result_error = Some(error_message.clone());
                 error_message
             }
-            None => "Success".to_owned(),
+            None => {
+                validation_result_error = None;
+                "Success".to_owned()
+            }
         };
 
-    db::machine_validation::mark_machine_validation_complete(
+    let completed = db::machine_validation::mark_machine_validation_complete(
         &mut txn,
         &machine_id,
         validation_id,
@@ -171,6 +127,70 @@ pub(crate) async fn mark_machine_validation_complete(
         },
     )
     .await?;
+    if !completed {
+        tracing::info!(
+            %machine_id,
+            %validation_id,
+            "machine validation completion ignored because run is no longer active"
+        );
+        txn.commit().await?;
+        return Ok(Response::new(rpc::MachineValidationCompletedResponse {}));
+    }
+
+    if let Some(machine_validation_error) = machine_validation_error {
+        db::machine::update_failure_details_by_machine_id(
+            &machine_id,
+            &mut txn,
+            FailureDetails {
+                cause: FailureCause::MachineValidation {
+                    err: machine_validation_error.clone(),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::Scout,
+            },
+        )
+        .await?;
+
+        // Update the Machine validation health report to include that the
+        // validation failed
+        let mut updated_validation_health_report = machine.machine_validation_health_report();
+        updated_validation_health_report.observed_at = Some(chrono::Utc::now());
+        updated_validation_health_report
+            .alerts
+            .push(health_report::HealthProbeAlert {
+                id: "FailedValidationTestCompletion".parse().unwrap(),
+                target: None,
+                in_alert_since: Some(chrono::Utc::now()),
+                message: format!(
+                    "Validation test failed to run to completion:\n{machine_validation_error}"
+                ),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            });
+
+        db::machine::update_machine_validation_health_report(
+            &mut txn,
+            &machine.id,
+            &updated_validation_health_report,
+        )
+        .await?;
+    }
+
+    if let Some(error_message) = validation_result_error {
+        db::machine::update_failure_details_by_machine_id(
+            &machine_id,
+            &mut txn,
+            FailureDetails {
+                cause: FailureCause::MachineValidation { err: error_message },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::Scout,
+            },
+        )
+        .await?;
+    }
+
     txn.commit().await?;
 
     tracing::info!(
@@ -209,6 +229,18 @@ pub(crate) async fn persist_validation_result(
                 );
             }
         };
+    let machine_validation =
+        db::machine_validation::find_by_id(&mut txn, &validation_result.validation_id).await?;
+    if !db::machine_validation::is_active(&machine_validation) {
+        tracing::info!(
+            validation_id = %validation_result.validation_id,
+            machine_id = %machine.id,
+            "machine validation result ignored because run is no longer active"
+        );
+        txn.commit().await?;
+        return Ok(tonic::Response::new(()));
+    }
+
     // Check state
     match machine.current_state() {
         ManagedHostState::Validation { validation_state } => {

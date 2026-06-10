@@ -843,6 +843,7 @@ name = "bmc-explorer"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bmc-explorer",
  "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
@@ -1989,6 +1990,7 @@ dependencies = [
  "humantime",
  "humantime-serde",
  "hyper",
+ "hyper-rustls",
  "hyper-util",
  "logfmt",
  "mac_address",
@@ -1998,12 +2000,15 @@ dependencies = [
  "prost-types",
  "rand 0.10.1",
  "reqwest 0.13.4",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_with",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tonic",
  "tonic-prost",
@@ -2262,6 +2267,7 @@ dependencies = [
  "carbide-network",
  "carbide-rpc",
  "carbide-tls",
+ "carbide-utils",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -2275,7 +2281,6 @@ dependencies = [
  "mac_address",
  "rand 0.10.1",
  "ratatui",
- "rcgen",
  "reqwest 0.13.4",
  "russh",
  "serde",
@@ -3085,6 +3090,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "prometheus",
+ "rcgen",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
@@ -6537,7 +6543,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.8#a1b98328b67394eb38fc8088273e0f84c1432ffd"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.10#3c5bd928414892355e0dd3ce4fd5120c31477857"
 dependencies = [
  "chrono",
  "clap",

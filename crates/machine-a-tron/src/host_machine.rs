@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
 };
+use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use carbide_uuid::machine::MachineId;
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
@@ -35,7 +36,6 @@ use crate::config::{MachineATronContext, MachineConfig, PersistedHostMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
-use crate::machine_utils::create_random_self_signed_cert;
 use crate::saturating_add_duration_to_instant;
 use crate::tui::{HostDetails, UiUpdate};
 
@@ -101,6 +101,8 @@ impl HostMachine {
                 .map(Into::into)
                 .collect(),
             non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
+            nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
+            switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
         };
         let dpus = dpu_machines
             .into_iter()
@@ -587,6 +589,8 @@ impl HostMachineHandle {
             serial: self.0.host_info.serial.clone(),
             dpus: self.0.dpus.iter().map(|d| d.persisted()).collect(),
             non_dpu_mac_address: self.0.host_info.non_dpu_mac_address,
+            nvos_mac_addresses: self.0.host_info.nvos_mac_addresses.clone(),
+            switch_serial_number: self.0.host_info.switch_serial_number.clone(),
             observed_machine_id: live_state.observed_machine_id,
             installed_os: live_state.installed_os,
             tpm_ek_certificate: live_state.tpm_ek_certificate.clone(),

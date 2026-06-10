@@ -32,3 +32,6 @@ pub const VALIDATING: u64 = 300; // 5 minutes
 
 /// SLA for Switch deleting in seconds
 pub const DELETING: u64 = 300; // 5 minutes
+
+/// SLA for Switch maintenance (PowerOn / PowerOff / Reset) in seconds
+pub const MAINTENANCE: u64 = 300; // 5 minutes

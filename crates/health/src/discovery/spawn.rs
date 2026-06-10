@@ -28,9 +28,10 @@ use crate::collectors::{
     LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
+    spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
-use crate::endpoint::{BmcEndpoint, SwitchEndpointRole};
+use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
 use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
@@ -384,7 +385,7 @@ fn spawn_switch_host_collectors(
         );
         match Collector::start::<NvueRestCollector>(
             endpoint_arc,
-            bmc,
+            bmc.clone(),
             NvueRestCollectorConfig {
                 rest_config: rest_cfg.clone(),
                 data_sink: data_sink.clone(),
@@ -416,6 +417,42 @@ fn spawn_switch_host_collectors(
         }
     }
 
+    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+        && let Configurable::Enabled(gnmi_cfg) = &nvue_cfg.gnmi
+        && !ctx.collectors.contains(CollectorKind::NvueGnmi, &key)
+        && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
+    {
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("nvue_gnmi_collector_{key}"), metrics_prefix)?,
+        );
+        let credential_provider = bmc.credential_provider();
+        match spawn_gnmi_collector(
+            endpoint,
+            gnmi_cfg,
+            credential_provider,
+            collector_registry,
+            data_sink.clone(),
+        ) {
+            Ok(handle) => {
+                ctx.collectors
+                    .insert(CollectorKind::NvueGnmi, key.clone().into(), handle);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_nvue_gnmi_collectors = ctx.collectors.len(CollectorKind::NvueGnmi),
+                    "Started NVUE gNMI streaming collection for switch endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint_key = %key,
+                    "Could not start NVUE gNMI collector for switch"
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -429,7 +466,8 @@ mod tests {
     use super::*;
     use crate::collectors::DowngradeReason;
     use crate::config::{
-        AutoModeConfig, Config, Configurable, LogsCollectorConfig, PeriodicLogConfig,
+        AutoModeConfig, Config, Configurable, LogsCollectorConfig, NvueCollectorConfig,
+        NvueGnmiConfig, PeriodicLogConfig,
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
@@ -573,7 +611,10 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
-        config.collectors.nvue = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
+            rest: Configurable::Enabled(Default::default()),
+            gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
+        });
 
         let mut ctx = context_with_config(config, "test_switch_bmc_redfish_only");
         let endpoint = test_endpoint(
@@ -593,17 +634,21 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0);
     }
 
     #[tokio::test]
-    async fn test_switch_host_primary_starts_nmxt_and_nvue_rest_when_globally_enabled() {
+    async fn test_switch_host_primary_starts_nmxt_and_nvue_collectors_when_globally_enabled() {
         let mut config = Config::default();
         config.collectors.sensors = Configurable::Disabled;
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
-        config.collectors.nvue = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
+            rest: Configurable::Enabled(Default::default()),
+            gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
+        });
 
         let mut ctx = context_with_config(config, "test_switch_host_nmxt_nvue_enabled");
         let endpoint = test_endpoint(
@@ -623,6 +668,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 1);
     }
 
     #[tokio::test]
@@ -712,7 +758,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_nvue_rest_still_spawned_when_credentials_currently_unavailable() {
+    async fn test_nvue_collectors_still_spawn_when_credentials_currently_unavailable() {
         use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
         use crate::endpoint::test_support::reqwest;
 
@@ -757,15 +803,18 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Enabled(Default::default());
-        config.collectors.nvue = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(NvueCollectorConfig {
+            rest: Configurable::Enabled(Default::default()),
+            gnmi: Configurable::Enabled(NvueGnmiConfig::default()),
+        });
 
-        let mut ctx = context_with_config(config, "test_nvue_rest_spawn_despite_cred_failure");
+        let mut ctx = context_with_config(config, "test_nvue_spawn_despite_cred_failure");
 
         spawn_collectors_for_endpoint(
             &mut ctx,
             &endpoint,
             None,
-            "test_nvue_rest_spawn_despite_cred_failure",
+            "test_nvue_spawn_despite_cred_failure",
         )
         .expect("spawn returns Ok even when the credential provider is failing");
 
@@ -773,6 +822,12 @@ mod tests {
             ctx.collectors.len(CollectorKind::NvueRest),
             1,
             "NVUE REST must still spawn — credential fetch is now per-iteration, \
+             not part of the spawn contract"
+        );
+        assert_eq!(
+            ctx.collectors.len(CollectorKind::NvueGnmi),
+            1,
+            "NVUE gNMI must still spawn — credential fetch is per-stream connection, \
              not part of the spawn contract"
         );
         assert_eq!(
@@ -806,6 +861,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueGnmi), 0)
     }
 
     fn auto_mode_config() -> Config {
