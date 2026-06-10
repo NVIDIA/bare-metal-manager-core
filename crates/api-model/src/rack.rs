@@ -460,7 +460,7 @@ impl Display for RackMaintenanceState {
 /// disables ScaleUpFabric state on all scoped switches before
 /// `ConfigureScaleUpFabricManager` selects, persists, and configures only the
 /// primary switch. `WaitForFabricStatus` polls
-/// `GetScaleUpFabricServicesStatus` and persists the per-switch
+/// `BatchGetScaleUpFabricServiceStatus` and persists the per-switch
 /// `fabric_manager_status` before advancing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {
@@ -656,7 +656,7 @@ impl MachineRvLabels {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MaintenanceActivity {
     FirmwareUpgrade {
-        /// SOT JSON for RMS ApplyFirmwareObjectFromJSON.
+        /// SOT JSON for RMS ApplyFirmwareObject.
         /// `None` is only valid for implicit all-activity maintenance skips.
         #[serde(default)]
         firmware_version: Option<String>,
@@ -668,7 +668,7 @@ pub enum MaintenanceActivity {
         force_update: bool,
     },
     NvosUpdate {
-        /// Ephemeral SOT JSON used with RMS ApplySwitchSystemImageFromJSON.
+        /// Ephemeral SOT JSON used with RMS ApplySwitchSystemImage.
         /// The access token is stored separately as a maintenance credential.
         config_json: String,
     },

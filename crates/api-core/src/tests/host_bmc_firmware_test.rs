@@ -1263,6 +1263,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1304,6 +1305,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1355,6 +1357,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1403,6 +1406,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1441,6 +1445,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1501,6 +1506,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1539,6 +1545,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1589,6 +1596,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1659,6 +1667,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1725,6 +1734,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1763,6 +1773,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1799,6 +1810,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -1830,6 +1842,7 @@ async fn test_instance_upgrading_actual_part_2(
         instance_snapshot_derive_status(
             &instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,
@@ -2366,6 +2379,7 @@ async fn test_preingestion_time_sync_reset_flow(
     db::explored_endpoints::set_preingestion_time_sync_reset(
         ip_addr,
         TimeSyncResetPhase::Start,
+        0,
         &mut txn,
     )
     .await?;
@@ -2546,6 +2560,7 @@ async fn test_preingestion_time_sync_retry_logic(
     db::explored_endpoints::set_preingestion_time_sync_reset(
         ip_addr,
         TimeSyncResetPhase::WaitHostBoot,
+        0,
         &mut txn,
     )
     .await?;
@@ -2582,6 +2597,147 @@ async fn test_preingestion_time_sync_retry_logic(
         _ => {
             // Could be other states if firmware upgrade is needed
         }
+    }
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// When the BMC clock is still out of sync after a reset cycle but the retry
+/// budget is not yet exhausted, the endpoint should re-enter the reset cycle
+/// (TimeSyncReset Start) with an incremented attempt count rather than failing.
+#[crate::sqlx_test]
+async fn test_time_sync_retry_reenters_reset_before_failing(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    // Simulate a BMC clock that is well past the 5 minute threshold.
+    env.redfish_sim.set_bmc_time_offset_seconds(600);
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.preingestion_manager(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api.work_lock_manager_handle.clone(),
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let addr = response.address.as_str();
+    let ip_addr = IpAddr::from_str(addr).unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+    insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
+    // First reset cycle just finished (attempt 0), awaiting the boot-wait recheck.
+    db::explored_endpoints::set_preingestion_time_sync_reset(
+        ip_addr,
+        TimeSyncResetPhase::WaitHostBoot,
+        0,
+        &mut txn,
+    )
+    .await?;
+    // Backdate last_time so the boot wait is considered elapsed.
+    db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
+    match &endpoints
+        .first()
+        .expect("endpoint should exist")
+        .preingestion_state
+    {
+        PreingestionState::TimeSyncReset { phase, attempt, .. } => {
+            assert_eq!(
+                *phase,
+                TimeSyncResetPhase::Start,
+                "should retry reset cycle"
+            );
+            assert_eq!(*attempt, 1, "attempt counter should be incremented");
+        }
+        other => panic!("expected a retried TimeSyncReset, got: {other:?}"),
+    }
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// Once the reset retry budget is exhausted and the BMC clock is still out of
+/// sync, preingestion should fail terminally.
+#[crate::sqlx_test]
+async fn test_time_sync_fails_after_max_attempts(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    env.redfish_sim.set_bmc_time_offset_seconds(600);
+
+    let mgr = PreingestionManager::new(
+        pool.clone(),
+        env.config.preingestion_manager(),
+        env.redfish_sim.clone(),
+        env.test_meter.meter(),
+        None,
+        None,
+        None,
+        env.api.work_lock_manager_handle.clone(),
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder("b8:3f:d2:90:97:a6", "192.0.2.1")
+                .vendor_string("iDRac")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let addr = response.address.as_str();
+    let ip_addr = IpAddr::from_str(addr).unwrap();
+
+    let mut txn = pool.begin().await.unwrap();
+    insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
+    // Final allowed reset cycle (attempt 2 == MAX_TIME_SYNC_RESET_ATTEMPTS - 1)
+    // just finished, awaiting the boot-wait recheck.
+    db::explored_endpoints::set_preingestion_time_sync_reset(
+        ip_addr,
+        TimeSyncResetPhase::WaitHostBoot,
+        2,
+        &mut txn,
+    )
+    .await?;
+    db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
+    txn.commit().await?;
+
+    mgr.run_single_iteration().await?;
+
+    let mut txn = pool.begin().await.unwrap();
+    let endpoints = db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
+    match &endpoints
+        .first()
+        .expect("endpoint should exist")
+        .preingestion_state
+    {
+        PreingestionState::Failed { reason } => {
+            assert!(
+                reason.contains("time synchronization failed"),
+                "unexpected failure reason: {reason}"
+            );
+        }
+        other => panic!("expected Failed after exhausting retries, got: {other:?}"),
     }
     txn.commit().await?;
 

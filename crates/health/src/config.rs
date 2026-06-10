@@ -337,6 +337,13 @@ pub struct HealthReportSinkConfig {
 
     /// Drop reports that contain no successes and no alerts before submitting them.
     pub skip_empty_reports: bool,
+
+    /// Suppress re-sending a success-only health report whose content has not changed
+    /// since the last send, until this interval elapses. Reports that contain any alert
+    /// are always forwarded immediately regardless of this setting.
+    /// Set to null or omit to disable suppression.
+    #[serde(with = "humantime_serde::option", default)]
+    pub suppress_unchanged_interval: Option<Duration>,
 }
 
 impl Default for HealthReportSinkConfig {
@@ -345,6 +352,7 @@ impl Default for HealthReportSinkConfig {
             connection: CarbideApiConnectionConfig::default(),
             workers: 4,
             skip_empty_reports: true,
+            suppress_unchanged_interval: Some(Duration::from_secs(300)),
         }
     }
 }

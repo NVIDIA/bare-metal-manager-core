@@ -116,6 +116,7 @@ impl RpcTryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
         let status = instance_snapshot_derive_status(
             &instance,
             dpu_id_to_device_map,
+            snapshot.host_snapshot.primary_attached_dpu_machine_id(),
             snapshot.managed_state.clone(),
             reprovision_request,
             snapshot

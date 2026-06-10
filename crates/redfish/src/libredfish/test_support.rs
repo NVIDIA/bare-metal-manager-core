@@ -57,6 +57,11 @@ struct RedfishSimState {
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
     job_state_sequence: VecDeque<JobState>,
+    /// Offset (in seconds) applied to the BMC `DateTime` returned by
+    /// `get_manager`, relative to the controller's `Utc::now()`. Defaults to 0
+    /// (perfectly in sync); tests set it to simulate a BMC clock that is out of
+    /// sync to exercise the time-sync reset/retry path.
+    bmc_time_offset_seconds: i64,
     /// Records every call to `RedfishClientPool::create_client` so tests can
     /// assert what vendor was passed at each call site.
     create_client_calls: Vec<CreateClientCall>,
@@ -150,6 +155,13 @@ impl RedfishSim {
 
     pub fn set_is_bios_setup(&self, ready: bool) {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
+    }
+
+    /// Set the offset (in seconds) applied to the BMC `DateTime` returned by
+    /// `get_manager`, relative to the controller clock. Use a value larger than
+    /// the time-sync threshold to simulate an out-of-sync BMC clock.
+    pub fn set_bmc_time_offset_seconds(&self, offset: i64) {
+        self.state.lock().unwrap().bmc_time_offset_seconds = offset;
     }
 
     /// Returns a snapshot of every `create_client` call made through this sim,
@@ -1029,8 +1041,10 @@ impl Redfish for RedfishSimClient {
         }"##,
             )
             .unwrap();
-            // Update the date_time to current time for tests
-            manager.date_time = Some(chrono::Utc::now());
+            // Update the date_time to current time for tests, applying any
+            // configured offset so tests can simulate an out-of-sync BMC clock.
+            let offset = self.state.lock().unwrap().bmc_time_offset_seconds;
+            manager.date_time = Some(chrono::Utc::now() + chrono::Duration::seconds(offset));
             Ok(manager)
         })
     }
