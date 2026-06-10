@@ -41,10 +41,11 @@ type APIUpdateFirmwareRequest struct {
 
 // Validate validates the firmware update request
 func (r *APIUpdateFirmwareRequest) Validate() error {
-	if err := validation.ValidateStruct(r,
+	err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 	return validateFirmwareTargets(r.Targets, r.Version)
@@ -114,10 +115,11 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 
 // Validate checks required fields and filter constraints.
 func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
-	if err := validation.ValidateStruct(r,
+	err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 	if r.Filter != nil {

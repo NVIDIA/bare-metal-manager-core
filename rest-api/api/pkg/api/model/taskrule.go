@@ -372,12 +372,13 @@ type APITaskRuleUpdateRequest struct {
 
 // Validate enforces that the request carries at least one mutable field.
 func (r *APITaskRuleUpdateRequest) Validate() error {
-	if err := validation.ValidateStruct(r,
+	err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.Name,
 			validation.When(r.Name != nil,
 				validation.Required.Error("name cannot be empty when provided"))),
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 	if r.Name == nil && r.Description == nil && r.RuleDefinition == nil {
