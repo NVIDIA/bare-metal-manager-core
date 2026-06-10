@@ -130,9 +130,8 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
 #[allow(deprecated)]
-impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
-    type Error = RpcDataConversionError;
-    fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
+impl From<NetworkSegment> for rpc::NetworkSegment {
+    fn from(src: NetworkSegment) -> Self {
         // Deprecated TenantState mapping - kept to populate the backward-compat flat field.
         // Note that even though the segment might already be ready,
         // we only return `Ready` after the state machine also noticed that.
@@ -199,7 +198,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
 
         let version = src.version.version_string();
 
-        Ok(rpc::NetworkSegment {
+        rpc::NetworkSegment {
             id: Some(src.id),
             created: Some(src.created.into()),
             updated: Some(src.updated.into()),
@@ -247,7 +246,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             history,
             state_reason,
             state_sla: Some(sla),
-        })
+        }
     }
 }
 
