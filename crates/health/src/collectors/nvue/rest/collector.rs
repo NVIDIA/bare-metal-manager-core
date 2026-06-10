@@ -24,7 +24,7 @@ use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 const COLLECTOR_NAME: &str = "nvue_rest";
 
@@ -329,7 +329,7 @@ impl NvueRestCollector {
         };
 
         self.emit_event(CollectorEvent::Metric(
-            SensorHealthData {
+            MetricSample {
                 key,
                 name: COLLECTOR_NAME.to_string(),
                 metric_type: metric_type.to_string(),

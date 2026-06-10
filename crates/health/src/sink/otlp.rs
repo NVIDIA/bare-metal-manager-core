@@ -21,7 +21,7 @@ use prometheus::Counter;
 
 use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use super::{CollectorEvent, DataSink, EventContext, MetricSample};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
 use crate::metrics::MetricsManager;
@@ -29,7 +29,7 @@ use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
 
 pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, CollectorEvent)>;
-pub(crate) type OtlpMetricsQueue = DedupQueue<OtlpMetricQueueKey, (EventContext, SensorHealthData)>;
+pub(crate) type OtlpMetricsQueue = DedupQueue<OtlpMetricQueueKey, (EventContext, MetricSample)>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct OtlpMetricQueueKey {
@@ -70,7 +70,7 @@ pub(crate) fn is_otlp_log_relevant(event: &CollectorEvent) -> bool {
     )
 }
 
-fn metric_queue_key(context: &EventContext, sample: &SensorHealthData) -> OtlpMetricQueueKey {
+fn metric_queue_key(context: &EventContext, sample: &MetricSample) -> OtlpMetricQueueKey {
     OtlpMetricQueueKey {
         endpoint_key: context.endpoint_key.clone(),
         collector_type: context.collector_type,
@@ -157,7 +157,7 @@ impl OtlpSink {
         self.queue.pop().map(|(_key, value)| value)
     }
 
-    pub fn pop_metric_for_bench(&self) -> Option<(EventContext, SensorHealthData)> {
+    pub fn pop_metric_for_bench(&self) -> Option<(EventContext, MetricSample)> {
         self.metrics_queue.pop().map(|(_key, value)| value)
     }
 }
@@ -219,7 +219,7 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{LogRecord, SensorHealthData};
+    use crate::sink::{LogRecord, MetricSample};
 
     fn test_context() -> EventContext {
         EventContext {
@@ -260,7 +260,7 @@ mod tests {
         metric_type: &str,
         unit: &str,
     ) -> CollectorEvent {
-        CollectorEvent::Metric(Box::new(SensorHealthData {
+        CollectorEvent::Metric(Box::new(MetricSample {
             key: key.to_string(),
             name: name.to_string(),
             metric_type: metric_type.to_string(),

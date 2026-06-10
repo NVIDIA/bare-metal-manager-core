@@ -64,6 +64,7 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
     const LOG_SERVICE_ID: &str = "{log_service_id}";
+    const PROCESSOR_ID: &str = "{processor_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
     r.route(&collection().odata_id, get(get_system_collection))
         .route(
@@ -113,6 +114,18 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
             get(get_storage_collection),
         )
         .route(
+            &redfish::processor::system_collection(SYSTEM_ID).odata_id,
+            get(get_processors_collection),
+        )
+        .route(
+            &redfish::processor::system_resource(SYSTEM_ID, PROCESSOR_ID).odata_id,
+            get(get_processor),
+        )
+        .route(
+            &redfish::processor::metrics_resource(SYSTEM_ID, PROCESSOR_ID).odata_id,
+            get(get_processor_metrics),
+        )
+        .route(
             &bmc_vendor.make_settings_odata_id(&bios),
             patch(patch_bios_settings),
         )
@@ -136,6 +149,7 @@ pub struct SingleSystemConfig {
     pub base_bios: Option<serde_json::Value>,
     pub log_services: Option<Arc<dyn LogServices>>,
     pub storage: Option<Vec<redfish::storage::Storage>>,
+    pub processors: Option<Vec<redfish::processor::Processor>>,
     pub secure_boot_available: bool,
     pub oem: Oem,
 }
@@ -229,6 +243,14 @@ impl SingleSystemState {
         if src.enabled.as_ref().is_some_and(|v| v == "Once") {
             src.enabled = Some("Disabled".into())
         }
+    }
+
+    fn find_processor(&self, processor_id: &str) -> Option<&redfish::processor::Processor> {
+        self.config
+            .processors
+            .iter()
+            .flatten()
+            .find(|processor| processor.id == processor_id)
     }
 
     pub fn find_boot_option(&self, option_id: &str) -> Option<&redfish::boot_option::BootOption> {
@@ -369,6 +391,11 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .is_some()
         .then_some(redfish::storage::system_collection(&system_id));
 
+    let processors = config
+        .processors
+        .is_some()
+        .then_some(redfish::processor::system_collection(&system_id));
+
     let secure_boot = config
         .secure_boot_available
         .then_some(redfish::secure_boot::resource(&system_id));
@@ -381,6 +408,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         .maybe_with(SystemBuilder::ethernet_interfaces, &ethernet_interfaces)
         .maybe_with(SystemBuilder::log_services, &log_services)
         .maybe_with(SystemBuilder::storage, &storage)
+        .maybe_with(SystemBuilder::processors, &processors)
         .maybe_with(SystemBuilder::secure_boot, &secure_boot)
         .pcie_devices(&pcie_devices)
         .build()
@@ -719,6 +747,52 @@ async fn get_storage_collection(
         .unwrap_or_else(http::not_found)
 }
 
+async fn get_processors_collection(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.processors.as_ref())
+        .map(|processors| {
+            let members = processors
+                .iter()
+                .map(|processor| {
+                    redfish::processor::system_resource(&system_id, &processor.id).entity_ref()
+                })
+                .collect::<Vec<_>>();
+            redfish::processor::system_collection(&system_id)
+                .with_members(&members)
+                .into_ok_response()
+        })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_processor(
+    State(state): State<BmcState>,
+    Path((system_id, processor_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.find_processor(&processor_id))
+        .map(|processor| processor.to_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_processor_metrics(
+    State(state): State<BmcState>,
+    Path((system_id, processor_id)): Path<(String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.find_processor(&processor_id))
+        .map(|processor| processor.metrics_json().into_ok_response())
+        .unwrap_or_else(http::not_found)
+}
+
 async fn get_bios(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
     state
         .system_state
@@ -863,6 +937,10 @@ impl SystemBuilder {
 
     pub fn storage(self, storage: &redfish::Collection<'_>) -> Self {
         self.apply_patch(storage.nav_property("Storage"))
+    }
+
+    pub fn processors(self, processors: &redfish::Collection<'_>) -> Self {
+        self.apply_patch(processors.nav_property("Processors"))
     }
 
     pub fn link_chassis(self, ids: &[Cow<'static, str>]) -> Self {

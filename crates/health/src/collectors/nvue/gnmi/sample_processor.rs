@@ -23,7 +23,7 @@ use std::time::Instant;
 use super::client::{typed_value_to_f64, typed_value_to_string};
 use super::proto::{self, PathElem};
 use super::subscriber::GnmiStreamMetrics;
-use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 pub(crate) const NVUE_GNMI_SAMPLE_STREAM_ID: &str = "nvue_gnmi";
 
@@ -235,7 +235,7 @@ impl GnmiSampleProcessor {
 
         sink.handle_event(
             &self.event_context,
-            &CollectorEvent::Metric(Box::new(SensorHealthData {
+            &CollectorEvent::Metric(Box::new(MetricSample {
                 key,
                 name: NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
                 metric_type: metric_type.to_string(),

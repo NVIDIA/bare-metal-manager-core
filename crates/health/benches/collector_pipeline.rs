@@ -25,7 +25,7 @@ use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
-    PrometheusSink, SensorHealthData,
+    MetricSample, PrometheusSink,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mac_address::MacAddress;
@@ -73,7 +73,7 @@ fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
     let rack_idx = idx % 4;
 
     CollectorEvent::Metric(
-        SensorHealthData {
+        MetricSample {
             key: sensor_key.clone(),
             name: "hw_sensor".to_string(),
             metric_type: "temperature".to_string(),
@@ -94,7 +94,7 @@ fn build_sensor_metric_event(idx: usize, unique_keys: usize) -> CollectorEvent {
 
 fn build_nmxt_metric_event(idx: usize) -> CollectorEvent {
     CollectorEvent::Metric(
-        SensorHealthData {
+        MetricSample {
             key: format!("effective_ber:{}", idx % 64),
             name: "switch_nmxt".to_string(),
             metric_type: "effective_ber".to_string(),

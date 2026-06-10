@@ -117,6 +117,7 @@ impl WiwynnGB200Nvl<'_> {
                     ),
                     log_services: None,
                     storage: None,
+                    processors: None,
                     secure_boot_available: true,
                 },
                 redfish::computer_system::SingleSystemConfig {
@@ -134,6 +135,17 @@ impl WiwynnGB200Nvl<'_> {
                     base_bios: None,
                     log_services: None,
                     storage: None,
+                    processors: Some(
+                        (0..4)
+                            .map(|n| {
+                                redfish::processor::gpu(
+                                    "HGX_Baseboard_0",
+                                    &format!("GPU_{n}"),
+                                    &format!("/redfish/v1/Chassis/HGX_GPU_{n}/Sensors/Voltage_1"),
+                                )
+                            })
+                            .collect(),
+                    ),
                     secure_boot_available: false,
                 },
             ],
