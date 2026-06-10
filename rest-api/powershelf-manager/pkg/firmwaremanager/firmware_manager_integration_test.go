@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	dbtestutil "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/testutil"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
@@ -156,7 +157,7 @@ func TestIntegration_FirmwareManager_SetUpdateState(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -213,7 +214,7 @@ func TestIntegration_FirmwareManager_SetUpdateState_WithError(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -266,7 +267,7 @@ func TestIntegration_FirmwareManager_GetPendingUpdates(t *testing.T) {
 		pmcModel := &model.PMC{
 			MacAddress: model.MacAddr(p.GetMac()),
 			Vendor:     p.GetVendor().Code,
-			IPAddress:  model.IPAddr(p.GetIp()),
+			IPAddress:  sqltypes.IPAddr(p.GetIp()),
 		}
 		tx, err := session.BeginTx(ctx)
 		require.NoError(t, err)
@@ -331,7 +332,7 @@ func TestIntegration_FirmwareManager_BlockDuplicateUpdate(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -380,7 +381,7 @@ func TestIntegration_FirmwareManager_MultipleComponents(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -438,7 +439,7 @@ func TestIntegration_FirmwareManager_StateTransitionTimestamps(t *testing.T) {
 	pmcModel := &model.PMC{
 		MacAddress: model.MacAddr(testPmc.GetMac()),
 		Vendor:     testPmc.GetVendor().Code,
-		IPAddress:  model.IPAddr(testPmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 	}
 	tx, err := session.BeginTx(ctx)
 	require.NoError(t, err)
@@ -513,7 +514,7 @@ func TestIntegration_FirmwareManager_TerminalStateCheck(t *testing.T) {
 			pmcModel := &model.PMC{
 				MacAddress: model.MacAddr(testPmc.GetMac()),
 				Vendor:     testPmc.GetVendor().Code,
-				IPAddress:  model.IPAddr(testPmc.GetIp()),
+				IPAddress:  sqltypes.IPAddr(testPmc.GetIp()),
 			}
 			tx, err := session.BeginTx(ctx)
 			require.NoError(t, err)

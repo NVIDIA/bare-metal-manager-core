@@ -7,7 +7,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"net"
-	"strings"
 )
 
 // MacAddr wraps net.HardwareAddr to provide proper SQL driver support for PostgreSQL macaddr type.
@@ -56,62 +55,4 @@ func (m MacAddr) HardwareAddr() net.HardwareAddr {
 // String returns the MAC address as a string.
 func (m MacAddr) String() string {
 	return net.HardwareAddr(m).String()
-}
-
-// IPAddr wraps net.IP to provide proper SQL driver support for PostgreSQL inet type.
-type IPAddr net.IP
-
-// Value implements driver.Valuer for IPAddr.
-// Converts the IP address to a string format that PostgreSQL's inet type expects.
-func (ip IPAddr) Value() (driver.Value, error) {
-	if ip == nil {
-		return nil, nil
-	}
-	return net.IP(ip).String(), nil
-}
-
-// Scan implements sql.Scanner for IPAddr.
-// Handles both string and []byte inputs from PostgreSQL.
-func (ip *IPAddr) Scan(src interface{}) error {
-	if src == nil {
-		*ip = nil
-		return nil
-	}
-
-	var ipStr string
-	switch v := src.(type) {
-	case string:
-		ipStr = v
-	case []byte:
-		ipStr = string(v)
-	default:
-		return fmt.Errorf("cannot scan %T into IPAddr", src)
-	}
-
-	// PostgreSQL inet type may include CIDR notation, strip it if present
-	if i := strings.LastIndexByte(ipStr, '/'); i >= 0 {
-		ipStr = ipStr[:i]
-	}
-
-	parsed := net.ParseIP(ipStr)
-	if parsed == nil {
-		return fmt.Errorf("failed to parse IP address %q", ipStr)
-	}
-	*ip = IPAddr(parsed)
-	return nil
-}
-
-// IP returns the underlying net.IP.
-func (ip IPAddr) IP() net.IP {
-	return net.IP(ip)
-}
-
-// String returns the IP address as a string.
-func (ip IPAddr) String() string {
-	return net.IP(ip).String()
-}
-
-// Equal returns true if the two IPAddr are equal.
-func (ip IPAddr) Equal(other IPAddr) bool {
-	return net.IP(ip).Equal(net.IP(other))
 }

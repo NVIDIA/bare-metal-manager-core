@@ -7,6 +7,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
@@ -41,14 +42,14 @@ func mustParseMAC(t *testing.T, s string) model.MacAddr {
 	return model.MacAddr(mac)
 }
 
-// Helper to parse IP address and return model.IPAddr
-func mustParseIP(t *testing.T, s string) model.IPAddr {
+// Helper to parse IP address and return sqltypes.IPAddr
+func mustParseIP(t *testing.T, s string) sqltypes.IPAddr {
 	t.Helper()
 	ip := net.ParseIP(s)
 	if ip == nil {
 		t.Fatalf("mustParseIP(%q): invalid IP", s)
 	}
-	return model.IPAddr(ip)
+	return sqltypes.IPAddr(ip)
 }
 
 func TestPmcTo(t *testing.T) {
