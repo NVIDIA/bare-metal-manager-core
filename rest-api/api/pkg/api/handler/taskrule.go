@@ -31,13 +31,8 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
-// errTaskRuleResponseSent signals that prepareTaskRuleHandler has already
-// written an HTTP error response and the handler should return nil.
-var errTaskRuleResponseSent = errors.New("response sent")
-
 // prepareTaskRuleHandler runs the auth + site lookup + Flow-enabled check +
-// Temporal client retrieval shared by every TaskRule handler. On failure it
-// writes the HTTP error response itself and returns errTaskRuleResponseSent.
+// Temporal client retrieval shared by every TaskRule handler.
 func prepareTaskRuleHandler(
 	c echo.Context,
 	dbSession *cdb.Session,
@@ -47,11 +42,10 @@ func prepareTaskRuleHandler(
 	siteIDStr string,
 	logger zerolog.Logger,
 	ctx context.Context,
-) (*cdbm.Site, tClient.Client, error) {
+) (*cdbm.Site, tClient.Client, *cutil.APIError) {
 	if dbUser == nil {
 		logger.Error().Msg("invalid User object found in request context")
-		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
 	ok, err := auth.ValidateOrgMembership(dbUser, org)
@@ -61,40 +55,35 @@ func prepareTaskRuleHandler(
 		} else {
 			logger.Warn().Msg("could not validate org membership for user, access denied")
 		}
-		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
 	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
 		logger.Warn().Msg("user does not have Provider Admin role, access denied")
-		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
 	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, dbSession, org)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
-		_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
 	site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, dbSession)
 	if err != nil {
 		switch {
 		case errors.Is(err, common.ErrInvalidID):
-			_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
+			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
 		case errors.Is(err, cdb.ErrDoesNotExist):
-			_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request does not exist", nil)
+			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Site specified in request does not exist", nil)
 		default:
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
-			_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
+			return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
 		}
-		return nil, nil, errTaskRuleResponseSent
 	}
 
 	if site.InfrastructureProviderID != infrastructureProvider.ID {
-		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
 	}
 
 	siteConfig := &cdbm.SiteConfig{}
@@ -103,15 +92,13 @@ func prepareTaskRuleHandler(
 	}
 	if !siteConfig.Flow {
 		logger.Warn().Msg("site does not have NICo Flow enabled")
-		_ = cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
 	}
 
 	stc, err := scp.GetClientByID(site.ID)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
-		return nil, nil, errTaskRuleResponseSent
+		return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
 	return site, stc, nil
@@ -165,10 +152,9 @@ func (h CreateTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
 	}
 
-	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
-	if err != nil {
-		// errTaskRuleResponseSent — error response already written.
-		return nil
+	_, stc, apiErr := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
 	flowRequest, ferr := apiRequest.ToProto()
@@ -278,9 +264,9 @@ func (h GetTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
-	if err != nil {
-		return nil
+	_, stc, apiErr := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
 	flowRequest := &flowv1.GetOperationRuleRequest{
@@ -384,9 +370,9 @@ func (h GetAllTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
-	if err != nil {
-		return nil
+	_, stc, apiErr := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
 	pageRequest := pagination.PageRequest{}
@@ -511,9 +497,9 @@ func (h UpdateTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
 	}
 
-	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
-	if err != nil {
-		return nil
+	_, stc, apiErr := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
 	flowRequest, ferr := apiRequest.ToProto(ruleID)
@@ -615,9 +601,9 @@ func (h DeleteTaskRuleHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	_, stc, err := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
-	if err != nil {
-		return nil
+	_, stc, apiErr := prepareTaskRuleHandler(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
 	flowRequest := &flowv1.DeleteOperationRuleRequest{
