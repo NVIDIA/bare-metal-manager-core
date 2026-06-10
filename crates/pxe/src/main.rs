@@ -16,7 +16,6 @@
  */
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::str::FromStr;
 
 use axum::middleware::{map_request, map_response};
 use axum::{Router, ServiceExt};
@@ -74,14 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tera = Tera::new(format!("{}/**/*", runtime_config.template_directory).as_str())
         .expect("unable to build templating engine?");
-    let socket_addr = SocketAddr::from_str(
-        format!(
-            "{}:{}",
-            runtime_config.bind_address, runtime_config.bind_port
-        )
-        .as_str(),
-    )
-    .expect("unable to construct socket address from runtime config?");
+    let socket_addr = SocketAddr::new(runtime_config.bind_address, runtime_config.bind_port);
 
     let app_state = AppState {
         engine: Engine::from(tera),
