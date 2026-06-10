@@ -61,7 +61,7 @@ pub async fn find_matching_with_exclusion(
         builder.push_bind(excluded_sku_id);
     }
 
-    let sql = builder.sql().to_string();
+    let sql = builder.sql().as_str().to_string();
     let mut sku_stream = builder.build_query_as().fetch(txn);
 
     while let Some(result) = sku_stream.next().await {
@@ -85,6 +85,12 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
             "SKU version is no longer supported".to_string(),
+        ));
+    }
+
+    if sku.id.is_empty() {
+        return Err(DatabaseError::InvalidArgument(
+            "SKU ID must not be empty".to_string(),
         ));
     }
 
@@ -209,6 +215,12 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
             "SKU version is no longer supported".to_string(),
+        ));
+    }
+
+    if sku.id.is_empty() {
+        return Err(DatabaseError::InvalidArgument(
+            "SKU ID must not be empty".to_string(),
         ));
     }
 

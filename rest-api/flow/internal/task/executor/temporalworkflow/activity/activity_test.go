@@ -10,14 +10,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
-	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
+	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 func TestActivitiesReturnErrorWhenComponentManagerRegistryIsMissing(t *testing.T) {
@@ -138,7 +138,7 @@ func activityCallsForMissingManagerTest(
 			return acts.VerifyFirmwareConsistency(ctx, target)
 		},
 		"BringUpControl": func() error {
-			return acts.BringUpControl(ctx, target)
+			return acts.BringUpControl(ctx, target, operations.BringUpTaskInfo{})
 		},
 		"GetBringUpStatus": func() error {
 			_, err := acts.GetBringUpStatus(ctx, target)
@@ -193,7 +193,7 @@ func capabilityCheckedActivityCalls(
 			return acts.VerifyFirmwareConsistency(ctx, target)
 		},
 		"BringUpControl": func(acts *Activities) error {
-			return acts.BringUpControl(ctx, target)
+			return acts.BringUpControl(ctx, target, operations.BringUpTaskInfo{})
 		},
 		"GetBringUpStatus": func(acts *Activities) error {
 			_, err := acts.GetBringUpStatus(ctx, target)

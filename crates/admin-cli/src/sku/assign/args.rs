@@ -19,6 +19,16 @@ use carbide_uuid::machine::MachineId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Assign a SKU to a machine:
+    $ carbide-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567
+
+Force the assignment even if the machine does not verify against the SKU:
+    $ carbide-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567 --force
+
+")]
 pub struct Args {
     pub sku_id: String,
     pub machine_id: MachineId,

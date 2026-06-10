@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"testing"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 )
 
@@ -46,9 +47,9 @@ func testMachineBuildMachineWithID(t *testing.T, dbSession *db.Session, ip uuid.
 		InstanceTypeID:           instanceTypeID,
 		ControllerMachineID:      uuid.New().String(),
 		ControllerMachineType:    controllerMachineType,
-		Vendor:                   db.GetStrPtr("test-vendor"),
-		ProductName:              db.GetStrPtr("test-product"),
-		SerialNumber:             db.GetStrPtr(uuid.NewString()),
+		Vendor:                   cutil.GetPtr("test-vendor"),
+		ProductName:              cutil.GetPtr("test-product"),
+		SerialNumber:             cutil.GetPtr(uuid.NewString()),
 		Metadata:                 nil,
 		Health:                   nil,
 		DefaultMacAddress:        &defMacAddr,
@@ -566,7 +567,7 @@ func TestMachineSQLDAO_GetCountByStatus(t *testing.T) {
 				MachineStatusInitializing:   2,
 				"total":                     2,
 			},
-			reqIP:              db.GetUUIDPtr(created[1].InfrastructureProviderID),
+			reqIP:              cutil.GetPtr(created[1].InfrastructureProviderID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -579,7 +580,7 @@ func TestMachineSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: true,
-			reqIP:     db.GetUUIDPtr(uuid.New()),
+			reqIP:     cutil.GetPtr(uuid.New()),
 		},
 		{
 			name: "get machine status count with no filter machine returns success",
@@ -723,24 +724,24 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 
 	// Machine Capabilities
 	mcd := NewMachineCapabilityDAO(dbSession)
-	_, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT28908 Family [ConnectX-6]", Frequency: db.GetStrPtr("3 GHz"), Capacity: db.GetStrPtr("12 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(2)})
+	_, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT28908 Family [ConnectX-6]", Frequency: cutil.GetPtr("3 GHz"), Capacity: cutil.GetPtr("12 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(2)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: db.GetStrPtr("6 GHz"), Capacity: db.GetStrPtr("20 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(8)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: cutil.GetPtr("6 GHz"), Capacity: cutil.GetPtr("20 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(8)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeStorage, Name: "Dell Ent NVMe CM6 RI 1.92TB", Capacity: db.GetStrPtr("1.92TB"), Vendor: db.GetStrPtr("Test Vendor"), Count: db.GetIntPtr(2)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeStorage, Name: "Dell Ent NVMe CM6 RI 1.92TB", Capacity: cutil.GetPtr("1.92TB"), Vendor: cutil.GetPtr("Test Vendor"), Count: cutil.GetPtr(2)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: db.GetStrPtr("6 GHz"), Capacity: db.GetStrPtr("20 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(8)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: cutil.GetPtr("6 GHz"), Capacity: cutil.GetPtr("20 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(8)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeCPU, Name: "CPU Capability", Frequency: db.GetStrPtr("4 GHz"), Capacity: db.GetStrPtr("10 TB"), Vendor: db.GetStrPtr("Test Vendor"), Count: db.GetIntPtr(1)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeCPU, Name: "CPU Capability", Frequency: cutil.GetPtr("4 GHz"), Capacity: cutil.GetPtr("10 TB"), Vendor: cutil.GetPtr("Test Vendor"), Count: cutil.GetPtr(1)})
 	assert.NoError(t, err)
 
 	// Add a capability to a third machine, but we'll then delete the capability
 	// so that we can be sure we only ever match on non-deleted capabilities.
-	mcToDelete, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[2].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: db.GetStrPtr("6 GHz"), Capacity: db.GetStrPtr("20 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(8)})
+	mcToDelete, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[2].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: cutil.GetPtr("6 GHz"), Capacity: cutil.GetPtr("20 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(8)})
 	assert.NoError(t, err)
 
 	// Delete the capability
@@ -801,7 +802,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	ms1[0].IsAssigned = true
 	_, err = msd.Update(ctx, nil, MachineUpdateInput{
 		MachineID:  ms1[0].ID,
-		IsAssigned: db.GetBoolPtr(true),
+		IsAssigned: cutil.GetPtr(true),
 	})
 	assert.Nil(t, err)
 
@@ -809,8 +810,8 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	ms2[0].IsMissingOnSite = true
 	_, err = msd.Update(ctx, nil, MachineUpdateInput{
 		MachineID:       ms2[2].ID,
-		Status:          db.GetStrPtr(MachineStatusError),
-		IsMissingOnSite: db.GetBoolPtr(true),
+		Status:          cutil.GetPtr(MachineStatusError),
+		IsMissingOnSite: cutil.GetPtr(true),
 	})
 	assert.Nil(t, err)
 
@@ -867,7 +868,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 			desc: "GetAll with is assigned filters returns objects",
 			filter: MachineFilterInput{
 				SiteIDs:    []uuid.UUID{ms1[0].SiteID},
-				IsAssigned: db.GetBoolPtr(true),
+				IsAssigned: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -884,7 +885,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 			desc: "GetAll with hostname filters returns objects",
 			filter: MachineFilterInput{
 				SiteIDs:  []uuid.UUID{ms1[0].SiteID},
-				Hostname: db.GetStrPtr("testhostname-1"),
+				Hostname: cutil.GetPtr("testhostname-1"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -934,8 +935,8 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(5),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(5),
 			},
 			expectedCount: 5,
 			expectedTotal: &totalCount,
@@ -947,10 +948,10 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				SiteIDs: []uuid.UUID{ms2[0].SiteID},
 			},
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(5),
+				Offset: cutil.GetPtr(5),
 			},
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -966,7 +967,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &ms2[14], // Last entry would have the highest created time
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -975,7 +976,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				Statuses: []string{MachineStatusInitializing},
 			},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount - 2),
+			expectedTotal: cutil.GetPtr(totalCount - 2),
 			expectedError: false,
 		},
 		{
@@ -1005,7 +1006,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with status search query filters returns objects",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr(MachineStatusInitializing),
+				SearchQuery: cutil.GetPtr(MachineStatusInitializing),
 			},
 			pageInput: paginator.PageInput{
 				OrderBy: &paginator.OrderBy{
@@ -1014,13 +1015,13 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount - 2),
+			expectedTotal: cutil.GetPtr(totalCount - 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with machine id search query filters returns objects",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr(ms2[0].ID),
+				SearchQuery: cutil.GetPtr(ms2[0].ID),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -1028,16 +1029,16 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with machine vendor search query filters returns objects",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr("testvendor"),
+				SearchQuery: cutil.GetPtr("testvendor"),
 			},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with machine hostname search query filters returns objects",
 			filter: MachineFilterInput{
-				Hostname: db.GetStrPtr("testhostname-0"),
+				Hostname: cutil.GetPtr("testhostname-0"),
 			},
 			expectedCount: 2,
 			expectedError: false,
@@ -1045,39 +1046,39 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with hasInstanceType set to true returns all objects",
 			filter: MachineFilterInput{
-				HasInstanceType: db.GetBoolPtr(true),
+				HasInstanceType: cutil.GetPtr(true),
 			},
 			expectedCount: totalCount/2 + 2,
-			expectedTotal: db.GetIntPtr(totalCount/2 + 2),
+			expectedTotal: cutil.GetPtr(totalCount/2 + 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with hasInstanceType false returns all objects",
 			filter: MachineFilterInput{
-				HasInstanceType: db.GetBoolPtr(false),
+				HasInstanceType: cutil.GetPtr(false),
 			},
 			expectedCount: totalCount/2 - 2,
-			expectedTotal: db.GetIntPtr(totalCount/2 - 2),
+			expectedTotal: cutil.GetPtr(totalCount/2 - 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with hasInstanceType true and status Ready returns all objects",
 			filter: MachineFilterInput{
 				Statuses:        []string{MachineStatusReady},
-				HasInstanceType: db.GetBoolPtr(true),
+				HasInstanceType: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
-			expectedTotal: db.GetIntPtr(1),
+			expectedTotal: cutil.GetPtr(1),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with hasInstanceType false and status Ready returns all objects",
 			filter: MachineFilterInput{
 				Statuses:        []string{MachineStatusReady},
-				HasInstanceType: db.GetBoolPtr(false),
+				HasInstanceType: cutil.GetPtr(false),
 			},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
@@ -1086,25 +1087,25 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				InstanceTypeIDs: []uuid.UUID{ins1.ID},
 			},
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with controllerMachineID filter returns all objects",
 			filter: MachineFilterInput{
-				ControllerMachineID: db.GetStrPtr(controllerMachineID.String()),
+				ControllerMachineID: cutil.GetPtr(controllerMachineID.String()),
 			},
 			expectedCount: 1,
-			expectedTotal: db.GetIntPtr(1),
+			expectedTotal: cutil.GetPtr(1),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with status search query filter for labels returns objects",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr("key1"),
+				SearchQuery: cutil.GetPtr("key1"),
 			},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
@@ -1134,7 +1135,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with isMissingOnSite filter returns objects",
 			filter: MachineFilterInput{
-				IsMissingOnSite: db.GetBoolPtr(true),
+				IsMissingOnSite: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -1263,7 +1264,7 @@ func TestMachineSQLDAO_Update(t *testing.T) {
 			desc: "Update is assigned",
 			input: MachineUpdateInput{
 				MachineID:  mcsExp[1].ID,
-				IsAssigned: db.GetBoolPtr(true),
+				IsAssigned: cutil.GetPtr(true),
 			},
 			expectedError: false,
 		},
@@ -1280,7 +1281,7 @@ func TestMachineSQLDAO_Update(t *testing.T) {
 			input: MachineUpdateInput{
 				MachineID:      mcsExp[1].ID,
 				InstanceTypeID: mcsExp[2].InstanceTypeID,
-				Hostname:       db.GetStrPtr("testmachine"),
+				Hostname:       cutil.GetPtr("testmachine"),
 			},
 			expectedError: false,
 		},
@@ -1289,7 +1290,7 @@ func TestMachineSQLDAO_Update(t *testing.T) {
 			input: MachineUpdateInput{
 				MachineID:       mcsExp[1].ID,
 				InstanceTypeID:  mcsExp[2].InstanceTypeID,
-				IsMissingOnSite: db.GetBoolPtr(true),
+				IsMissingOnSite: cutil.GetPtr(true),
 			},
 			expectedError: false,
 		},
@@ -1298,10 +1299,10 @@ func TestMachineSQLDAO_Update(t *testing.T) {
 			input: MachineUpdateInput{
 				MachineID:            mcsExp[1].ID,
 				InstanceTypeID:       mcsExp[2].InstanceTypeID,
-				IsInMaintenance:      db.GetBoolPtr(true),
-				MaintenanceMessage:   db.GetStrPtr("test maintenance message"),
-				IsNetworkDegraded:    db.GetBoolPtr(true),
-				NetworkHealthMessage: db.GetStrPtr("test network health message"),
+				IsInMaintenance:      cutil.GetPtr(true),
+				MaintenanceMessage:   cutil.GetPtr("test maintenance message"),
+				IsNetworkDegraded:    cutil.GetPtr(true),
+				NetworkHealthMessage: cutil.GetPtr("test network health message"),
 			},
 			expectedError: false,
 		},
@@ -1684,19 +1685,19 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 
 	// Machine Capabilities
 	mcd := NewMachineCapabilityDAO(dbSession)
-	_, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT28908 Family [ConnectX-6]", Frequency: db.GetStrPtr("3 GHz"), Capacity: db.GetStrPtr("12 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(2)})
+	_, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT28908 Family [ConnectX-6]", Frequency: cutil.GetPtr("3 GHz"), Capacity: cutil.GetPtr("12 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(2)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: db.GetStrPtr("6 GHz"), Capacity: db.GetStrPtr("20 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(8)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[0].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: cutil.GetPtr("6 GHz"), Capacity: cutil.GetPtr("20 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(8)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeStorage, Name: "Dell Ent NVMe CM6 RI 1.92TB", Capacity: db.GetStrPtr("1.92TB"), Vendor: db.GetStrPtr("Test Vendor"), Count: db.GetIntPtr(2)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeStorage, Name: "Dell Ent NVMe CM6 RI 1.92TB", Capacity: cutil.GetPtr("1.92TB"), Vendor: cutil.GetPtr("Test Vendor"), Count: cutil.GetPtr(2)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: db.GetStrPtr("6 GHz"), Capacity: db.GetStrPtr("20 TB"), Vendor: db.GetStrPtr("Mellanox Technologies"), Count: db.GetIntPtr(8)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeInfiniBand, Name: "MT2910 Family [ConnectX-7]", Frequency: cutil.GetPtr("6 GHz"), Capacity: cutil.GetPtr("20 TB"), Vendor: cutil.GetPtr("Mellanox Technologies"), Count: cutil.GetPtr(8)})
 	assert.NoError(t, err)
 
-	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeCPU, Name: "CPU Capability", Frequency: db.GetStrPtr("4 GHz"), Capacity: db.GetStrPtr("10 TB"), Vendor: db.GetStrPtr("Test Vendor"), Count: db.GetIntPtr(1)})
+	_, err = mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &ms1[1].ID, InstanceTypeID: &ins1.ID, Type: MachineCapabilityTypeCPU, Name: "CPU Capability", Frequency: cutil.GetPtr("4 GHz"), Capacity: cutil.GetPtr("10 TB"), Vendor: cutil.GetPtr("Test Vendor"), Count: cutil.GetPtr(1)})
 	assert.NoError(t, err)
 
 	// Machine Set 2
@@ -1750,7 +1751,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 	ms1[0].IsAssigned = true
 	_, err = msd.Update(ctx, nil, MachineUpdateInput{
 		MachineID:  ms1[0].ID,
-		IsAssigned: db.GetBoolPtr(true),
+		IsAssigned: cutil.GetPtr(true),
 	})
 	assert.Nil(t, err)
 
@@ -1789,7 +1790,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 			desc: "filter with SiteID and IsAssigned",
 			filter: MachineFilterInput{
 				SiteIDs:    []uuid.UUID{ms1[0].SiteID},
-				IsAssigned: db.GetBoolPtr(true),
+				IsAssigned: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
 		},
@@ -1804,7 +1805,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 			desc: "filter with SiteID and Hostname",
 			filter: MachineFilterInput{
 				SiteIDs:  []uuid.UUID{ms1[0].SiteID},
-				Hostname: db.GetStrPtr("testhostname-1"),
+				Hostname: cutil.GetPtr("testhostname-1"),
 			},
 			expectedCount: 1,
 		},
@@ -1854,28 +1855,28 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "filter with SearchQuery with Status",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr(MachineStatusReady),
+				SearchQuery: cutil.GetPtr(MachineStatusReady),
 			},
 			expectedCount: 1,
 		},
 		{
 			desc: "filter with SearchQuery with MachineID",
 			filter: MachineFilterInput{
-				SearchQuery: db.GetStrPtr(ms2[0].ID),
+				SearchQuery: cutil.GetPtr(ms2[0].ID),
 			},
 			expectedCount: 1,
 		},
 		{
 			desc: "filter with Hostname",
 			filter: MachineFilterInput{
-				Hostname: db.GetStrPtr("testhostname-0"),
+				Hostname: cutil.GetPtr("testhostname-0"),
 			},
 			expectedCount: 2,
 		},
 		{
 			desc: "filter with HasInstanceType",
 			filter: MachineFilterInput{
-				HasInstanceType: db.GetBoolPtr(true),
+				HasInstanceType: cutil.GetPtr(true),
 			},
 			expectedCount: totalCount/2 + 2,
 		},
@@ -1883,7 +1884,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 			desc: "filter with Status and HasInstanceType",
 			filter: MachineFilterInput{
 				Statuses:        []string{MachineStatusReady},
-				HasInstanceType: db.GetBoolPtr(true),
+				HasInstanceType: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
 		},
@@ -1897,7 +1898,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "filter with ControllerMachineID",
 			filter: MachineFilterInput{
-				ControllerMachineID: db.GetStrPtr(controllerMachineID.String()),
+				ControllerMachineID: cutil.GetPtr(controllerMachineID.String()),
 			},
 			expectedCount: 1,
 		},
@@ -2056,18 +2057,18 @@ func TestMachineSQLDAO_UpdateMultiple(t *testing.T) {
 			inputs: []MachineUpdateInput{
 				{
 					MachineID: m1.ID,
-					Status:    db.GetStrPtr(MachineStatusReady),
-					Hostname:  db.GetStrPtr("machine1-updated"),
+					Status:    cutil.GetPtr(MachineStatusReady),
+					Hostname:  cutil.GetPtr("machine1-updated"),
 					Labels:    map[string]string{"updated": "true"},
 				},
 				{
 					MachineID:      m2.ID,
-					Status:         db.GetStrPtr(MachineStatusInUse),
+					Status:         cutil.GetPtr(MachineStatusInUse),
 					InstanceTypeID: &ins.ID,
 				},
 				{
 					MachineID: m3.ID,
-					Status:    db.GetStrPtr(MachineStatusMaintenance),
+					Status:    cutil.GetPtr(MachineStatusMaintenance),
 					Labels:    map[string]string{"env": "test"},
 				},
 			},
@@ -2087,7 +2088,7 @@ func TestMachineSQLDAO_UpdateMultiple(t *testing.T) {
 			inputs: []MachineUpdateInput{
 				{
 					MachineID: m1.ID,
-					Status:    db.GetStrPtr(MachineStatusReady),
+					Status:    cutil.GetPtr(MachineStatusReady),
 				},
 			},
 			expectError:   false,
@@ -2132,7 +2133,7 @@ func TestMachineSQLDAO_UpdateMultiple_ExceedsMaxBatchItems(t *testing.T) {
 	for i := range inputs {
 		inputs[i] = MachineUpdateInput{
 			MachineID: uuid.NewString(),
-			Status:    db.GetStrPtr(MachineStatusReady),
+			Status:    cutil.GetPtr(MachineStatusReady),
 		}
 	}
 
@@ -2166,24 +2167,24 @@ func TestMachineSQLDAO_UpdateMultiple_AllFields(t *testing.T) {
 	input := MachineUpdateInput{
 		MachineID:             m.ID,
 		InstanceTypeID:        &instanceType.ID,
-		ControllerMachineID:   db.GetStrPtr("new-controller-id"),
-		ControllerMachineType: db.GetStrPtr("new-controller-type"),
-		HwSkuDeviceType:       db.GetStrPtr("new-hw-sku"),
-		Vendor:                db.GetStrPtr("new-vendor"),
-		ProductName:           db.GetStrPtr("new-product"),
-		SerialNumber:          db.GetStrPtr("new-serial"),
-		IsInMaintenance:       db.GetBoolPtr(true),
-		IsUsableByTenant:      db.GetBoolPtr(true),
-		MaintenanceMessage:    db.GetStrPtr("maintenance message"),
-		IsNetworkDegraded:     db.GetBoolPtr(true),
-		NetworkHealthMessage:  db.GetStrPtr("network health message"),
+		ControllerMachineID:   cutil.GetPtr("new-controller-id"),
+		ControllerMachineType: cutil.GetPtr("new-controller-type"),
+		HwSkuDeviceType:       cutil.GetPtr("new-hw-sku"),
+		Vendor:                cutil.GetPtr("new-vendor"),
+		ProductName:           cutil.GetPtr("new-product"),
+		SerialNumber:          cutil.GetPtr("new-serial"),
+		IsInMaintenance:       cutil.GetPtr(true),
+		IsUsableByTenant:      cutil.GetPtr(true),
+		MaintenanceMessage:    cutil.GetPtr("maintenance message"),
+		IsNetworkDegraded:     cutil.GetPtr(true),
+		NetworkHealthMessage:  cutil.GetPtr("network health message"),
 		Health:                map[string]interface{}{"status": "healthy"},
-		DefaultMacAddress:     db.GetStrPtr("aa:bb:cc:dd:ee:ff"),
-		Hostname:              db.GetStrPtr("new-hostname"),
-		IsAssigned:            db.GetBoolPtr(true),
-		Status:                db.GetStrPtr(MachineStatusReady),
+		DefaultMacAddress:     cutil.GetPtr("aa:bb:cc:dd:ee:ff"),
+		Hostname:              cutil.GetPtr("new-hostname"),
+		IsAssigned:            cutil.GetPtr(true),
+		Status:                cutil.GetPtr(MachineStatusReady),
 		Labels:                map[string]string{"env": "prod", "team": "infra"},
-		IsMissingOnSite:       db.GetBoolPtr(true),
+		IsMissingOnSite:       cutil.GetPtr(true),
 	}
 
 	results, err := msd.UpdateMultiple(ctx, nil, []MachineUpdateInput{input})
@@ -2248,4 +2249,53 @@ func TestMachine_GetControllerState(t *testing.T) {
 	mMeta := &Machine{Metadata: scm}
 	assert.Equal(t, "Ready", mMeta.GetControllerState())
 	assert.Equal(t, "Ready", scm.GetNormalizedState())
+}
+
+func TestMachine_ToMaintenanceRequestProto(t *testing.T) {
+	t.Run("enable with reference", func(t *testing.T) {
+		ref := "scheduled work"
+		m := &Machine{ID: "m-1"}
+		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, &ref)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.HostId)
+		assert.Equal(t, "m-1", req.HostId.Id)
+		assert.Equal(t, cwssaws.MaintenanceOperation_Enable, req.Operation)
+		assert.Equal(t, &ref, req.Reference)
+	})
+	t.Run("disable with no reference", func(t *testing.T) {
+		m := &Machine{ID: "m-1"}
+		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.HostId)
+		assert.Equal(t, "m-1", req.HostId.Id)
+		assert.Equal(t, cwssaws.MaintenanceOperation_Disable, req.Operation)
+		assert.Nil(t, req.Reference)
+	})
+}
+
+func TestMachine_ToMetadataUpdateRequestProto(t *testing.T) {
+	labelVal := "prod"
+	labels := []*cwssaws.Label{{Key: "env", Value: &labelVal}}
+
+	t.Run("uses Machine.ID as Name fallback when metadata is nil", func(t *testing.T) {
+		m := &Machine{ID: "m-1"}
+		req := m.ToMetadataUpdateRequestProto(labels)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.MachineId)
+		assert.Equal(t, "m-1", req.MachineId.Id)
+		assert.NotNil(t, req.Metadata)
+		assert.Equal(t, "m-1", req.Metadata.Name)
+		assert.Equal(t, labels, req.Metadata.Labels)
+	})
+
+	t.Run("uses stored metadata Name when present", func(t *testing.T) {
+		m := &Machine{
+			ID: "m-1",
+			Metadata: &SiteControllerMachine{
+				Machine: &cwssaws.Machine{Metadata: &cwssaws.Metadata{Name: "stored-name"}},
+			},
+		}
+		req := m.ToMetadataUpdateRequestProto(labels)
+		assert.Equal(t, "stored-name", req.Metadata.Name)
+	})
 }

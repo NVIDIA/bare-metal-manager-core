@@ -5,15 +5,12 @@ package util
 
 import (
 	"context"
-	"slices"
 	"time"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
-
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
@@ -47,63 +44,13 @@ func PtrsEqual[T comparable](i1 *T, i2 *T) bool {
 	return true
 }
 
-func NetworkSecurityGroupPropagationDetailsEqual(pd1, pd2 *cdbm.NetworkSecurityGroupPropagationDetails) bool {
-	if (pd1 == nil) != (pd2 == nil) {
-		return false
-	}
-
-	// If pd1 was nil but we made it here, then
-	// both were nil, so we can return true.
-	if pd1 == nil {
-		return true
-	}
-
-	return pd1.Status.Number() == pd2.Status.Number() &&
-		PtrsEqual(pd1.Details, pd2.Details) &&
-		slices.Equal(pd1.UnpropagatedInstanceIds, pd2.UnpropagatedInstanceIds) &&
-		slices.Equal(pd1.RelatedInstanceIds, pd2.RelatedInstanceIds)
-
-}
-
-func MachineCapabilitiesEqual(cap1 *cdbm.MachineCapability, cap2 *cdbm.MachineCapability) bool {
-
-	return PtrsEqual(cap1.Cores, cap2.Cores) &&
-		PtrsEqual(cap1.Threads, cap2.Threads) &&
-		PtrsEqual(cap1.Count, cap2.Count) &&
-		PtrsEqual(cap1.DeviceType, cap2.DeviceType) &&
-		cap1.Name == cap2.Name &&
-		cap1.Type == cap2.Type &&
-		PtrsEqual(cap1.Capacity, cap2.Capacity) &&
-		PtrsEqual(cap1.Frequency, cap2.Frequency) &&
-		PtrsEqual(cap1.HardwareRevision, cap2.HardwareRevision) &&
-		PtrsEqual(cap1.Vendor, cap2.Vendor) &&
-		slices.Equal(cap1.InactiveDevices, cap2.InactiveDevices) &&
-		cap1.Index == cap2.Index
-}
-
 // IsTimeWithinStaleInventoryThreshold checks if the action time is within the threshold where we could be processing an older inventory
 func IsTimeWithinStaleInventoryThreshold(actionTime time.Time) bool {
 	return time.Since(actionTime) < cwutil.InventoryReceiptInterval+(time.Second*10)
 }
 
-// GetNVLinkLogicalPartitionStatus returns the NVLinkLogicalPartition status and message from Controller NVLinkLogicalPartition state
-func GetNVLinkLogicalPartitionStatus(controllerNVLinkLogicalPartitionTenantState cwssaws.TenantState) (*string, *string) {
-	switch controllerNVLinkLogicalPartitionTenantState {
-	case cwssaws.TenantState_PROVISIONING:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusProvisioning), cdb.GetStrPtr("NVLink Logical Partition is being provisioned on Site")
-	case cwssaws.TenantState_CONFIGURING:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusConfiguring), cdb.GetStrPtr("NVLink Logical Partition is being configured on Site")
-	case cwssaws.TenantState_READY:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), cdb.GetStrPtr("NVLink Logical Partition is ready for use")
-	case cwssaws.TenantState_FAILED:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusError), cdb.GetStrPtr("NVLink Logical Partition is in error state")
-	default:
-		return nil, nil
-	}
-}
-
 // UpdateNVLinkLogicalPartitionStatusInDB updates the NVLinkLogicalPartition status in the DB and creates a new StatusDetail
-func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, nvlinklogicalpartitionID uuid.UUID, status *string, statusMessage *string) (*cdbm.NVLinkLogicalPartition, *cdbm.StatusDetail, error) {
+func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, nvlinklogicalpartitionID uuid.UUID, status *cdbm.NVLinkLogicalPartitionStatus, statusMessage *string) (*cdbm.NVLinkLogicalPartition, *cdbm.StatusDetail, error) {
 	var updatedNVLinkLogicalPartition *cdbm.NVLinkLogicalPartition
 	var err error
 	var newSSD *cdbm.StatusDetail
@@ -122,7 +69,7 @@ func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbS
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
-		newSSD, err = statusDetailDAO.CreateFromParams(ctx, tx, nvlinklogicalpartitionID.String(), *status, statusMessage)
+		newSSD, err = statusDetailDAO.CreateFromParams(ctx, tx, nvlinklogicalpartitionID.String(), string(*status), statusMessage)
 		if err != nil {
 			return updatedNVLinkLogicalPartition, newSSD, err
 		}

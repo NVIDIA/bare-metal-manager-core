@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,10 +61,10 @@ func TestUserSQLDAO_Get(t *testing.T) {
 
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -190,10 +191,10 @@ func TestUserSQLDAO_GetAll(t *testing.T) {
 
 	user1 := User{
 		ID:          uuid.New(),
-		AuxiliaryID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		AuxiliaryID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -206,10 +207,10 @@ func TestUserSQLDAO_GetAll(t *testing.T) {
 
 	user2 := User{
 		ID:          uuid.New(),
-		AuxiliaryID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jsmith@test.com"),
-		FirstName:   db.GetStrPtr("Jimmy"),
-		LastName:    db.GetStrPtr("Smith"),
+		AuxiliaryID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jsmith@test.com"),
+		FirstName:   cutil.GetPtr("Jimmy"),
+		LastName:    cutil.GetPtr("Smith"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -222,11 +223,11 @@ func TestUserSQLDAO_GetAll(t *testing.T) {
 
 	user3 := User{
 		ID:          uuid.New(),
-		AuxiliaryID: db.GetStrPtr(uuid.NewString()),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		AuxiliaryID: cutil.GetPtr(uuid.NewString()),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(&user3).Exec(context.Background())
@@ -346,7 +347,7 @@ func TestUserSQLDAO_GetAll(t *testing.T) {
 			usd := UserSQLDAO{
 				dbSession: tt.fields.dbSession,
 			}
-			got, total, err := usd.GetAll(tt.args.ctx, nil, tt.args.filter, paginator.PageInput{Limit: db.GetIntPtr(paginator.TotalLimit)}, nil)
+			got, total, err := usd.GetAll(tt.args.ctx, nil, tt.args.filter, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want.total, total)
 			assert.Equal(t, len(tt.want.users), len(got))
@@ -389,10 +390,10 @@ func TestUserSQLDAO_Create(t *testing.T) {
 
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData:     testOrgData,
 	}
 
@@ -486,10 +487,10 @@ func TestUserSQLDAO_Update(t *testing.T) {
 	// Create user
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(user).Exec(context.Background())
@@ -520,9 +521,9 @@ func TestUserSQLDAO_Update(t *testing.T) {
 	updatedUser := &User{
 		ID:          user.ID,
 		StarfleetID: user.StarfleetID,
-		Email:       db.GetStrPtr("jdoe@test2.com"),
-		FirstName:   db.GetStrPtr("John2"),
-		LastName:    db.GetStrPtr("Doe2"),
+		Email:       cutil.GetPtr("jdoe@test2.com"),
+		FirstName:   cutil.GetPtr("John2"),
+		LastName:    cutil.GetPtr("Doe2"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -650,10 +651,10 @@ func TestUser_GetOrgByName(t *testing.T) {
 
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: OrgData{
 			"test-org": ngcOrg,
 		},
@@ -743,10 +744,10 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 
 	user1 := User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -757,10 +758,10 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 
 	user2 := User{
 		ID:          uuid.New(),
-		AuxiliaryID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jdoe@test2.com"),
-		FirstName:   db.GetStrPtr("John2"),
-		LastName:    db.GetStrPtr("Doe2"),
+		AuxiliaryID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jdoe@test2.com"),
+		FirstName:   cutil.GetPtr("John2"),
+		LastName:    cutil.GetPtr("Doe2"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -771,11 +772,11 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 
 	user3 := User{
 		ID:          uuid.New(),
-		AuxiliaryID: db.GetStrPtr(uuid.NewString()),
-		StarfleetID: db.GetStrPtr(uuid.NewString()),
-		Email:       db.GetStrPtr("jboth@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Both"),
+		AuxiliaryID: cutil.GetPtr(uuid.NewString()),
+		StarfleetID: cutil.GetPtr(uuid.NewString()),
+		Email:       cutil.GetPtr("jboth@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Both"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -825,11 +826,11 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr("new-user-aux-id"),
+					AuxiliaryID: cutil.GetPtr("new-user-aux-id"),
 				},
 			},
 			want: &User{
-				AuxiliaryID: db.GetStrPtr("new-user-aux-id"),
+				AuxiliaryID: cutil.GetPtr("new-user-aux-id"),
 				StarfleetID: nil,
 				Email:       nil,
 				FirstName:   nil,
@@ -847,13 +848,13 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr("non-existent-aux-id"),
-					StarfleetID: db.GetStrPtr("non-existent-starfleet-id"),
+					AuxiliaryID: cutil.GetPtr("non-existent-aux-id"),
+					StarfleetID: cutil.GetPtr("non-existent-starfleet-id"),
 				},
 			},
 			want: &User{
-				AuxiliaryID: db.GetStrPtr("non-existent-aux-id"),
-				StarfleetID: db.GetStrPtr("non-existent-starfleet-id"),
+				AuxiliaryID: cutil.GetPtr("non-existent-aux-id"),
+				StarfleetID: cutil.GetPtr("non-existent-starfleet-id"),
 				Email:       nil,
 				FirstName:   nil,
 				LastName:    nil,
@@ -886,8 +887,8 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr(""), // Empty string
-					StarfleetID: db.GetStrPtr("new-starfleet-id-empty-aux"),
+					AuxiliaryID: cutil.GetPtr(""), // Empty string
+					StarfleetID: cutil.GetPtr("new-starfleet-id-empty-aux"),
 				},
 			},
 			want:      nil,
@@ -902,8 +903,8 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr("new-aux-id-empty-starfleet"),
-					StarfleetID: db.GetStrPtr(""), // Empty string
+					AuxiliaryID: cutil.GetPtr("new-aux-id-empty-starfleet"),
+					StarfleetID: cutil.GetPtr(""), // Empty string
 				},
 			},
 			want:      nil,
@@ -918,8 +919,8 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr(""), // Empty string
-					StarfleetID: db.GetStrPtr(""), // Empty string
+					AuxiliaryID: cutil.GetPtr(""), // Empty string
+					StarfleetID: cutil.GetPtr(""), // Empty string
 				},
 			},
 			want:      nil,
@@ -934,7 +935,7 @@ func TestUserSQLDAO_GetOrCreate(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				input: UserGetOrCreateInput{
-					AuxiliaryID: db.GetStrPtr(""), // Empty string should be converted to nil
+					AuxiliaryID: cutil.GetPtr(""), // Empty string should be converted to nil
 					StarfleetID: nil,
 				},
 			},

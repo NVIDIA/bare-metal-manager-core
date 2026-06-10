@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -18,16 +18,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // testTemporalSiteClientPool builds a site client pool for activity tests.
@@ -143,8 +144,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 
 	for i := 0; i < 14; i++ {
 		ctrlExpectedRack := &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: pagedExpectedRacks[i].RackID},
-			RackType: pagedExpectedRacks[i].RackProfileID,
+			RackId:        &cwssaws.RackId{Id: pagedExpectedRacks[i].RackID},
+			RackProfileId: &cwssaws.RackProfileId{Id: pagedExpectedRacks[i].RackProfileID},
 			Metadata: &cwssaws.Metadata{
 				Name:        pagedExpectedRacks[i].Name,
 				Description: pagedExpectedRacks[i].Description,
@@ -154,15 +155,15 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		// Echo back labels for current racks
 		if i%5 == 0 {
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "region", Value: cdb.GetStrPtr(fmt.Sprintf("region-%d", i/5))},
-				{Key: "row", Value: cdb.GetStrPtr(fmt.Sprintf("row-%d", i))},
+				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-%d", i/5))},
+				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
 			}
 		}
 
 		// Have entries that need updates: change RackProfileID/Name/Description
 		if i%3 == 0 {
 			if i < 10 {
-				ctrlExpectedRack.RackType = fmt.Sprintf("profile-updated-%d", i) // Changed RackProfileID
+				ctrlExpectedRack.RackProfileId = &cwssaws.RackProfileId{Id: fmt.Sprintf("profile-updated-%d", i)} // Changed RackProfileID
 				ctrlExpectedRack.Metadata.Name = fmt.Sprintf("Updated Rack %d", i)
 				ctrlExpectedRack.Metadata.Description = fmt.Sprintf("Updated Rack %d description", i)
 				expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
@@ -173,15 +174,15 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		if i == 1 {
 			// Add labels to a rack that didn't have them before
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "new-label", Value: cdb.GetStrPtr("new-value")},
+				{Key: "new-label", Value: cutil.GetPtr("new-value")},
 			}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 5 {
 			// Modify existing labels
 			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
-				{Key: "region", Value: cdb.GetStrPtr(fmt.Sprintf("region-updated-%d", i/5))},
-				{Key: "row", Value: cdb.GetStrPtr(fmt.Sprintf("row-%d", i))},
-				{Key: "status", Value: cdb.GetStrPtr("active")},
+				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-updated-%d", i/5))},
+				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
+				{Key: "status", Value: cutil.GetPtr("active")},
 			}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 10 {
@@ -359,34 +360,34 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 					ExpectedRacks: []*cwssaws.ExpectedRack{
 						// Valid new rack with metadata + labels
 						{
-							RackId:   &cwssaws.RackId{Id: "rack-new-1"},
-							RackType: "profile-A",
+							RackId:        &cwssaws.RackId{Id: "rack-new-1"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-A"},
 							Metadata: &cwssaws.Metadata{
 								Name:        "Rack New 1",
 								Description: "freshly reported",
 								Labels: []*cwssaws.Label{
-									{Key: "environment", Value: cdb.GetStrPtr("test")},
-									{Key: "datacenter", Value: cdb.GetStrPtr("dc1")},
+									{Key: "environment", Value: cutil.GetPtr("test")},
+									{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 								},
 							},
 						},
 						// Valid new rack with nil Metadata: Name/Description/Labels default to empty
 						{
-							RackId:   &cwssaws.RackId{Id: "rack-new-nil-meta"},
-							RackType: "profile-B",
-							Metadata: nil,
+							RackId:        &cwssaws.RackId{Id: "rack-new-nil-meta"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-B"},
+							Metadata:      nil,
 						},
 						// Nil entry: should be ignored
 						nil,
 						// Entry with nil RackId: should be ignored
 						{
-							RackId:   nil,
-							RackType: "profile-skip",
+							RackId:        nil,
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
 						},
 						// Entry with empty RackId.Id: should be ignored
 						{
-							RackId:   &cwssaws.RackId{Id: ""},
-							RackType: "profile-skip",
+							RackId:        &cwssaws.RackId{Id: ""},
+							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
 						},
 					},
 					Timestamp:       timestamppb.Now(),
@@ -415,7 +416,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			// Verify state by fetching all racks for the site.
 			erDAO := cdbm.NewExpectedRackDAO(dbSession)
 			filterInput := cdbm.ExpectedRackFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}
-			allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			assert.NoError(t, gerr)
 
 			// Map by RackID (operator-supplied identifier, the reconciliation key)
@@ -439,7 +440,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 					}
 				}
 				if ctrlER != nil && updated != nil {
-					assert.Equal(t, ctrlER.RackType, updated.RackProfileID,
+					assert.Equal(t, ctrlER.RackProfileId.Id, updated.RackProfileID,
 						fmt.Sprintf("ExpectedRack %v RackProfileID should have been updated", er.RackID))
 					reportedName := ""
 					reportedDescription := ""
@@ -548,13 +549,13 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_NoChange(t *testing.T) {
 	inventory := &cwssaws.ExpectedRackInventory{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: er.RackID},
-				RackType: er.RackProfileID,
+				RackId:        &cwssaws.RackId{Id: er.RackID},
+				RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
 				Metadata: &cwssaws.Metadata{
 					Name:        er.Name,
 					Description: er.Description,
 					Labels: []*cwssaws.Label{
-						{Key: "foo", Value: cdb.GetStrPtr("bar")},
+						{Key: "foo", Value: cutil.GetPtr("bar")},
 					},
 				},
 			},
@@ -620,7 +621,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_RaceCondition(t *testing.T) 
 
 	// Verify the rack was NOT deleted
 	filterInput := cdbm.ExpectedRackFilterInput{SiteIDs: []uuid.UUID{st.ID}}
-	allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allRacks, _, gerr := erDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	assert.NoError(t, gerr)
 
 	found := false

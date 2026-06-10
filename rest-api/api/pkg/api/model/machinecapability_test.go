@@ -6,8 +6,8 @@ package model
 import (
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,10 +15,10 @@ func TestMachineCapability_NewAPIMachineCapability(t *testing.T) {
 	dbmc := &cdbm.MachineCapability{
 		Type:      cdbm.MachineCapabilityTypeCPU,
 		Name:      "AMD Opteron Series x10",
-		Frequency: cdb.GetStrPtr("3.0GHz"),
-		Capacity:  cdb.GetStrPtr("3.0GHz"),
-		Vendor:    cdb.GetStrPtr("AMD"),
-		Count:     cdb.GetIntPtr(2),
+		Frequency: cutil.GetPtr("3.0GHz"),
+		Capacity:  cutil.GetPtr("3.0GHz"),
+		Vendor:    cutil.GetPtr("AMD"),
+		Count:     cutil.GetPtr(2),
 	}
 
 	apimc := NewAPIMachineCapability(dbmc)

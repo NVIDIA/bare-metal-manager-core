@@ -25,6 +25,8 @@ pub struct MachineValidationMetrics {
     pub completed_validation: usize,
     pub failed_validation: usize,
     pub in_progress_validation: usize,
+    pub oldest_active_validation_age_seconds: u64,
+    pub stale_validation: usize,
     pub tests: Vec<MachineValidationTest>,
 }
 
@@ -34,6 +36,8 @@ impl MachineValidationMetrics {
             completed_validation: 0,
             failed_validation: 0,
             in_progress_validation: 0,
+            oldest_active_validation_age_seconds: 0,
+            stale_validation: 0,
             tests: Vec::new(),
         }
     }
@@ -73,6 +77,30 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(metrics.in_progress_validation as u64, attrs);
+                });
+            })
+            .build();
+    }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("carbide_machine_validation_oldest_active_age_seconds")
+            .with_description("Age in seconds of the oldest active machine validation run")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    observer.observe(metrics.oldest_active_validation_age_seconds, attrs);
+                });
+            })
+            .build();
+    }
+    {
+        let metrics = shared_metrics.clone();
+        meter
+            .u64_observable_gauge("carbide_machine_validation_stale_runs_count")
+            .with_description("Count of active machine validation runs considered stale")
+            .with_callback(move |observer| {
+                metrics.if_available(|metrics, attrs| {
+                    observer.observe(metrics.stale_validation as u64, attrs);
                 });
             })
             .build();

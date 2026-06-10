@@ -4,8 +4,8 @@
 package nico
 
 import (
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
 // MapFirmwareState converts a NICo protobuf FirmwareUpdateState into the

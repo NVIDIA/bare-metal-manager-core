@@ -14,13 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -123,13 +124,13 @@ func TestSSHKeyHandler_Create(t *testing.T) {
 	assert.Nil(t, err)
 	okBody2, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok2", PublicKey: goodPublicKeyRSA1})
 	assert.Nil(t, err)
-	okBodyWithSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok3", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cdb.GetStrPtr(skg1.ID.String())})
+	okBodyWithSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok3", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cutil.GetPtr(skg1.ID.String())})
 	assert.Nil(t, err)
-	okBodyWithBadSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok4", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cdb.GetStrPtr("test")})
+	okBodyWithBadSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok4", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cutil.GetPtr("test")})
 	assert.Nil(t, err)
 	errBodyPublicKeyConflict, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok5", PublicKey: goodPublicKey1})
 	assert.Nil(t, err)
-	okBodyWithDeletingSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok6", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cdb.GetStrPtr(skg2.ID.String())})
+	okBodyWithDeletingSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok6", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cutil.GetPtr(skg2.ID.String())})
 	assert.Nil(t, err)
 
 	errBodyDoesntValidate, err := json.Marshal(struct{ Name string }{Name: "test"})
@@ -361,7 +362,7 @@ func TestSSHKeyHandler_GetByID(t *testing.T) {
 
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
 
-	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	skg1 := testBuildSSHKeyGroup(t, dbSession, "test", tnOrg, nil, tn1.ID, nil, cdbm.SSHKeyGroupStatusSyncing, tnu1.ID)
 
 	ska1 := testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg1.ID, tnu1.ID)
@@ -450,10 +451,10 @@ func TestSSHKeyHandler_GetByID(t *testing.T) {
 			reqOrgName:             tnOrg,
 			user:                   tnu1,
 			skID:                   sk1.ID.String(),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			expectedTenantOrg:      cdb.GetStrPtr(tn1.Org),
+			expectedTenantOrg:      cutil.GetPtr(tn1.Org),
 		},
 	}
 	for _, tc := range tests {
@@ -554,7 +555,7 @@ func TestSSHKeyHandler_GetAll(t *testing.T) {
 
 	totalKeys := 25
 	for i := 1; i <= totalKeys; i++ {
-		sk1 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey-%d", i), cdb.GetStrPtr("test"), nil, tnu1.ID)
+		sk1 := testBuildSSHKey(t, dbSession, fmt.Sprintf("test-%d", i), tnOrg, tn1.ID, fmt.Sprintf("testpublickey-%d", i), cutil.GetPtr("test"), nil, tnu1.ID)
 
 		if i <= 10 {
 			ska1 := testBuildSSHKeyAssociation(t, dbSession, sk1.ID, skg1.ID, tnu1.ID)
@@ -623,25 +624,25 @@ func TestSSHKeyHandler_GetAll(t *testing.T) {
 			name:                "success case with objects returned",
 			reqOrgName:          tnOrg,
 			user:                tnu1,
-			orderBy:             cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:             cutil.GetPtr("CREATED_ASC"),
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
 			expectedSkCnt:       20,
-			expectedTotal:       cdb.GetIntPtr(25),
-			expectedFirstSkName: cdb.GetStrPtr("test-1"),
+			expectedTotal:       cutil.GetPtr(25),
+			expectedFirstSkName: cutil.GetPtr("test-1"),
 			verifyChildSpanner:  true,
 		},
 		{
 			name:                "success case filter by sshkeygroupid",
 			reqOrgName:          tnOrg,
 			user:                tnu1,
-			qSshKeyGroupID:      cdb.GetStrPtr(skg2.ID.String()),
-			orderBy:             cdb.GetStrPtr("CREATED_ASC"),
+			qSshKeyGroupID:      cutil.GetPtr(skg2.ID.String()),
+			orderBy:             cutil.GetPtr("CREATED_ASC"),
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
 			expectedSkCnt:       len(sshKeySkg2),
-			expectedTotal:       cdb.GetIntPtr(len(sshKeySkg2)),
-			expectedFirstSkName: cdb.GetStrPtr("test-11"),
+			expectedTotal:       cutil.GetPtr(len(sshKeySkg2)),
+			expectedFirstSkName: cutil.GetPtr("test-11"),
 			verifyChildSpanner:  true,
 		},
 		{
@@ -650,12 +651,12 @@ func TestSSHKeyHandler_GetAll(t *testing.T) {
 			user:                tnu1,
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
-			pageNumber:          cdb.GetIntPtr(1),
-			pageSize:            cdb.GetIntPtr(10),
-			orderBy:             cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:          cutil.GetPtr(1),
+			pageSize:            cutil.GetPtr(10),
+			orderBy:             cutil.GetPtr("CREATED_ASC"),
 			expectedSkCnt:       10,
-			expectedTotal:       cdb.GetIntPtr(25),
-			expectedFirstSkName: cdb.GetStrPtr("test-1"),
+			expectedTotal:       cutil.GetPtr(25),
+			expectedFirstSkName: cutil.GetPtr("test-1"),
 		},
 		{
 			name:                "success case, with paging 2",
@@ -663,12 +664,12 @@ func TestSSHKeyHandler_GetAll(t *testing.T) {
 			user:                tnu1,
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
-			pageNumber:          cdb.GetIntPtr(2),
-			pageSize:            cdb.GetIntPtr(10),
-			orderBy:             cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:          cutil.GetPtr(2),
+			pageSize:            cutil.GetPtr(10),
+			orderBy:             cutil.GetPtr("CREATED_ASC"),
 			expectedSkCnt:       10,
-			expectedTotal:       cdb.GetIntPtr(25),
-			expectedFirstSkName: cdb.GetStrPtr("test-11"),
+			expectedTotal:       cutil.GetPtr(25),
+			expectedFirstSkName: cutil.GetPtr("test-11"),
 		},
 		{
 			name:           "error case, with paging",
@@ -676,33 +677,33 @@ func TestSSHKeyHandler_GetAll(t *testing.T) {
 			user:           tnu1,
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedSkCnt:  0,
 		},
 		{
 			name:                   "success case with include relation",
 			reqOrgName:             tnOrg,
 			user:                   tnu1,
-			orderBy:                cdb.GetStrPtr("CREATED_ASC"),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedSkCnt:          20,
-			expectedTotal:          cdb.GetIntPtr(25),
-			expectedFirstSkName:    cdb.GetStrPtr("test-1"),
-			expectedTenantOrg:      cdb.GetStrPtr(tn1.Org),
+			expectedTotal:          cutil.GetPtr(25),
+			expectedFirstSkName:    cutil.GetPtr("test-1"),
+			expectedTenantOrg:      cutil.GetPtr(tn1.Org),
 		},
 		{
 			name:           "success case with name search query",
 			reqOrgName:     tnOrg,
 			user:           tnu1,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedSkCnt:  20,
-			expectedTotal:  cdb.GetIntPtr(25),
+			expectedTotal:  cutil.GetPtr(25),
 		},
 	}
 	for _, tc := range tests {
@@ -824,21 +825,21 @@ func TestSSHKeyHandler_Update(t *testing.T) {
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
 	assert.NotNil(t, tn1)
 
-	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test-ssh-key-1", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	assert.NotNil(t, sk1)
-	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test-ssh-key-2", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 	assert.NotNil(t, sk2)
 
-	errBody1, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.Nil(t, err)
 
-	errBodyNameClash, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("test-ssh-key-2")})
+	errBodyNameClash, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cutil.GetPtr("test-ssh-key-2")})
 	assert.Nil(t, err)
 
-	okBody, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("test-ssh-key-updated")})
+	okBody, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cutil.GetPtr("test-ssh-key-updated")})
 	assert.Nil(t, err)
 
-	okBody2, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("test-ssh-key-1")})
+	okBody2, err := json.Marshal(model.APISSHKeyUpdateRequest{Name: cutil.GetPtr("test-ssh-key-1")})
 	assert.Nil(t, err)
 
 	cfg := common.GetTestConfig()
@@ -1037,8 +1038,8 @@ func TestSSHKeyHandler_Delete(t *testing.T) {
 	tnu2Bad := testInstanceBuildUser(t, dbSession, uuid.New().String(), tnOrg2, tnOrgRoles)
 
 	// Build SSHKeyGroup1
-	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
-	sk2 := testBuildSSHKey(t, dbSession, "test-2", tnOrg, tn1.ID, "testpublickey", cdb.GetStrPtr("test"), nil, tnu1.ID)
+	sk1 := testBuildSSHKey(t, dbSession, "test", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
+	sk2 := testBuildSSHKey(t, dbSession, "test-2", tnOrg, tn1.ID, "testpublickey", cutil.GetPtr("test"), nil, tnu1.ID)
 
 	skg1 := testBuildSSHKeyGroup(t, dbSession, "test", tnOrg, nil, tn1.ID, nil, cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 
@@ -1125,7 +1126,7 @@ func TestSSHKeyHandler_Delete(t *testing.T) {
 			skgID:                     &skg1.ID,
 			expectedErr:               false,
 			expectedStatus:            http.StatusAccepted,
-			expectedSSHKeyGroupStatus: cdb.GetStrPtr(cdbm.SSHKeyGroupStatusSynced),
+			expectedSSHKeyGroupStatus: cutil.GetPtr(cdbm.SSHKeyGroupStatusSynced),
 			verifyChildSpanner:        true,
 		},
 	}

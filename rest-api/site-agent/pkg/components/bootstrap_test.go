@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/bootstrap"
-	computils "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/utils"
-	sitemgr "github.com/NVIDIA/infra-controller-rest/site-manager/pkg/sitemgr"
+	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/bootstrap"
+	computils "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/utils"
+	sitemgr "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 	log "github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 )

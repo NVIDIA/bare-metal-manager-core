@@ -15,18 +15,18 @@ import (
 
 	"go.temporal.io/sdk/client"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ManageVpc is an activity wrapper for managing VPC lifecycle that allows
@@ -75,7 +75,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 	vpcDAO := cdbm.NewVpcDAO(mv.dbSession)
 	sdDAO := cdbm.NewStatusDetailDAO(mv.dbSession)
 
-	existingVpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingVpcs, _, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get VPCs for Site from DB")
 		return nil, err
@@ -145,7 +145,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if vpc.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 		}
 
 		// Populate controller VPC ID if necessary
@@ -165,7 +165,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 		if controllerVpc.NetworkVirtualizationType != nil &&
 			(vpc.NetworkVirtualizationType == nil || (vpc.NetworkVirtualizationType != nil &&
 				controllerVpc.NetworkVirtualizationType.String() != *vpc.NetworkVirtualizationType)) {
-			networkVirtualizationType = cdb.GetStrPtr(controllerVpc.NetworkVirtualizationType.String())
+			networkVirtualizationType = cwutil.GetPtr(controllerVpc.NetworkVirtualizationType.String())
 		}
 
 		var controllerActiveVni *int
@@ -177,7 +177,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			controllerVpcID != nil ||
 			networkVirtualizationType != nil ||
 			!util.PtrsEqual(vpc.RoutingProfile, controllerVpc.RoutingProfileType) ||
-			!util.NetworkSecurityGroupPropagationDetailsEqual(vpc.NetworkSecurityGroupPropagationDetails, sitePropagationStatus) ||
+			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
 			// Status should never go back to nil - that would be a bug.
@@ -219,7 +219,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 		// If VPC is not in Deleting state, then update status to Ready
 		if vpc.Status != cdbm.VpcStatusDeleting && vpc.Status != cdbm.VpcStatusReady {
-			err = mv.updateVpcStatusInDB(ctx, nil, vpc.ID, cdb.GetStrPtr(cdbm.VpcStatusReady), cdb.GetStrPtr("VPC is ready for use"))
+			err = mv.updateVpcStatusInDB(ctx, nil, vpc.ID, cwutil.GetPtr(cdbm.VpcStatusReady), cwutil.GetPtr("VPC is ready for use"))
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update VPC status detail in DB")
 			}
@@ -304,7 +304,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				// Add VPC ID to deletedVpcIDs list
 				vpcLifecycleEvents = append(vpcLifecycleEvents, cwm.InventoryObjectLifecycleEvent{
 					ObjectID: vpc.ID,
-					Deleted:  cdb.GetTimePtr(time.Now()),
+					Deleted:  cwutil.GetPtr(time.Now()),
 				})
 			}
 		} else if vpc.ControllerVpcID != nil {
@@ -318,7 +318,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 			// Leave orderBy as nil as the result is sorted by created timestamp by default
 			if status == vpc.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, vpc.ID.String(), nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, vpc.ID.String(), nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for VPC")
 					continue
@@ -330,7 +330,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			}
 
 			// Set isMissingOnSite flag to true and update status, user can decide on deletion
-			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, IsMissingOnSite: cwutil.GetPtr(true)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB")
 				continue
@@ -466,7 +466,7 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 	metricsRecorded := 0
 
 	for _, event := range vpcLifecycleEvents {
-		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Str("VPC ID", event.ObjectID.String()).Msg("failed to retrieve Status Details for VPC")
 			return err

@@ -25,19 +25,16 @@ authors.workspace = true
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-health-metrics = { path = "../health-metrics" }
-# TODO: probably this dependency is not necessary. It is only use for
-# one function that ultimately calls rms client. Weird dep.
-carbide-site-explorer = { path = "../site-explorer" }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
+component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller" }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
 mac_address = { workspace = true }
-librms = { workspace = true }
 opentelemetry = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }

@@ -14,17 +14,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func testBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.Site, tn
 
 	createInput := cdbm.AllocationCreateInput{
 		Name:                     name,
-		Description:              cdb.GetStrPtr("Test Allocation Description"),
+		Description:              cutil.GetPtr("Test Allocation Description"),
 		InfrastructureProviderID: st.InfrastructureProviderID,
 		TenantID:                 tn.ID,
 		SiteID:                   st.ID,
@@ -58,14 +58,14 @@ func testBuildAllocation(t *testing.T, dbSession *cdb.Session, st *cdbm.Site, tn
 	return al
 }
 
-func testBuildIBPartition(t *testing.T, dbSession *cdb.Session, name string, org string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartionID *uuid.UUID, status *string, isMissingOnSite bool) *cdbm.InfiniBandPartition {
+func testBuildIBPartition(t *testing.T, dbSession *cdb.Session, name string, org string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartionID *uuid.UUID, status *cdbm.InfiniBandPartitionStatus, isMissingOnSite bool) *cdbm.InfiniBandPartition {
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady)
+		status = cutil.GetPtr(cdbm.InfiniBandPartitionStatusReady)
 	}
 	ibp := &cdbm.InfiniBandPartition{
 		ID:                      uuid.New(),
 		Name:                    name,
-		Description:             cdb.GetStrPtr("Test InfiniBand Partition"),
+		Description:             cutil.GetPtr("Test InfiniBand Partition"),
 		Org:                     org,
 		SiteID:                  site.ID,
 		TenantID:                tenant.ID,
@@ -136,27 +136,27 @@ func TestInfiniBandPartitionHandler_Create(t *testing.T) {
 	al3 := testBuildAllocation(t, dbSession, site4, tn1, "test-allocation-3", tnu1)
 	assert.NotNil(t, al3)
 
-	ibpObj := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-1", Description: cdb.GetStrPtr("test"), SiteID: site1.ID.String(), Labels: map[string]string{"test-label-1": "test-value-1"}}
+	ibpObj := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-1", Description: cutil.GetPtr("test"), SiteID: site1.ID.String(), Labels: map[string]string{"test-label-1": "test-value-1"}}
 	okBody, err := json.Marshal(ibpObj)
 	assert.Nil(t, err)
 
-	ibpObj1 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-2", Description: cdb.GetStrPtr("test")}
+	ibpObj1 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-2", Description: cutil.GetPtr("test")}
 	errBodyMissingSite, err := json.Marshal(ibpObj1)
 	assert.Nil(t, err)
 
-	ibpObj4 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-5", Description: cdb.GetStrPtr("test"), SiteID: "124"}
+	ibpObj4 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-5", Description: cutil.GetPtr("test"), SiteID: "124"}
 	errBodyInvalidSite, err := json.Marshal(ibpObj4)
 	assert.Nil(t, err)
 
-	ibpObj5 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-no-allocations", Description: cdb.GetStrPtr("test"), SiteID: site2.ID.String()}
+	ibpObj5 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-no-allocations", Description: cutil.GetPtr("test"), SiteID: site2.ID.String()}
 	errNoAllocations, err := json.Marshal(ibpObj5)
 	assert.Nil(t, err)
 
-	ibpObj6 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-6", Description: cdb.GetStrPtr("test"), SiteID: site3.ID.String()}
+	ibpObj6 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-6", Description: cutil.GetPtr("test"), SiteID: site3.ID.String()}
 	okBody2, err := json.Marshal(ibpObj6)
 	assert.Nil(t, err)
 
-	ibpObj7 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-1", Description: cdb.GetStrPtr("test"), SiteID: site4.ID.String()}
+	ibpObj7 := model.APIInfiniBandPartitionCreateRequest{Name: "test-ibp-1", Description: cutil.GetPtr("test"), SiteID: site4.ID.String()}
 	assert.Nil(t, err)
 
 	errBodyNameClash, err := json.Marshal(ibpObj)
@@ -500,7 +500,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			nil,
 			cdbm.InfiniBandPartitionCreateInput{
 				Name:        fmt.Sprintf("test-ipb-%02d", i),
-				Description: cdb.GetStrPtr("test"),
+				Description: cutil.GetPtr("test"),
 				TenantOrg:   tnOrg1,
 				SiteID:      site1.ID,
 				TenantID:    tn1.ID,
@@ -510,8 +510,8 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			},
 		)
 		assert.Nil(t, err)
-		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.InfiniBandPartitionStatusPending, cdb.GetStrPtr("request received, pending processing"))
-		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), cdbm.InfiniBandPartitionStatusReady, cdb.GetStrPtr("InfiniBand Partition is now ready for use"))
+		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), string(cdbm.InfiniBandPartitionStatusPending), cutil.GetPtr("request received, pending processing"))
+		common.TestBuildStatusDetail(t, dbSession, ipb.ID.String(), string(cdbm.InfiniBandPartitionStatusReady), cutil.GetPtr("InfiniBand Partition is now ready for use"))
 		ibps = append(ibps, *ipb)
 	}
 
@@ -544,7 +544,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when user not found in request context",
 			reqOrgName:     tnOrg2,
 			user:           nil,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -552,7 +552,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when user is not a member of org",
 			reqOrgName:     "SomeOrg",
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -560,7 +560,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when tenant doesnt exist for org",
 			reqOrgName:     tnOrg3,
 			user:           tnu3,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -568,7 +568,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when tenant is not admin for org",
 			reqOrgName:     tnOrg2,
 			user:           tnu2,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -576,7 +576,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when Site ID specified in query is an invalid UUID",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr("bad#uuid$str"),
+			querySiteID:    cutil.GetPtr("bad#uuid$str"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -584,7 +584,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "error when non-existent Site ID is specified in query",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(uuid.New().String()),
+			querySiteID:    cutil.GetPtr(uuid.New().String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -602,20 +602,20 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:                   "success when tenant relation are specified",
 			reqOrgName:             tnOrg1,
 			user:                   tnu1,
-			querySiteID:            cdb.GetStrPtr(site1.ID.String()),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			querySiteID:            cutil.GetPtr(site1.ID.String()),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			expectedTenantOrg:      cdb.GetStrPtr(tn1.Org),
+			expectedTenantOrg:      cutil.GetPtr(tn1.Org),
 		},
 		{
 			name:                   "success when site relation are specified",
 			reqOrgName:             tnOrg1,
 			user:                   tnu1,
-			querySiteID:            cdb.GetStrPtr(site1.ID.String()),
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.SiteRelationName),
+			querySiteID:            cutil.GetPtr(site1.ID.String()),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.SiteRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
@@ -626,7 +626,7 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success case when no objects returned",
 			reqOrgName:     tnOrg4,
 			user:           tnu4,
-			querySiteID:    cdb.GetStrPtr(site2.ID.String()),
+			querySiteID:    cutil.GetPtr(site2.ID.String()),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
@@ -635,24 +635,24 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:               "success when pagination params are specified",
 			reqOrgName:         tnOrg1,
 			user:               tnu1,
-			querySiteID:        cdb.GetStrPtr(site1.ID.String()),
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			querySiteID:        cutil.GetPtr(site1.ID.String()),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry: &ibps[29],
 		},
 		{
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -661,8 +661,8 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success when name query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			querySearch:    cdb.GetStrPtr("test"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -672,19 +672,19 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success when unexisted status query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			querySearch:    cdb.GetStrPtr("ready"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			querySearch:    cutil.GetPtr("ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when name and status query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			querySearch:    cdb.GetStrPtr("test ready"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			querySearch:    cutil.GetPtr("test ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -694,8 +694,8 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success when labels query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			querySearch:    cdb.GetStrPtr("test-ibp-labels-key"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			querySearch:    cutil.GetPtr("test-ibp-labels-key"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -705,8 +705,8 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success when InfiniBandPartitionStatusPending status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			queryStatus:    cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusPending),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			queryStatus:    cdb.GetTypedStrPtr(cdbm.InfiniBandPartitionStatusPending),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -716,12 +716,12 @@ func TestInfiniBandPartitionHandler_GetAll(t *testing.T) {
 			name:           "success when BadStatus status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu1,
-			querySiteID:    cdb.GetStrPtr(site1.ID.String()),
-			queryStatus:    cdb.GetStrPtr("BadRequest"),
+			querySiteID:    cutil.GetPtr(site1.ID.String()),
+			queryStatus:    cutil.GetPtr("BadRequest"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 	}
 	for _, tc := range tests {
@@ -895,7 +895,7 @@ func TestInfiniBandPartitionHandler_GetByID(t *testing.T) {
 			name:           "error when user not found in request context",
 			reqOrgName:     tnOrg2,
 			user:           nil,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -903,7 +903,7 @@ func TestInfiniBandPartitionHandler_GetByID(t *testing.T) {
 			name:           "error when user is not a member of org",
 			reqOrgName:     "SomeOrg",
 			user:           tnu1,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -911,7 +911,7 @@ func TestInfiniBandPartitionHandler_GetByID(t *testing.T) {
 			name:           "error when tenant doesnt exist for org",
 			reqOrgName:     tnOrg3,
 			user:           tnu3,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -919,7 +919,7 @@ func TestInfiniBandPartitionHandler_GetByID(t *testing.T) {
 			name:           "error when tenant is not admin for org",
 			reqOrgName:     tnOrg2,
 			user:           tnu2,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -966,7 +966,7 @@ func TestInfiniBandPartitionHandler_GetByID(t *testing.T) {
 			ibpID:                  ibp1.ID.String(),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.SiteRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.SiteRelationName),
 			expectedSite:           site1,
 		},
 	}
@@ -1141,29 +1141,29 @@ func TestInfiniBandPartitionHandle_Update(t *testing.T) {
 	assert.NotNil(t, ibp5)
 
 	// Populate request data
-	errBody1, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("a")})
+	errBody1, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("a")})
 	assert.NotNil(t, errBody1)
 
-	errNoAllocations, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ibp-no-allocations")})
+	errNoAllocations, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ibp-no-allocations")})
 	assert.NotNil(t, errNoAllocations)
 
-	errBodyNameClash, err := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ibp-3")})
+	errBodyNameClash, err := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ibp-3")})
 	assert.Nil(t, err)
 
 	// only name update
-	okNameUpdateBody1, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ipb-updated")})
+	okNameUpdateBody1, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ipb-updated")})
 	assert.NotNil(t, okNameUpdateBody1)
 
-	okNameUpdateBody1DifferentSite, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ibp-1")})
+	okNameUpdateBody1DifferentSite, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ibp-1")})
 	assert.NotNil(t, okNameUpdateBody1DifferentSite)
 
-	okNameUpdateBody2, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ipb-updated-new")})
+	okNameUpdateBody2, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ipb-updated-new")})
 	assert.NotNil(t, okNameUpdateBody2)
 
-	okNameUpdateBody3, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ipb-updated-1"), Description: db.GetStrPtr("testdescription")})
+	okNameUpdateBody3, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ipb-updated-1"), Description: cutil.GetPtr("testdescription")})
 	assert.NotNil(t, okNameUpdateBody3)
 
-	okNameUpdateBody5, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cdb.GetStrPtr("test-ibp-1")})
+	okNameUpdateBody5, _ := json.Marshal(model.APIInfiniBandPartitionUpdateRequest{Name: cutil.GetPtr("test-ibp-1")})
 	assert.NotNil(t, okNameUpdateBody5)
 
 	// OTEL Spanner configuration
@@ -1199,28 +1199,28 @@ func TestInfiniBandPartitionHandle_Update(t *testing.T) {
 			name:           "error when user not found in request context",
 			reqOrgName:     tnOrg2,
 			user:           nil,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedStatus: http.StatusInternalServerError,
 		},
 		{
 			name:           "error when user is not a member of org",
 			reqOrgName:     "SomeOrg",
 			user:           tnu1,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "error when tenant doesnt exist for org",
 			reqOrgName:     tnOrg3,
 			user:           tnu3,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "error when tenant is not admin for org",
 			reqOrgName:     tnOrg2,
 			user:           tnu2,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedStatus: http.StatusForbidden,
 		},
 		{
@@ -1269,7 +1269,7 @@ func TestInfiniBandPartitionHandle_Update(t *testing.T) {
 			ibpID:              ibp1.ID.String(),
 			expectedStatus:     http.StatusOK,
 			verifyChildSpanner: true,
-			expectedName:       cdb.GetStrPtr("test-ipb-updated"),
+			expectedName:       cutil.GetPtr("test-ipb-updated"),
 		},
 		{
 			name:               "success case when same name updated but exists on different site",
@@ -1279,7 +1279,7 @@ func TestInfiniBandPartitionHandle_Update(t *testing.T) {
 			ibpID:              ibp5.ID.String(),
 			expectedStatus:     http.StatusOK,
 			verifyChildSpanner: true,
-			expectedName:       cdb.GetStrPtr("test-ibp-1"),
+			expectedName:       cutil.GetPtr("test-ibp-1"),
 		},
 		{
 			name:               "success case when name and description updated",
@@ -1289,7 +1289,7 @@ func TestInfiniBandPartitionHandle_Update(t *testing.T) {
 			ibpID:              ibp2.ID.String(),
 			expectedStatus:     http.StatusOK,
 			verifyChildSpanner: true,
-			expectedName:       cdb.GetStrPtr("test-ipb-updated-1"),
+			expectedName:       cutil.GetPtr("test-ipb-updated-1"),
 		},
 	}
 	for _, tc := range tests {
@@ -1406,16 +1406,16 @@ func TestInfiniBandPartitionHandler_Delete(t *testing.T) {
 	istIBDel := testInstanceBuildInstanceType(t, dbSession, ip1, "test-inst-type-ibp-delete", site1, cdbm.InstanceStatusReady)
 	assert.NotNil(t, istIBDel)
 	_ = testInstanceSiteBuildAllocationContraints(t, dbSession, alIBDel, cdbm.AllocationResourceTypeInstanceType, istIBDel.ID, cdbm.AllocationConstraintTypeReserved, 5, ipuIBDel)
-	mcIBDel := testInstanceBuildMachine(t, dbSession, ip1.ID, site1.ID, cdb.GetBoolPtr(false), nil)
+	mcIBDel := testInstanceBuildMachine(t, dbSession, ip1.ID, site1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mcIBDel)
 	_ = testInstanceBuildMachineInstanceType(t, dbSession, mcIBDel, istIBDel)
 	osIBDel := testInstanceBuildOperatingSystem(t, dbSession, "test-os-ibp-delete", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, osIBDel)
-	vpcIBDel := testInstanceBuildVPC(t, dbSession, "test-vpc-ibp-delete", ip1, tn1, site1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpcIBDel := testInstanceBuildVPC(t, dbSession, "test-vpc-ibp-delete", ip1, tn1, site1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpcIBDel)
-	instIBDel := testInstanceBuildInstance(t, dbSession, "test-inst-ibp-delete", tn1.ID, ip1.ID, site1.ID, &istIBDel.ID, vpcIBDel.ID, cdb.GetStrPtr(mcIBDel.ID), &osIBDel.ID, nil, cdbm.InstanceStatusReady)
+	instIBDel := testInstanceBuildInstance(t, dbSession, "test-inst-ibp-delete", tn1.ID, ip1.ID, site1.ID, &istIBDel.ID, vpcIBDel.ID, cutil.GetPtr(mcIBDel.ID), &osIBDel.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, instIBDel)
-	_ = testInstanceBuildIBInterface(t, dbSession, instIBDel, site1, ibpBlocked, 0, false, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusReady), false)
+	_ = testInstanceBuildIBInterface(t, dbSession, instIBDel, site1, ibpBlocked, 0, false, cutil.GetPtr(1), cutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady), false)
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -1503,7 +1503,7 @@ func TestInfiniBandPartitionHandler_Delete(t *testing.T) {
 			name:           "error when user not found in request context",
 			reqOrgName:     tnOrg2,
 			user:           nil,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,
 		},
@@ -1517,7 +1517,7 @@ func TestInfiniBandPartitionHandler_Delete(t *testing.T) {
 			name:           "error when user is not a member of org",
 			reqOrgName:     "SomeOrg",
 			user:           tnu1,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},
@@ -1531,7 +1531,7 @@ func TestInfiniBandPartitionHandler_Delete(t *testing.T) {
 			name:           "error when tenant doesnt exist for org",
 			reqOrgName:     tnOrg3,
 			user:           tnu3,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -1545,7 +1545,7 @@ func TestInfiniBandPartitionHandler_Delete(t *testing.T) {
 			name:           "error when tenant is not admin for org",
 			reqOrgName:     tnOrg2,
 			user:           tnu2,
-			ibpID:          *cdb.GetStrPtr(ibp1.ID.String()),
+			ibpID:          *cutil.GetPtr(ibp1.ID.String()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
 		},

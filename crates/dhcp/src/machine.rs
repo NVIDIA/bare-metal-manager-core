@@ -247,7 +247,8 @@ pub extern "C" fn machine_get_next_server(ctx: *mut Machine) -> u32 {
 pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
 
-    let nameservers = CString::new(CONFIG.read().unwrap().nameservers.clone()).unwrap();
+    let nameservers =
+        CString::new(crate::format_ipv4_list(&CONFIG.read().unwrap().nameservers)).unwrap();
     log::debug!("Nameservers are {nameservers:?}");
 
     nameservers.into_raw()
@@ -257,7 +258,8 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
 pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
 
-    let ntpservers = CString::new(CONFIG.read().unwrap().ntpservers.clone()).unwrap();
+    let ntpservers =
+        CString::new(crate::format_ipv4_list(&CONFIG.read().unwrap().ntpservers)).unwrap();
     log::debug!("Ntp servers are {ntpservers:?}");
 
     ntpservers.into_raw()

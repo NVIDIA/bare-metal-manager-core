@@ -8,14 +8,221 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestInfiniBandPartition_ToProto(t *testing.T) {
+	id := uuid.New()
+	desc := "primary"
+
+	t.Run("populates id, config, and metadata", func(t *testing.T) {
+		ibp := &InfiniBandPartition{
+			ID:          id,
+			Name:        "ibp-a",
+			Org:         "org-1",
+			Description: &desc,
+			Labels:      map[string]string{"env": "prod"},
+		}
+		got := ibp.ToProto()
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "ibp-a", got.Config.Name)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Metadata)
+		assert.Equal(t, "ibp-a", got.Metadata.Name)
+		assert.Equal(t, "primary", got.Metadata.Description)
+		require.Len(t, got.Metadata.Labels, 1)
+		assert.Equal(t, "env", got.Metadata.Labels[0].Key)
+		require.NotNil(t, got.Metadata.Labels[0].Value)
+		assert.Equal(t, "prod", *got.Metadata.Labels[0].Value)
+	})
+
+	t.Run("nil description and labels yield zero-value metadata", func(t *testing.T) {
+		ibp := &InfiniBandPartition{ID: id, Org: "org-1", Name: "ibp-a"}
+		got := ibp.ToProto()
+		require.NotNil(t, got.Metadata)
+		assert.Equal(t, "", got.Metadata.Description)
+		assert.Nil(t, got.Metadata.Labels)
+	})
+}
+
+func TestInfiniBandPartition_FromProto(t *testing.T) {
+	id := uuid.New()
+
+	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
+		ibp := &InfiniBandPartition{ID: id, Name: "preserved", Org: "org-1"}
+		ibp.FromProto(nil)
+		assert.Equal(t, id, ibp.ID)
+		assert.Equal(t, "preserved", ibp.Name)
+		assert.Equal(t, "org-1", ibp.Org)
+	})
+
+	t.Run("invalid id leaves ibp.ID unchanged", func(t *testing.T) {
+		ibp := &InfiniBandPartition{ID: id}
+		ibp.FromProto(&cwssaws.IBPartition{
+			Id:     &cwssaws.IBPartitionId{Value: "not-a-uuid"},
+			Config: &cwssaws.IBPartitionConfig{Name: "ibp-a", TenantOrganizationId: "org-1"},
+		})
+		assert.Equal(t, id, ibp.ID)
+		assert.Equal(t, "ibp-a", ibp.Name)
+		assert.Equal(t, "org-1", ibp.Org)
+	})
+
+	t.Run("populates fields from proto", func(t *testing.T) {
+		ibp := &InfiniBandPartition{}
+		ibp.FromProto(&cwssaws.IBPartition{
+			Id:     &cwssaws.IBPartitionId{Value: id.String()},
+			Config: &cwssaws.IBPartitionConfig{Name: "ibp-a", TenantOrganizationId: "org-1"},
+			Metadata: &cwssaws.Metadata{
+				Name:        "ibp-a",
+				Description: "primary",
+				Labels: []*cwssaws.Label{
+					{Key: "env", Value: cutil.GetPtr("prod")},
+				},
+			},
+		})
+		assert.Equal(t, id, ibp.ID)
+		assert.Equal(t, "ibp-a", ibp.Name)
+		assert.Equal(t, "org-1", ibp.Org)
+		require.NotNil(t, ibp.Description)
+		assert.Equal(t, "primary", *ibp.Description)
+		assert.Equal(t, Labels{"env": "prod"}, ibp.Labels)
+	})
+
+	t.Run("missing optional fields are explicitly cleared", func(t *testing.T) {
+		stale := "stale"
+		ibp := &InfiniBandPartition{
+			ID:          id,
+			Description: &stale,
+			Labels:      map[string]string{"old": "val"},
+		}
+		ibp.FromProto(&cwssaws.IBPartition{
+			Id:     &cwssaws.IBPartitionId{Value: id.String()},
+			Config: &cwssaws.IBPartitionConfig{Name: "ibp-a", TenantOrganizationId: "org-1"},
+		})
+		assert.Nil(t, ibp.Description)
+		assert.Nil(t, ibp.Labels)
+	})
+
+	t.Run("prefers Metadata.Name over the Config.Name field", func(t *testing.T) {
+		ibp := &InfiniBandPartition{}
+		ibp.FromProto(&cwssaws.IBPartition{
+			Id:       &cwssaws.IBPartitionId{Value: id.String()},
+			Config:   &cwssaws.IBPartitionConfig{Name: "config-name", TenantOrganizationId: "org-1"},
+			Metadata: &cwssaws.Metadata{Name: "metadata-name"},
+		})
+		assert.Equal(t, "metadata-name", ibp.Name)
+	})
+
+	t.Run("falls back to Config.Name when Metadata.Name is empty", func(t *testing.T) {
+		ibp := &InfiniBandPartition{}
+		ibp.FromProto(&cwssaws.IBPartition{
+			Id:       &cwssaws.IBPartitionId{Value: id.String()},
+			Config:   &cwssaws.IBPartitionConfig{Name: "config-fallback", TenantOrganizationId: "org-1"},
+			Metadata: &cwssaws.Metadata{Name: ""},
+		})
+		assert.Equal(t, "config-fallback", ibp.Name)
+	})
+}
+
+func TestInfiniBandPartition_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	ibp := &InfiniBandPartition{ID: id}
+	req := ibp.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, id.String(), req.Id.Value)
+}
+
+func TestInfiniBandPartitionStatus_FromProto(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      cwssaws.TenantState
+		wantStatus InfiniBandPartitionStatus
+	}{
+		{name: "PROVISIONING maps to Provisioning", state: cwssaws.TenantState_PROVISIONING, wantStatus: InfiniBandPartitionStatusProvisioning},
+		{name: "CONFIGURING maps to Configuring", state: cwssaws.TenantState_CONFIGURING, wantStatus: InfiniBandPartitionStatusConfiguring},
+		{name: "READY maps to Ready", state: cwssaws.TenantState_READY, wantStatus: InfiniBandPartitionStatusReady},
+		{name: "FAILED maps to Error", state: cwssaws.TenantState_FAILED, wantStatus: InfiniBandPartitionStatusError},
+		{name: "unknown state yields empty", state: cwssaws.TenantState(9999), wantStatus: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got InfiniBandPartitionStatus
+			got.FromProto(tc.state)
+			assert.Equal(t, tc.wantStatus, got)
+		})
+	}
+}
+
+func TestInfiniBandPartitionStatus_Message(t *testing.T) {
+	t.Run("known statuses return non-empty messages", func(t *testing.T) {
+		for _, s := range []InfiniBandPartitionStatus{
+			InfiniBandPartitionStatusProvisioning,
+			InfiniBandPartitionStatusConfiguring,
+			InfiniBandPartitionStatusReady,
+			InfiniBandPartitionStatusError,
+		} {
+			assert.NotEmpty(t, s.Message(), "expected non-empty message for %q", s)
+		}
+	})
+	t.Run("unknown status returns empty", func(t *testing.T) {
+		assert.Empty(t, InfiniBandPartitionStatus("").Message())
+		assert.Empty(t, InfiniBandPartitionStatus("Mystery").Message())
+	})
+}
+
+func TestInfiniBandPartition_Validate(t *testing.T) {
+	valid := &InfiniBandPartition{
+		Name:   "test-ibp",
+		Status: InfiniBandPartitionStatusReady,
+	}
+
+	t.Run("populated partition is valid", func(t *testing.T) {
+		assert.NoError(t, valid.Validate())
+	})
+	t.Run("empty Status errors", func(t *testing.T) {
+		ibp := *valid
+		ibp.Status = ""
+		assert.Error(t, ibp.Validate())
+	})
+	t.Run("invalid Status errors", func(t *testing.T) {
+		ibp := *valid
+		ibp.Status = "Bogus"
+		assert.Error(t, ibp.Validate())
+	})
+	t.Run("empty Name errors", func(t *testing.T) {
+		ibp := *valid
+		ibp.Name = ""
+		assert.Error(t, ibp.Validate())
+	})
+	t.Run("Name with leading whitespace errors", func(t *testing.T) {
+		ibp := *valid
+		ibp.Name = " test-ibp"
+		assert.Error(t, ibp.Validate())
+	})
+	t.Run("Name with trailing whitespace errors", func(t *testing.T) {
+		ibp := *valid
+		ibp.Name = "test-ibp "
+		assert.Error(t, ibp.Validate())
+	})
+	t.Run("single-character Name errors (too short)", func(t *testing.T) {
+		ibp := *valid
+		ibp.Name = "x"
+		assert.Error(t, ibp.Validate())
+	})
+}
 
 func testInfiniBandPartitionSetupSchema(t *testing.T, dbSession *db.Session) {
 	// Create tables
@@ -49,15 +256,15 @@ func TestInfiniBandPartitionSQLDAO_GetByID(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	ibpr := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -154,14 +361,14 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("janed@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("janed@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant-1", "test-tenant-org-1", tnu1.ID)
 
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jimd@test.com"), db.GetStrPtr("Jim"), db.GetStrPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jimd@test.com"), cutil.GetPtr("Jim"), cutil.GetPtr("Doe"))
 	tn2 := testBuildTenant(t, dbSession, nil, "test-tenant-2", "test-tenant-org-2", tnu2.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -184,9 +391,9 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			pt = testBuildInfiniBandPartition(t, dbSession, nil, fmt.Sprintf("test-InfiniBandPartition-batch-v1-%v", i), db.GetStrPtr(fmt.Sprintf("test-InfiniBandPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, map[string]string{fmt.Sprintf("test-InfiniBandPartition-batch-key1-%v", i): fmt.Sprintf("test-InfiniBandPartition-batch-value1-%v", i)}, db.GetStrPtr(InfiniBandPartitionStatusReady), tn.CreatedBy)
+			pt = testBuildInfiniBandPartition(t, dbSession, nil, fmt.Sprintf("test-InfiniBandPartition-batch-v1-%v", i), cutil.GetPtr(fmt.Sprintf("test-InfiniBandPartition-desc-batch-1-%v", i)), tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, map[string]string{fmt.Sprintf("test-InfiniBandPartition-batch-key1-%v", i): fmt.Sprintf("test-InfiniBandPartition-batch-value1-%v", i)}, cutil.GetPtr(InfiniBandPartitionStatusReady), tn.CreatedBy)
 		} else {
-			pt = testBuildInfiniBandPartition(t, dbSession, nil, fmt.Sprintf("test-InfiniBandPartition-batch-v2-%v", i), db.GetStrPtr(fmt.Sprintf("test-InfiniBandPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, map[string]string{fmt.Sprintf("test-InfiniBandPartition-batch-key2-%v", i): fmt.Sprintf("test-InfiniBandPartition-batch-value2-%v", i)}, db.GetStrPtr(InfiniBandPartitionStatusDeleting), tn.CreatedBy)
+			pt = testBuildInfiniBandPartition(t, dbSession, nil, fmt.Sprintf("test-InfiniBandPartition-batch-v2-%v", i), cutil.GetPtr(fmt.Sprintf("test-InfiniBandPartition-desc-batch-2-%v", i)), tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, map[string]string{fmt.Sprintf("test-InfiniBandPartition-batch-key2-%v", i): fmt.Sprintf("test-InfiniBandPartition-batch-value2-%v", i)}, cutil.GetPtr(InfiniBandPartitionStatusDeleting), tn.CreatedBy)
 		}
 
 		InfiniBandPartitions = append(InfiniBandPartitions, *pt)
@@ -305,7 +512,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs: nil,
 				siteIDs:   []uuid.UUID{st.ID},
 				orgs:      nil,
-				limit:     db.GetIntPtr(10),
+				limit:     cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount,
@@ -321,7 +528,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs: []uuid.UUID{tn1.ID},
 				siteIDs:   nil,
 				orgs:      nil,
-				offset:    db.GetIntPtr(5),
+				offset:    cutil.GetPtr(5),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount / 2,
@@ -385,7 +592,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-InfiniBandPartition-batch-v1-"),
+				searchQuery: cutil.GetPtr("test-InfiniBandPartition-batch-v1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -401,7 +608,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-InfiniBandPartition-desc-batch-1-"),
+				searchQuery: cutil.GetPtr("test-InfiniBandPartition-desc-batch-1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -418,7 +625,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(InfiniBandPartitionStatusReady),
+				searchQuery: db.GetTypedStrPtr(InfiniBandPartitionStatusReady),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -434,7 +641,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(InfiniBandPartitionStatusDeleting),
+				searchQuery: db.GetTypedStrPtr(InfiniBandPartitionStatusDeleting),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -450,7 +657,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-InfiniBandPartition-batch-v1- | ready"),
+				searchQuery: cutil.GetPtr("test-InfiniBandPartition-batch-v1- | ready"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -466,7 +673,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-InfiniBandPartition-desc-batch-1- error"),
+				searchQuery: cutil.GetPtr("test-InfiniBandPartition-desc-batch-1- error"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -482,7 +689,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr("test-InfiniBandPartition-desc-batch-3- error"),
+				searchQuery: cutil.GetPtr("test-InfiniBandPartition-desc-batch-3- error"),
 			},
 			wantCount:      0,
 			wantTotalCount: 0,
@@ -498,7 +705,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(""),
+				searchQuery: cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -514,7 +721,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs:   nil,
 				siteIDs:     nil,
 				orgs:        nil,
-				searchQuery: db.GetStrPtr(""),
+				searchQuery: cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -530,7 +737,7 @@ func TestInfiniBandPartition_GetAll(t *testing.T) {
 				tenantIDs: nil,
 				siteIDs:   nil,
 				orgs:      nil,
-				statuses:  []string{InfiniBandPartitionStatusDeleting},
+				statuses:  []string{string(InfiniBandPartitionStatusDeleting)},
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -601,7 +808,7 @@ func TestInfiniBandPartitionSQLDAO_Create(t *testing.T) {
 		tenantID                          uuid.UUID
 		ControllerIBInfiniBandPartitionID *uuid.UUID
 		Labels                            map[string]string
-		status                            string
+		status                            InfiniBandPartitionStatus
 		createdBy                         User
 	}
 
@@ -613,21 +820,21 @@ func TestInfiniBandPartitionSQLDAO_Create(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	ibpr := &InfiniBandPartition{
 		Name:                    "test-InfiniBandPartition",
-		Description:             db.GetStrPtr("Test InfiniBandPartition"),
+		Description:             cutil.GetPtr("Test InfiniBandPartition"),
 		Org:                     tn.Org,
 		SiteID:                  st.ID,
 		TenantID:                tn.ID,
-		ControllerIBPartitionID: db.GetUUIDPtr(uuid.New()),
+		ControllerIBPartitionID: cutil.GetPtr(uuid.New()),
 		Labels: map[string]string{
 			"ibp1": "us-east-1",
 			"ibp2": "us-east-2",
@@ -668,6 +875,25 @@ func TestInfiniBandPartitionSQLDAO_Create(t *testing.T) {
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
+		{
+			name: "create with invalid status returns error",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			args: args{
+				ctx:                               ctx,
+				name:                              "invalid-status-ibp",
+				description:                       ibpr.Description,
+				org:                               ibpr.Org,
+				tenantID:                          ibpr.TenantID,
+				siteID:                            ibpr.SiteID,
+				ControllerIBInfiniBandPartitionID: ibpr.ControllerIBPartitionID,
+				Labels:                            ibpr.Labels,
+				status:                            InfiniBandPartitionStatus("Bogus"),
+				createdBy:                         User{ID: ibpr.CreatedBy},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -690,6 +916,9 @@ func TestInfiniBandPartitionSQLDAO_Create(t *testing.T) {
 				},
 			)
 			require.Equal(t, tt.wantErr, err != nil)
+			if tt.wantErr {
+				return
+			}
 
 			assert.Equal(t, tt.want.Name, got.Name)
 			assert.Equal(t, *tt.want.Description, *got.Description)
@@ -720,20 +949,20 @@ func TestInfiniBandPartitionSQLDAO_Update(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	uInfiniBandPartition := &InfiniBandPartition{
 		Name:                    "test-updated",
-		Description:             db.GetStrPtr("Test Updated"),
-		ControllerIBPartitionID: db.GetUUIDPtr(uuid.New()),
+		Description:             cutil.GetPtr("Test Updated"),
+		ControllerIBPartitionID: cutil.GetPtr(uuid.New()),
 		Labels: map[string]string{
 			"ibp1": "us-east-1",
 			"ibp2": "us-east-2",
@@ -755,7 +984,7 @@ func TestInfiniBandPartitionSQLDAO_Update(t *testing.T) {
 		description             *string
 		ControllerIBPartitionID *uuid.UUID
 		Labels                  map[string]string
-		Status                  string
+		Status                  InfiniBandPartitionStatus
 		IsMissingOnSite         bool
 	}
 	tests := []struct {
@@ -785,6 +1014,23 @@ func TestInfiniBandPartitionSQLDAO_Update(t *testing.T) {
 			wantErr:            false,
 			verifyChildSpanner: true,
 		},
+		{
+			name: "update with invalid status returns error",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			args: args{
+				ctx:                     ctx,
+				id:                      pt.ID,
+				name:                    &uInfiniBandPartition.Name,
+				description:             uInfiniBandPartition.Description,
+				ControllerIBPartitionID: uInfiniBandPartition.ControllerIBPartitionID,
+				Labels:                  uInfiniBandPartition.Labels,
+				Status:                  InfiniBandPartitionStatus("Bogus"),
+				IsMissingOnSite:         uInfiniBandPartition.IsMissingOnSite,
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -805,9 +1051,12 @@ func TestInfiniBandPartitionSQLDAO_Update(t *testing.T) {
 				},
 			)
 
-			fmt.Printf("\ngot ID: %v, Created: %v, Updated: %v", got.ID.String(), got.Created, got.Updated)
-
 			require.Equal(t, tt.wantErr, err != nil)
+			if tt.wantErr {
+				return
+			}
+
+			fmt.Printf("\ngot ID: %v, Created: %v, Updated: %v", got.ID.String(), got.Created, got.Updated)
 
 			assert.Equal(t, tt.want.Name, got.Name)
 			assert.Equal(t, *tt.want.Description, *got.Description)
@@ -844,15 +1093,15 @@ func TestInfiniBandPartitionSQLDAO_Delete(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -910,15 +1159,15 @@ func TestInfiniBandPartitionSQLDAO_Clear(t *testing.T) {
 	testInfiniBandPartitionSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, db.GetUUIDPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, db.GetStrPtr(InfiniBandPartitionStatusReady), tnu.ID)
+	pt := testBuildInfiniBandPartition(t, dbSession, nil, "test-InfiniBandPartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(uuid.New()), nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(InfiniBandPartitionStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())

@@ -7,9 +7,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +76,42 @@ func testInterfaceSetupSchema(t *testing.T, dbSession *db.Session) {
 	assert.Nil(t, err)
 }
 
+func TestInterfaceInlineRoutingProfile_ToProtoFromProto(t *testing.T) {
+	var nilProfile *InterfaceInlineRoutingProfile
+	assert.Nil(t, nilProfile.ToProto())
+
+	emptyProfile := &InterfaceInlineRoutingProfile{}
+	emptyProto := emptyProfile.ToProto()
+	require.NotNil(t, emptyProto)
+	assert.NotNil(t, emptyProto.AllowedAnycastPrefixes)
+	assert.Empty(t, emptyProto.AllowedAnycastPrefixes)
+
+	profile := &InterfaceInlineRoutingProfile{
+		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+	}
+	protoProfile := profile.ToProto()
+	require.NotNil(t, protoProfile)
+	require.Len(t, protoProfile.AllowedAnycastPrefixes, 2)
+	assert.Equal(t, "192.0.2.0/24", protoProfile.AllowedAnycastPrefixes[0].Prefix)
+	assert.Equal(t, "2001:db8::/64", protoProfile.AllowedAnycastPrefixes[1].Prefix)
+
+	var roundTrip InterfaceInlineRoutingProfile
+	roundTrip.FromProto(protoProfile)
+	assert.Equal(t, profile.AllowedAnycastPrefixes, roundTrip.AllowedAnycastPrefixes)
+
+	roundTrip.FromProto(nil)
+	assert.Nil(t, roundTrip.AllowedAnycastPrefixes)
+
+	var fromProto InterfaceInlineRoutingProfile
+	fromProto.FromProto(&cwssaws.InstanceInterfaceRoutingProfile{
+		AllowedAnycastPrefixes: []*cwssaws.PrefixFilterPolicyEntry{
+			{Prefix: "198.51.100.0/24"},
+			{Prefix: "2001:db8:1::/64"},
+		},
+	})
+	assert.Equal(t, []string{"198.51.100.0/24", "2001:db8:1::/64"}, fromProto.AllowedAnycastPrefixes)
+}
+
 func TestInterfaceSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
@@ -84,7 +122,7 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -101,11 +139,11 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -114,8 +152,8 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 	domain := testSubnetBuildDomain(t, dbSession, "testDomain")
-	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", db.GetUUIDPtr(user.ID))
-	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", db.GetUUIDPtr(user.ID))
+	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", cutil.GetPtr(user.ID))
+	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", cutil.GetPtr(user.ID))
 
 	ssd := NewSubnetDAO(dbSession)
 	ipv4Prefix := "192.0.2.0/24"
@@ -124,7 +162,7 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -179,7 +217,7 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 					ID:                 uuid.New(),
 					InstanceID:         i1.ID,
 					SubnetID:           &subnet.ID,
-					RequestedIpAddress: db.GetStrPtr("192.0.2.10"),
+					RequestedIpAddress: cutil.GetPtr("192.0.2.10"),
 					IsPhysical:         true,
 					Status:             InterfaceStatusPending,
 					CreatedBy:          user.ID,
@@ -195,10 +233,13 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 					ID:                 uuid.New(),
 					InstanceID:         i1.ID,
 					VpcPrefixID:        &vpcPrefix.ID,
-					RequestedIpAddress: db.GetStrPtr("192.0.2.11"),
-					IsPhysical:         false,
-					Status:             InterfaceStatusPending,
-					CreatedBy:          user.ID,
+					RequestedIpAddress: cutil.GetPtr("192.0.2.11"),
+					InlineRoutingProfile: &InterfaceInlineRoutingProfile{
+						AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+					},
+					IsPhysical: false,
+					Status:     InterfaceStatusPending,
+					CreatedBy:  user.ID,
 				},
 			},
 			expectError:        false,
@@ -212,8 +253,8 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 					InstanceID:     i1.ID,
 					VpcPrefixID:    &vpcPrefix.ID,
 					IsPhysical:     true,
-					Device:         db.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
-					DeviceInstance: db.GetIntPtr(0),
+					Device:         cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+					DeviceInstance: cutil.GetPtr(0),
 					Status:         InterfaceStatusPending,
 					CreatedBy:      user.ID,
 				},
@@ -229,7 +270,7 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 					InstanceID:        i1.ID,
 					VpcPrefixID:       &vpcPrefix.ID,
 					IsPhysical:        false,
-					VirtualFunctionID: db.GetIntPtr(1),
+					VirtualFunctionID: cutil.GetPtr(1),
 					Status:            InterfaceStatusPending,
 					CreatedBy:         user.ID,
 				},
@@ -257,7 +298,7 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 				{
 					ID:         uuid.New(),
 					InstanceID: i1.ID,
-					SubnetID:   db.GetUUIDPtr(uuid.New()),
+					SubnetID:   cutil.GetPtr(uuid.New()),
 					IsPhysical: true,
 					Status:     InterfaceStatusPending,
 					CreatedBy:  user.ID,
@@ -271,16 +312,17 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 			for _, i := range tc.iss {
 
 				input := InterfaceCreateInput{
-					InstanceID:         i.InstanceID,
-					SubnetID:           i.SubnetID,
-					VpcPrefixID:        i.VpcPrefixID,
-					Device:             i.Device,
-					DeviceInstance:     i.DeviceInstance,
-					IsPhysical:         i.IsPhysical,
-					VirtualFunctionID:  i.VirtualFunctionID,
-					RequestedIpAddress: i.RequestedIpAddress,
-					Status:             i.Status,
-					CreatedBy:          i.CreatedBy,
+					InstanceID:           i.InstanceID,
+					SubnetID:             i.SubnetID,
+					VpcPrefixID:          i.VpcPrefixID,
+					Device:               i.Device,
+					DeviceInstance:       i.DeviceInstance,
+					IsPhysical:           i.IsPhysical,
+					VirtualFunctionID:    i.VirtualFunctionID,
+					RequestedIpAddress:   i.RequestedIpAddress,
+					InlineRoutingProfile: i.InlineRoutingProfile,
+					Status:               i.Status,
+					CreatedBy:            i.CreatedBy,
 				}
 
 				got, err := ifcd.Create(ctx, nil, input)
@@ -304,6 +346,8 @@ func TestInterfaceSQLDAO_Create(t *testing.T) {
 					}
 					assert.Equal(t, i.RequestedIpAddress, got.RequestedIpAddress)
 					assert.Equal(t, i.RequestedIpAddress, persisted.RequestedIpAddress)
+					assert.Equal(t, i.InlineRoutingProfile, got.InlineRoutingProfile)
+					assert.Equal(t, i.InlineRoutingProfile, persisted.InlineRoutingProfile)
 				}
 			}
 
@@ -327,7 +371,7 @@ func TestInterfaceSQLDAO_GetByID(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -344,11 +388,11 @@ func TestInterfaceSQLDAO_GetByID(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -367,7 +411,7 @@ func TestInterfaceSQLDAO_GetByID(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -423,8 +467,8 @@ func TestInterfaceSQLDAO_GetByID(t *testing.T) {
 	input2 := InterfaceCreateInput{
 		InstanceID:     i1.ID,
 		VpcPrefixID:    &vpcPrefix.ID,
-		Device:         db.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
-		DeviceInstance: db.GetIntPtr(0),
+		Device:         cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+		DeviceInstance: cutil.GetPtr(0),
 		IsPhysical:     true,
 		Status:         InterfaceStatusPending,
 		CreatedBy:      user.ID,
@@ -533,7 +577,7 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -554,11 +598,11 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
 				Status:                   InstanceStatusPending,
 				CreatedBy:                user.ID,
@@ -568,8 +612,8 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 		instances = append(instances, *instance)
 	}
 	domain := testSubnetBuildDomain(t, dbSession, "testDomain")
-	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", db.GetUUIDPtr(user.ID))
-	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", db.GetUUIDPtr(user.ID))
+	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", cutil.GetPtr(user.ID))
+	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", cutil.GetPtr(user.ID))
 
 	ssd := NewSubnetDAO(dbSession)
 	ipv4Prefix := "192.0.2.0/24"
@@ -578,7 +622,7 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet1, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -600,7 +644,7 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 	assert.NotNil(t, subnet1)
 	subnet2, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test2",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -667,8 +711,8 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 
 		// Create one with device and device instance
 		// Only the first one is physical
-		device := db.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller")
-		deviceInstance := db.GetIntPtr(i)
+		device := cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller")
+		deviceInstance := cutil.GetPtr(i)
 		IsPhysical := false
 		if i == 0 {
 			IsPhysical = true
@@ -759,50 +803,50 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with Device filter returns objects",
-			Device:        db.GetStrPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+			Device:        cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 			expectedCount: totalCount / 2,
 			expectedError: false,
 		},
 		{
 			desc:           "GetAll with DeviceInstance filter returns objects",
-			DeviceInstance: db.GetIntPtr(0),
+			DeviceInstance: cutil.GetPtr(0),
 			expectedCount:  1,
 			expectedError:  false,
 		},
 		{
 			desc:          "GetAll with IsPhysical filter returns objects",
-			IsPhysical:    db.GetBoolPtr(true),
+			IsPhysical:    cutil.GetPtr(true),
 			expectedCount: totalCount/2 + 1,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with no filters returns objects",
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount*2 + 3), // +3 for IP address test interfaces
+			expectedTotal: cutil.GetPtr(totalCount*2 + 3), // +3 for IP address test interfaces
 			expectedError: false,
 		},
 		{
 			desc:           "GetAll with relation returns objects",
 			expectedCount:  paginator.DefaultLimit,
-			expectedTotal:  db.GetIntPtr(totalCount*2 + 3), // +3 for IP address test interfaces
+			expectedTotal:  cutil.GetPtr(totalCount*2 + 3), // +3 for IP address test interfaces
 			expectedError:  false,
 			paramRelations: []string{InstanceRelationName, SubnetRelationName, MachineInterfaceRelationName, VpcPrefixRelationName},
 		},
 		{
 			desc:          "GetAll with limit returns objects",
 			SubnetID:      &subnet1.ID,
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount/2 + 2), // +2 for IP address test interfaces
+			expectedTotal: cutil.GetPtr(totalCount/2 + 2), // +2 for IP address test interfaces
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with offset returns objects",
 			SubnetID:      &subnet2.ID,
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 11,                             // totalCount/2 + 1 - 5 offset = 11
-			expectedTotal: db.GetIntPtr(totalCount/2 + 1), // +1 for IP address test interface
+			expectedTotal: cutil.GetPtr(totalCount/2 + 1), // +1 for IP address test interface
 			expectedError: false,
 		},
 		{
@@ -814,22 +858,22 @@ func TestInterfaceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instance1Subnets[0],
 			expectedCount: totalCount/2 + 2, // +2 for IP address test interfaces
-			expectedTotal: db.GetIntPtr(totalCount/2 + 2),
+			expectedTotal: cutil.GetPtr(totalCount/2 + 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with InterfaceStatusPending status returns objects",
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount*2 + 3), // +3 for IP address test interfaces
+			expectedTotal: cutil.GetPtr(totalCount*2 + 3), // +3 for IP address test interfaces
 			expectedError: false,
-			status:        db.GetStrPtr(InterfaceStatusPending),
+			status:        cutil.GetPtr(InterfaceStatusPending),
 		},
 		{
 			desc:          "GetAll with InterfaceStatusError status returns no objects",
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
-			status:        db.GetStrPtr(InterfaceStatusError),
+			status:        cutil.GetPtr(InterfaceStatusError),
 		},
 		{
 			desc:          "GetAll with single IPAddress filter returns matching interfaces",
@@ -924,7 +968,7 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -941,11 +985,11 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -954,8 +998,8 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 	assert.Nil(t, err)
 
 	domain := testSubnetBuildDomain(t, dbSession, "testDomain")
-	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", db.GetUUIDPtr(user.ID))
-	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", db.GetUUIDPtr(user.ID))
+	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", cutil.GetPtr(user.ID))
+	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", cutil.GetPtr(user.ID))
 	dummyUUID := uuid.New()
 
 	ssd := NewSubnetDAO(dbSession)
@@ -965,7 +1009,7 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -986,14 +1030,18 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 	assert.Nil(t, err)
 
 	ifcd := NewInterfaceDAO(dbSession)
-	requestedIpAddress := db.GetStrPtr("192.0.2.11")
+	requestedIpAddress := cutil.GetPtr("192.0.2.11")
+	routingProfile := &InterfaceInlineRoutingProfile{
+		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+	}
 	ifc, err := ifcd.Create(ctx, nil, InterfaceCreateInput{
-		InstanceID:         instance.ID,
-		SubnetID:           &subnet.ID,
-		IsPhysical:         true,
-		RequestedIpAddress: requestedIpAddress,
-		Status:             InterfaceStatusPending,
-		CreatedBy:          user.ID,
+		InstanceID:           instance.ID,
+		SubnetID:             &subnet.ID,
+		IsPhysical:           true,
+		RequestedIpAddress:   requestedIpAddress,
+		InlineRoutingProfile: routingProfile,
+		Status:               InterfaceStatusPending,
+		CreatedBy:            user.ID,
 	})
 	assert.Nil(t, err)
 	assert.NotNil(t, ifc)
@@ -1010,6 +1058,7 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 		input              InterfaceClearInput
 		expectError        bool
 		expectRequestedIP  *string
+		expectRouting      *InterfaceInlineRoutingProfile
 		verifyChildSpanner bool
 	}{
 		{
@@ -1018,6 +1067,16 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 			input:              InterfaceClearInput{InterfaceID: ifc.ID, RequestedIpAddress: true},
 			expectError:        true,
 			expectRequestedIP:  requestedIpAddress,
+			expectRouting:      routingProfile,
+			verifyChildSpanner: true,
+		},
+		{
+			desc:               "can clear routing profile",
+			dao:                ifcd,
+			input:              InterfaceClearInput{InterfaceID: ifc.ID, InlineRoutingProfile: true},
+			expectError:        false,
+			expectRequestedIP:  requestedIpAddress,
+			expectRouting:      nil,
 			verifyChildSpanner: true,
 		},
 		{
@@ -1026,6 +1085,7 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 			input:              InterfaceClearInput{InterfaceID: ifc.ID, RequestedIpAddress: true},
 			expectError:        false,
 			expectRequestedIP:  nil,
+			expectRouting:      nil,
 			verifyChildSpanner: true,
 		},
 	}
@@ -1040,6 +1100,7 @@ func TestInterfaceSQLDAO_Clear(t *testing.T) {
 			}
 
 			assert.Equal(t, tc.expectRequestedIP, got.RequestedIpAddress)
+			assert.Equal(t, tc.expectRouting, got.InlineRoutingProfile)
 
 			if tc.verifyChildSpanner {
 				span := otrace.SpanFromContext(ctx)
@@ -1061,7 +1122,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1078,11 +1139,11 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1101,11 +1162,11 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1114,8 +1175,8 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i2)
 	domain := testSubnetBuildDomain(t, dbSession, "testDomain")
-	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", db.GetUUIDPtr(user.ID))
-	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", db.GetUUIDPtr(user.ID))
+	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", cutil.GetPtr(user.ID))
+	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", cutil.GetPtr(user.ID))
 
 	ssd := NewSubnetDAO(dbSession)
 	ipv4Prefix := "192.0.2.0/24"
@@ -1124,7 +1185,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet1, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test1",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -1146,7 +1207,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	assert.NotNil(t, subnet1)
 	subnet2, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test2",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -1216,6 +1277,9 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	vfID := 10
 	macAddress := "21-41-A7-A6-40-76"
 	ipAddresses := []string{"192.0.2.3", "2001:db8:abcd:0018"}
+	routingProfile := &InterfaceInlineRoutingProfile{
+		AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+	}
 
 	input2 := InterfaceCreateInput{
 		InstanceID:  i1.ID,
@@ -1228,6 +1292,10 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 	ifc1, err := ifcd.Create(ctx, nil, input2)
 	assert.Nil(t, err)
 	assert.NotNil(t, ifc1)
+
+	ifcRouting, err := ifcd.Create(ctx, nil, input2)
+	assert.Nil(t, err)
+	assert.NotNil(t, ifcRouting)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -1242,6 +1310,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 		paramDeviceInstance     *int
 		paramVirtualFunctionID  *int
 		paramRequestedIpAddress *string
+		paramRoutingProfile     *InterfaceInlineRoutingProfile
 		paramMacAddress         *string
 		paramIPAddresses        []string
 		paramStatus             *string
@@ -1253,6 +1322,7 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 		expectedDeviceInstance     *int
 		expectedVirtualFunctionID  *int
 		expectedRequestedIpAddress *string
+		expectedRoutingProfile     *InterfaceInlineRoutingProfile
 		expectedMacAddress         *string
 		expectedIPAddresses        []string
 		expectedStatus             *string
@@ -1266,40 +1336,42 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 			paramInstanceID:         &i2.ID,
 			paramSubnetID:           &subnet2.ID,
 			paramVirtualFunctionID:  &vfID,
-			paramRequestedIpAddress: db.GetStrPtr("192.0.2.21"),
+			paramRequestedIpAddress: cutil.GetPtr("192.0.2.21"),
 			paramMacAddress:         &macAddress,
 			paramIPAddresses:        ipAddresses,
-			paramStatus:             db.GetStrPtr(InterfaceStatusReady),
+			paramStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectedInstanceID:         &i2.ID,
 			expectedSubnetID:           &subnet2.ID,
 			expectedVirtualFunctionID:  &vfID,
-			expectedRequestedIpAddress: db.GetStrPtr("192.0.2.21"),
+			expectedRequestedIpAddress: cutil.GetPtr("192.0.2.21"),
 			expectedMacAddress:         &macAddress,
 			expectedIPAddresses:        ipAddresses,
-			expectedStatus:             db.GetStrPtr(InterfaceStatusReady),
+			expectedStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectError:        false,
 			verifyChildSpanner: true,
 		},
 		{
 			desc:                    "success wth vpcprefix fields updated",
-			id:                      ifc1.ID,
+			id:                      ifcRouting.ID,
 			paramInstanceID:         &i2.ID,
 			paramVpcPrefixID:        &vpcPrefix2.ID,
 			paramVirtualFunctionID:  &vfID,
-			paramRequestedIpAddress: db.GetStrPtr("192.0.2.31"),
+			paramRequestedIpAddress: cutil.GetPtr("192.0.2.31"),
+			paramRoutingProfile:     routingProfile,
 			paramMacAddress:         &macAddress,
 			paramIPAddresses:        ipAddresses,
-			paramStatus:             db.GetStrPtr(InterfaceStatusReady),
+			paramStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectedInstanceID:         &i2.ID,
 			expectedVpcPrefixID:        &vpcPrefix2.ID,
 			expectedVirtualFunctionID:  &vfID,
-			expectedRequestedIpAddress: db.GetStrPtr("192.0.2.31"),
+			expectedRequestedIpAddress: cutil.GetPtr("192.0.2.31"),
+			expectedRoutingProfile:     routingProfile,
 			expectedMacAddress:         &macAddress,
 			expectedIPAddresses:        ipAddresses,
-			expectedStatus:             db.GetStrPtr(InterfaceStatusReady),
+			expectedStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -1308,22 +1380,22 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 			desc:                    "success wth device fields updated",
 			paramInstanceID:         &i2.ID,
 			id:                      ifc1.ID,
-			paramDevice:             db.GetStrPtr("MT43344 BlueField-3 integrated ConnectX-7 network controller"),
-			paramDeviceInstance:     db.GetIntPtr(1),
+			paramDevice:             cutil.GetPtr("MT43344 BlueField-3 integrated ConnectX-7 network controller"),
+			paramDeviceInstance:     cutil.GetPtr(1),
 			paramVirtualFunctionID:  &vfID,
-			paramRequestedIpAddress: db.GetStrPtr("192.0.2.41"),
+			paramRequestedIpAddress: cutil.GetPtr("192.0.2.41"),
 			paramMacAddress:         &macAddress,
 			paramIPAddresses:        ipAddresses,
-			paramStatus:             db.GetStrPtr(InterfaceStatusReady),
+			paramStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectedInstanceID:         &i2.ID,
-			expectedDevice:             db.GetStrPtr("MT43344 BlueField-3 integrated ConnectX-7 network controller"),
-			expectedDeviceInstance:     db.GetIntPtr(1),
+			expectedDevice:             cutil.GetPtr("MT43344 BlueField-3 integrated ConnectX-7 network controller"),
+			expectedDeviceInstance:     cutil.GetPtr(1),
 			expectedVirtualFunctionID:  &vfID,
-			expectedRequestedIpAddress: db.GetStrPtr("192.0.2.41"),
+			expectedRequestedIpAddress: cutil.GetPtr("192.0.2.41"),
 			expectedMacAddress:         &macAddress,
 			expectedIPAddresses:        ipAddresses,
-			expectedStatus:             db.GetStrPtr(InterfaceStatusReady),
+			expectedStatus:             cutil.GetPtr(InterfaceStatusReady),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -1331,24 +1403,25 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 		{
 			desc:        "failed when id not found",
 			id:          uuid.New(),
-			paramStatus: db.GetStrPtr(InterfaceStatusProvisioning),
+			paramStatus: cutil.GetPtr(InterfaceStatusProvisioning),
 			expectError: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			input := InterfaceUpdateInput{
-				InterfaceID:        tc.id,
-				InstanceID:         tc.paramInstanceID,
-				SubnetID:           tc.paramSubnetID,
-				VpcPrefixID:        tc.paramVpcPrefixID,
-				Device:             tc.paramDevice,
-				DeviceInstance:     tc.paramDeviceInstance,
-				VirtualFunctionID:  tc.paramVirtualFunctionID,
-				RequestedIpAddress: tc.paramRequestedIpAddress,
-				MacAddress:         tc.paramMacAddress,
-				IpAddresses:        tc.paramIPAddresses,
-				Status:             tc.paramStatus,
+				InterfaceID:          tc.id,
+				InstanceID:           tc.paramInstanceID,
+				SubnetID:             tc.paramSubnetID,
+				VpcPrefixID:          tc.paramVpcPrefixID,
+				Device:               tc.paramDevice,
+				DeviceInstance:       tc.paramDeviceInstance,
+				VirtualFunctionID:    tc.paramVirtualFunctionID,
+				RequestedIpAddress:   tc.paramRequestedIpAddress,
+				InlineRoutingProfile: tc.paramRoutingProfile,
+				MacAddress:           tc.paramMacAddress,
+				IpAddresses:          tc.paramIPAddresses,
+				Status:               tc.paramStatus,
 			}
 			got, err := ifcd.Update(ctx, nil, input)
 			assert.Equal(t, tc.expectError, err != nil)
@@ -1365,9 +1438,14 @@ func TestInterfaceSQLDAO_Update(t *testing.T) {
 				}
 				assert.Equal(t, *tc.expectedVirtualFunctionID, *got.VirtualFunctionID)
 				assert.Equal(t, tc.expectedRequestedIpAddress, got.RequestedIpAddress)
+				assert.Equal(t, tc.expectedRoutingProfile, got.InlineRoutingProfile)
 				assert.Equal(t, *tc.expectedMacAddress, *got.MacAddress)
 				assert.Equal(t, tc.expectedIPAddresses, got.IPAddresses)
 				assert.Equal(t, *tc.expectedStatus, got.Status)
+
+				persisted, err := ifcd.GetByID(ctx, nil, tc.id, nil)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedRoutingProfile, persisted.InlineRoutingProfile)
 
 				if tc.expectedDevice != nil {
 					assert.Equal(t, *tc.expectedDevice, *got.Device)
@@ -1402,7 +1480,7 @@ func TestInterfaceSQLDAO_Delete(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1419,11 +1497,11 @@ func TestInterfaceSQLDAO_Delete(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1432,8 +1510,8 @@ func TestInterfaceSQLDAO_Delete(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 	domain := testSubnetBuildDomain(t, dbSession, "testDomain")
-	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", db.GetUUIDPtr(user.ID))
-	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", db.GetUUIDPtr(user.ID))
+	ipv4Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv4Block", cutil.GetPtr(user.ID))
+	ipv6Block := testSubnetBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipv6Block", cutil.GetPtr(user.ID))
 
 	ssd := NewSubnetDAO(dbSession)
 	ipv4Prefix := "192.0.2.0/24"
@@ -1442,7 +1520,7 @@ func TestInterfaceSQLDAO_Delete(t *testing.T) {
 	ipv6Gateway := "2001:db8:abcd:0012::1"
 	subnet, err := ssd.Create(ctx, nil, SubnetCreateInput{
 		Name:                       "test",
-		Description:                db.GetStrPtr("test"),
+		Description:                cutil.GetPtr("test"),
 		Org:                        "test",
 		SiteID:                     site.ID,
 		VpcID:                      vpc.ID,
@@ -1528,7 +1606,7 @@ func TestInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1544,17 +1622,17 @@ func TestInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test1.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
+			Hostname:                 cutil.GetPtr("test1.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
 	)
 	assert.Nil(t, err)
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr("mcTypeTest2"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr("mcTypeTest2"))
 	instance2, err := isd.Create(
 		ctx, nil,
 		InstanceCreateInput{
@@ -1565,10 +1643,10 @@ func TestInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine2.ID,
-			Hostname:                 db.GetStrPtr("test2.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
+			Hostname:                 cutil.GetPtr("test2.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1594,8 +1672,11 @@ func TestInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 				{
 					InstanceID: instance1.ID,
 					IsPhysical: true,
-					Status:     InterfaceStatusPending,
-					CreatedBy:  user.ID,
+					InlineRoutingProfile: &InterfaceInlineRoutingProfile{
+						AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+					},
+					Status:    InterfaceStatusPending,
+					CreatedBy: user.ID,
 				},
 				{
 					InstanceID: instance1.ID,
@@ -1648,6 +1729,7 @@ func TestInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 				for i, iface := range got {
 					assert.NotEqual(t, uuid.Nil, iface.ID)
 					assert.Equal(t, tc.inputs[i].InstanceID, iface.InstanceID, "result order should match input order")
+					assert.Equal(t, tc.inputs[i].InlineRoutingProfile, iface.InlineRoutingProfile)
 					assert.Equal(t, tc.inputs[i].Status, iface.Status)
 					assert.NotZero(t, iface.Created)
 					assert.NotZero(t, iface.Updated)
@@ -1705,7 +1787,7 @@ func TestInterfaceSQLDAO_DeleteAllByInstanceIDs(t *testing.T) {
 	isd := NewInstanceDAO(dbSession)
 
 	buildInstance := func(name, hostname, machineTag string) *Instance {
-		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, db.GetUUIDPtr(instanceType.ID), db.GetStrPtr(machineTag))
+		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(instanceType.ID), cutil.GetPtr(machineTag))
 		instance, err := isd.Create(
 			ctx, nil,
 			InstanceCreateInput{
@@ -1716,10 +1798,10 @@ func TestInterfaceSQLDAO_DeleteAllByInstanceIDs(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr(hostname),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
-				UserData:                 db.GetStrPtr("userdata"),
+				Hostname:                 cutil.GetPtr(hostname),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
 				Status:                   InstanceStatusPending,
 				CreatedBy:                user.ID,

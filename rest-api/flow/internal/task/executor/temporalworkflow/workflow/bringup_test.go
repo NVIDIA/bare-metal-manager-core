@@ -16,15 +16,15 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	temporalworkflow "go.temporal.io/sdk/workflow"
 
-	activitypkg "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/activity"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	activitypkg "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
-func mockBringUpControl(ctx context.Context, target common.Target) error {
+func mockBringUpControl(_ context.Context, _ common.Target, _ operations.BringUpTaskInfo) error {
 	return nil
 }
 
@@ -131,7 +131,7 @@ func TestBringUpWorkflow(t *testing.T) {
 					map[string]operations.PowerStatus{
 						"ps-1": operations.PowerStatusOn,
 					}, nil)
-				env.OnActivity(activitypkg.NameBringUpControl, mock.Anything, mock.Anything).Return(nil)
+				env.OnActivity(activitypkg.NameBringUpControl, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				env.OnActivity(activitypkg.NameGetBringUpStatus, mock.Anything, mock.Anything).Return(
 					&activitypkg.GetBringUpStatusResult{
 						States: map[string]operations.MachineBringUpState{

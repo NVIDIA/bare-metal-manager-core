@@ -108,6 +108,17 @@ nico-hardware-health:
   enabled: true
 
 ## ---------------------------------------------------------------------------
+## nico-ntp — chrony NTP servers
+## 3-replica StatefulSet that DPUs and bare-metal hosts sync against
+## (advertised via nico-dhcp.config.kea.hookParameters.ntpServer). DPU
+## pre-ingestion requires synced clocks, so this is enabled by default.
+## Disable only when the provisioning network already has a reachable
+## upstream NTP source.
+## ---------------------------------------------------------------------------
+nico-ntp:
+  enabled: true
+
+## ---------------------------------------------------------------------------
 ## nico-pxe — PXE boot server
 ## HTTP-based PXE server for OS provisioning workflows.
 ## ---------------------------------------------------------------------------

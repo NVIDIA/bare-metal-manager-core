@@ -6,9 +6,10 @@ package middleware
 import (
 	"encoding/json"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/metadata"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/metadata"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -97,7 +98,7 @@ func AuditBody(dbSession *cdb.Session) echo.MiddlewareFunc {
 				if err := json.Unmarshal(resBody, &responseError); err != nil {
 					log.Error().Err(err).Msgf("failed to unmarshall error response %s for audit entry %s", string(resBody), auditEntryID)
 				} else {
-					updateInput.StatusMessage = cdb.GetStrPtr(responseError.Message)
+					updateInput.StatusMessage = cutil.GetPtr(responseError.Message)
 				}
 			}
 			// save request body

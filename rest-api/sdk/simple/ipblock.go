@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/sdk/standard"
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 // IpBlock represents a simplified IP block

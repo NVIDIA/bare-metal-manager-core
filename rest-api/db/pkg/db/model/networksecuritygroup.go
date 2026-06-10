@@ -7,17 +7,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	"github.com/google/uuid"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const NetworkSecurityGroupInitialVersion = "V0-T0"
@@ -77,7 +80,7 @@ type NetworkSecurityGroup struct {
 	CreatedBy      uuid.UUID                   `bun:"type:uuid,notnull"`
 	UpdatedBy      uuid.UUID                   `bun:"type:uuid,notnull"`
 	Version        string                      `bun:"version"`
-	Labels         map[string]string           `bun:"labels,type:jsonb"`
+	Labels         Labels                      `bun:"labels,type:jsonb"`
 	StatefulEgress bool                        `bun:"stateful_egress,notnull"`
 	Rules          []*NetworkSecurityGroupRule `bun:"rules,type:jsonb"`
 }
@@ -98,6 +101,122 @@ func (s *NetworkSecurityGroup) GetRulesAsProtoRefs() []*cwssaws.NetworkSecurityG
 	}
 
 	return rules
+}
+
+// toMetadataProto builds a workflow Metadata proto from the
+// NetworkSecurityGroup's Name, Description, and Labels. Description
+// defaults to the empty string when the receiver's pointer is nil to
+// match the previous inline handler behaviour. Labels conversion is
+// delegated to the typed `Labels.ToProto()` helper per the
+// "Named types own their proto behavior" convention.
+func (s *NetworkSecurityGroup) toMetadataProto() *cwssaws.Metadata {
+	md := &cwssaws.Metadata{
+		Name:        s.Name,
+		Description: "",
+		Labels:      s.Labels.ToProto(),
+	}
+	if s.Description != nil {
+		md.Description = *s.Description
+	}
+	return md
+}
+
+// ToProto converts this NetworkSecurityGroup into its workflow proto
+// representation. Used as the canonical entity-to-proto conversion;
+// request-shape protos (create / update) are produced by `ToProto`
+// methods on the corresponding API request types in
+// api/pkg/api/model/networksecuritygroup.go.
+//
+// The proto's Attributes carry the rule list rebuilt from the embedded
+// proto attributes on each persisted rule wrapper.
+func (s *NetworkSecurityGroup) ToProto() *cwssaws.NetworkSecurityGroup {
+	return &cwssaws.NetworkSecurityGroup{
+		Id:                   s.ID,
+		TenantOrganizationId: s.TenantOrg,
+		Metadata:             s.toMetadataProto(),
+		Version:              s.Version,
+		Attributes: &cwssaws.NetworkSecurityGroupAttributes{
+			StatefulEgress: s.StatefulEgress,
+			Rules:          s.GetRulesAsProtoRefs(),
+		},
+	}
+}
+
+// FromProto populates this NetworkSecurityGroup from its workflow proto
+// representation. A nil proto is a no-op. This is the inverse of
+// `ToProto` and exists for convention symmetry — currently no code
+// path on the cloud side reconstructs a full NSG entity from a
+// `cwssaws.NetworkSecurityGroup` (the site is the destination, not the
+// source), but the method is provided so future reconciliation flows
+// have a single canonical entry point.
+//
+// Field-level contract:
+//   - `s.ID` is preserved when `proto.Id` is empty.
+//   - `Name` is sourced from `proto.Metadata.Name` when set, falling
+//     back to leaving the receiver's name untouched if the proto has
+//     no metadata.
+//   - Description / Labels are reset from `proto.Metadata` so the
+//     receiver ends up as a clean replacement rather than a partial
+//     merge.
+//   - Rule attributes are rewrapped from `proto.Attributes.Rules`;
+//     a nil Attributes leaves the rule list nil.
+func (s *NetworkSecurityGroup) FromProto(proto *cwssaws.NetworkSecurityGroup) {
+	if proto == nil {
+		return
+	}
+	if proto.Id != "" {
+		s.ID = proto.Id
+	}
+	s.TenantOrg = proto.TenantOrganizationId
+	if proto.Version != "" {
+		s.Version = proto.Version
+	}
+	// Reset metadata-derived fields up front so the `clean reset rather
+	// than a partial merge` contract holds when proto.Metadata is nil
+	// or omits a field.
+	s.Name = ""
+	s.Description = nil
+	s.Labels = nil
+	if proto.Metadata != nil {
+		if proto.Metadata.Name != "" {
+			s.Name = proto.Metadata.Name
+		}
+		if proto.Metadata.Description != "" {
+			desc := proto.Metadata.Description
+			s.Description = &desc
+		}
+		s.Labels.FromProto(proto.Metadata.GetLabels())
+	}
+	// Attributes fields are reset before the conditional populate so the
+	// "clean replacement" contract holds even when proto.Attributes is nil
+	// (otherwise StatefulEgress / Rules would silently keep stale values).
+	s.StatefulEgress = false
+	s.Rules = nil
+	if proto.Attributes != nil {
+		s.StatefulEgress = proto.Attributes.StatefulEgress
+		if proto.Attributes.Rules != nil {
+			rules := make([]*NetworkSecurityGroupRule, len(proto.Attributes.Rules))
+			for i, r := range proto.Attributes.Rules {
+				if r == nil {
+					rules[i] = nil
+				} else {
+					rules[i] = &NetworkSecurityGroupRule{NetworkSecurityGroupRuleAttributes: r}
+				}
+			}
+			s.Rules = rules
+		} else {
+			s.Rules = nil
+		}
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site
+// to delete this NetworkSecurityGroup.
+func (s *NetworkSecurityGroup) ToDeletionRequestProto() *cwssaws.DeleteNetworkSecurityGroupRequest {
+	return &cwssaws.DeleteNetworkSecurityGroupRequest{
+		Id:                   s.ID,
+		TenantOrganizationId: s.TenantOrg,
+	}
 }
 
 // A light wrapper around the protobuf so
@@ -146,6 +265,28 @@ func (s *NetworkSecurityGroupPropagationDetails) UnmarshalJSON(b []byte) error {
 
 func (s *NetworkSecurityGroupPropagationDetails) MarshalJSON() ([]byte, error) {
 	return protojson.Marshal(s)
+}
+
+// Equal reports whether two `*NetworkSecurityGroupPropagationDetails`
+// wrappers carry the same wire-relevant state. Used by the cloud-sync
+// activity to skip no-op DAO updates when the cloud copy already
+// matches what the Site reported. Treats two nil receivers as equal.
+// Declared as a method (per the Go convention used by `time.Time.Equal`,
+// `cmp.Equal`, etc.) so callers can write `pd.Equal(other)` instead of
+// reaching for a free helper.
+func (s *NetworkSecurityGroupPropagationDetails) Equal(other *NetworkSecurityGroupPropagationDetails) bool {
+	if s == nil || other == nil {
+		return s == other
+	}
+	// `Details` is the only pointer-typed field we compare; inline the
+	// nil-aware check so this method doesn't depend on the workflow util
+	// layer.
+	detailsEqual := (s.Details == nil) == (other.Details == nil) &&
+		(s.Details == nil || *s.Details == *other.Details)
+	return s.Status.Number() == other.Status.Number() &&
+		detailsEqual &&
+		slices.Equal(s.UnpropagatedInstanceIds, other.UnpropagatedInstanceIds) &&
+		slices.Equal(s.RelatedInstanceIds, other.RelatedInstanceIds)
 }
 
 // NetworkSecurityGroupCreateInput input parameters for Create method

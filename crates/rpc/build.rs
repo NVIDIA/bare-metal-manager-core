@@ -28,6 +28,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // so that different builds get a different binary file and concurrent builds don't collide
     let reflection = out_dir.join("forge.bin");
 
+    let derive_prost_builder =
+        "#[cfg_attr(feature = \"test-support\", derive(carbide_prost_builder::Builder))]";
+
     tonic_prost_build::configure()
         .file_descriptor_set_path(reflection)
         .type_attribute(
@@ -40,6 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             ".forge.DpuMode",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.DpaInterfaceType",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
         .type_attribute(
@@ -318,6 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.HostRepresentorInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegmentConfig", "#[derive(serde::Serialize)]")
@@ -407,6 +415,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
         .type_attribute(
+            "forge.VpcPrefixStateHistoriesRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.VpcPrefixConfig",
             "#[derive(serde::Serialize)]",
         )
@@ -478,6 +490,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.DhcpDiscovery",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute("forge.DhcpDiscovery", derive_prost_builder)
         .type_attribute(
             "forge.UserRoles",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -874,7 +887,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
-            "forge.SpdmListAttestationsResponse",
+            "forge.SpdmGetAttestationMachineResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.SpdmListAttestationMachinesResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.SpdmMachineAttestationStatus",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
@@ -889,6 +910,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "scout_firmware_upgrade.FileArtifact",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute("forge.VpcCreationRequest", derive_prost_builder)
+        .type_attribute("forge.VpcUpdateRequest", derive_prost_builder)
+        .type_attribute("forge.VpcDeletionRequest", derive_prost_builder)
+        .type_attribute("forge.InstanceAllocationRequest", derive_prost_builder)
+        .type_attribute("forge.InstanceConfigUpdateRequest", derive_prost_builder)
+        .type_attribute("forge.InstanceConfig", derive_prost_builder)
+        .type_attribute("forge.ComputeAllocationAttributes", derive_prost_builder)
+        .type_attribute("forge.CreateComputeAllocationRequest", derive_prost_builder)
+        .type_attribute("forge.UpdateComputeAllocationRequest", derive_prost_builder)
+        .type_attribute("forge.DeleteComputeAllocationRequest", derive_prost_builder)
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

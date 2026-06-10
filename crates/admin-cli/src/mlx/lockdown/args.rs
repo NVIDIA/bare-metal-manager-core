@@ -24,6 +24,19 @@ use rpc::protos::mlx_device as mlx_device_pb;
 
 // LockdownCommand are the lockdown subcommands.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Lock hardware access on a device:
+    $ carbide-admin-cli mlx lockdown lock 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
+
+Unlock hardware access on a device:
+    $ carbide-admin-cli mlx lockdown unlock 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
+
+Check a device's lockdown status:
+    $ carbide-admin-cli mlx lockdown status 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
+
+")]
 pub enum LockdownCommand {
     #[clap(about = "Lock hardware access on a device")]
     Lock(LockdownLockCommand),

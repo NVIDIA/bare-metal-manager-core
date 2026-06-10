@@ -18,8 +18,6 @@
 pub mod args;
 pub mod cmd;
 
-use args::Args;
-
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::errors::CarbideCliResult;

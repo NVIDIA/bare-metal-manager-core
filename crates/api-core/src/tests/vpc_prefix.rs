@@ -15,18 +15,177 @@
  * limitations under the License.
  */
 
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    PrefixMatchType, VpcPrefixCreationRequest, VpcPrefixDeletionRequest, VpcPrefixSearchQuery,
+    PrefixMatchType, VpcDeletionRequest, VpcPrefixCreationRequest, VpcPrefixDeletionRequest,
+    VpcPrefixSearchQuery,
 };
 use sqlx::PgPool;
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::{
-    self, TEST_SITE_PREFIXES, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
-    get_vpc_fixture_id,
+use crate::tests::common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config_with_vpc_prefix,
 };
+use crate::tests::common::api_fixtures::{
+    self, TEST_SITE_PREFIXES, TestEnv, TestEnvOverrides, create_managed_host, create_test_env,
+    create_test_env_with_overrides, get_vpc_fixture_id,
+};
+
+const REFERENCED_VPC_PREFIX: &str = "192.0.4.0/24";
+const UNREFERENCED_VPC_PREFIX: &str = "192.1.4.0/27";
+
+#[derive(serde::Deserialize)]
+struct LifecycleStateJson {
+    state: String,
+}
+
+/// Builds and submits the common structured create request used by lifecycle tests.
+async fn create_vpc_prefix(env: &TestEnv, vpc_id: VpcId, prefix: &str) -> rpc::forge::VpcPrefix {
+    // Send a normal create request so handler validation and response conversion are covered.
+    env.api
+        .create_vpc_prefix(Request::new(VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(vpc_id),
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: prefix.into(),
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: format!("VPC prefix {prefix}"),
+                description: String::from("lifecycle test prefix"),
+                labels: vec![rpc::forge::Label {
+                    key: "test".into(),
+                    value: Some("vpc-prefix-lifecycle".into()),
+                }],
+            }),
+        }))
+        .await
+        .expect("Could not create VPC prefix")
+        .into_inner()
+}
+
+/// Returns one VPC prefix from the default get API, if it is visible.
+async fn find_vpc_prefix(env: &TestEnv, id: VpcPrefixId) -> Option<rpc::forge::VpcPrefix> {
+    // Use the default API path because soft-deleted prefixes should be omitted from normal reads.
+    let mut prefixes = env
+        .api
+        .get_vpc_prefixes(Request::new(rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: vec![id],
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
+        }))
+        .await
+        .expect("Could not find VPC prefixes")
+        .into_inner()
+        .vpc_prefixes;
+    assert!(
+        prefixes.len() <= 1,
+        "a single VPC prefix ID should return at most one object"
+    );
+    prefixes.pop()
+}
+
+/// Asserts lifecycle fields and family-aware VPC-prefix utilization counters.
+fn assert_status_with_lifecycle_and_linknet_counters(
+    prefix: &rpc::forge::VpcPrefix,
+    expected_state: &str,
+    expected_total_linknets: u64,
+    expected_available_linknets: u64,
+) {
+    let status = prefix
+        .status
+        .as_ref()
+        .expect("VPC prefix status should be populated");
+
+    // Verify lifecycle status is present and points at the expected controller state.
+    let lifecycle_status = status
+        .lifecycle
+        .as_ref()
+        .expect("VPC prefix status should include lifecycle");
+    let lifecycle_state: LifecycleStateJson =
+        serde_json::from_str(&lifecycle_status.state).expect("lifecycle state should be JSON");
+    assert_eq!(lifecycle_state.state, expected_state);
+    assert!(
+        !lifecycle_status.version.is_empty(),
+        "lifecycle version should be populated"
+    );
+    assert!(
+        lifecycle_status.sla.is_some(),
+        "lifecycle SLA should be populated"
+    );
+
+    // Verify the existing utilization counters are still present alongside lifecycle.
+    assert_eq!(status.total_linknet_segments, expected_total_linknets);
+    assert_eq!(
+        status.available_linknet_segments,
+        expected_available_linknets
+    );
+}
+
+/// Returns the number of backing VPC-prefix rows for an ID, including soft-deleted rows.
+async fn stored_vpc_prefix_count(env: &TestEnv, id: VpcPrefixId) -> i64 {
+    // Query the backing table directly because public get intentionally hides deleted prefixes.
+    sqlx::query_scalar("SELECT COUNT(*) FROM network_vpc_prefixes WHERE id = $1")
+        .bind(id)
+        .fetch_one(&env.pool)
+        .await
+        .expect("Could not count stored VPC prefixes")
+}
+
+/// Returns whether a backing VPC-prefix row is marked deleted.
+async fn stored_vpc_prefix_is_deleted(env: &TestEnv, id: VpcPrefixId) -> bool {
+    // Inspect the soft-delete marker that the public get API omits.
+    sqlx::query_scalar("SELECT deleted IS NOT NULL FROM network_vpc_prefixes WHERE id = $1")
+        .bind(id)
+        .fetch_one(&env.pool)
+        .await
+        .expect("Could not read VPC prefix deleted marker")
+}
+
+/// Returns the stored top-level controller state for a VPC prefix row.
+async fn stored_vpc_prefix_controller_state(env: &TestEnv, id: VpcPrefixId) -> Option<String> {
+    // Inspect controller-owned JSON because public get hides deleted rows.
+    sqlx::query_scalar("SELECT controller_state->>'state' FROM network_vpc_prefixes WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&env.pool)
+        .await
+        .expect("Could not read stored VPC prefix controller state")
+        .flatten()
+}
+
+/// Returns the number of network_prefix rows still referencing a VPC prefix.
+async fn network_prefix_ref_count(env: &TestEnv, id: VpcPrefixId) -> i64 {
+    // Count durable prefix references, which are the controller's deletion gate.
+    sqlx::query_scalar("SELECT COUNT(*) FROM network_prefixes WHERE vpc_prefix_id = $1")
+        .bind(id)
+        .fetch_one(&env.pool)
+        .await
+        .expect("Could not count network prefixes for VPC prefix")
+}
+
+/// Drives the manual VPC-prefix controller until the prefix is ready.
+async fn drive_vpc_prefix_to_ready(env: &TestEnv, id: VpcPrefixId) -> rpc::forge::VpcPrefix {
+    // Run the controller once to process the initial Provisioning state.
+    env.run_vpc_prefix_controller_iteration().await;
+
+    // Verify the transition using the public API.
+    let prefix = find_vpc_prefix(env, id)
+        .await
+        .expect("VPC prefix should be visible through the public get API");
+    let status = prefix
+        .status
+        .as_ref()
+        .expect("VPC prefix status should be populated");
+    let lifecycle_status = status
+        .lifecycle
+        .as_ref()
+        .expect("VPC prefix status should include lifecycle");
+    let lifecycle_state: LifecycleStateJson =
+        serde_json::from_str(&lifecycle_status.state).expect("lifecycle state should be JSON");
+    assert_eq!(lifecycle_state.state, "ready");
+    prefix
+}
 
 #[crate::sqlx_test]
 async fn test_create_and_delete_vpc_prefix_deprecated_fields(
@@ -34,8 +193,10 @@ async fn test_create_and_delete_vpc_prefix_deprecated_fields(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let ip_prefix = "192.0.2.0/25";
+    let ip_prefix = UNREFERENCED_VPC_PREFIX;
     let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create with the deprecated flat prefix field to preserve compatibility coverage.
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: ip_prefix.into(),
@@ -50,6 +211,7 @@ async fn test_create_and_delete_vpc_prefix_deprecated_fields(
     let response = env.api.create_vpc_prefix(request).await;
     let vpc_prefix = response.expect("Could not create VPC prefix").into_inner();
 
+    // Assert the create response still mirrors the requested deprecated field.
     assert_eq!(
         vpc_prefix.prefix.as_str(),
         ip_prefix,
@@ -60,10 +222,25 @@ async fn test_create_and_delete_vpc_prefix_deprecated_fields(
         .id
         .expect("The id field on the new VPC prefix is missing (this should be impossible)");
 
+    // Verify persistence through the public get API after checking the create response.
+    let persisted = find_vpc_prefix(&env, id)
+        .await
+        .expect("VPC prefix should be visible through the public get API");
+    assert_eq!(persisted.prefix.as_str(), ip_prefix);
+
+    // Delete marks the prefix deleted; it should no longer be public but should still exist.
     let delete_by_id = VpcPrefixDeletionRequest { id: Some(id) };
     let request = Request::new(delete_by_id);
     let response = env.api.delete_vpc_prefix(request).await;
     let _deletion_result = response.expect("Could not delete VPC prefix").into_inner();
+
+    // Verify public reads hide the soft-deleted prefix.
+    assert!(find_vpc_prefix(&env, id).await.is_none());
+
+    // Verify controller-backed deletion has not hard-deleted the row yet.
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(stored_vpc_prefix_is_deleted(&env, id).await);
+    assert_eq!(network_prefix_ref_count(&env, id).await, 0);
 
     Ok(())
 }
@@ -72,8 +249,10 @@ async fn test_create_and_delete_vpc_prefix_deprecated_fields(
 async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let ip_prefix = "192.0.2.0/25";
+    let ip_prefix = UNREFERENCED_VPC_PREFIX;
     let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create with the structured config field used by current clients.
     let new_vpc_prefix = VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
@@ -94,6 +273,7 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
     let response = env.api.create_vpc_prefix(request).await;
     let vpc_prefix = response.expect("Could not create VPC prefix").into_inner();
 
+    // Assert the create response mirrors the requested prefix.
     assert_eq!(
         vpc_prefix.prefix.as_str(),
         ip_prefix,
@@ -104,10 +284,411 @@ async fn test_create_and_delete_vpc_prefix(pool: PgPool) -> Result<(), Box<dyn s
         .id
         .expect("The id field on the new VPC prefix is missing (this should be impossible)");
 
+    // Verify persistence through the public get API after checking the create response.
+    let persisted = find_vpc_prefix(&env, id)
+        .await
+        .expect("VPC prefix should be visible through the public get API");
+    assert_eq!(persisted.prefix.as_str(), ip_prefix);
+
+    // Delete marks the prefix deleted; it should no longer be public but should still exist.
     let delete_by_id = VpcPrefixDeletionRequest { id: Some(id) };
     let request = Request::new(delete_by_id);
     let response = env.api.delete_vpc_prefix(request).await;
     let _deletion_result = response.expect("Could not delete VPC prefix").into_inner();
+
+    // Verify public reads hide the soft-deleted prefix.
+    assert!(find_vpc_prefix(&env, id).await.is_none());
+
+    // Verify controller-backed deletion has not hard-deleted the row yet.
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(stored_vpc_prefix_is_deleted(&env, id).await);
+    assert_eq!(network_prefix_ref_count(&env, id).await, 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_prefix_create_returns_initial_lifecycle_state(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create a prefix that has no existing network-prefix references.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+
+    // Verify the create response reports the initial controller state and counters.
+    assert_status_with_lifecycle_and_linknet_counters(&created, "provisioning", 16, 16);
+
+    // Verify the same lifecycle state was persisted through the public get API.
+    let persisted = find_vpc_prefix(&env, id)
+        .await
+        .expect("VPC prefix should be visible through the public get API");
+    assert_status_with_lifecycle_and_linknet_counters(&persisted, "provisioning", 16, 16);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_prefix_controller_transitions_provisioning_to_ready(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create the prefix and capture the initial lifecycle version.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    let created_status = created
+        .status
+        .as_ref()
+        .expect("VPC prefix status should be populated");
+    let initial_version = created_status
+        .lifecycle
+        .as_ref()
+        .expect("VPC prefix status should include lifecycle")
+        .version
+        .clone();
+
+    // Drive the controller and verify the persisted state transitions to Ready.
+    let ready = drive_vpc_prefix_to_ready(&env, id).await;
+    let ready_status = ready
+        .status
+        .as_ref()
+        .expect("VPC prefix status should be populated");
+    let ready_lifecycle = ready_status
+        .lifecycle
+        .as_ref()
+        .expect("VPC prefix status should include lifecycle");
+    assert_ne!(
+        ready_lifecycle.version, initial_version,
+        "controller transition should increment the lifecycle version"
+    );
+    assert!(
+        ready_lifecycle.state_reason.is_some(),
+        "controller outcome should be exposed as lifecycle state_reason"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_prefix_delete_rejects_network_prefix_refs(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create a VPC prefix covering the tenant segment fixture so a network_prefix row references it.
+    let created = create_vpc_prefix(&env, vpc_id, REFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    drive_vpc_prefix_to_ready(&env, id).await;
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    // Request deletion while durable network-prefix references still exist.
+    let err = env
+        .api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect_err("delete should reject referenced VPC prefixes");
+
+    // Verify the rejected delete leaves the prefix active and visible.
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert!(find_vpc_prefix(&env, id).await.is_some());
+    let active_search_ids = env
+        .api
+        .search_vpc_prefixes(Request::new(VpcPrefixSearchQuery {
+            vpc_id: Some(vpc_id),
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
+            ..Default::default()
+        }))
+        .await
+        .expect("active-only search should succeed")
+        .into_inner()
+        .vpc_prefix_ids;
+    assert!(
+        active_search_ids.contains(&id),
+        "default VPC-prefix search should keep rejected deletes visible"
+    );
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(!stored_vpc_prefix_is_deleted(&env, id).await);
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_deleted_provisioning_vpc_prefix_enters_deleting_on_first_controller_pass(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Delete the prefix before the controller has transitioned it out of Provisioning.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    env.api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect("delete should mark the VPC prefix deleted");
+
+    assert!(find_vpc_prefix(&env, id).await.is_none());
+    let include_deleted_prefixes = env
+        .api
+        .get_vpc_prefixes(Request::new(rpc::forge::VpcPrefixGetRequest {
+            vpc_prefix_ids: vec![id],
+            deleted: rpc::forge::DeletedFilter::Include as i32,
+        }))
+        .await
+        .expect("Could not find VPC prefix including deleted")
+        .into_inner()
+        .vpc_prefixes;
+    assert_eq!(
+        include_deleted_prefixes.len(),
+        1,
+        "include-deleted get should return the soft-deleted VPC prefix"
+    );
+
+    // The first controller pass should enter Deleting directly rather than recording Ready.
+    env.run_vpc_prefix_controller_iteration().await;
+    assert_eq!(
+        stored_vpc_prefix_controller_state(&env, id)
+            .await
+            .as_deref(),
+        Some("deleting")
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM vpc_prefix_state_history \
+             WHERE vpc_prefix_id = $1 AND state->>'state' = 'ready'",
+        )
+        .bind(id)
+        .fetch_one(&env.pool)
+        .await
+        .expect("Could not count ready history records"),
+        0
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_deleted_vpc_prefix_cannot_allocate_new_instance_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create and ready a prefix before marking it deleted.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    drive_vpc_prefix_to_ready(&env, id).await;
+    env.api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect("delete should mark the VPC prefix deleted");
+
+    // Attempt to allocate a new instance interface from the deleted prefix.
+    let managed_host = create_managed_host(&env).await;
+    let allocation = env
+        .api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            instance_id: None,
+            machine_id: Some(managed_host.host().id),
+            instance_type_id: None,
+            config: Some(rpc::forge::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config_with_vpc_prefix(id)),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+            }),
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }))
+        .await;
+
+    // Verify allocation rejects deleted prefixes instead of generating a new segment.
+    assert!(
+        allocation.is_err(),
+        "deleted VPC prefixes must not be usable for new interface allocation"
+    );
+    assert_eq!(network_prefix_ref_count(&env, id).await, 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_prefix_final_delete_after_generated_segment_cleanup(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            network_segments_drain_period: Some(chrono::Duration::seconds(0)),
+            vpc_prefixes_drain_period: Some(chrono::Duration::seconds(0)),
+            ..Default::default()
+        },
+    )
+    .await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create a ready prefix that instance allocation will use to generate a segment.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    drive_vpc_prefix_to_ready(&env, id).await;
+
+    // Allocate an instance so the generated segment creates network-prefix references.
+    let managed_host = create_managed_host(&env).await;
+    let (instance, rpc_instance) = managed_host
+        .instance_builer(&env)
+        .network(single_interface_network_config_with_vpc_prefix(id))
+        .build_and_return()
+        .await;
+    let generated_segment_id = rpc_instance.config().network().interfaces[0]
+        .network_segment_id
+        .expect("VPC-prefix allocation should assign a generated segment");
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    // Verify the generated segment reference blocks deletion requests.
+    let err = env
+        .api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect_err("delete should reject referenced VPC prefixes");
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(!stored_vpc_prefix_is_deleted(&env, id).await);
+    assert!(network_prefix_ref_count(&env, id).await > 0);
+
+    // Release the instance so generated segment cleanup removes the prefix references.
+    instance.delete().await;
+    assert_eq!(network_prefix_ref_count(&env, id).await, 0);
+
+    // Delete the now-unreferenced prefix before running controller cleanup.
+    env.api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect("delete should mark the unreferenced VPC prefix deleted");
+
+    // Run VPC-prefix cleanup to advance through DBDelete after dependencies drain.
+    env.run_vpc_prefix_controller_iteration().await;
+    env.run_vpc_prefix_controller_iteration().await;
+    env.run_vpc_prefix_controller_iteration().await;
+
+    // Verify the prefix is finally hard-deleted after generated segment cleanup.
+    assert!(find_vpc_prefix(&env, id).await.is_none());
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 0);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM network_segments WHERE id = $1")
+            .bind(generated_segment_id)
+            .fetch_one(&env.pool)
+            .await
+            .expect("Could not count generated network segment rows"),
+        0
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_repeat_vpc_prefix_delete_returns_not_found_while_soft_deleted(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create a prefix and submit the first delete request.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    env.api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect("first delete should mark the VPC prefix deleted");
+
+    // Submit the same delete again while the row is still soft-deleted.
+    let err = env
+        .api
+        .delete_vpc_prefix(Request::new(VpcPrefixDeletionRequest { id: Some(id) }))
+        .await
+        .expect_err("repeat delete should return NotFound while soft-deleted");
+
+    // Verify repeat delete follows the active-only public API behavior.
+    assert_eq!(err.code(), tonic::Code::NotFound);
+    assert!(find_vpc_prefix(&env, id).await.is_none());
+    assert_eq!(stored_vpc_prefix_count(&env, id).await, 1);
+    assert!(stored_vpc_prefix_is_deleted(&env, id).await);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_delete_rejects_existing_vpc_prefix(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Any VPC-prefix row, active or soft-deleted, keeps the parent VPC from being deleted.
+    let created = create_vpc_prefix(&env, vpc_id, UNREFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+
+    let err = env
+        .api
+        .delete_vpc(Request::new(VpcDeletionRequest { id: Some(vpc_id) }))
+        .await
+        .expect_err("VPC delete should be rejected while a VPC prefix exists");
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        find_vpc_prefix(&env, id).await.is_some(),
+        "rejected parent VPC delete must not remove the VPC prefix"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_prefix_rpc_status_includes_lifecycle_and_counters(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    env.create_vpc_and_tenant_segment().await;
+    let vpc_id = get_vpc_fixture_id(&env).await;
+
+    // Create and ready a prefix that adopts an existing tenant segment reference.
+    let created = create_vpc_prefix(&env, vpc_id, REFERENCED_VPC_PREFIX).await;
+    let id = created.id.expect("created VPC prefix should include an id");
+    let ready = drive_vpc_prefix_to_ready(&env, id).await;
+
+    // Verify lifecycle fields and existing utilization counters share the RPC status.
+    assert_status_with_lifecycle_and_linknet_counters(&ready, "ready", 128, 127);
+    let status = ready
+        .status
+        .as_ref()
+        .expect("VPC prefix status should be populated");
+    assert_eq!(u64::from(status.total_31_segments), 128);
+    assert_eq!(u64::from(status.available_31_segments), 127);
+    let lifecycle_status = status
+        .lifecycle
+        .as_ref()
+        .expect("VPC prefix status should include lifecycle");
+    assert!(
+        lifecycle_status.state_reason.is_some(),
+        "RPC lifecycle status should expose controller reason"
+    );
 
     Ok(())
 }
@@ -297,6 +878,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
             name: None,
             prefix_match: Some(prefix.into()),
             prefix_match_type: Some(PrefixMatchType::PrefixExact as i32),
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
         };
         let search_request = Request::new(prefix_query);
         let search_response = env.api.search_vpc_prefixes(search_request).await;
@@ -328,6 +910,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
             name: None,
             prefix_match: Some(prefix.into()),
             prefix_match_type: Some(PrefixMatchType::PrefixContains as i32),
+            deleted: rpc::forge::DeletedFilter::Exclude as i32,
         };
         let search_request = Request::new(prefix_query);
         let search_response = env.api.search_vpc_prefixes(search_request).await;
@@ -354,6 +937,7 @@ async fn test_vpc_prefix_search(pool: PgPool) -> Result<(), Box<dyn std::error::
         name: None,
         prefix_match: Some(prefix.into()),
         prefix_match_type: Some(PrefixMatchType::PrefixContainedBy as i32),
+        deleted: rpc::forge::DeletedFilter::Exclude as i32,
     };
     let search_request = Request::new(prefix_query);
     let search_response = env.api.search_vpc_prefixes(search_request).await;

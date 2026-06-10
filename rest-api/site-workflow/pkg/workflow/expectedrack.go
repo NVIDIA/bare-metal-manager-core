@@ -10,8 +10,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // expectedRackActivityOptions returns the common ActivityOptions used by all
@@ -70,7 +70,7 @@ func DiscoverExpectedRackInventory(ctx workflow.Context) error {
 // CreateExpectedRackOnSite activity, then also creates the rack in Flow via
 // CreateExpectedRackOnFlow (best-effort).
 func CreateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) error {
-	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Create").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackType()).Logger()
+	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Create").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackProfileId().GetId()).Logger()
 
 	logger.Info().Msg("starting workflow")
 
@@ -100,7 +100,7 @@ func CreateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) err
 // UpdateExpectedRackOnSite activity.
 // TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
 func UpdateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) error {
-	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Update").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackType()).Logger()
+	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Update").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackProfileId().GetId()).Logger()
 
 	logger.Info().Msg("starting workflow")
 

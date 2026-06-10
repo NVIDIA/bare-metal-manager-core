@@ -29,7 +29,6 @@ use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
-use crate::tests;
 use crate::tests::common;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
@@ -582,13 +581,15 @@ async fn test_parallel() -> Result<(), eyre::Report> {
         .connect_with(base_options.clone())
         .await?;
 
-    sqlx::query(&format!("CREATE DATABASE \"{db_name}\""))
-        .execute(&admin)
-        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE DATABASE \"{db_name}\""
+    )))
+    .execute(&admin)
+    .await?;
     let db_pool = PgPoolOptions::new()
         .connect_with(base_options.database(&db_name))
         .await?;
-    tests::MIGRATOR.run(&db_pool).await?;
+    db::migrations::migrate(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
     let pool = Arc::new(ResourcePool::new(db_name.clone(), ValueType::Integer));
@@ -638,7 +639,9 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     // WITH (FORCE) terminates any lingering backends before dropping,
     // avoiding the flaky "database is being accessed by other users" error.
     let drop_stmt = format!("DROP DATABASE \"{db_name}\" WITH (FORCE)");
-    sqlx::query(&drop_stmt).execute(&admin).await?;
+    sqlx::query(sqlx::AssertSqlSafe(drop_stmt))
+        .execute(&admin)
+        .await?;
     admin.close().await;
     Ok(())
 }

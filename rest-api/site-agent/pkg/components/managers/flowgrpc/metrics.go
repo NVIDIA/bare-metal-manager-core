@@ -6,8 +6,8 @@ package flowgrpc
 import (
 	"time"
 
-	flowgrpctypes "github.com/NVIDIA/infra-controller-rest/site-agent/pkg/datatypes/managertypes/flowgrpc"
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
+	flowgrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/flowgrpc"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

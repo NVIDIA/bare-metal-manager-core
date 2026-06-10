@@ -208,8 +208,11 @@ async fn find_machine_id(
             continue;
         };
 
-        // We normalize the IPs to make string comparison more likely to succeed
-        let Ok(ip) = bmc_info.ip.unwrap().parse::<std::net::IpAddr>() else {
+        let Some(ip) = bmc_info.ip else {
+            continue;
+        };
+
+        let Ok(ip) = ip.parse::<std::net::IpAddr>() else {
             continue;
         };
 

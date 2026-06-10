@@ -51,8 +51,6 @@ carbide-network-segment-controller = { path = "../network-segment-controller" }
 carbide-nvlink-manager = { path = "../nvlink-manager" }
 carbide-power-shelf-controller = { path = "../power-shelf-controller" }
 carbide-preingestion-manager = { path = "../preingestion-manager" }
-# Optional: only used by the `tests::common` fixtures, gated behind the `test-support` feature.
-carbide-prost-builder = { path = "../prost-builder", optional = true }
 carbide-rack = { path = "../rack" }
 carbide-rack-controller = { path = "../rack-controller" }
 carbide-redfish = { path = "../redfish" }
@@ -66,6 +64,7 @@ carbide-switch-controller = { path = "../switch-controller" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-version = { path = "../version" }
+carbide-vpc-prefix-controller = { path = "../vpc-prefix-controller" }
 component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
@@ -110,7 +109,7 @@ libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 num_cpus = { workspace = true }
-nv-redfish = {workspace = true}
+nv-redfish = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus = { workspace = true }
@@ -126,10 +125,7 @@ opentelemetry_sdk = { workspace = true, features = [
 pkcs1 = { workspace = true }
 p256 = { workspace = true }
 prometheus = { workspace = true }
-# Optional: only used by the `tests::common` fixtures, gated behind the `test-support` feature.
-prost = { workspace = true, optional = true }
 rand = { workspace = true }
-rcgen = { workspace = true, optional = true }
 regex = { workspace = true }
 reqwest = { workspace = true, default-features = false, features = [
   "rustls",
@@ -145,7 +141,8 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
+  "runtime-tokio",
+  "tls-rustls",
   "mac_address",
   "ipnetwork",
   "uuid",
@@ -193,14 +190,14 @@ linux-build = ["tss-esapi"]
 # builds (resolver v2 keeps it out of the production `carbide-api` binary); only `carbide-api-web`'s
 # dev-dependency turns it on.
 test-support = [
-  "dep:carbide-prost-builder",
-  "dep:prost",
-  "dep:rcgen",
+  "carbide-api-model/test-support",
   "carbide-ib-fabric/test-support",
   "carbide-machine-controller/test-support",
   "carbide-nvlink-manager/test-support",
   "carbide-rack/test-support",
   "carbide-redfish/test-support",
+  "carbide-rpc/test-support",
+  "carbide-secrets/test-support",
   "carbide-utils/test-support",
   "state-controller/test-support",
 ]
@@ -210,6 +207,9 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
+carbide-api-model = { path = "../api-model", default-features = false, features = [
+  "test-support",
+] }
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
 carbide-machine-controller = { path = "../machine-controller", features = [
   "test-support",
@@ -218,9 +218,10 @@ carbide-macros = { path = "../macros" }
 carbide-nvlink-manager = { path = "../nvlink-manager", features = [
   "test-support",
 ] }
-carbide-prost-builder = { path = "../prost-builder" }
 carbide-rack = { path = "../rack", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
+carbide-rpc = { path = "../rpc", features = ["model", "sqlx", "test-support"] }
+carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }

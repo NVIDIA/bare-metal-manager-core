@@ -11,14 +11,14 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -154,7 +154,7 @@ func (gciph GetCurrentInfrastructureProviderHandler) Handle(c echo.Context) erro
 	var serr error
 	if len(ips) == 0 {
 		// Create Infrastructure Provider
-		ip, serr = ipDAO.CreateFromParams(ctx, nil, userOrgDetails.Name, nil, org, cdb.GetStrPtr(userOrgDetails.DisplayName), dbUser)
+		ip, serr = ipDAO.CreateFromParams(ctx, nil, userOrgDetails.Name, nil, org, cutil.GetPtr(userOrgDetails.DisplayName), dbUser)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Infrastructure Provider DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)
@@ -162,7 +162,7 @@ func (gciph GetCurrentInfrastructureProviderHandler) Handle(c echo.Context) erro
 	} else {
 		ip = &ips[0]
 		if ip.OrgDisplayName == nil || *ip.OrgDisplayName != userOrgDetails.DisplayName {
-			ip, serr = ipDAO.UpdateFromParams(ctx, nil, ip.ID, nil, nil, cdb.GetStrPtr(userOrgDetails.DisplayName))
+			ip, serr = ipDAO.UpdateFromParams(ctx, nil, ip.ID, nil, nil, cutil.GetPtr(userOrgDetails.DisplayName))
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error updating Infrastructure Provider DB entity")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)
@@ -251,7 +251,7 @@ func (gcipsh GetCurrentInfrastructureProviderStatsHandler) Handle(c echo.Context
 
 	// Get Machine stats for this org infrastructure provider
 	mcDAO := cdbm.NewMachineDAO(gcipsh.dbSession)
-	mcStatsMap, err := mcDAO.GetCountByStatus(ctx, nil, cdb.GetUUIDPtr(ips[0].ID), nil, nil)
+	mcStatsMap, err := mcDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(ips[0].ID), nil, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machine stats for this org's infrastructure provider")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine stats", nil)
@@ -259,7 +259,7 @@ func (gcipsh GetCurrentInfrastructureProviderStatsHandler) Handle(c echo.Context
 
 	// Get IPBlock stats for this org infrastructure provider
 	ipbDAO := cdbm.NewIPBlockDAO(gcipsh.dbSession)
-	ipbStatsMap, err := ipbDAO.GetCountByStatus(ctx, nil, cdb.GetUUIDPtr(ips[0].ID), nil, nil)
+	ipbStatsMap, err := ipbDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(ips[0].ID), nil, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving IPBlock stats for this org's infrastructure provider")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IPBlock stats", nil)
@@ -267,7 +267,7 @@ func (gcipsh GetCurrentInfrastructureProviderStatsHandler) Handle(c echo.Context
 
 	// Get TenantAccount stats for this org infrastructure provider
 	taDAO := cdbm.NewTenantAccountDAO(gcipsh.dbSession)
-	taStatsMap, err := taDAO.GetCountByStatus(ctx, nil, cdb.GetUUIDPtr(ips[0].ID), nil)
+	taStatsMap, err := taDAO.GetCountByStatus(ctx, nil, cutil.GetPtr(ips[0].ID), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving TenantAccount stats for this org's infrastructure provider")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to populate Tenant Account stats for Infrastructure Provider", nil)

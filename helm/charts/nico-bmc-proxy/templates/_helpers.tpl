@@ -5,13 +5,20 @@ Allow the release namespace to be overridden for multi-namespace deployments.
 {{- default .Release.Namespace .Values.namespaceOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+Resource name prefix. Defaults to the chart name; override with nameOverride.
+*/}}
+{{- define "nico-bmc-proxy.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "nico-bmc-proxy.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 What image to use: Use subchart-local image if defined, fall back on global
-image. In devspace deployments, nico-bmc-proxy gets its own image. In other
+image. In devspace deployments, {{ include "nico-bmc-proxy.name" . }} gets its own image. In other
 deployments, the main nico image contains all binaries, so we can use that.
 */}}
 {{- define "nico-bmc-proxy.image" -}}
@@ -26,31 +33,43 @@ deployments, the main nico image contains all binaries, so we can use that.
 helm.sh/chart: {{ include "nico-bmc-proxy.chart" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: site-controller
-app.kubernetes.io/name: nico-bmc-proxy
+app.kubernetes.io/name: {{ include "nico-bmc-proxy.name" . }}
 app.kubernetes.io/component: bmc-proxy
 {{- end }}
 
 {{- define "nico-bmc-proxy.selectorLabels" -}}
-app.kubernetes.io/name: nico-bmc-proxy
+app.kubernetes.io/name: {{ include "nico-bmc-proxy.name" . }}
 app.kubernetes.io/component: bmc-proxy
 {{- end }}
 
 {{- define "nico-bmc-proxy.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
-commonName: {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
+commonName: {{ printf "%s.%s.svc.cluster.local" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
 dnsNames:
-  - {{ printf "%s.%s.svc.cluster.local" .cert.serviceName .namespace }}
-{{- if not (eq (toString (.cert.includeShortDnsName | default true)) "false") }}
-  - {{ printf "%s.%s" .cert.serviceName .namespace }}
+{{- if .cert.dnsNames }}
+{{- range .cert.dnsNames }}
+  - {{ . }}
+{{- end }}
+{{- else }}
+  - {{ printf "%s.%s.svc.cluster.local" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
+{{- if ne (toString .cert.includeShortDnsName) "false" }}
+  - {{ printf "%s.%s" (.cert.serviceName | default .svcName) (.cert.identityNamespace | default .namespace) }}
 {{- end }}
 {{- range .cert.extraDnsNames | default list }}
   - {{ . }}
 {{- end }}
+{{- end }}
 uris:
-  - {{ printf "spiffe://%s/%s/sa/%s" .global.spiffe.trustDomain .namespace .cert.serviceName }}
+{{- if .cert.uris }}
+{{- range .cert.uris }}
+  - {{ . }}
+{{- end }}
+{{- else }}
+  - {{ printf "spiffe://%s/%s/sa/%s" .global.spiffe.trustDomain (.cert.identityNamespace | default .namespace) (.cert.spiffeServiceName | default .cert.serviceName | default .svcName) }}
 {{- range .cert.extraUris | default list }}
   - {{ . }}
+{{- end }}
 {{- end }}
 privateKey:
   algorithm: {{ .global.certificate.privateKey.algorithm }}

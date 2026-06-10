@@ -12,11 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -157,14 +158,6 @@ func TestInstanceType_FromProto(t *testing.T) {
 	})
 }
 
-func TestInstanceType_ToDeletionRequestProto(t *testing.T) {
-	id := uuid.New()
-	it := &InstanceType{ID: id}
-	req := it.ToDeletionRequestProto()
-	require.NotNil(t, req)
-	assert.Equal(t, id.String(), req.Id)
-}
-
 func TestLabels_ToProto(t *testing.T) {
 	t.Run("nil map yields nil slice", func(t *testing.T) {
 		var l Labels
@@ -217,7 +210,7 @@ func testInstanceTypeBuildInfrastructureProvider(t *testing.T, dbSession *db.Ses
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -229,13 +222,13 @@ func testInstanceTypeBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastr
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -247,10 +240,10 @@ func testInstanceTypeBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastr
 func testInstanceTypeBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -358,7 +351,7 @@ func TestInstanceTypeSQLDAO_Create(t *testing.T) {
 					id = tc.knownID
 				}
 				it, err := itsd.Create(
-					ctx, nil, InstanceTypeCreateInput{ID: id, Name: i.Name, DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
+					ctx, nil, InstanceTypeCreateInput{ID: id, Name: i.Name, DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
 						InfrastructureProviderID: i.InfrastructureProviderID, InfinityResourceTypeID: i.InfinityResourceTypeID, SiteID: i.SiteID, Labels: i.Labels, Status: InstanceTypeStatusPending, CreatedBy: i.CreatedBy},
 				)
 				assert.Equal(t, tc.expectError, err != nil)
@@ -394,13 +387,13 @@ func TestInstanceTypeSQLDAO_GetByID(t *testing.T) {
 	user := testInstanceTypeBuildUser(t, dbSession, "testUser")
 	itsd := NewInstanceTypeDAO(dbSession)
 	it, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site.ID, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site.ID, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	it2, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test2", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: nil, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test2", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: nil, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 
@@ -515,7 +508,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 	at1, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test-t1",
-		Description:              db.GetStrPtr("Test Allocation 1 for Tenant 1"),
+		Description:              cutil.GetPtr("Test Allocation 1 for Tenant 1"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant1.ID,
 		SiteID:                   site1.ID,
@@ -528,7 +521,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 	at2, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test-t2",
-		Description:              db.GetStrPtr("Test Allocation 2 for Tenant 1"),
+		Description:              cutil.GetPtr("Test Allocation 2 for Tenant 1"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant1.ID,
 		SiteID:                   site2.ID,
@@ -546,8 +539,8 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	for i := 0; i < totalCount; i++ {
 		if i%2 == 1 {
 			it, err := itsd.Create(
-				ctx, nil, InstanceTypeCreateInput{Name: fmt.Sprintf("test-%v", i), DisplayName: db.GetStrPtr(fmt.Sprintf("test-displayname-%v", i)), Description: db.GetStrPtr("Test Description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-					InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site1.ID, Labels: map[string]string{fmt.Sprintf("label-key-%v", i): fmt.Sprintf("label-value-%v", i)}, Status: InstanceTypeStatusPending, CreatedBy: user.ID})
+				ctx, nil, InstanceTypeCreateInput{Name: fmt.Sprintf("test-%v", i), DisplayName: cutil.GetPtr(fmt.Sprintf("test-displayname-%v", i)), Description: cutil.GetPtr("Test Description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+					InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site1.ID, Labels: map[string]string{fmt.Sprintf("label-key-%v", i): fmt.Sprintf("label-value-%v", i)}, Status: InstanceTypeStatusPending, CreatedBy: user.ID})
 			assert.NoError(t, err)
 
 			// Create a single allocation with a constraint > 0
@@ -564,8 +557,8 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 
 		} else {
 			it, err := itsd.Create(
-				ctx, nil, InstanceTypeCreateInput{Name: fmt.Sprintf("test-%v", i), DisplayName: db.GetStrPtr(fmt.Sprintf("test-displayname-%v", i)), Description: db.GetStrPtr("Test Description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-					InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site2.ID, Labels: map[string]string{fmt.Sprintf("label-key-%v", i): fmt.Sprintf("label-value-%v", i)}, Status: InstanceTypeStatusPending, CreatedBy: user.ID})
+				ctx, nil, InstanceTypeCreateInput{Name: fmt.Sprintf("test-%v", i), DisplayName: cutil.GetPtr(fmt.Sprintf("test-displayname-%v", i)), Description: cutil.GetPtr("Test Description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+					InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site2.ID, Labels: map[string]string{fmt.Sprintf("label-key-%v", i): fmt.Sprintf("label-value-%v", i)}, Status: InstanceTypeStatusPending, CreatedBy: user.ID})
 			assert.NoError(t, err)
 			site2its = append(site2its, *it)
 		}
@@ -596,7 +589,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 	}{
 		{
 			desc:               "GetAll with name filter returns objects",
-			itName:             db.GetStrPtr("test-1"),
+			itName:             cutil.GetPtr("test-1"),
 			ipID:               nil,
 			siteID:             nil,
 			expectedCount:      1,
@@ -605,7 +598,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with display name filter returns objects",
-			itDisplayName: db.GetStrPtr("test-displayname-1"),
+			itDisplayName: cutil.GetPtr("test-displayname-1"),
 			ipID:          nil,
 			siteID:        nil,
 			expectedCount: 1,
@@ -613,8 +606,8 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with name and display name filter returns objects",
-			itName:        db.GetStrPtr("test-1"),
-			itDisplayName: db.GetStrPtr("test-displayname-1"),
+			itName:        cutil.GetPtr("test-1"),
+			itDisplayName: cutil.GetPtr("test-displayname-1"),
 			ipID:          nil,
 			siteID:        nil,
 			expectedCount: 1,
@@ -632,7 +625,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with non-existent name filter returns no objects",
 			ipID:          nil,
-			itName:        db.GetStrPtr("notfound"),
+			itName:        cutil.GetPtr("notfound"),
 			siteID:        nil,
 			expectedCount: 0,
 			expectedError: false,
@@ -640,7 +633,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with infrastructure provider filters returns objects",
 			itName:        nil,
-			ipID:          db.GetUUIDPtr(ip.ID),
+			ipID:          cutil.GetPtr(ip.ID),
 			siteID:        nil,
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
@@ -649,7 +642,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with invalid infrastructure provider filters returns no objects",
 			itName:        nil,
-			ipID:          db.GetUUIDPtr(uuid.New()),
+			ipID:          cutil.GetPtr(uuid.New()),
 			siteID:        nil,
 			expectedCount: 0,
 			expectedError: false,
@@ -672,7 +665,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with name and site filters returns objects",
-			itName:        db.GetStrPtr("test-1"),
+			itName:        cutil.GetPtr("test-1"),
 			ipID:          nil,
 			siteID:        &site1.ID,
 			expectedCount: 1,
@@ -680,7 +673,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with name and unassociated site filters returns no objects",
-			itName:        db.GetStrPtr("test-1"),
+			itName:        cutil.GetPtr("test-1"),
 			ipID:          nil,
 			siteID:        &site3.ID,
 			expectedCount: 0,
@@ -688,15 +681,15 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with provider, name and site filters returns objects",
-			itName:        db.GetStrPtr("test-1"),
-			ipID:          db.GetUUIDPtr(ip.ID),
+			itName:        cutil.GetPtr("test-1"),
+			ipID:          cutil.GetPtr(ip.ID),
 			siteID:        &site1.ID,
 			expectedCount: 1,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with provider, name and unassociated site filters returns no objects",
-			itName:        db.GetStrPtr("test-1"),
+			itName:        cutil.GetPtr("test-1"),
 			ipID:          nil,
 			siteID:        &site3.ID,
 			expectedCount: 0,
@@ -711,10 +704,10 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with limit returns objects",
 			itName:        nil,
-			ipID:          db.GetUUIDPtr(ip.ID),
+			ipID:          cutil.GetPtr(ip.ID),
 			siteID:        nil,
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -724,9 +717,9 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        &site1.ID,
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -740,7 +733,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &site2its[4], // 5th entry is "test-8" and would appear first in descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -748,7 +741,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr("test-"),
+			searchQuery:   cutil.GetPtr("test-"),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -757,7 +750,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr("cutting-"),
+			searchQuery:   cutil.GetPtr("cutting-"),
 			expectedCount: 0,
 			expectedError: false,
 		},
@@ -766,7 +759,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr("Test Description"),
+			searchQuery:   cutil.GetPtr("Test Description"),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -775,7 +768,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr("Test Instance Type"),
+			searchQuery:   cutil.GetPtr("Test Instance Type"),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -784,7 +777,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(InstanceTypeStatusPending),
+			searchQuery:   cutil.GetPtr(InstanceTypeStatusPending),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -793,7 +786,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(InstanceTypeStatusPending),
+			searchQuery:   cutil.GetPtr(InstanceTypeStatusPending),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -802,7 +795,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(InstanceTypeStatusError),
+			searchQuery:   cutil.GetPtr(InstanceTypeStatusError),
 			expectedCount: 0,
 			expectedError: false,
 		},
@@ -811,7 +804,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
 		},
@@ -820,7 +813,7 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr("label-key-10"),
+			searchQuery:   cutil.GetPtr("label-key-10"),
 			expectedCount: 1,
 			expectedError: false,
 		},
@@ -829,10 +822,10 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			tenantIDs:     []uuid.UUID{},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
@@ -840,10 +833,10 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			tenantIDs:     []uuid.UUID{uuid.New()},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 
@@ -852,10 +845,10 @@ func TestInstanceTypeSQLDAO_GetAll(t *testing.T) {
 			itName:        nil,
 			ipID:          nil,
 			siteID:        nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			tenantIDs:     []uuid.UUID{tenant1.ID},
 			expectedCount: 1,
-			expectedTotal: db.GetIntPtr(1),
+			expectedTotal: cutil.GetPtr(1),
 			expectedError: false,
 		},
 	}
@@ -909,8 +902,8 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 	itsd := NewInstanceTypeDAO(dbSession)
 	infinityResourceTypeID := uuid.New()
 	it1, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeID), SiteID: &site.ID, Labels: map[string]string{"test1": "test1"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeID), SiteID: &site.ID, Labels: map[string]string{"test1": "test1"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, it1)
@@ -943,46 +936,46 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 	}{
 		{
 			desc:                           "can update name",
-			paramName:                      db.GetStrPtr("updatedName"),
+			paramName:                      cutil.GetPtr("updatedName"),
 			paramDisplayName:               nil,
 			paramDescription:               nil,
 			paramSiteID:                    nil,
 			paramStatus:                    nil,
-			expectedName:                   db.GetStrPtr("updatedName"),
-			expectedDisplayName:            db.GetStrPtr("displayName"),
-			expectedDescription:            db.GetStrPtr("description"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeID),
+			expectedName:                   cutil.GetPtr("updatedName"),
+			expectedDisplayName:            cutil.GetPtr("displayName"),
+			expectedDescription:            cutil.GetPtr("description"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeID),
 			expectedSiteID:                 &site.ID,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 			verifyChildSpanner:             true,
 		},
 		{
 			desc:                           "can update display_name",
 			paramName:                      nil,
-			paramDisplayName:               db.GetStrPtr("updatedDisplayName"),
+			paramDisplayName:               cutil.GetPtr("updatedDisplayName"),
 			paramDescription:               nil,
 			paramSiteID:                    nil,
 			paramStatus:                    nil,
-			expectedName:                   db.GetStrPtr("updatedName"),
-			expectedDisplayName:            db.GetStrPtr("updatedDisplayName"),
-			expectedDescription:            db.GetStrPtr("description"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeID),
+			expectedName:                   cutil.GetPtr("updatedName"),
+			expectedDisplayName:            cutil.GetPtr("updatedDisplayName"),
+			expectedDescription:            cutil.GetPtr("description"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeID),
 			expectedSiteID:                 &site.ID,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 		},
 		{
 			desc:                           "can update description",
 			paramName:                      nil,
 			paramDisplayName:               nil,
-			paramDescription:               db.GetStrPtr("updatedDescription"),
+			paramDescription:               cutil.GetPtr("updatedDescription"),
 			paramSiteID:                    nil,
 			paramStatus:                    nil,
-			expectedName:                   db.GetStrPtr("updatedName"),
-			expectedDisplayName:            db.GetStrPtr("updatedDisplayName"),
-			expectedDescription:            db.GetStrPtr("updatedDescription"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeID),
+			expectedName:                   cutil.GetPtr("updatedName"),
+			expectedDisplayName:            cutil.GetPtr("updatedDisplayName"),
+			expectedDescription:            cutil.GetPtr("updatedDescription"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeID),
 			expectedSiteID:                 &site.ID,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 		},
 		{
 			desc:                           "can update site_id",
@@ -991,12 +984,12 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 			paramDescription:               nil,
 			paramSiteID:                    &site2.ID,
 			paramStatus:                    nil,
-			expectedName:                   db.GetStrPtr("updatedName"),
-			expectedDisplayName:            db.GetStrPtr("updatedDisplayName"),
-			expectedDescription:            db.GetStrPtr("updatedDescription"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeID),
+			expectedName:                   cutil.GetPtr("updatedName"),
+			expectedDisplayName:            cutil.GetPtr("updatedDisplayName"),
+			expectedDescription:            cutil.GetPtr("updatedDescription"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeID),
 			expectedSiteID:                 &site2.ID,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 		},
 		{
 			desc:                "can update labels",
@@ -1006,12 +999,12 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 			paramSiteID:         nil,
 			paramStatus:         nil,
 			paramLabels:         map[string]string{"test2": "test2"},
-			expectedName:        db.GetStrPtr("updatedName"),
-			expectedDisplayName: db.GetStrPtr("updatedDisplayName"),
-			expectedDescription: db.GetStrPtr("updatedDescription"),
+			expectedName:        cutil.GetPtr("updatedName"),
+			expectedDisplayName: cutil.GetPtr("updatedDisplayName"),
+			expectedDescription: cutil.GetPtr("updatedDescription"),
 			expectedSiteID:      &site2.ID,
 			expectedLabels:      Labels{"test2": "test2"},
-			expectedStatus:      db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:      cutil.GetPtr(InstanceTypeStatusPending),
 		},
 		{
 			desc:                "can update status",
@@ -1019,29 +1012,29 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 			paramDisplayName:    nil,
 			paramDescription:    nil,
 			paramSiteID:         nil,
-			paramStatus:         db.GetStrPtr(InstanceTypeStatusReady),
-			expectedName:        db.GetStrPtr("updatedName"),
-			expectedDisplayName: db.GetStrPtr("updatedDisplayName"),
-			expectedDescription: db.GetStrPtr("updatedDescription"),
+			paramStatus:         cutil.GetPtr(InstanceTypeStatusReady),
+			expectedName:        cutil.GetPtr("updatedName"),
+			expectedDisplayName: cutil.GetPtr("updatedDisplayName"),
+			expectedDescription: cutil.GetPtr("updatedDescription"),
 			expectedSiteID:      &site2.ID,
-			expectedStatus:      db.GetStrPtr(InstanceTypeStatusReady),
+			expectedStatus:      cutil.GetPtr(InstanceTypeStatusReady),
 		},
 		{
 			desc:                           "can multiple fields at once",
-			paramName:                      db.GetStrPtr("name"),
-			paramDisplayName:               db.GetStrPtr("displayName"),
-			paramDescription:               db.GetStrPtr("description"),
-			paramInfinityResourceTypeID:    db.GetUUIDPtr(infinityResourceTypeIDUpdated),
+			paramName:                      cutil.GetPtr("name"),
+			paramDisplayName:               cutil.GetPtr("displayName"),
+			paramDescription:               cutil.GetPtr("description"),
+			paramInfinityResourceTypeID:    cutil.GetPtr(infinityResourceTypeIDUpdated),
 			paramSiteID:                    &site.ID,
-			paramStatus:                    db.GetStrPtr(InstanceTypeStatusPending),
+			paramStatus:                    cutil.GetPtr(InstanceTypeStatusPending),
 			paramVersion:                   &version,
-			expectedName:                   db.GetStrPtr("name"),
-			expectedDisplayName:            db.GetStrPtr("displayName"),
-			expectedDescription:            db.GetStrPtr("description"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeIDUpdated),
+			expectedName:                   cutil.GetPtr("name"),
+			expectedDisplayName:            cutil.GetPtr("displayName"),
+			expectedDescription:            cutil.GetPtr("description"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeIDUpdated),
 			expectedSiteID:                 &site.ID,
 			expectedVersion:                &version,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 		},
 		{
 			desc:                           "no fields are updated",
@@ -1051,12 +1044,12 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 			paramSiteID:                    nil,
 			paramInfinityResourceTypeID:    nil,
 			paramStatus:                    nil,
-			expectedName:                   db.GetStrPtr("name"),
-			expectedDisplayName:            db.GetStrPtr("displayName"),
-			expectedDescription:            db.GetStrPtr("description"),
-			expectedInfinityResourceTypeID: db.GetUUIDPtr(infinityResourceTypeIDUpdated),
+			expectedName:                   cutil.GetPtr("name"),
+			expectedDisplayName:            cutil.GetPtr("displayName"),
+			expectedDescription:            cutil.GetPtr("description"),
+			expectedInfinityResourceTypeID: cutil.GetPtr(infinityResourceTypeIDUpdated),
 			expectedSiteID:                 &site.ID,
-			expectedStatus:                 db.GetStrPtr(InstanceTypeStatusPending),
+			expectedStatus:                 cutil.GetPtr(InstanceTypeStatusPending),
 		},
 	}
 	for _, tc := range tests {
@@ -1113,20 +1106,20 @@ func TestInstanceTypeSQLDAO_Clear(t *testing.T) {
 	user := testInstanceTypeBuildUser(t, dbSession, "testUser")
 	itsd := NewInstanceTypeDAO(dbSession)
 	it1, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test1": "test1"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test1": "test1"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, it1)
 	it2, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test2", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test2": "test2"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test2", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test2": "test2"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, it2)
 	it3, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test3", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test3": "test3"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test3", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site.ID, Labels: map[string]string{"test3": "test3"}, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, it3)
@@ -1156,7 +1149,7 @@ func TestInstanceTypeSQLDAO_Clear(t *testing.T) {
 			paramSiteID:         false,
 			expectedUpdate:      true,
 			expectedDisplayName: nil,
-			expectedDescription: db.GetStrPtr("description"),
+			expectedDescription: cutil.GetPtr("description"),
 			expectedSiteID:      &site.ID,
 			verifyChildSpanner:  true,
 		},
@@ -1221,8 +1214,8 @@ func TestInstanceTypeSQLDAO_Clear(t *testing.T) {
 			paramDisplayName:    false,
 			paramDescription:    false,
 			paramSiteID:         false,
-			expectedDisplayName: db.GetStrPtr("displayName"),
-			expectedDescription: db.GetStrPtr("description"),
+			expectedDisplayName: cutil.GetPtr("displayName"),
+			expectedDescription: cutil.GetPtr("description"),
 			expectedSiteID:      &site.ID,
 		},
 	}
@@ -1271,8 +1264,8 @@ func TestInstanceTypeSQLDAO_DeleteByID(t *testing.T) {
 	user := testInstanceTypeBuildUser(t, dbSession, "testUser")
 	itsd := NewInstanceTypeDAO(dbSession)
 	it1, err := itsd.Create(
-		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: db.GetStrPtr("displayName"), Description: db.GetStrPtr("description"), ControllerMachineType: db.GetStrPtr("controllerMachineType"),
-			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: db.GetUUIDPtr(uuid.New()), SiteID: &site.ID, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
+		ctx, nil, InstanceTypeCreateInput{Name: "test1", DisplayName: cutil.GetPtr("displayName"), Description: cutil.GetPtr("description"), ControllerMachineType: cutil.GetPtr("controllerMachineType"),
+			InfrastructureProviderID: ip.ID, InfinityResourceTypeID: cutil.GetPtr(uuid.New()), SiteID: &site.ID, Status: InstanceTypeStatusPending, CreatedBy: user.ID},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, it1)

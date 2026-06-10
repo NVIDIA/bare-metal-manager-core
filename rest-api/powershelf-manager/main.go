@@ -4,8 +4,8 @@
 package main
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/cmd"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/common/log"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/cmd"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/log"
 )
 
 func main() {

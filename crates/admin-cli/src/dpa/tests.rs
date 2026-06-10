@@ -24,6 +24,7 @@
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
 use clap::{CommandFactory, Parser};
+use rpc::forge::DpaInterfaceType;
 
 use super::*;
 
@@ -67,6 +68,7 @@ fn parse_ensure_args() {
         "00:11:22:33:44:55",
         "BlueField3",
         "01:00.0",
+        "svpc",
     ])
     .expect("should parse ensure");
 
@@ -79,6 +81,7 @@ fn parse_ensure_args() {
             assert_eq!(args.mac_addr, "00:11:22:33:44:55");
             assert_eq!(args.device_type, "BlueField3");
             assert_eq!(args.pci_name, "01:00.0");
+            assert_eq!(args.interface_type, DpaInterfaceType::Svpc);
         }
         other => panic!("expected Ensure, got {other:?}"),
     }

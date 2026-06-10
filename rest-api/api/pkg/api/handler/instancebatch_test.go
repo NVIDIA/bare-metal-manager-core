@@ -12,19 +12,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	tmocks "go.temporal.io/sdk/mocks"
 )
@@ -40,7 +43,7 @@ func testBatchInstanceInitDB(t *testing.T) *cdb.Session {
 
 // testBatchBuildMachineWithNVLinkDomain creates a machine with NVLink domain ID in Metadata
 func testBatchBuildMachineWithNVLinkDomain(t *testing.T, dbSession *cdb.Session, ip uuid.UUID, site uuid.UUID, nvlinkDomainID string) *cdbm.Machine {
-	mc := testInstanceBuildMachine(t, dbSession, ip, site, cdb.GetBoolPtr(false), nil)
+	mc := testInstanceBuildMachine(t, dbSession, ip, site, cutil.GetPtr(false), nil)
 	mc.Metadata = &cdbm.SiteControllerMachine{
 		Machine: &cwssaws.Machine{
 			NvlinkInfo: &cwssaws.MachineNVLinkInfo{
@@ -99,8 +102,8 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, ist1)
 
 	// Add InfiniBand capability to Instance Type 1 for InfiniBand interface tests
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(3), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
-	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(3), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
 
 	// Allocation constraint for ist1 with quota of 15
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 15, ipu)
@@ -122,29 +125,29 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, osNoSiteAssoc)
 
 	// VPC and Subnet
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
-	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	subnet1 := testInstanceBuildSubnet(t, dbSession, "test-subnet-1", tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 	ipbVpcPrefix := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-vpcprefix", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.0.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-	vpcFNN := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st1, tn1, vpcFNN.ID, &ipbVpcPrefix.ID, cdb.GetStrPtr("10.0.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcFNN := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpcPrefix1 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", st1, tn1, vpcFNN.ID, &ipbVpcPrefix.ID, cutil.GetPtr("10.0.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	ipbVpcPrefixSecondary := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-vpcprefix-secondary", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.1.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-	vpcFNNSecondary := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-2", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-	vpcPrefixSecondary := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-secondary", st1, tn1, vpcFNNSecondary.ID, &ipbVpcPrefixSecondary.ID, cdb.GetStrPtr("10.1.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcFNNSecondary := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-2", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpcPrefixSecondary := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-secondary", st1, tn1, vpcFNNSecondary.ID, &ipbVpcPrefixSecondary.ID, cutil.GetPtr("10.1.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	ipbVpcPrefixSite2 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-vpcprefix-site2", st2, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.2.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
-	vpcFNNSite2 := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-site-2", ip, tn1, st2, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
-	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpcFNNSite2.ID, &ipbVpcPrefixSite2.ID, cdb.GetStrPtr("10.2.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	vpcFNNSite2 := testInstanceBuildVPC(t, dbSession, "test-vpc-fnn-site-2", ip, tn1, st2, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpcFNNSite2.ID, &ipbVpcPrefixSite2.ID, cutil.GetPtr("10.2.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
 
 	// InfiniBand Partition for testing InfiniBand Interfaces
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cutil.GetPtr(uuid.New()), cutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	// NVLink Logical Partition for testing NVLink Interfaces
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
 	// Add NVLink GPU capability to Instance Type 1 for NVLink interface tests
-	mcNvlType := common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), (*cdbm.MachineCapabilityDeviceType)(cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink)), nil)
+	mcNvlType := common.TestBuildMachineCapability(t, dbSession, nil, &ist1.ID, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cutil.GetPtr("NVIDIA"), cutil.GetPtr(4), (*cdbm.MachineCapabilityDeviceType)(cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink)), nil)
 	assert.NotNil(t, mcNvlType)
 
 	// DPU Extension Service for testing DPU Extension Service Deployments
@@ -158,9 +161,9 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NoError(t, err)
 
 	// SSHKeyGroup for testing SSH Key Group IDs
-	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cdb.GetStrPtr("test"), tn1.ID, cdb.GetStrPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	skg1 := testBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test"), tn1.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
 	assert.NotNil(t, skg1)
-	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cdb.GetStrPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	skgsa1 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, st1.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
 	assert.NotNil(t, skgsa1)
 
 	// Instance Type 2 - For quota test with limit of 5
@@ -199,15 +202,15 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 		mc := testBatchBuildMachineWithNVLinkDomain(t, dbSession, ip.ID, stNotReady.ID, "nvlink-domain-1")
 		testInstanceBuildMachineInstanceType(t, dbSession, mc, ist4)
 	}
-	vpcNotReadySite := testInstanceBuildVPC(t, dbSession, "test-vpc-not-ready-site", ip, tn1, stNotReady, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
-	subnetNotReadySite := testInstanceBuildSubnet(t, dbSession, "test-subnet-not-ready-site", tn1, vpcNotReadySite, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	vpcNotReadySite := testInstanceBuildVPC(t, dbSession, "test-vpc-not-ready-site", ip, tn1, stNotReady, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	subnetNotReadySite := testInstanceBuildSubnet(t, dbSession, "test-subnet-not-ready-site", tn1, vpcNotReadySite, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 
 	// VPC not ready (for VPC status check test)
-	vpcNotReady := testInstanceBuildVPC(t, dbSession, "test-vpc-not-ready", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
-	subnetVpcNotReady := testInstanceBuildSubnet(t, dbSession, "test-subnet-vpc-not-ready", tn1, vpcNotReady, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+	vpcNotReady := testInstanceBuildVPC(t, dbSession, "test-vpc-not-ready", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	subnetVpcNotReady := testInstanceBuildSubnet(t, dbSession, "test-subnet-vpc-not-ready", tn1, vpcNotReady, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 
 	// Subnet not ready (for Subnet status check test)
-	subnetNotReady := testInstanceBuildSubnet(t, dbSession, "test-subnet-not-ready", tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusPending, tnu1)
+	subnetNotReady := testInstanceBuildSubnet(t, dbSession, "test-subnet-not-ready", tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusPending, tnu1)
 
 	// DPU Extension Service on different Site (for DPU site mismatch test)
 	des2 := common.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-2", model.DpuExtensionServiceTypeKubernetesPod, tn1, stNotReady, "V1-T1761856992374052", cdbm.DpuExtensionServiceStatusReady, tnu1)
@@ -251,7 +254,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 		// Note: count parameter is kept for backward compatibility but not used
 		// since interfaces are now shared across all instances
 		return []model.APIInterfaceCreateOrUpdateRequest{
-			{SubnetID: cdb.GetStrPtr(subnetID)},
+			{SubnetID: cutil.GetPtr(subnetID)},
 		}
 	}
 
@@ -294,7 +297,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -386,7 +389,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -409,11 +412,11 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					TenantID:       tn1.ID.String(),
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpcFNN.ID.String(),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefix1.ID.String()),
-							IPAddress:   cdb.GetStrPtr("10.0.0.11"),
+							VpcPrefixID: cutil.GetPtr(vpcPrefix1.ID.String()),
+							IPAddress:   cutil.GetPtr("10.0.0.11"),
 						},
 					},
 				},
@@ -440,19 +443,22 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:  ist1.ID.String(),
 					VpcID:           vpcFNN.ID.String(),
 					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-					IpxeScript:      cdb.GetStrPtr("test script"),
+					IpxeScript:      cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
+							InlineRoutingProfile: &model.APIInterfaceInlineRoutingProfile{
+								AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+							},
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondary.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixSecondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(1),
 						},
 					},
 				},
@@ -479,13 +485,13 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:  ist1.ID.String(),
 					VpcID:           vpcFNN.ID.String(),
 					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-					IpxeScript:      cdb.GetStrPtr("test script"),
+					IpxeScript:      cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
 						},
 					},
 				},
@@ -511,19 +517,19 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					TenantID:       tn1.ID.String(),
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpcFNN.ID.String(),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondary.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixSecondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(1),
 						},
 					},
 				},
@@ -550,13 +556,13 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:  ist1.ID.String(),
 					VpcID:           vpcFNN.ID.String(),
 					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-					IpxeScript:      cdb.GetStrPtr("test script"),
+					IpxeScript:      cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSecondary.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixSecondary.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
 						},
 					},
 				},
@@ -583,10 +589,10 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:  ist1.ID.String(),
 					VpcID:           vpcFNN.ID.String(),
 					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-					IpxeScript:      cdb.GetStrPtr("test script"),
+					IpxeScript:      cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID: cdb.GetStrPtr(vpcPrefixSecondary.ID.String()),
+							VpcPrefixID: cutil.GetPtr(vpcPrefixSecondary.ID.String()),
 							IsPhysical:  true,
 						},
 					},
@@ -613,13 +619,13 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					TenantID:       tn1.ID.String(),
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpcFNN.ID.String(),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
 						},
 					},
 				},
@@ -646,19 +652,19 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:  ist1.ID.String(),
 					VpcID:           vpcFNN.ID.String(),
 					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-					IpxeScript:      cdb.GetStrPtr("test script"),
+					IpxeScript:      cutil.GetPtr("test script"),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefix1.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefix1.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(0),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
 						},
 						{
-							VpcPrefixID:    cdb.GetStrPtr(vpcPrefixSite2.ID.String()),
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixSite2.ID.String()),
 							IsPhysical:     true,
-							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
-							DeviceInstance: cdb.GetIntPtr(1),
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(1),
 						},
 					},
 				},
@@ -685,7 +691,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist2.ID.String(), // ist2 has quota limit of 5
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -709,7 +715,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist3.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(5, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -733,7 +739,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -757,7 +763,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: uuid.New().String(), // Non-existent instance type
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -781,7 +787,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          uuid.New().String(), // Non-existent VPC
 					Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -805,7 +811,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist4.ID.String(), // ist4 is on stNotReady
 					VpcID:          vpcNotReadySite.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnetNotReadySite.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -829,7 +835,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpcNotReady.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnetVpcNotReady.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -853,7 +859,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(3, subnetNotReady.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -878,7 +884,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					SSHKeyGroupIDs: []string{skg1.ID.String()},
 				},
 				reqOrg:   tnOrg,
@@ -904,7 +910,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
 							DpuExtensionServiceID: des1.ID.String(),
@@ -935,7 +941,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist2.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
 							DpuExtensionServiceID: des1.ID.String(),
@@ -973,7 +979,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
 							DpuExtensionServiceID: des1.ID.String(),
@@ -1009,7 +1015,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					NVLinkInterfaces: []model.APINVLinkInterfaceCreateOrUpdateRequest{
 						{
 							DeviceInstance:           0,
@@ -1052,12 +1058,12 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					InfiniBandInterfaces: []model.APIInfiniBandInterfaceCreateOrUpdateRequest{
 						{
 							InfiniBandPartitionID: ibp1.ID.String(),
 							Device:                "MT28908 Family [ConnectX-6]",
-							Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+							Vendor:                cutil.GetPtr("Mellanox Technologies"),
 							DeviceInstance:        0,
 							IsPhysical:            true,
 						},
@@ -1086,7 +1092,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
 							DpuExtensionServiceID: uuid.New().String(),
@@ -1117,7 +1123,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
 					Interfaces:     createInterfacesForCount(2, subnet1.ID.String()),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					DpuExtensionServiceDeployments: []model.APIDpuExtensionServiceDeploymentRequest{
 						{
 							DpuExtensionServiceID: des2.ID.String(),
@@ -1149,7 +1155,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:    ist1.ID.String(),
 					VpcID:             vpc1.ID.String(),
 					Interfaces:        createInterfacesForCount(2, subnet1.ID.String()),
-					OperatingSystemID: cdb.GetStrPtr(os1.ID.String()),
+					OperatingSystemID: cutil.GetPtr(os1.ID.String()),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -1174,7 +1180,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:    ist1.ID.String(),
 					VpcID:             vpc1.ID.String(),
 					Interfaces:        createInterfacesForCount(2, subnet1.ID.String()),
-					OperatingSystemID: cdb.GetStrPtr("not-a-valid-uuid"),
+					OperatingSystemID: cutil.GetPtr("not-a-valid-uuid"),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -1199,7 +1205,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:    ist1.ID.String(),
 					VpcID:             vpc1.ID.String(),
 					Interfaces:        createInterfacesForCount(2, subnet1.ID.String()),
-					OperatingSystemID: cdb.GetStrPtr(osNoSiteAssoc.ID.String()),
+					OperatingSystemID: cutil.GetPtr(osNoSiteAssoc.ID.String()),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -1224,7 +1230,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					InstanceTypeID:    ist1.ID.String(),
 					VpcID:             vpc1.ID.String(),
 					Interfaces:        createInterfacesForCount(2, subnet1.ID.String()),
-					OperatingSystemID: cdb.GetStrPtr(osOtherTenant.ID.String()),
+					OperatingSystemID: cutil.GetPtr(osOtherTenant.ID.String()),
 				},
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
@@ -1252,7 +1258,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					TenantID:       tn1.ID.String(),
 					InstanceTypeID: ist1.ID.String(),
 					VpcID:          vpc1.ID.String(),
-					IpxeScript:     cdb.GetStrPtr("test script"),
+					IpxeScript:     cutil.GetPtr("test script"),
 					AutoNetwork:    true,
 				},
 				reqOrg:   tnOrg,
@@ -1302,6 +1308,14 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					assert.Nil(t, jsonErr)
 					assert.Equal(t, tt.args.reqData.Count, len(response), "Expected %d instances, got %d", tt.args.reqData.Count, len(response))
 
+					hasInlineRoutingProfile := false
+					for _, reqIfc := range tt.args.reqData.Interfaces {
+						if reqIfc.InlineRoutingProfile != nil {
+							hasInlineRoutingProfile = true
+							break
+						}
+					}
+
 					// Verify instance names follow the pattern: namePrefix-randomSuffix-index
 					for i, inst := range response {
 						expectedPrefix := tt.args.reqData.NamePrefix + "-"
@@ -1312,6 +1326,51 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 							assert.ElementsMatch(t, tt.expectedSecondaryVpcIDs, inst.SecondaryVpcIDs)
 						} else {
 							assert.Empty(t, inst.SecondaryVpcIDs)
+						}
+
+						if hasInlineRoutingProfile {
+							require.Len(t, inst.Interfaces, len(tt.args.reqData.Interfaces))
+							for j, reqIfc := range tt.args.reqData.Interfaces {
+								if reqIfc.InlineRoutingProfile != nil {
+									require.NotNil(t, inst.Interfaces[j].InlineRoutingProfile)
+									assert.Equal(t, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes, inst.Interfaces[j].InlineRoutingProfile.AllowedAnycastPrefixes)
+								}
+							}
+
+							ifcDAO := cdbm.NewInterfaceDAO(dbSession)
+							dbIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
+								cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{uuid.MustParse(inst.ID)}},
+								cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}},
+								nil)
+							require.NoError(t, ierr)
+							require.Len(t, dbIfcs, len(tt.args.reqData.Interfaces))
+							for j, reqIfc := range tt.args.reqData.Interfaces {
+								if reqIfc.InlineRoutingProfile != nil {
+									require.NotNil(t, dbIfcs[j].InlineRoutingProfile)
+									assert.Equal(t, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes, dbIfcs[j].InlineRoutingProfile.AllowedAnycastPrefixes)
+								}
+							}
+						}
+					}
+
+					if hasInlineRoutingProfile {
+						var batchReq *cwssaws.BatchInstanceAllocationRequest
+						for i := len(tsc.Calls) - 1; i >= 0; i-- {
+							call := tsc.Calls[i]
+							if call.Method == "ExecuteWorkflow" && len(call.Arguments) > 3 && call.Arguments[2] == "CreateInstances" {
+								batchReq = call.Arguments[3].(*cwssaws.BatchInstanceAllocationRequest)
+								break
+							}
+						}
+						require.NotNil(t, batchReq)
+						require.Len(t, batchReq.InstanceRequests, len(response))
+						for _, instReq := range batchReq.InstanceRequests {
+							require.Len(t, instReq.Config.Network.Interfaces, len(tt.args.reqData.Interfaces))
+							for j, reqIfc := range tt.args.reqData.Interfaces {
+								if reqIfc.InlineRoutingProfile != nil {
+									assertInterfaceRoutingProfilePrefixes(t, instReq.Config.Network.Interfaces[j].RoutingProfile, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes)
+								}
+							}
 						}
 					}
 				}
@@ -1336,7 +1395,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 			InstanceTypeID: ist2.ID.String(),
 			VpcID:          vpc1.ID.String(),
 			Interfaces:     createInterfacesForCount(3, subnet1.ID.String()),
-			IpxeScript:     cdb.GetStrPtr("test script"),
+			IpxeScript:     cutil.GetPtr("test script"),
 		}
 
 		jsonData, _ := json.Marshal(reqData)

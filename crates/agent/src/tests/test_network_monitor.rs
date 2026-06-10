@@ -166,10 +166,12 @@ async fn handle_get_dpu_info_list(
             rpc::DpuInfo {
                 id: DPU_ID.to_string(),
                 loopback_ip: "172.20.0.119".to_string(),
+                observed_status: None,
             },
             rpc::DpuInfo {
                 id: DEST_DPU_ID.to_string(),
                 loopback_ip: "172.20.0.200".to_string(),
+                observed_status: None,
             },
         ],
     })

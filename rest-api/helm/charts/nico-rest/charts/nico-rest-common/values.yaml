@@ -32,3 +32,5 @@ certificate:
       - nico-rest-api
       - cloud-worker
       - site-worker
+    # -- SPIFFE/SAN URIs for the certificate. When empty, no uris are set.
+    uris: []

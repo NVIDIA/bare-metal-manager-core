@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/client"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/client"
 )
 
 var (
@@ -18,10 +18,9 @@ var (
 		Short: "Ingest rack components to component manager services",
 		Long: `Inject expected component configurations to their respective component manager services.
 
-Components are routed to the appropriate service based on type:
-  - Compute    → NICo AddExpectedMachine API
-  - NVSwitch  → NICo AddExpectedSwitch API
-  - PowerShelf → PSM RegisterPowershelves API
+Components are routed to the appropriate service based on type. Today every
+component type is dispatched through Core (NICo); Core's per-tray-type backends
+(NSM, PSM, RMS, ...) handle the underlying hardware registration.
 
 Specify racks by ID or name:
   --rack-ids   : Comma-separated list of rack UUIDs

@@ -6,29 +6,49 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/google/uuid"
-
+	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+)
+
+// InfiniBandPartitionStatus is the domain enum for the lifecycle state
+// of an `InfiniBandPartition`. Defining it as a named string lets us
+// hang the workflow-proto conversion on it as methods
+// (`(*s).FromProto`, `(s).Message`) per the "Named types own their
+// proto behavior" rule, and keeps the DB column comparable as a plain
+// string at the storage layer.
+type InfiniBandPartitionStatus string
+
+// InfiniBandPartitionStatus values. Stored as plain strings in the DB
+// column `infiniband_partition.status`.
+const (
+	// InfiniBandPartitionStatusPending indicates that the InfiniBandPartition request was received but not yet processed
+	InfiniBandPartitionStatusPending InfiniBandPartitionStatus = "Pending"
+	// InfiniBandPartitionStatusProvisioning indicates that the InfiniBandPartition is being provisioned
+	InfiniBandPartitionStatusProvisioning InfiniBandPartitionStatus = "Provisioning"
+	// InfiniBandPartitionStatusReady indicates that the InfiniBandPartition has been successfully provisioned on the Site
+	InfiniBandPartitionStatusReady InfiniBandPartitionStatus = "Ready"
+	// InfiniBandPartitionStatusConfiguring indicates that the InfiniBandPartition is being configuring
+	InfiniBandPartitionStatusConfiguring InfiniBandPartitionStatus = "Configuring"
+	// InfiniBandPartitionStatusError is the status of a InfiniBandPartition that is in error mode
+	InfiniBandPartitionStatusError InfiniBandPartitionStatus = "Error"
+	// InfiniBandPartitionStatusDeleting indicates that the InfiniBandPartition is being deleted
+	InfiniBandPartitionStatusDeleting InfiniBandPartitionStatus = "Deleting"
 )
 
 const (
-	// InfiniBandPartitionStatusPending indicates that the InfiniBandPartition request was received but not yet processed
-	InfiniBandPartitionStatusPending = "Pending"
-	// InfiniBandPartitionStatusProvisioning indicates that the InfiniBandPartition is being provisioned
-	InfiniBandPartitionStatusProvisioning = "Provisioning"
-	// InfiniBandPartitionStatusReady indicates that the InfiniBandPartition has been successfully provisioned on the Site
-	InfiniBandPartitionStatusReady = "Ready"
-	// InfiniBandPartitionStatusConfiguring indicates that the InfiniBandPartition is being configuring
-	InfiniBandPartitionStatusConfiguring = "Configuring"
-	// InfiniBandPartitionStatusError is the status of a InfiniBandPartition that is in error mode
-	InfiniBandPartitionStatusError = "Error"
-	// InfiniBandPartitionStatusDeleting indicates that the InfiniBandPartition is being deleted
-	InfiniBandPartitionStatusDeleting = "Deleting"
 	// InfiniBandPartitionRelationName is the relation name for the InfiniBandPartition model
 	InfiniBandPartitionRelationName = "InfiniBandPartition"
 
@@ -45,7 +65,7 @@ var (
 		TenantRelationName: true,
 	}
 	// InfiniBandPartitionStatusMap is a list of valid status for the InfiniBandPartition model
-	InfiniBandPartitionStatusMap = map[string]bool{
+	InfiniBandPartitionStatusMap = map[InfiniBandPartitionStatus]bool{
 		InfiniBandPartitionStatusPending:      true,
 		InfiniBandPartitionStatusProvisioning: true,
 		InfiniBandPartitionStatusReady:        true,
@@ -55,32 +75,202 @@ var (
 	}
 )
 
+// FromProto maps a workflow `TenantState` proto enum to the
+// corresponding DB-side `InfiniBandPartitionStatus`, mirroring the
+// "leaf-named-type owns its proto behavior" rule. An unknown proto
+// state leaves the receiver as the empty string so the caller can
+// detect "no DB-side equivalent" (the pre-typed helper returned
+// `(nil, nil)` for the same case).
+func (s *InfiniBandPartitionStatus) FromProto(state cwssaws.TenantState) {
+	switch state {
+	case cwssaws.TenantState_PROVISIONING:
+		*s = InfiniBandPartitionStatusProvisioning
+	case cwssaws.TenantState_CONFIGURING:
+		*s = InfiniBandPartitionStatusConfiguring
+	case cwssaws.TenantState_READY:
+		*s = InfiniBandPartitionStatusReady
+	case cwssaws.TenantState_FAILED:
+		*s = InfiniBandPartitionStatusError
+	default:
+		log.Warn().Str("TenantState", state.String()).Msg("unsupported InfiniBandPartitionStatus requested")
+		*s = ""
+	}
+}
+
+// Message returns the canonical human-readable message that pairs
+// with this status. Returns the empty string for an unrecognized
+// status (typically the zero value).
+func (s InfiniBandPartitionStatus) Message() string {
+	switch s {
+	case InfiniBandPartitionStatusProvisioning:
+		return "InfiniBand Partition is being provisioned on Site"
+	case InfiniBandPartitionStatusConfiguring:
+		return "InfiniBand Partition is being configured on Site"
+	case InfiniBandPartitionStatusReady:
+		return "InfiniBand Partition is ready for use"
+	case InfiniBandPartitionStatusError:
+		return "InfiniBand Partition is in error state"
+	}
+	return ""
+}
+
 // InfiniBandPartition represents entries in the InfiniBandPartition table
 type InfiniBandPartition struct {
 	bun.BaseModel `bun:"table:infiniband_partition,alias:ibp"`
 
-	ID                      uuid.UUID         `bun:"type:uuid,pk"`
-	Name                    string            `bun:"name,notnull"`
-	Description             *string           `bun:"description"`
-	Org                     string            `bun:"org,notnull"`
-	SiteID                  uuid.UUID         `bun:"site_id,type:uuid,notnull"`
-	Site                    *Site             `bun:"rel:belongs-to,join:site_id=id"`
-	TenantID                uuid.UUID         `bun:"tenant_id,type:uuid,notnull"`
-	Tenant                  *Tenant           `bun:"rel:belongs-to,join:tenant_id=id"`
-	ControllerIBPartitionID *uuid.UUID        `bun:"controller_ib_partition_id,type:uuid"`
-	PartitionKey            *string           `bun:"partition_key"`
-	PartitionName           *string           `bun:"partition_name"`
-	ServiceLevel            *int              `bun:"service_level"`
-	RateLimit               *float32          `bun:"rate_limit"`
-	Mtu                     *int              `bun:"mtu"`
-	EnableSharp             *bool             `bun:"enable_sharp"`
-	Labels                  map[string]string `bun:"labels,type:jsonb"`
-	Status                  string            `bun:"status,notnull"`
-	IsMissingOnSite         bool              `bun:"is_missing_on_site,notnull"`
-	Created                 time.Time         `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated                 time.Time         `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted                 *time.Time        `bun:"deleted,soft_delete"`
-	CreatedBy               uuid.UUID         `bun:"type:uuid,notnull"`
+	ID                      uuid.UUID                 `bun:"type:uuid,pk"`
+	Name                    string                    `bun:"name,notnull"`
+	Description             *string                   `bun:"description"`
+	Org                     string                    `bun:"org,notnull"`
+	SiteID                  uuid.UUID                 `bun:"site_id,type:uuid,notnull"`
+	Site                    *Site                     `bun:"rel:belongs-to,join:site_id=id"`
+	TenantID                uuid.UUID                 `bun:"tenant_id,type:uuid,notnull"`
+	Tenant                  *Tenant                   `bun:"rel:belongs-to,join:tenant_id=id"`
+	ControllerIBPartitionID *uuid.UUID                `bun:"controller_ib_partition_id,type:uuid"`
+	PartitionKey            *string                   `bun:"partition_key"`
+	PartitionName           *string                   `bun:"partition_name"`
+	ServiceLevel            *int                      `bun:"service_level"`
+	RateLimit               *float32                  `bun:"rate_limit"`
+	Mtu                     *int                      `bun:"mtu"`
+	EnableSharp             *bool                     `bun:"enable_sharp"`
+	Labels                  Labels                    `bun:"labels,type:jsonb"`
+	Status                  InfiniBandPartitionStatus `bun:"status,notnull"`
+	IsMissingOnSite         bool                      `bun:"is_missing_on_site,notnull"`
+	Created                 time.Time                 `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated                 time.Time                 `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted                 *time.Time                `bun:"deleted,soft_delete"`
+	CreatedBy               uuid.UUID                 `bun:"type:uuid,notnull"`
+}
+
+// Validate checks that the populated InfiniBandPartition is wire-safe.
+// Mirrors the API-side rules so callers that build an
+// `InfiniBandPartition` from site-supplied or request data can gate
+// it through one consistent contract.
+func (ibp *InfiniBandPartition) Validate() error {
+	statuses := make([]any, 0, len(InfiniBandPartitionStatusMap))
+	for s := range InfiniBandPartitionStatusMap {
+		statuses = append(statuses, s)
+	}
+	return validation.ValidateStruct(ibp,
+		validation.Field(&ibp.Name,
+			validation.Required.Error("InfiniBandPartition Name must be specified"),
+			validation.Length(2, 256).Error("InfiniBandPartition Name must be at least 2 characters and maximum 256 characters"),
+			validation.By(validateInfiniBandPartitionNameWhitespace)),
+		validation.Field(&ibp.Status,
+			validation.Required.Error("InfiniBandPartition Status must be specified"),
+			validation.In(statuses...).Error(fmt.Sprintf("invalid InfiniBandPartition Status: %q", ibp.Status))),
+	)
+}
+
+// validateInfiniBandPartitionNameWhitespace rejects Names with leading
+// or trailing whitespace, mirroring the API-side
+// `util.ValidateNameCharacters` rule so the wire-bound DB-model gate
+// matches the API one. Shared by `(*InfiniBandPartition).Validate()`
+// and the partial-field DAO Update path.
+func validateInfiniBandPartitionNameWhitespace(value interface{}) error {
+	s, ok := value.(string)
+	if !ok {
+		return errors.New("InfiniBandPartition Name must be a string")
+	}
+	if strings.TrimSpace(s) != s {
+		return errors.New("InfiniBandPartition Name must not contain leading or trailing whitespace")
+	}
+	return nil
+}
+
+// toMetadataProto builds a workflow Metadata proto from the
+// InfiniBandPartition's Name, Description, and Labels. Description
+// defaults to the empty string when ibp.Description is nil. Labels
+// are produced via `(Labels).ToProto()` so the conversion stays on
+// the named type per the proto-conversion convention.
+func (ibp *InfiniBandPartition) toMetadataProto() *cwssaws.Metadata {
+	md := &cwssaws.Metadata{
+		Name:        ibp.Name,
+		Description: "",
+		Labels:      ibp.Labels.ToProto(),
+	}
+	if ibp.Description != nil {
+		md.Description = *ibp.Description
+	}
+	return md
+}
+
+// ToProto converts this InfiniBandPartition into its workflow proto
+// representation. Used as the canonical entity-to-proto conversion;
+// request-shape protos (create / update) are produced by `ToProto`
+// methods on the corresponding API request types in
+// api/pkg/api/model/infinibandpartition.go.
+//
+// `Config.TenantOrganizationId` is sourced from `ibp.Org`, which is
+// the persisted tenant org id (populated from the path param at
+// create time and carried with the entity thereafter).
+func (ibp *InfiniBandPartition) ToProto() *cwssaws.IBPartition {
+	return &cwssaws.IBPartition{
+		Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
+		Config: &cwssaws.IBPartitionConfig{
+			Name:                 ibp.Name,
+			TenantOrganizationId: ibp.Org,
+		},
+		Metadata: ibp.toMetadataProto(),
+	}
+}
+
+// FromProto populates this InfiniBandPartition from its workflow proto
+// representation. A nil proto is a no-op. This is the inverse of
+// `ToProto` and exists for convention symmetry — currently no code
+// path on the cloud side reconstructs a full InfiniBandPartition
+// entity from a `cwssaws.IBPartition` (the site is the destination,
+// not the source for the create/delete request shapes used today),
+// but the method is provided so future reconciliation flows have a
+// single canonical entry point.
+//
+// Field-level contract:
+//   - `ibp.ID` is preserved on a missing or unparseable `proto.Id`,
+//     because callers pre-validate the UUID before calling.
+//   - `Name` is sourced from `proto.Metadata.Name` when set, falling
+//     back to the (deprecated) top-level `proto.Config.Name` so the
+//     method keeps working through the deprecation window.
+//   - Optional pointer fields (Description, Labels) are cleared when
+//     the proto omits them so `FromProto` is a clean reset rather
+//     than a partial merge.
+func (ibp *InfiniBandPartition) FromProto(proto *cwssaws.IBPartition) {
+	if proto == nil {
+		return
+	}
+	if proto.Id != nil {
+		if id, err := uuid.Parse(proto.Id.Value); err == nil {
+			ibp.ID = id
+		}
+	}
+	// Reset Config / Metadata-derived fields up front so the `clean
+	// reset rather than a partial merge` contract holds when those
+	// proto sub-messages are nil or omit a field.
+	ibp.Name = ""
+	ibp.Org = ""
+	ibp.Description = nil
+	ibp.Labels = nil
+	if proto.Config != nil {
+		ibp.Name = proto.Config.Name
+		ibp.Org = proto.Config.TenantOrganizationId
+	}
+	if proto.Metadata != nil {
+		if proto.Metadata.Name != "" {
+			ibp.Name = proto.Metadata.Name
+		}
+		if proto.Metadata.Description != "" {
+			desc := proto.Metadata.Description
+			ibp.Description = &desc
+		}
+		ibp.Labels.FromProto(proto.Metadata.GetLabels())
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site to
+// delete this InfiniBand Partition.
+func (ibp *InfiniBandPartition) ToDeletionRequestProto() *cwssaws.IBPartitionDeletionRequest {
+	return &cwssaws.IBPartitionDeletionRequest{
+		Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
+	}
 }
 
 // InfiniBandPartitionCreateInput input parameters for Create method
@@ -99,7 +289,7 @@ type InfiniBandPartitionCreateInput struct {
 	Mtu                     *int
 	EnableSharp             *bool
 	Labels                  map[string]string
-	Status                  string
+	Status                  InfiniBandPartitionStatus
 	CreatedBy               uuid.UUID
 }
 
@@ -116,7 +306,7 @@ type InfiniBandPartitionUpdateInput struct {
 	Mtu                     *int
 	EnableSharp             *bool
 	Labels                  map[string]string
-	Status                  *string
+	Status                  *InfiniBandPartitionStatus
 	IsMissingOnSite         *bool
 }
 
@@ -347,6 +537,10 @@ func (ibpsd InfiniBandPartitionSQLDAO) Create(ctx context.Context, tx *db.Tx, in
 		CreatedBy:               input.CreatedBy,
 	}
 
+	if err := ibp.Validate(); err != nil {
+		return nil, err
+	}
+
 	_, err := db.GetIDB(tx, ibpsd.dbSession).NewInsert().Model(ibp).Exec(ctx)
 	if err != nil {
 		return nil, err
@@ -377,6 +571,12 @@ func (ibpsd InfiniBandPartitionSQLDAO) Update(ctx context.Context, tx *db.Tx, in
 	updatedFields := []string{}
 
 	if input.Name != nil {
+		if err := validation.Validate(*input.Name,
+			validation.Required.Error("InfiniBandPartition Name must be specified"),
+			validation.Length(2, 256).Error("InfiniBandPartition Name must be at least 2 characters and maximum 256 characters"),
+			validation.By(validateInfiniBandPartitionNameWhitespace)); err != nil {
+			return nil, err
+		}
 		ibp.Name = *input.Name
 		updatedFields = append(updatedFields, "name")
 		ibpsd.tracerSpan.SetAttribute(InfiniBandPartitionDAOSpan, "name", *input.Name)
@@ -427,6 +627,9 @@ func (ibpsd InfiniBandPartitionSQLDAO) Update(ctx context.Context, tx *db.Tx, in
 		ibpsd.tracerSpan.SetAttribute(InfiniBandPartitionDAOSpan, "labels", input.Labels)
 	}
 	if input.Status != nil {
+		if !InfiniBandPartitionStatusMap[*input.Status] {
+			return nil, fmt.Errorf("invalid InfiniBandPartition Status: %q", *input.Status)
+		}
 		ibp.Status = *input.Status
 		updatedFields = append(updatedFields, "status")
 		ibpsd.tracerSpan.SetAttribute(InfiniBandPartitionDAOSpan, "status", *input.Status)

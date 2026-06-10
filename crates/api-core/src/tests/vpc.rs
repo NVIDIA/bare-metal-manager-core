@@ -501,6 +501,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(&first.metadata.name, "yet another new name");
     assert_eq!(first.version.version_nr(), 5);
 
+    let vpcs = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &no_org_vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?;
+    assert_eq!(vpcs.len(), 1);
     let vpc = db::vpc::try_delete(&mut txn, no_org_vpc_id).await?.unwrap();
 
     assert!(vpc.deleted.is_some());
@@ -521,6 +528,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let forge_vpc_id: VpcId = forge_vpc.id.expect("should have id");
     assert_eq!(vpcs[0].id, forge_vpc_id);
 
+    let vpcs = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &forge_vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?;
+    assert_eq!(vpcs.len(), 1);
     let vpc = db::vpc::try_delete(&mut txn, forge_vpc_id).await?.unwrap();
     assert!(vpc.deleted.is_some());
     txn.commit().await?;

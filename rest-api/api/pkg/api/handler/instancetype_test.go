@@ -28,20 +28,20 @@ import (
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 )
 
 func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
@@ -70,78 +70,78 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 
 	itcrValid := &model.APIInstanceTypeCreateRequest{
 		Name:        "x2.large",
-		Description: cdb.GetStrPtr("Test Description"),
+		Description: sutil.GetPtr("Test Description"),
 		SiteID:      st.ID.String(),
 		Labels: map[string]string{
 			"name":        "a-dpu-instance",
 			"description": "Multi-DPU Instance Type",
 		},
-		ControllerMachineType: cdb.GetStrPtr("intel_xeon_e5_2650v2"),
+		ControllerMachineType: sutil.GetPtr("intel_xeon_e5_2650v2"),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:      cdbm.MachineCapabilityTypeCPU,
 				Name:      "AMD Opteron Series x10",
-				Frequency: cdb.GetStrPtr("3.0Hz"),
-				Cores:     cdb.GetIntPtr(16),
-				Threads:   cdb.GetIntPtr(32),
-				Count:     cdb.GetIntPtr(2),
+				Frequency: sutil.GetPtr("3.0Hz"),
+				Cores:     sutil.GetPtr(16),
+				Threads:   sutil.GetPtr(32),
+				Count:     sutil.GetPtr(2),
 			},
 			{
 				Type:     cdbm.MachineCapabilityTypeMemory,
 				Name:     "Corsair Vengeance LPX",
-				Capacity: cdb.GetStrPtr("32GB"),
-				Count:    cdb.GetIntPtr(4),
+				Capacity: sutil.GetPtr("32GB"),
+				Count:    sutil.GetPtr(4),
 			},
 			{
 				Type:            cdbm.MachineCapabilityTypeInfiniBand,
 				Name:            "MT28908 Family [ConnectX-6]",
-				Vendor:          cdb.GetStrPtr("Mellanox Technologies"),
-				Count:           cdb.GetIntPtr(2),
+				Vendor:          sutil.GetPtr("Mellanox Technologies"),
+				Count:           sutil.GetPtr(2),
 				InactiveDevices: []int{1, 3},
 			},
 			{
 				Type:       cdbm.MachineCapabilityTypeNetwork,
 				Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-				Vendor:     cdb.GetStrPtr("Mellanox Technologies"),
-				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-				Count:      cdb.GetIntPtr(2),
+				Vendor:     sutil.GetPtr("Mellanox Technologies"),
+				DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+				Count:      sutil.GetPtr(2),
 			},
 		},
 	}
 
 	itcrInValidMachineCapabilitiesName := &model.APIInstanceTypeCreateRequest{
 		Name:                  "x2.large",
-		Description:           cdb.GetStrPtr("Test Description"),
+		Description:           sutil.GetPtr("Test Description"),
 		SiteID:                st.ID.String(),
-		ControllerMachineType: cdb.GetStrPtr("intel_xeon_e5_2650v2"),
+		ControllerMachineType: sutil.GetPtr("intel_xeon_e5_2650v2"),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:      cdbm.MachineCapabilityTypeCPU,
 				Name:      " ",
-				Frequency: cdb.GetStrPtr("3.0Hz"),
-				Cores:     cdb.GetIntPtr(16),
-				Threads:   cdb.GetIntPtr(32),
-				Count:     cdb.GetIntPtr(2),
+				Frequency: sutil.GetPtr("3.0Hz"),
+				Cores:     sutil.GetPtr(16),
+				Threads:   sutil.GetPtr(32),
+				Count:     sutil.GetPtr(2),
 			},
 			{
 				Type:     cdbm.MachineCapabilityTypeMemory,
 				Name:     "Corsair Vengeance LPX",
-				Capacity: cdb.GetStrPtr("32GB"),
-				Count:    cdb.GetIntPtr(4),
+				Capacity: sutil.GetPtr("32GB"),
+				Count:    sutil.GetPtr(4),
 			},
 		},
 	}
 
 	itcrInValidMachineCapabilitiesInactiveDevices := &model.APIInstanceTypeCreateRequest{
 		Name:        "x3.large",
-		Description: cdb.GetStrPtr("Test Description"),
+		Description: sutil.GetPtr("Test Description"),
 		SiteID:      st.ID.String(),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:            cdbm.MachineCapabilityTypeMemory,
 				Name:            "Corsair Vengeance LPX",
-				Capacity:        cdb.GetStrPtr("32GB"),
-				Count:           cdb.GetIntPtr(4),
+				Capacity:        sutil.GetPtr("32GB"),
+				Count:           sutil.GetPtr(4),
 				InactiveDevices: []int{1, 3},
 			},
 		},
@@ -149,65 +149,65 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 
 	itcrValidGPUNVLink := &model.APIInstanceTypeCreateRequest{
 		Name:        "gpu-nvlink.large",
-		Description: cdb.GetStrPtr("Instance type with GPU NVLink capability"),
+		Description: sutil.GetPtr("Instance type with GPU NVLink capability"),
 		SiteID:      st.ID.String(),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:       cdbm.MachineCapabilityTypeGPU,
 				Name:       "NVIDIA GB200",
-				Capacity:   cdb.GetStrPtr("189471 MiB"),
-				Frequency:  cdb.GetStrPtr("2062 MHz"),
-				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
-				Count:      cdb.GetIntPtr(4),
+				Capacity:   sutil.GetPtr("189471 MiB"),
+				Frequency:  sutil.GetPtr("2062 MHz"),
+				DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+				Count:      sutil.GetPtr(4),
 			},
 		},
 	}
 
 	itcrInvalidGPUDeviceType := &model.APIInstanceTypeCreateRequest{
 		Name:        "gpu-bad-device.large",
-		Description: cdb.GetStrPtr("Instance type with unsupported GPU device type"),
+		Description: sutil.GetPtr("Instance type with unsupported GPU device type"),
 		SiteID:      st.ID.String(),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:       cdbm.MachineCapabilityTypeGPU,
 				Name:       "NVIDIA GB200",
-				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-				Count:      cdb.GetIntPtr(4),
+				DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+				Count:      sutil.GetPtr(4),
 			},
 		},
 	}
 
 	itcrInvalidNetworkDeviceType := &model.APIInstanceTypeCreateRequest{
 		Name:        "network-bad-device.large",
-		Description: cdb.GetStrPtr("Instance type with unsupported Network device type"),
+		Description: sutil.GetPtr("Instance type with unsupported Network device type"),
 		SiteID:      st.ID.String(),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:       cdbm.MachineCapabilityTypeNetwork,
 				Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
-				Count:      cdb.GetIntPtr(2),
+				DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+				Count:      sutil.GetPtr(2),
 			},
 		},
 	}
 
 	itcrInvalidCPUDeviceType := &model.APIInstanceTypeCreateRequest{
 		Name:        "cpu-with-device-type.large",
-		Description: cdb.GetStrPtr("Instance type with device type on unsupported capability"),
+		Description: sutil.GetPtr("Instance type with device type on unsupported capability"),
 		SiteID:      st.ID.String(),
 		MachineCapabilities: []model.APIMachineCapability{
 			{
 				Type:       cdbm.MachineCapabilityTypeCPU,
 				Name:       "Intel Xeon Gold 6354",
-				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-				Count:      cdb.GetIntPtr(2),
+				DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+				Count:      sutil.GetPtr(2),
 			},
 		},
 	}
 
 	itcrValidWithoutMachineCapabilities := &model.APIInstanceTypeCreateRequest{
 		Name:        "x2.large.missing.mc",
-		Description: cdb.GetStrPtr("Test Description"),
+		Description: sutil.GetPtr("Test Description"),
 		SiteID:      st.ID.String(),
 	}
 
@@ -231,9 +231,9 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 
 	itcrDupicateName := &model.APIInstanceTypeCreateRequest{
 		Name:                  "test-it-name-1",
-		Description:           cdb.GetStrPtr("Test Description"),
+		Description:           sutil.GetPtr("Test Description"),
 		SiteID:                st.ID.String(),
-		ControllerMachineType: cdb.GetStrPtr("intel_xeon_e5_2650v2"),
+		ControllerMachineType: sutil.GetPtr("intel_xeon_e5_2650v2"),
 	}
 
 	cfg := common.GetTestConfig()
@@ -332,13 +332,13 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceTypeCreateRequest{
 					Name:        "x9001.large",
-					Description: cdb.GetStrPtr("Test Description"),
+					Description: sutil.GetPtr("Test Description"),
 					SiteID:      st.ID.String(),
 					Labels: map[string]string{
 						"name":        "x9001-instance-type",
 						"description": "Test x9001 Instance Type ",
 					},
-					ControllerMachineType: cdb.GetStrPtr("intel_goku_e9001_dbzv2"),
+					ControllerMachineType: sutil.GetPtr("intel_goku_e9001_dbzv2"),
 					MachineCapabilities:   []model.APIMachineCapability{},
 				},
 			},
@@ -357,9 +357,9 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			args: args{
 				reqData: &model.APIInstanceTypeCreateRequest{
 					Name:                  "x9001.large",
-					Description:           cdb.GetStrPtr("Test Description"),
+					Description:           sutil.GetPtr("Test Description"),
 					SiteID:                st.ID.String(),
-					ControllerMachineType: cdb.GetStrPtr("intel_goku_e9001_dbzv2"),
+					ControllerMachineType: sutil.GetPtr("intel_goku_e9001_dbzv2"),
 					MachineCapabilities:   []model.APIMachineCapability{},
 				},
 			},
@@ -673,11 +673,11 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 	ipu2 := common.TestBuildUser(t, dbSession, "test-starfleet-id-456", ipOrg, ipRoles)
 	ip2 := common.TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider 2", ipOrg2, ipu2)
 	st3 := common.TestBuildSite(t, dbSession, ip2, "Test Site 3", ipu2)
-	ip2it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-instance-type-ip2"), cdb.GetUUIDPtr(uuid.New()), st3, map[string]string{
+	ip2it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-instance-type-ip2"), sutil.GetPtr(uuid.New()), st3, map[string]string{
 		"name":        "test-instance-type-ip2",
 		"description": "Test Instance Type IP2 Description",
 	}, ipu2)
-	common.TestBuildMachineCapability(t, dbSession, nil, &ip2it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), nil, nil)
+	common.TestBuildMachineCapability(t, dbSession, nil, &ip2it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", sutil.GetPtr("3.0Hz"), nil, nil, sutil.GetPtr(2), nil, nil)
 
 	tnOrg1 := "test-tenant-org-1"
 	tnOrg2 := "test-tenant-org-2"
@@ -700,18 +700,18 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 		if i >= totalCount {
 			tmpSite = st2
 		}
-		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-instance-type-%02d", i), cdb.GetUUIDPtr(uuid.New()), tmpSite, map[string]string{
+		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-instance-type-%02d", i), sutil.GetPtr(uuid.New()), tmpSite, map[string]string{
 			"name":        fmt.Sprintf("test-instance-type-%02d", i),
 			"description": fmt.Sprintf("Test Instance Type %02d Description", i),
 		}, ipu)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", sutil.GetPtr("3.0Hz"), nil, nil, sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 		its = append(its, *it)
 	}
 
 	ms := []cdbm.Machine{}
 	tmpSite = st
 	for i := 0; i < totalCount; i++ {
-		m := common.TestBuildMachine(t, dbSession, ip, st, &its[0].ID, cdb.GetStrPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
+		m := common.TestBuildMachine(t, dbSession, ip, st, &its[0].ID, sutil.GetPtr("test-controller-machine-type"), cdbm.MachineStatusReady)
 		common.TestBuildMachineInstanceType(t, dbSession, m, &its[0])
 		ms = append(ms, *m)
 	}
@@ -727,26 +727,26 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 	alc3 := common.TestBuildAllocationConstraint(t, dbSession, al3, &its[0], nil, 7, ipu)
 
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 
 	// Build Instance
 	tn1inss := []cdbm.Instance{}
-	ins1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st.ID, &its[0].ID, vpc1.ID, cdb.GetStrPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	ins1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st.ID, &its[0].ID, vpc1.ID, sutil.GetPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	tn1inss = append(tn1inss, *ins1)
-	ins2 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, &its[0].ID, vpc1.ID, cdb.GetStrPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	ins2 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, &its[0].ID, vpc1.ID, sutil.GetPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	tn1inss = append(tn1inss, *ins2)
 
 	// This instance is not associated with an instance type
 	// But has tenant reference
 	// Case of Targeted Instance
-	targetedInstance := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, nil, vpc1.ID, cdb.GetStrPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	targetedInstance := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st.ID, nil, vpc1.ID, sutil.GetPtr(ms[0].ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, targetedInstance)
 
 	os2 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn2, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu2)
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn2, st, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu2)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn2, st, sutil.GetPtr(uuid.New()), nil, sutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu2)
 
 	tn2inss := []cdbm.Instance{}
-	ins3 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn2.ID, ip.ID, st.ID, &its[0].ID, vpc2.ID, cdb.GetStrPtr(ms[0].ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	ins3 := testInstanceBuildInstance(t, dbSession, "test-instance-3", tn2.ID, ip.ID, st.ID, &its[0].ID, vpc2.ID, sutil.GetPtr(ms[0].ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	tn2inss = append(tn2inss, *ins3)
 
 	// Org with both Provider and Tenant roles: same org acts as its own infrastructure provider and tenant
@@ -763,18 +763,18 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 	orgITCount := 4
 	var orgAllocatedIT *cdbm.InstanceType
 	for i := 0; i < orgITCount; i++ {
-		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-org-instance-type-%02d", i), cdb.GetUUIDPtr(uuid.New()), orgSite, map[string]string{
+		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-org-instance-type-%02d", i), sutil.GetPtr(uuid.New()), orgSite, map[string]string{
 			"name":        fmt.Sprintf("test-org-instance-type-%02d", i),
 			"description": fmt.Sprintf("Test Org Instance Type %02d", i),
 		}, orgUser)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", sutil.GetPtr("3.0Hz"), nil, nil, sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 		if i == 0 {
 			orgAllocatedIT = it
 		}
 	}
 	// Create 2 machines for the allocated IT so the allocation constraint is satisfiable
-	orgM1 := common.TestBuildMachine(t, dbSession, orgProvider, orgSite, &orgAllocatedIT.ID, cdb.GetStrPtr("test-org-machine"), cdbm.MachineStatusReady)
-	orgM2 := common.TestBuildMachine(t, dbSession, orgProvider, orgSite, &orgAllocatedIT.ID, cdb.GetStrPtr("test-org-machine"), cdbm.MachineStatusReady)
+	orgM1 := common.TestBuildMachine(t, dbSession, orgProvider, orgSite, &orgAllocatedIT.ID, sutil.GetPtr("test-org-machine"), cdbm.MachineStatusReady)
+	orgM2 := common.TestBuildMachine(t, dbSession, orgProvider, orgSite, &orgAllocatedIT.ID, sutil.GetPtr("test-org-machine"), cdbm.MachineStatusReady)
 	common.TestBuildMachineInstanceType(t, dbSession, orgM1, orgAllocatedIT)
 	common.TestBuildMachineInstanceType(t, dbSession, orgM2, orgAllocatedIT)
 	orgAlloc := common.TestBuildAllocation(t, dbSession, orgSite, orgTenant, "test-org-allocation", orgUser)
@@ -787,10 +787,10 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 	common.TestBuildTenantSite(t, dbSession, orgTenant, externalSite, orgUser)
 	externalSiteITCount := 3
 	for i := 0; i < externalSiteITCount; i++ {
-		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-ext-site-it-%02d", i), cdb.GetUUIDPtr(uuid.New()), externalSite, map[string]string{
+		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-ext-site-it-%02d", i), sutil.GetPtr(uuid.New()), externalSite, map[string]string{
 			"name": fmt.Sprintf("test-ext-site-it-%02d", i),
 		}, ipu)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", sutil.GetPtr("3.0Hz"), nil, nil, sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 	}
 
 	// Create a second site owned by orgProvider but where orgTenant does NOT have a TenantSite.
@@ -799,10 +799,10 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 	orgSiteNoTenant := common.TestBuildSite(t, dbSession, orgProvider, "Org Site Without Tenant", orgUser)
 	orgSiteNoTenantITCount := 2
 	for i := 0; i < orgSiteNoTenantITCount; i++ {
-		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-org-no-tenant-it-%02d", i), cdb.GetUUIDPtr(uuid.New()), orgSiteNoTenant, map[string]string{
+		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-org-no-tenant-it-%02d", i), sutil.GetPtr(uuid.New()), orgSiteNoTenant, map[string]string{
 			"name": fmt.Sprintf("test-org-no-tenant-it-%02d", i),
 		}, orgUser)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", sutil.GetPtr("3.0Hz"), nil, nil, sutil.GetPtr(2), sutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 	}
 
 	e := echo.New()
@@ -1154,8 +1154,8 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 			wantTotalCount:                    totalCount,
 			wantRespCode:                      http.StatusOK,
 			wantErr:                           false,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(st.Name),
+			expectedInfrastructureProviderOrg: sutil.GetPtr(ip.Org),
+			expectedSiteName:                  sutil.GetPtr(st.Name),
 		},
 		{
 			name: "get all Instance Type for Tenant success with allocation stats",
@@ -1234,7 +1234,7 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 			includeAllocationStats:        true,
 			wantTotalAllocationStatsCount: alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue,
 			wantUsedAllocationStatsCount:  len(tn1inss) + len(tn2inss),
-			wantMaxAllocatableStatsCount:  cdb.GetIntPtr(totalCount - (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue)),
+			wantMaxAllocatableStatsCount:  sutil.GetPtr(totalCount - (alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue)),
 		},
 		{
 			name: "get all Instance Type for Provider success with allocation stats, without empty allocations, fail because only tenants can excludeUnallocated",
@@ -1520,7 +1520,7 @@ func TestGetInstanceTypeHandler_Handle(t *testing.T) {
 	tnu3 := common.TestBuildUser(t, dbSession, "test-starfleet-id-101112", tnOrg3, tnRoles)
 	tn3 := common.TestBuildTenant(t, dbSession, "Test Tenant 3", tnOrg3, tnu2)
 
-	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
@@ -1551,7 +1551,7 @@ func TestGetInstanceTypeHandler_Handle(t *testing.T) {
 	os1 := common.TestBuildOperatingSystem(t, dbSession, "", tn1, cdbm.OperatingSystemStatusReady, tnu1)
 
 	// build instance
-	inst1 := common.TestBuildInstance(t, dbSession, "Test-Controller-Instance", tn1.ID, ip.ID, st.ID, it.ID, vpc1.ID, cdb.GetStrPtr(ms[0].ID), os1.ID)
+	inst1 := common.TestBuildInstance(t, dbSession, "Test-Controller-Instance", tn1.ID, ip.ID, st.ID, it.ID, vpc1.ID, sutil.GetPtr(ms[0].ID), os1.ID)
 	assert.NotNil(t, inst1)
 
 	cfg := common.GetTestConfig()
@@ -1721,10 +1721,10 @@ func TestGetInstanceTypeHandler_Handle(t *testing.T) {
 				instanceTypeID: it.ID,
 			},
 			wantRespCode:                      http.StatusOK,
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip.Org),
-			expectedSiteName:                  cdb.GetStrPtr(st.Name),
+			queryIncludeRelations1:            sutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            sutil.GetPtr(cdbm.SiteRelationName),
+			expectedInfrastructureProviderOrg: sutil.GetPtr(ip.Org),
+			expectedSiteName:                  sutil.GetPtr(st.Name),
 		},
 		{
 			name: "test get Instance Type by Tenant with Allocation Stats success",
@@ -1766,7 +1766,7 @@ func TestGetInstanceTypeHandler_Handle(t *testing.T) {
 			includeAllocationStats:            true,
 			expectTotalAllocationStats:        alc1.ConstraintValue,
 			expectUsedAllocationStats:         1,
-			expectMaxAllocableAllocationStats: cdb.GetIntPtr(len(ms) - alc1.ConstraintValue),
+			expectMaxAllocableAllocationStats: sutil.GetPtr(len(ms) - alc1.ConstraintValue),
 		},
 	}
 	for _, tt := range tests {
@@ -1879,12 +1879,12 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 	ip := common.TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, ipu)
 	st := common.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
 
-	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-2", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-2", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-2",
 		"description": "Test Instance Type 2 Description",
 	}, ipu)
@@ -1997,8 +1997,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: it.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name:        cdb.GetStrPtr("x2.large"),
-					Description: cdb.GetStrPtr("Test Site Description"),
+					Name:        sutil.GetPtr("x2.large"),
+					Description: sutil.GetPtr("Test Site Description"),
 				},
 			},
 			wantRespCode: http.StatusInternalServerError,
@@ -2016,8 +2016,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: it.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name:        cdb.GetStrPtr("x2.large"),
-					Description: cdb.GetStrPtr("Test Site Description"),
+					Name:        sutil.GetPtr("x2.large"),
+					Description: sutil.GetPtr("Test Site Description"),
 					Labels:      map[string]string{"updated-test-key": "updated-test-value"},
 				},
 			},
@@ -2037,8 +2037,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: it.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name:        cdb.GetStrPtr("x2.large"),
-					Description: cdb.GetStrPtr("Test Site Description"),
+					Name:        sutil.GetPtr("x2.large"),
+					Description: sutil.GetPtr("Test Site Description"),
 				},
 			},
 			wantRespCode:       http.StatusOK,
@@ -2057,7 +2057,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: it2.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name: cdb.GetStrPtr("test-instance-type-2"),
+					Name: sutil.GetPtr("test-instance-type-2"),
 				},
 			},
 			wantRespCode: http.StatusOK,
@@ -2075,8 +2075,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: it.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name:        cdb.GetStrPtr("test-instance-type-2"),
-					Description: cdb.GetStrPtr("Test Site Description"),
+					Name:        sutil.GetPtr("test-instance-type-2"),
+					Description: sutil.GetPtr("Test Site Description"),
 				},
 			},
 			wantRespCode: http.StatusConflict,
@@ -2094,7 +2094,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				org:            org,
 				instanceTypeID: uuid.New(),
 				reqData: &model.APIInstanceTypeUpdateRequest{
-					Name: cdb.GetStrPtr("x2.large"),
+					Name: sutil.GetPtr("x2.large"),
 				},
 			},
 			wantRespCode: http.StatusNotFound,
@@ -2149,7 +2149,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				instanceTypeID: it2.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
 					MachineCapabilities: []model.APIMachineCapability{
-						{Type: cdbm.MachineCapabilityTypeNetwork, DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceType("ETHERNET"))},
+						{Type: cdbm.MachineCapabilityTypeNetwork, DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceType("ETHERNET"))},
 					},
 				},
 			},
@@ -2253,8 +2253,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       "Network",
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-							Count:      cdb.GetIntPtr(2),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							Count:      sutil.GetPtr(2),
 						},
 					},
 				},
@@ -2278,10 +2278,10 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeGPU,
 							Name:       "NVIDIA GB200",
-							Capacity:   cdb.GetStrPtr("189471 MiB"),
-							Frequency:  cdb.GetStrPtr("2062 MHz"),
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
-							Count:      cdb.GetIntPtr(4),
+							Capacity:   sutil.GetPtr("189471 MiB"),
+							Frequency:  sutil.GetPtr("2062 MHz"),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							Count:      sutil.GetPtr(4),
 						},
 					},
 				},
@@ -2305,8 +2305,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeGPU,
 							Name:       "NVIDIA GB200",
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-							Count:      cdb.GetIntPtr(4),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							Count:      sutil.GetPtr(4),
 						},
 					},
 				},
@@ -2331,8 +2331,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeNetwork,
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
-							Count:      cdb.GetIntPtr(2),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							Count:      sutil.GetPtr(2),
 						},
 					},
 				},
@@ -2357,8 +2357,8 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeCPU,
 							Name:       "Intel Xeon Gold 6354",
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-							Count:      cdb.GetIntPtr(2),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							Count:      sutil.GetPtr(2),
 						},
 					},
 				},
@@ -2383,20 +2383,20 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeNetwork,
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
-							Count:      cdb.GetIntPtr(2),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							Count:      sutil.GetPtr(2),
 						},
 						{
 							Type:       cdbm.MachineCapabilityTypeGPU,
 							Name:       "NVIDIA GB200",
-							Capacity:   cdb.GetStrPtr("189471 MiB"),
-							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
-							Count:      cdb.GetIntPtr(4),
+							Capacity:   sutil.GetPtr("189471 MiB"),
+							DeviceType: sutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							Count:      sutil.GetPtr(4),
 						},
 						{
 							Type:  cdbm.MachineCapabilityTypeCPU,
 							Name:  "Intel Xeon Gold 6354",
-							Count: cdb.GetIntPtr(2),
+							Count: sutil.GetPtr(2),
 						},
 					},
 				},
@@ -2420,7 +2420,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:  cdbm.MachineCapabilityTypeNetwork,
 							Name:  "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							Count: cdb.GetIntPtr(2),
+							Count: sutil.GetPtr(2),
 						},
 					},
 				},
@@ -2519,23 +2519,23 @@ func TestDeleteInstanceTypeHandler_Handle(t *testing.T) {
 	ip := common.TestBuildInfrastructureProvider(t, dbSession, "Test Infrastructure Provider", org, ipu)
 	st := common.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "test-instance-type-1", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
-	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-2", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-2", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-2",
 		"description": "Test Instance Type 2 Description",
 	}, ipu)
-	it3 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-3", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it3 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-3", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-3",
 		"description": "Test Instance Type 3 Description",
 	}, ipu)
-	it4 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-4", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it4 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-4", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-4",
 		"description": "Test Instance Type 4 Description",
 	}, ipu)
-	it5 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-5", cdb.GetUUIDPtr(uuid.New()), st, map[string]string{
+	it5 := common.TestBuildInstanceType(t, dbSession, "test-instance-type-5", sutil.GetPtr(uuid.New()), st, map[string]string{
 		"name":        "test-instance-type-5",
 		"description": "Test Instance Type 5 Description",
 	}, ipu)
@@ -2549,10 +2549,10 @@ func TestDeleteInstanceTypeHandler_Handle(t *testing.T) {
 	al := common.TestBuildAllocation(t, dbSession, st, tn, "Test Allocation", ipu)
 	common.TestBuildAllocationConstraint(t, dbSession, al, it2, nil, 10, ipu)
 
-	m := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, cdb.GetUUIDPtr(it.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	m := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, sutil.GetPtr(it.ID), sutil.GetPtr("mcType"), true, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m)
 
-	m1 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, cdb.GetUUIDPtr(it2.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	m1 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, sutil.GetPtr(it2.ID), sutil.GetPtr("mcType"), true, false, cdbm.MachineStatusReady)
 	assert.NotNil(t, m1)
 
 	// Setup echo server/context

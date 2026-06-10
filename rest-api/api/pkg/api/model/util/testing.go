@@ -113,7 +113,7 @@ autoinstall:
 var TestCommonPhoneHomeSegment = `
 phone_home:
   empty_key_for_validation:
-  url: http://localhost
+  url: http://169.254.169.254:7777/latest/meta-data/phone_home
   post: all`
 
 var TestCommonPhoneHomeCloudInit = `#cloud-config

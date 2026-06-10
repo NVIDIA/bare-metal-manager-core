@@ -8,12 +8,12 @@ import (
 
 	tClient "go.temporal.io/sdk/client"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	apiHandler "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	apiHandler "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 )
 
 // NewAPIRoutes returns all API routes
@@ -897,6 +897,33 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/task/:id/cancel",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskHandler(dbSession, tc, scp, cfg),
+		},
+		// Operation Rule endpoints (Flow). Rules govern how tasks execute, so
+		// they live under the /task namespace.
+		{
+			Path:    apiPathPrefix + "/task/rule",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteTaskRuleHandler(dbSession, tc, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",

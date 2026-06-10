@@ -18,7 +18,7 @@
 //! This proc_macro gives possibility to derive Builder implementation
 //! for prost Message structures.
 //!
-//! To use it you need to copy generated struct and derive the Builder.
+//! To use it, derive `Builder` on a prost-generated message type.
 //! For example:
 //! ```rust,ignore
 //! #[derive(carbide_prost_builder::Builder)]
@@ -85,25 +85,30 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
             _ => false,
         });
 
+    let builder_name = Ident::new(format!("{name}Builder").as_str(), Span::call_site());
     let mut args = TokenStream2::new();
-    let mut all_fields_move = TokenStream2::new();
-    let mut required_ctor_impl = TokenStream2::new();
+    let mut builder_fields = TokenStream2::new();
+    let mut builder_required_ctor_impl = TokenStream2::new();
+    let mut message_fields_move = TokenStream2::new();
     for (name, tp) in required_fields {
         if is_string(&tp) {
             // Special treatment for String. We want reduce noise in
             // tests...
             args.extend(quote! { #name: impl ::std::fmt::Display, });
-            required_ctor_impl.extend(quote! { #name: #name.to_string(), });
+            builder_required_ctor_impl.extend(quote! { #name: #name.to_string(), });
         } else {
             args.extend(quote! { #name: #tp, });
-            required_ctor_impl.extend(quote! { #name, });
+            builder_required_ctor_impl.extend(quote! { #name, });
         }
-        all_fields_move.extend(quote! { #name: self.#name, })
+        builder_fields.extend(quote! { #name: #tp, });
+        message_fields_move.extend(quote! { #name: self.#name, });
     }
     let mut optional_ctor_impl = TokenStream2::new();
     let mut optional_methods_impl = TokenStream2::new();
     for (name, tp) in optional_fields {
         optional_ctor_impl.extend(quote! { #name: None, });
+        builder_fields.extend(quote! { #name: #tp, });
+        message_fields_move.extend(quote! { #name: self.#name, });
         let tp = match tp {
             Type::Path(typepath) => typepath,
             _ => panic!("Type::Path is expected"),
@@ -146,31 +151,38 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
                 self
             }
         });
-        all_fields_move.extend(quote! { #name: self.#name, });
     }
 
     TokenStream::from(quote! {
+        pub struct #builder_name {
+            #builder_fields
+        }
+
         impl #name {
-            pub fn builder(#args) -> Self {
-                Self {
-                    #required_ctor_impl
+            pub fn builder(#args) -> #builder_name {
+                #builder_name {
+                    #builder_required_ctor_impl
                     #optional_ctor_impl
                 }
             }
+        }
+
+        impl #builder_name {
             #optional_methods_impl
 
-            pub fn tonic_request(self) -> ::tonic::Request<::rpc::forge::#name> {
+            pub fn tonic_request(self) -> ::tonic::Request<#name> {
                 ::tonic::Request::new(self.rpc())
             }
 
-            pub fn rpc(self) -> ::rpc::forge::#name {
-                ::rpc::forge::#name {
-                    #all_fields_move
+            pub fn rpc(self) -> #name {
+                #name {
+                    #message_fields_move
                 }
             }
         }
-        impl From<#name> for ::rpc::forge::#name {
-            fn from(v: #name) -> Self {
+
+        impl From<#builder_name> for #name {
+            fn from(v: #builder_name) -> Self {
                 v.rpc()
             }
         }

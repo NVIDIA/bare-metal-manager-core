@@ -13,10 +13,10 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	vpcActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpc"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	vpcActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpc"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // UpdateVpcInventory is a workflow called by Site Agent to update VPC inventory for a Site

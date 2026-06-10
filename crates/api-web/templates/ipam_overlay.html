@@ -13,6 +13,7 @@
 			<th>VNI</th>
 			<th>Tenant</th>
 			<th>Prefixes</th>
+			<th>Prefix States</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -25,6 +26,15 @@
 					{% for p in vpc.prefixes %}
 						<a href="/admin/ipam/overlay/prefix/{{ p.id }}">{{ p.prefix }}</a>
 						{% if !p.name.is_empty() %}({{ p.name }}){% endif %}
+						{% if !loop.last %}<br>{% endif %}
+					{% endfor %}
+					{% if vpc.prefixes.is_empty() %}
+						<span class="muted">None</span>
+					{% endif %}
+				</td>
+				<td>
+					{% for p in vpc.prefixes %}
+						{{ p.lifecycle_state }}
 						{% if !loop.last %}<br>{% endif %}
 					{% endfor %}
 					{% if vpc.prefixes.is_empty() %}

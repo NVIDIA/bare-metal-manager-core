@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -63,17 +64,17 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_CreateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupInstanceAssociationSetupSchema(t, dbSession)
 	user := testInstanceBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 	isd := NewInstanceDAO(dbSession)
 	i1, err := isd.Create(
 		ctx, nil,
@@ -85,13 +86,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_CreateFromParams(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -158,16 +159,16 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetByID(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupInstanceAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 	isd := NewInstanceDAO(dbSession)
 	i1, err := isd.Create(
 		ctx, nil,
@@ -179,13 +180,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetByID(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -261,12 +262,12 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetAll(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupInstanceAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -282,7 +283,7 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetAll(t *testing.T) {
 			nil,
 			SSHKeyGroupCreateInput{
 				Name:        fmt.Sprintf("test-%d", i),
-				Description: db.GetStrPtr(fmt.Sprintf("test-%d", i)),
+				Description: cutil.GetPtr(fmt.Sprintf("test-%d", i)),
 				TenantOrg:   "testorg",
 				TenantID:    tenant.ID,
 				Status:      SSHKeyGroupStatusSyncing,
@@ -303,13 +304,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetAll(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
-				InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+				InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 				Status:                   InstanceStatusPending,
 				CreatedBy:                user.ID,
 			},
@@ -403,8 +404,8 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
-			paramOffset:      db.GetIntPtr(10),
-			paramLimit:       db.GetIntPtr(10),
+			paramOffset:      cutil.GetPtr(10),
+			paramLimit:       cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -462,20 +463,20 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupInstanceAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	site2 := TestBuildSite(t, dbSession, ip, "test2", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
 
 	skgiasd := NewSSHKeyGroupInstanceAssociationDAO(dbSession)
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	isd := NewInstanceDAO(dbSession)
 	i1, err := isd.Create(
@@ -488,13 +489,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -510,13 +511,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -549,13 +550,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 		{
 			desc:               "can update all fields",
 			id:                 skgisa1.ID,
-			paramSSHKeyGroupID: db.GetUUIDPtr(sshKeyGroup2.ID),
-			paramSiteID:        db.GetUUIDPtr(site2.ID),
-			paramInstanceID:    db.GetUUIDPtr(i2.ID),
+			paramSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
+			paramSiteID:        cutil.GetPtr(site2.ID),
+			paramInstanceID:    cutil.GetPtr(i2.ID),
 
-			expectedSSHKeyGroupID: db.GetUUIDPtr(sshKeyGroup2.ID),
-			expectedSiteID:        db.GetUUIDPtr(site2.ID),
-			expectedInstanceID:    db.GetUUIDPtr(i2.ID),
+			expectedSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
+			expectedSiteID:        cutil.GetPtr(site2.ID),
+			expectedInstanceID:    cutil.GetPtr(i2.ID),
 
 			expectError:        false,
 			verifyChildSpanner: true,
@@ -591,18 +592,18 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_DeleteByID(t *testing.T) {
 	defer dbSession.Close()
 	testSSHKeyGroupInstanceAssociationSetupSchema(t, dbSession)
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
-	ip := testBuildInfrastructureProvider(t, dbSession, db.GetUUIDPtr(uuid.New()), "test", "testorg", user.ID)
+	ip := testBuildInfrastructureProvider(t, dbSession, cutil.GetPtr(uuid.New()), "test", "testorg", user.ID)
 	site := TestBuildSite(t, dbSession, ip, "test", user)
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
 
 	skgiasd := NewSSHKeyGroupInstanceAssociationDAO(dbSession)
-	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", db.GetStrPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup1 := testBuildSSHKeyGroup(t, dbSession, "test1", cutil.GetPtr("test1"), "tesorg", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	isd := NewInstanceDAO(dbSession)
 	i1, err := isd.Create(
@@ -615,13 +616,13 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_DeleteByID(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -676,15 +677,15 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_CreateMultiple(t *testing.T) {
 	defer dbSession.Close()
 	TestSetupSchema(t, dbSession)
 
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -699,18 +700,18 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest2"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest2"))
 	instance2, err := isd.Create(
 		ctx, nil,
 		InstanceCreateInput{
@@ -721,18 +722,18 @@ func TestSSHKeyGroupInstanceAssociationSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine2.ID,
-			Hostname:                 db.GetStrPtr("test2.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test2.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	keyGroup := testBuildSSHKeyGroup(t, dbSession, "test-keygroup", db.GetStrPtr("Test SSH Key Group"), tn.Org, tn.ID, nil, SSHKeyGroupStatusSynced, tnu.ID)
+	keyGroup := testBuildSSHKeyGroup(t, dbSession, "test-keygroup", cutil.GetPtr("Test SSH Key Group"), tn.Org, tn.ID, nil, SSHKeyGroupStatusSynced, tnu.ID)
 
 	skgiasd := NewSSHKeyGroupInstanceAssociationDAO(dbSession)
 

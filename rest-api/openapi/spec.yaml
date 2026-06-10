@@ -22,7 +22,7 @@ tags:
 
       ### Authentication
       The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
-      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller-rest/tree/main/auth).
+      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
 
       ### API Version
       The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](#tag/Metadata/operation/get-metadata). In general, the API maintains backward
@@ -42,7 +42,7 @@ tags:
       Once the Provider and the Tenant are initialized, the user can create resources by making calls to the appropriate endpoints.
 
       ### Creating Site Level IP Blocks
-      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in NICo Core [Site configuration toml file](https://github.com/NVIDIA/infra-controller-core/blob/v0.5.8/deploy/files/nico-api/nico-api-site-config.toml#L30).
+      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in the Site configuration toml file.
 
       To create an IP Block, the user must make a call to the [Create IP Block endpoint](#tag/IP-Block/operation/create-ipblock).
 
@@ -213,6 +213,9 @@ tags:
   - name: Task
     description: |-
       Task represents an asynchronous, site-scoped operation (for example firmware update, power state change, or rack bring-up). Tasks are created when operations run against Racks, Trays, or other components. Endpoints in this tag retrieve or cancel a Task by ID; list Tasks for a Rack or Tray under the Rack and Tray tags.
+  - name: Rule
+    description: |-
+      Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -10168,7 +10171,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10245,7 +10248,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10261,6 +10264,209 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Task
+  '/v2/org/{org}/nico/task/rule':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create an Operation Rule
+      operationId: create-rule
+      description: |-
+        Create a new Operation Rule on the target Site. The rule definition is validated
+        server-side by Flow; on validation failure no state changes (the request acts
+        as a dry-run by way of its own validation step).
+
+        Rules are site-scoped and per (operationType, operationCode) tuple. The response
+        echoes the submitted body with the assigned `id`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRuleRequest'
+      responses:
+        '201':
+          description: Rule was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+    get:
+      summary: List Operation Rules
+      operationId: list-rules
+      description: |-
+        List Operation Rules on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rules (rules are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+  '/v2/org/{org}/nico/task/rule/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Rule
+    get:
+      summary: Retrieve an Operation Rule
+      operationId: get-rule
+      description: |-
+        Get an Operation Rule by UUID.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    patch:
+      summary: Update an Operation Rule
+      operationId: update-rule
+      description: |-
+        Patch the mutable fields of an Operation Rule: `name`, `description`, and
+        `ruleDefinition`. Unset fields are left unchanged. The rule definition is
+        re-validated server-side; validation failure leaves the rule untouched.
+
+        `operationType` and `operationCode` are immutable after creation — create a
+        new rule and delete the old one to change them.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuleRequest'
+      responses:
+        '204':
+          description: Rule was updated.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    delete:
+      summary: Delete an Operation Rule
+      operationId: delete-rule
+      description: |-
+        Delete an Operation Rule by UUID. Flow rejects deletion of rules that are
+        still associated with a Rack or that are the active default for their
+        (operationType, operationCode) tuple; dissociate / un-default first.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '204':
+          description: Rule was deleted.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -10285,6 +10491,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10299,6 +10507,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10323,7 +10537,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -10937,6 +11151,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10951,6 +11167,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10975,7 +11197,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -12222,12 +12444,9 @@ paths:
                   value:
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                       endpoint: /v2/org/test-org-1/nico/ep
-                      queryParams:
-                        test:
-                          - '1234'
+                      queryParams: '{"test":["1234"]}'
                       method: POST
-                      body:
-                        key1: value1
+                      body: '{"key1":"value1"}'
                       statusCode: 200
                       clientIP: 12.123.43.112
                       userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -12242,12 +12461,9 @@ paths:
                       apiVersion: 0.1.91
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                       endpoint: /v2/org/test-org-1/nico/ep
-                      queryParams:
-                        test:
-                          - '1234'
+                      queryParams: '{"test":["1234"]}'
                       method: POST
-                      body:
-                        key1: value1
+                      body: '{"key1":"value1"}'
                       statusCode: 403
                       statusMessage: User does not have permissions
                       clientIP: 12.123.43.112
@@ -12328,12 +12544,9 @@ paths:
                   value:
                     id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                     endpoint: /v2/org/test-org-1/nico/ep
-                    queryParams:
-                      test:
-                        - '1234'
+                    queryParams: '{"test":["1234"]}'
                     method: POST
-                    body:
-                      key1: value1
+                    body: '{"key1":"value1"}'
                     statusCode: 200
                     clientIP: 12.123.43.112
                     userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -14282,7 +14495,7 @@ components:
             acquiredIPs: 0
             availablePrefixes:
               - 10.217.98.100/30
-            availableSmallestPrefixes: 1  
+            availableSmallestPrefixes: 1
             acquiredPrefixes: 0
           statusHistory:
             - status: Ready
@@ -16834,7 +17047,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix based interfaces and is not valid for Subnet based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+        inlineRoutingProfile:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
+            - type: 'null'
+          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
         created:
@@ -16855,6 +17073,18 @@ components:
         - Ready
         - Deleting
         - Error
+    InterfaceInlineRoutingProfile:
+      title: InterfaceInlineRoutingProfile
+      type: object
+      description: Interface-local routing profile options that narrow the owning VPC's routing profile.
+      properties:
+        allowedAnycastPrefixes:
+          type: array
+          description: CIDR prefixes this interface is allowed to announce as anycast routes.
+          default: []
+          items:
+            type: string
+            example: 192.0.2.0/24
     InterfaceCreateRequest:
       title: InterfaceCreateRequest
       type: object
@@ -16881,7 +17111,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+        inlineRoutingProfile:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
+            - type: 'null'
+          description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
           description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
@@ -17539,6 +17774,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchUpdateTrayPowerStateRequest:
       title: BatchUpdateTrayPowerStateRequest
       type: object
@@ -17562,6 +17804,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchRackFirmwareUpdateRequest:
       title: BatchRackFirmwareUpdateRequest
       type: object
@@ -17580,6 +17829,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BringUpRackRequest:
       title: BringUpRackRequest
       type: object
@@ -17594,6 +17850,12 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this bring-up to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
         - siteId: 550e8400-e29b-41d4-a716-446655440000
@@ -17614,6 +17876,13 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every bring-up task
+            spawned by this batch to the named rule and overrides Flow's default
+            rule resolution.
     BringUpRackResponse:
       title: BringUpRackResponse
       type: object
@@ -17628,10 +17897,10 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
-    RackTask:
-      title: RackTask
+    Task:
+      title: Task
       type: object
-      description: A task representing an asynchronous operation on rack infrastructure.
+      description: A task representing an asynchronous, site-scoped operation against rack, tray, or other site infrastructure.
       properties:
         id:
           type: string
@@ -17654,6 +17923,16 @@ components:
         message:
           type: string
           description: Optional status or error message describing the current state or result.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule that Flow resolved for this task — either because
+            the caller pinned one via `ruleId` on the originating request or
+            because Flow's default rule resolution picked it. Null if Flow
+            has not yet recorded a resolution.
         started:
           type: string
           format: date-time
@@ -17670,11 +17949,403 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
+        report:
+          allOf:
+            - $ref: '#/components/schemas/TaskReportV1'
+          description: |
+            Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.
+
+            A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump.
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          ruleId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+          report:
+            version: 1
+            stages:
+              - number: 1
+                status: completed
+                startedAt: '2026-06-08T18:00:00Z'
+                finishedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: Compute
+                    status: completed
+                    totalComponents: 4
+                    startedAt: '2026-06-08T18:00:00Z'
+                    finishedAt: '2026-06-08T18:00:42Z'
+              - number: 2
+                status: running
+                startedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: NVLSwitch
+                    status: running
+                    totalComponents: 2
+                    startedAt: '2026-06-08T18:00:42Z'
+                  - componentType: PowerShelf
+                    status: skipped
+                    totalComponents: 0
+    OperationRule:
+      title: OperationRule
+      type: object
+      description: |-
+        An Operation Rule template for a single (operationType, operationCode) tuple.
+        The `ruleDefinition` carries the executable schedule (stages, per-component
+        concurrency, actions, retry) Flow runs when this rule is selected for an
+        operation.
+      required:
+        - id
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+        - isDefault
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the rule.
+        name:
+          type: string
+          description: Human-readable name of the rule. Required and non-empty.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this rule applies to. Immutable after creation.
+        operationCode:
+          type: string
+          description: |-
+            Operation code within the operation type (e.g. `power_on`, `power_off`,
+            `upgrade`). Server-side validated against Flow's allow-list for the type.
+            Immutable after creation.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+        isDefault:
+          type: boolean
+          description: |-
+            Whether this rule is currently the default for its `(operationType,
+            operationCode)` tuple.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was last updated.
+    RuleDefinition:
+      title: RuleDefinition
+      type: object
+      description: |-
+        Executable definition of a rule. Mirrors Flow's wire schema 1:1 so existing
+        YAML rule files can be converted to JSON without any key renaming
+        (nested fields use `snake_case`).
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Schema version. Currently always `v1`.
+          enum:
+            - v1
+        steps:
+          type: array
+          description: |-
+            Ordered execution steps. Steps with the same `stage` run in parallel,
+            stages run sequentially in ascending numerical order. May be empty for
+            operations whose sequencing is hardcoded in Flow (e.g. bring-up,
+            firmware update).
+          items:
+            $ref: '#/components/schemas/SequenceStep'
+    SequenceStep:
+      title: SequenceStep
+      type: object
+      description: A single execution step inside a `RuleDefinition`.
+      required:
+        - componentType
+        - stage
+        - mainOperation
+      properties:
+        componentType:
+          type: string
+          description: |-
+            Component type this step targets (e.g. `Compute`, `NVLSwitch`,
+            `PowerShelf`). Validated against Flow's component-type set.
+        stage:
+          type: integer
+          minimum: 1
+          description: |-
+            Stage number; steps with the same stage run in parallel, lower stages run
+            first. Component types must be unique within a stage.
+        maxParallel:
+          type: integer
+          minimum: 0
+          description: |-
+            Maximum number of components of this type processed concurrently. `0`
+            means unlimited, `1` means strictly sequential.
+        timeout:
+          type: string
+          description: |-
+            Optional child-workflow timeout for this step, as a Go duration string
+            (e.g. `30s`, `2m`). Applies to pre + main + post combined.
+        retry:
+          $ref: '#/components/schemas/RetryPolicy'
+        preOperation:
+          type: array
+          description: Actions to run before the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        mainOperation:
+          $ref: '#/components/schemas/ActionConfig'
+        postOperation:
+          type: array
+          description: Actions to run after the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        delayAfter:
+          type: string
+          description: |-
+            Deprecated legacy field — sleep duration after this step, as a Go
+            duration string. Prefer encoding the wait as an explicit `Sleep`
+            post-operation action.
+    ActionConfig:
+      title: ActionConfig
+      type: object
+      description: Configuration for a single action within a step.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          enum:
+            - Sleep
+            - PowerControl
+            - VerifyPowerStatus
+            - VerifyReachability
+            - GetPowerStatus
+            - FirmwareControl
+            - VerifyFirmwareVersion
+            - VerifyFirmwareConsistency
+            - BringUpControl
+            - WaitBringUp
+            - InjectExpectation
+          description: |-
+            Executor-agnostic action name. Server-side validated; unknown names
+            fail the rule definition.
+        timeout:
+          type: string
+          description: |-
+            Optional per-action timeout override as a Go duration string
+            (e.g. `30s`, `2m`).
+        pollInterval:
+          type: string
+          description: |-
+            Poll interval for actions that loop (e.g. `FirmwareControl`,
+            `VerifyPowerStatus`) as a Go duration string.
+        parameters:
+          type: object
+          additionalProperties: true
+          description: |-
+            Action-specific parameters. Validated server-side against the action's
+            schema. Examples:
+              - `Sleep`: `{ duration: "30s" }`
+              - `PowerControl`: `{ operation: "on" }`
+              - `VerifyPowerStatus`: `{ expected_status: "on" }`
+              - `VerifyReachability`: `{ component_types: ["Compute"], require_all: true }`
+              - `FirmwareControl`: `{ poll_interval: "10s", poll_timeout: "30m" }`
+    RetryPolicy:
+      title: RetryPolicy
+      type: object
+      description: Retry behavior for a step's child workflow.
+      required:
+        - maxAttempts
+        - initialInterval
+        - backoffCoefficient
+      properties:
+        maxAttempts:
+          type: integer
+          minimum: 1
+          description: Maximum number of attempts including the first.
+        initialInterval:
+          type: string
+          description: Initial retry interval, as a Go duration string (e.g. `1s`).
+        backoffCoefficient:
+          type: number
+          minimum: 1
+          description: Exponential backoff multiplier; must be `>= 1.0`.
+        maxInterval:
+          type: string
+          description: Optional cap on retry interval, as a Go duration string.
+    CreateRuleRequest:
+      title: CreateRuleRequest
+      type: object
+      description: Request body for creating an Operation Rule.
+      required:
+        - siteId
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the rule on.
+        name:
+          type: string
+          description: Human-readable name of the rule.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Operation type the rule applies to.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `power_on`).
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+    UpdateRuleRequest:
+      title: UpdateRuleRequest
+      type: object
+      description: |-
+        Request body for patching an Operation Rule. All mutable fields are optional;
+        unset fields are left unchanged. At least one of `name`, `description`,
+        `ruleDefinition` must be provided.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the rule.
+        name:
+          type: string
+          description: New rule name. Must be non-empty when provided.
+        description:
+          type: string
+          description: New free-form description.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+    TaskReportV1:
+      title: TaskReportV1
+      type: object
+      description: |
+        Structured execution report (version 1) for a Flow-scheduled task.
+        The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.
+
+        Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched.
+      required:
+        - version
+        - stages
+      properties:
+        version:
+          type: integer
+          enum: [1]
+          description: Schema version of this report. Always `1` for `TaskReportV1`.
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Stage'
+        error:
+          type: string
+          description: |
+            Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer.
+    TaskReportV1Stage:
+      title: TaskReportV1Stage
+      type: object
+      description: |
+        Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry.
+      required:
+        - number
+        - status
+        - steps
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: 1-based rule stage number.
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Step'
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the stage leaves `pending`.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the stage reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Step:
+      title: TaskReportV1Step
+      type: object
+      description: |
+        Execution state of one rule sequence step. Pairs 1:1 with the rule's ordered steps within the containing stage and shares its index.
+      required:
+        - componentType
+        - status
+      properties:
+        componentType:
+          type: string
+          description: 'Component class this step targets, e.g. `Compute`, `NVLSwitch`, `PowerShelf`.'
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        totalComponents:
+          type: integer
+          description: |
+            Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
+        completedComponents:
+          type: integer
+          description: |
+            Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
+        failedComponents:
+          type: integer
+          description: Reserved (see `completedComponents`).
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the step leaves `pending`. `skipped` steps carry no timestamp.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the step reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Status:
+      title: TaskReportV1Status
+      type: string
+      description: |
+        Per-stage and per-step execution status.
+
+        - `pending`   — workflow has not yet reached this stage/step.
+        - `running`   — execution is in progress.
+        - `completed` — execution finished successfully.
+        - `failed`    — execution finished with an error; see `error`.
+        - `skipped`   — the rule lists this component type but the task targets no components of that type, so the workflow will not invoke it.
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - skipped
     BatchTrayFirmwareUpdateRequest:
       title: BatchTrayFirmwareUpdateRequest
       type: object
@@ -17723,6 +18394,13 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
@@ -17756,6 +18434,12 @@ components:
             - `cycle`: Graceful power cycle (restart)
             - `forceoff`: Forced power off (immediate)
             - `forcecycle`: Forced power cycle (immediate restart)
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this operation to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           state: 'on'
@@ -17823,6 +18507,12 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this firmware update to
+            the named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           version: '24.11.0'
@@ -21490,12 +22180,9 @@ components:
       examples:
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
           endpoint: /v2/org/test-org-1/nico/ep
-          queryParams:
-            test:
-              - '1234'
+          queryParams: '{"test":["1234"]}'
           method: POST
-          body:
-            key1: value1
+          body: '{"key1":"value1"}'
           statusCode: 200
           clientIP: 12.123.43.112
           userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -21510,12 +22197,9 @@ components:
           apiVersion: 0.1.91
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
           endpoint: /v2/org/test-org-1/nico/ep
-          queryParams:
-            test:
-              - '1234'
+          queryParams: '{"test":["1234"]}'
           method: POST
-          body:
-            key1: value1
+          body: '{"key1":"value1"}'
           statusCode: 403
           statusMessage: User does not have permissions
           clientIP: 12.123.43.112
@@ -21539,18 +22223,14 @@ components:
           type: string
           description: API endpoint
         queryParams:
-          type: object
-          description: Query parameters from the request URL, keyed by parameter name. Each value is the list of values supplied for that parameter.
-          additionalProperties:
-            type: array
-            items:
-              type: string
+          type: string
+          description: Query parameters
         method:
           type: string
           description: HTTP method
         body:
-          type: object
-          description: Request body parsed as a JSON object. Empty when the request had no body. Sensitive fields (e.g. passwords) are obfuscated.
+          type: string
+          description: HTTP body in JSON format
         statusCode:
           type: integer
           description: HTTP response status code
@@ -21672,7 +22352,7 @@ components:
                 supported for these origins.
 
             For details on issuer origins and configuration, see the NICo REST `auth`
-            module [README](https://github.com/NVIDIA/infra-controller-rest/tree/main/auth).
+            module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
         infrastructureProviderId:
           type:
             - string

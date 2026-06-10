@@ -55,6 +55,14 @@ pub enum CmdMachine {
 /// where the measurement report then goes through attestation in an
 /// attempt to match a bundle.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Send a measurement report (two PCR values) for a mock machine:
+    $ carbide-admin-cli attestation measured-boot machine attest \
+    12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
+
+")]
 pub struct Attest {
     #[clap(help = "The machine ID of the machine to associate this report with.")]
     pub machine_id: MachineId,
@@ -71,11 +79,29 @@ pub struct Attest {
 
 /// List lists all candidate machines.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all mock machines:
+    $ carbide-admin-cli attestation measured-boot machine list
+
+")]
 pub struct List {}
 
 /// Show will get a candidate machine for the given ID, or all machines
 /// if no machine ID is provided.
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Show all mock machines:
+    $ carbide-admin-cli attestation measured-boot machine show
+
+Show one mock machine by ID:
+    $ carbide-admin-cli attestation measured-boot machine show \
+    12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Show {
     #[clap(help = "The machine ID to show.")]
     pub machine_id: Option<MachineId>,

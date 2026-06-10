@@ -14,13 +14,6 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -28,6 +21,14 @@ import (
 	"github.com/stretchr/testify/require"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	tmocks "go.temporal.io/sdk/mocks"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 func TestGetTaskHandler_Handle(t *testing.T) {
@@ -42,7 +43,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 	org := "test-org"
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -50,7 +51,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-task-get", org, []string{authz.ProviderAdminRole})
@@ -109,7 +110,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 			user:     providerUser,
 			taskUUID: taskUUID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},
@@ -188,7 +189,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 				return
 			}
 
-			var apiTask model.APIRackTask
+			var apiTask model.APITask
 			err = json.Unmarshal(rec.Body.Bytes(), &apiTask)
 			assert.NoError(t, err)
 			assert.Equal(t, taskUUID, apiTask.ID)
@@ -263,7 +264,7 @@ func ExecuteGetTasksHandlerTestCases(t *testing.T, pathFmt string, handle func(e
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var tasks []model.APIRackTask
+			var tasks []model.APITask
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
 			require.Len(t, tasks, len(tt.mockTasks))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"), "X-Pagination")
@@ -437,7 +438,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 	org := "test-org"
 	_, site, _ := testRackSetupTestData(t, dbSession, org)
 
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow-cancel",
 		Org:                      org,
@@ -445,7 +446,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-task-cancel", org, []string{authz.ProviderAdminRole})
@@ -491,7 +492,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 			reqOrg:         org,
 			user:           providerUser,
 			taskUUID:       taskUUID,
-			body:           model.APICancelTaskRequest{SiteID: siteNoFlow.ID.String()},
+			body:           model.APICancelTaskRequest{SiteID: siteNoRLA.ID.String()},
 			expectedStatus: http.StatusPreconditionFailed,
 		},
 		{
@@ -579,7 +580,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 				return
 			}
 
-			var apiTask model.APIRackTask
+			var apiTask model.APITask
 			err = json.Unmarshal(rec.Body.Bytes(), &apiTask)
 			assert.NoError(t, err)
 			assert.Equal(t, taskUUID, apiTask.ID)

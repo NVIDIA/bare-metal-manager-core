@@ -9,14 +9,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageNVLinkLogicalPartition is an activity wrapper for managing NVLinkLogicalPartition lifecycle that allows
@@ -58,7 +59,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 		cdbm.NVLinkLogicalPartitionFilterInput{
 			SiteIDs: []uuid.UUID{site.ID},
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -107,30 +108,33 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 
 		var name *string
 		var description *string
-		var status *string
+		var status *cdbm.NVLinkLogicalPartitionStatus
 		var statusMessage *string
 
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if nvllp.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cutil.GetPtr(false)
 		}
 
 		if controllerNvllp.Config != nil && controllerNvllp.Config.Metadata != nil {
 			if controllerNvllp.Config.Metadata.Name != nvllp.Name {
-				name = cdb.GetStrPtr(controllerNvllp.Config.Metadata.Name)
+				name = cutil.GetPtr(controllerNvllp.Config.Metadata.Name)
 			}
 
 			if nvllp.Description == nil || (nvllp.Description != nil && controllerNvllp.Config.Metadata.Description != *nvllp.Description) {
-				description = cdb.GetStrPtr(controllerNvllp.Config.Metadata.Description)
+				description = cutil.GetPtr(controllerNvllp.Config.Metadata.Description)
 			}
 		}
 
 		// Update status if necessary
 		if controllerNvllp.Status != nil {
-			status, statusMessage = util.GetNVLinkLogicalPartitionStatus(controllerNvllp.Status.State)
-			if status != nil && *status == nvllp.Status {
-				status = nil
+			var mapped cdbm.NVLinkLogicalPartitionStatus
+			mapped.FromProto(controllerNvllp.Status.State)
+			if mapped != "" && mapped != nvllp.Status {
+				status = &mapped
+				message := mapped.Message()
+				statusMessage = &message
 			}
 		}
 
@@ -156,7 +160,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 		}
 
 		if status != nil {
-			_, err = statusDetailDAO.CreateFromParams(ctx, nil, nvllp.ID.String(), *status, statusMessage)
+			_, err = statusDetailDAO.CreateFromParams(ctx, nil, nvllp.ID.String(), string(*status), statusMessage)
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to create status detail for NVLink Logical Partition in DB")
 				continue
@@ -202,7 +206,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 				nil,
 				cdbm.NVLinkLogicalPartitionUpdateInput{
 					NVLinkLogicalPartitionID: nvllp.ID,
-					IsMissingOnSite:          cdb.GetBoolPtr(true),
+					IsMissingOnSite:          cutil.GetPtr(true),
 				},
 			)
 			if err != nil {
@@ -210,7 +214,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 				continue
 			}
 
-			_, _, err = util.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, mnlp.dbSession, nvllp.ID, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusError), cdb.GetStrPtr("NVLink Logical Partition is missing on Site"))
+			_, _, err = util.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, mnlp.dbSession, nvllp.ID, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusError), cutil.GetPtr("NVLink Logical Partition is missing on Site"))
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update NVLink Logical Partition status detail in DB")
 			}

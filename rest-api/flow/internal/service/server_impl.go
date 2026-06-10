@@ -19,24 +19,24 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/converter/protobuf"
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	inventorymanager "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/manager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskschedule "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/taskschedule"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/conflict"
-	taskmanager "github.com/NVIDIA/infra-controller-rest/flow/internal/task/manager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	operations "github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	taskstore "github.com/NVIDIA/infra-controller-rest/flow/internal/task/store"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/rack"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/metadata"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/conflict"
+	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	operations "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/metadata"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 // FlowServerImpl implements the gRPC Flow server interface.
@@ -650,7 +650,8 @@ func (rs *FlowServerImpl) PowerOnRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: operations.PowerOperationPowerOn,
+			Operation:               operations.PowerOperationPowerOn,
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -670,8 +671,9 @@ func (rs *FlowServerImpl) PowerOffRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: op,
-			Forced:    req.GetForced(),
+			Operation:               op,
+			Forced:                  req.GetForced(),
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -691,8 +693,9 @@ func (rs *FlowServerImpl) PowerResetRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: op,
-			Forced:    req.GetForced(),
+			Operation:               op,
+			Forced:                  req.GetForced(),
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -715,7 +718,8 @@ func (rs *FlowServerImpl) BringUpRack(
 	}
 
 	info := &operations.BringUpTaskInfo{
-		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
+		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
+		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 	}
 	opReq, err := rs.convertTargetSpecToOperationRequest(
 		targetSpec, req.GetDescription(), info,
@@ -882,8 +886,25 @@ func (rs *FlowServerImpl) ListTasks(
 	for _, t := range tasks {
 		results = append(results, protobuf.TaskTo(t))
 	}
+	if !req.GetWithReport() {
+		stripTaskReports(results)
+	}
 
 	return &pb.ListTasksResponse{Tasks: results, Total: total}, nil
+}
+
+// stripTaskReports clears the report field on each task in place. Used by
+// list-style RPCs whose callers did not opt in to receiving execution
+// reports, so the multi-KB report blobs are dropped before they cross the
+// gRPC wire and get persisted in any caller-side Temporal payload store.
+// Single-task RPCs (GetTasksByIDs, CancelTask) intentionally do not call
+// this helper.
+func stripTaskReports(tasks []*pb.Task) {
+	for _, t := range tasks {
+		if t != nil {
+			t.Report = ""
+		}
+	}
 }
 
 func (rs *FlowServerImpl) GetTasksByIDs(
@@ -1233,10 +1254,11 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 
 	// Build FirmwareControlTaskInfo
 	info := &operations.FirmwareControlTaskInfo{
-		Operation:     operations.FirmwareOperationUpgrade,
-		TargetVersion: req.GetTargetVersion(),
-		RuleID:        protobuf.UUIDStringFrom(req.GetRuleId()),
-		SubTargets:    req.GetSubTargets(),
+		Operation:               operations.FirmwareOperationUpgrade,
+		TargetVersion:           req.GetTargetVersion(),
+		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
+		SubTargets:              req.GetSubTargets(),
+		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 	}
 
 	// Parse optional time parameters for scheduled upgrade

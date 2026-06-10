@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -50,7 +51,7 @@ func TestSiteSQLDAO_GetByID(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -66,13 +67,13 @@ func TestSiteSQLDAO_GetByID(t *testing.T) {
 	st1 := &Site{
 		ID:                          uuid.New(),
 		Name:                        "test-site-1",
-		DisplayName:                 db.GetStrPtr("Test Site 1"),
+		DisplayName:                 cutil.GetPtr("Test Site 1"),
 		Org:                         "test-org",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(expirationTime),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(expirationTime),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -86,12 +87,12 @@ func TestSiteSQLDAO_GetByID(t *testing.T) {
 	st2 := &Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-2",
-		DisplayName:              db.GetStrPtr("Test"),
+		DisplayName:              cutil.GetPtr("Test"),
 		Org:                      "test-org",
 		InfrastructureProviderID: ip.ID,
 		Status:                   SiteStatusRegistered,
 		CreatedBy:                uuid.New(),
-		Deleted:                  db.GetTimePtr(time.Now().Add(time.Hour * 24)),
+		Deleted:                  cutil.GetPtr(time.Now().Add(time.Hour * 24)),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(st2).Exec(context.Background())
@@ -239,7 +240,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test-org",
 	}
 
@@ -257,15 +258,15 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 		site := &Site{
 			ID:                          uuid.New(),
 			Name:                        fmt.Sprintf("test%v", i),
-			Description:                 db.GetStrPtr(fmt.Sprintf("test-description-%v", i)),
-			DisplayName:                 db.GetStrPtr(fmt.Sprintf("Test %v", i)),
+			Description:                 cutil.GetPtr(fmt.Sprintf("test-description-%v", i)),
+			DisplayName:                 cutil.GetPtr(fmt.Sprintf("Test %v", i)),
 			Org:                         ip.Org,
 			InfrastructureProviderID:    ip.ID,
-			SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-			SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-			RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-			RegistrationTokenExpiration: db.GetTimePtr(expirationTime),
-			SerialConsoleHostname:       db.GetStrPtr(fmt.Sprintf("test-serial-console-hostname%v", i)),
+			SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+			SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+			RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+			RegistrationTokenExpiration: cutil.GetPtr(expirationTime),
+			SerialConsoleHostname:       cutil.GetPtr(fmt.Sprintf("test-serial-console-hostname%v", i)),
 			Status:                      SiteStatusPending,
 			CreatedBy:                   uuid.New(),
 			Config:                      &SiteConfig{},
@@ -285,7 +286,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 			site.Config.NetworkSecurityGroup = true
 			site.Config.NativeNetworking = true
 			site.Config.NVLinkPartition = true
-			site.Config.MaxNetworkSecurityGroupRuleCount = db.GetIntPtr(100)
+			site.Config.MaxNetworkSecurityGroupRuleCount = cutil.GetPtr(100)
 		}
 
 		_, err = dbSession.DB.NewInsert().Model(site).Exec(context.Background())
@@ -337,7 +338,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				filter: SiteFilterInput{
-					Name:                      db.GetStrPtr("test1"),
+					Name:                      cutil.GetPtr("test1"),
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
@@ -395,7 +396,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 				filter: SiteFilterInput{
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
-					Config:                    &SiteConfigFilterInput{NativeNetworking: db.GetBoolPtr(true)},
+					Config:                    &SiteConfigFilterInput{NativeNetworking: cutil.GetPtr(true)},
 				},
 				includeRelations: false,
 			},
@@ -413,7 +414,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 				filter: SiteFilterInput{
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
-					Config:                    &SiteConfigFilterInput{NVLinkPartition: db.GetBoolPtr(true)},
+					Config:                    &SiteConfigFilterInput{NVLinkPartition: cutil.GetPtr(true)},
 				},
 				includeRelations: false,
 			},
@@ -431,7 +432,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 				filter: SiteFilterInput{
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
-					Config:                    &SiteConfigFilterInput{Flow: db.GetBoolPtr(true)},
+					Config:                    &SiteConfigFilterInput{Flow: cutil.GetPtr(true)},
 				},
 				includeRelations: false,
 			},
@@ -449,7 +450,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 				filter: SiteFilterInput{
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
-					Config:                    &SiteConfigFilterInput{NetworkSecurityGroup: db.GetBoolPtr(true)},
+					Config:                    &SiteConfigFilterInput{NetworkSecurityGroup: cutil.GetPtr(true)},
 				},
 				includeRelations: false,
 			},
@@ -467,7 +468,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 				filter: SiteFilterInput{
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
-					Config:                    &SiteConfigFilterInput{NetworkSecurityGroup: db.GetBoolPtr(true)},
+					Config:                    &SiteConfigFilterInput{NetworkSecurityGroup: cutil.GetPtr(true)},
 				},
 				includeRelations: false,
 			},
@@ -486,9 +487,9 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					Config: &SiteConfigFilterInput{
-						NetworkSecurityGroup:             db.GetBoolPtr(true),
-						NativeNetworking:                 db.GetBoolPtr(true),
-						MaxNetworkSecurityGroupRuleCount: db.GetIntPtr(100),
+						NetworkSecurityGroup:             cutil.GetPtr(true),
+						NativeNetworking:                 cutil.GetPtr(true),
+						MaxNetworkSecurityGroupRuleCount: cutil.GetPtr(100),
 					},
 				},
 				includeRelations: false,
@@ -546,7 +547,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					InfrastructureProviderIDs: nil,
 				},
 				page: paginator.PageInput{
-					Limit: db.GetIntPtr(10),
+					Limit: cutil.GetPtr(10),
 				},
 				includeRelations: false,
 			},
@@ -566,7 +567,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					InfrastructureProviderIDs: nil,
 				},
 				page: paginator.PageInput{
-					Offset: db.GetIntPtr(20),
+					Offset: cutil.GetPtr(20),
 				},
 				includeRelations: false,
 			},
@@ -606,7 +607,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("test"),
+					SearchQuery:               cutil.GetPtr("test"),
 				},
 				includeRelations: false,
 			},
@@ -625,7 +626,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("est"),
+					SearchQuery:               cutil.GetPtr("est"),
 				},
 				includeRelations: false,
 			},
@@ -644,7 +645,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("test-description"),
+					SearchQuery:               cutil.GetPtr("test-description"),
 				},
 				includeRelations: false,
 			},
@@ -663,7 +664,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr(SiteStatusPending),
+					SearchQuery:               cutil.GetPtr(SiteStatusPending),
 				},
 				includeRelations: false,
 			},
@@ -682,7 +683,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr(""),
+					SearchQuery:               cutil.GetPtr(""),
 				},
 				includeRelations: false,
 			},
@@ -810,7 +811,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test-org",
 	}
 
@@ -828,15 +829,15 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 		site := &Site{
 			ID:                          uuid.New(),
 			Name:                        fmt.Sprintf("test%v", i),
-			Description:                 db.GetStrPtr("test-description"),
-			DisplayName:                 db.GetStrPtr(fmt.Sprintf("Test %v", i)),
+			Description:                 cutil.GetPtr("test-description"),
+			DisplayName:                 cutil.GetPtr(fmt.Sprintf("Test %v", i)),
 			Org:                         ip.Org,
 			InfrastructureProviderID:    ip.ID,
-			SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-			SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-			RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-			RegistrationTokenExpiration: db.GetTimePtr(expirationTime),
-			SerialConsoleHostname:       db.GetStrPtr(fmt.Sprintf("test-serial-console-hostname%v", i)),
+			SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+			SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+			RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+			RegistrationTokenExpiration: cutil.GetPtr(expirationTime),
+			SerialConsoleHostname:       cutil.GetPtr(fmt.Sprintf("test-serial-console-hostname%v", i)),
 			Status:                      SiteStatusPending,
 			CreatedBy:                   uuid.New(),
 		}
@@ -886,7 +887,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				filter: SiteFilterInput{
-					Name:                      db.GetStrPtr("test1"),
+					Name:                      cutil.GetPtr("test1"),
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
@@ -954,7 +955,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("test"),
+					SearchQuery:               cutil.GetPtr("test"),
 				},
 			},
 			wantCount: len(sites),
@@ -971,7 +972,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("est"),
+					SearchQuery:               cutil.GetPtr("est"),
 				},
 			},
 			wantCount: len(sites),
@@ -988,7 +989,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr("test-description"),
+					SearchQuery:               cutil.GetPtr("test-description"),
 				},
 			},
 			wantCount: len(sites),
@@ -1005,7 +1006,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr(SiteStatusPending),
+					SearchQuery:               cutil.GetPtr(SiteStatusPending),
 				},
 			},
 			wantCount: len(sites),
@@ -1022,7 +1023,7 @@ func TestSiteSQLDAO_GetCount(t *testing.T) {
 					Org:                       nil,
 					InfrastructureProviderIDs: nil,
 					SiteIDs:                   nil,
-					SearchQuery:               db.GetStrPtr(""),
+					SearchQuery:               cutil.GetPtr(""),
 				},
 			},
 			wantCount: len(sites),
@@ -1101,7 +1102,7 @@ func TestSiteSQLDAO_Create(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -1113,19 +1114,19 @@ func TestSiteSQLDAO_Create(t *testing.T) {
 	st := &Site{
 		ID:                            uuid.New(),
 		Name:                          "test",
-		DisplayName:                   db.GetStrPtr("Test"),
-		Description:                   db.GetStrPtr("Test"),
+		DisplayName:                   cutil.GetPtr("Test"),
+		Description:                   cutil.GetPtr("Test"),
 		Org:                           "test",
 		InfrastructureProviderID:      ip.ID,
-		SiteControllerVersion:         db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              db.GetStrPtr("1.0.0"),
-		RegistrationToken:             db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(db.GetCurTime()),
 		IsInfinityEnabled:             false,
-		SerialConsoleHostname:         db.GetStrPtr("serialConsoleHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("serialConsoleHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      db.GetIntPtr(10),
-		SerialConsoleMaxSessionLength: db.GetIntPtr(20),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(10),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(20),
 		Status:                        SiteStatusPending,
 		CreatedBy:                     uuid.New(),
 		Config:                        &SiteConfig{NativeNetworking: true},
@@ -1226,7 +1227,7 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -1238,15 +1239,15 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        "test",
-		DisplayName:                 db.GetStrPtr("Test"),
-		Description:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
+		Description:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
-		SerialConsoleHostname:       db.GetStrPtr("serialConsoleHostname"),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
+		SerialConsoleHostname:       cutil.GetPtr("serialConsoleHostname"),
 		IsInfinityEnabled:           false,
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
@@ -1265,15 +1266,15 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 	st2 := &Site{
 		ID:                          uuid.New(),
 		Name:                        "test-agent-cert",
-		DisplayName:                 db.GetStrPtr("Test Agent Cert"),
-		Description:                 db.GetStrPtr("Test Agent Cert Desc"),
+		DisplayName:                 cutil.GetPtr("Test Agent Cert"),
+		Description:                 cutil.GetPtr("Test Agent Cert Desc"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("abcd-efgh-ijkl-mnop"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
-		SerialConsoleHostname:       db.GetStrPtr("serialConsoleHostname2"),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("abcd-efgh-ijkl-mnop"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
+		SerialConsoleHostname:       cutil.GetPtr("serialConsoleHostname2"),
 		IsInfinityEnabled:           true,
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
@@ -1294,17 +1295,17 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 	ust := &Site{
 		ID:                            st.ID,
 		Name:                          "test 2",
-		DisplayName:                   db.GetStrPtr("Test 2"),
-		Description:                   db.GetStrPtr("Test 2"),
-		SiteControllerVersion:         db.GetStrPtr("1.0.1"),
-		SiteAgentVersion:              db.GetStrPtr("1.0.1"),
-		RegistrationToken:             db.GetStrPtr("9867-6543-2109-8765"),
-		RegistrationTokenExpiration:   db.GetTimePtr(time.Now().Add(time.Hour * 24).UTC().Round(time.Microsecond)),
+		DisplayName:                   cutil.GetPtr("Test 2"),
+		Description:                   cutil.GetPtr("Test 2"),
+		SiteControllerVersion:         cutil.GetPtr("1.0.1"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.1"),
+		RegistrationToken:             cutil.GetPtr("9867-6543-2109-8765"),
+		RegistrationTokenExpiration:   cutil.GetPtr(time.Now().Add(time.Hour * 24).UTC().Round(time.Microsecond)),
 		IsInfinityEnabled:             true,
 		SerialConsoleHostname:         st.SerialConsoleHostname,
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      db.GetIntPtr(10),
-		SerialConsoleMaxSessionLength: db.GetIntPtr(20),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(10),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(20),
 		InventoryReceived:             &curTime,
 		Status:                        SiteStatusRegistered,
 		Config: &SiteConfig{
@@ -1339,7 +1340,7 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 			input: SiteUpdateInput{
 				SiteID: ust.ID,
 				Config: &SiteConfigUpdateInput{
-					NativeNetworking: db.GetBoolPtr(false),
+					NativeNetworking: cutil.GetPtr(false),
 				},
 			},
 			want:               nil,
@@ -1354,7 +1355,7 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 			ctx: ctx,
 			input: SiteUpdateInput{
 				SiteID:                        ust.ID,
-				Name:                          db.GetStrPtr(ust.Name),
+				Name:                          cutil.GetPtr(ust.Name),
 				DisplayName:                   ust.DisplayName,
 				Description:                   ust.Description,
 				SiteControllerVersion:         ust.SiteControllerVersion,
@@ -1366,10 +1367,10 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 				IsSerialConsoleEnabled:        &ust.IsSerialConsoleEnabled,
 				SerialConsoleIdleTimeout:      ust.SerialConsoleIdleTimeout,
 				SerialConsoleMaxSessionLength: ust.SerialConsoleMaxSessionLength,
-				InventoryReceived:             db.GetTimePtr(curTime),
-				Status:                        db.GetStrPtr(ust.Status),
+				InventoryReceived:             cutil.GetPtr(curTime),
+				Status:                        cutil.GetPtr(ust.Status),
 				Config: &SiteConfigUpdateInput{
-					NativeNetworking: db.GetBoolPtr(true),
+					NativeNetworking: cutil.GetPtr(true),
 				},
 			},
 			want:               ust,
@@ -1477,7 +1478,7 @@ func TestSiteSQLDAO_Delete(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -1493,13 +1494,13 @@ func TestSiteSQLDAO_Delete(t *testing.T) {
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        "test",
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(expirationTime),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(expirationTime),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -1572,7 +1573,7 @@ func TestSiteSQLDAO_ContactLocation(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -1692,7 +1693,7 @@ func TestSiteSQLDAO_QueryByContactLocation(t *testing.T) {
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("Test"),
+		DisplayName: cutil.GetPtr("Test"),
 		Org:         "test",
 	}
 
@@ -1729,25 +1730,25 @@ func TestSiteSQLDAO_QueryByContactLocation(t *testing.T) {
 	}
 
 	// query by location city
-	sites, total, err := ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: db.GetStrPtr("San Jose")}, paginator.PageInput{}, nil)
+	sites, total, err := ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: cutil.GetPtr("San Jose")}, paginator.PageInput{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, len(sites))
 	assert.Equal(t, 5, total)
 
 	// query by location city or state
-	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: db.GetStrPtr("San Jose CA")}, paginator.PageInput{}, nil)
+	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: cutil.GetPtr("San Jose CA")}, paginator.PageInput{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, len(sites))
 	assert.Equal(t, 5, total)
 
 	// query by location city or country
-	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: db.GetStrPtr("San Jose USA")}, paginator.PageInput{}, nil)
+	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: cutil.GetPtr("San Jose USA")}, paginator.PageInput{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 20, len(sites))
 	assert.Equal(t, 20, total)
 
 	// query by email
-	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: db.GetStrPtr("test@nvidia.com")}, paginator.PageInput{}, nil)
+	sites, total, err = ssd.GetAll(ctx, nil, SiteFilterInput{SearchQuery: cutil.GetPtr("test@nvidia.com")}, paginator.PageInput{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 15, len(sites))
 	assert.Equal(t, 15, total)
@@ -1773,18 +1774,18 @@ func buildSite(name string, ipID uuid.UUID, location *SiteLocation, contact *Sit
 	return Site{
 		Name:                          name,
 		DisplayName:                   &name,
-		Description:                   db.GetStrPtr("Test Site"),
+		Description:                   cutil.GetPtr("Test Site"),
 		Org:                           "test",
 		InfrastructureProviderID:      ipID,
-		SiteControllerVersion:         db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              db.GetStrPtr("1.0.0"),
-		RegistrationToken:             db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration:   db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration:   cutil.GetPtr(db.GetCurTime()),
 		IsInfinityEnabled:             false,
-		SerialConsoleHostname:         db.GetStrPtr("serialConsoleHostname"),
+		SerialConsoleHostname:         cutil.GetPtr("serialConsoleHostname"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      db.GetIntPtr(10),
-		SerialConsoleMaxSessionLength: db.GetIntPtr(20),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(10),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(20),
 		Status:                        SiteStatusPending,
 		CreatedBy:                     uuid.New(),
 		Location:                      location,

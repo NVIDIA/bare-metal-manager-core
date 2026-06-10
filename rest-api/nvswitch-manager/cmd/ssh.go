@@ -6,11 +6,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/credential"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/secretstring"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/objects/nvos"
-	"github.com/NVIDIA/infra-controller-rest/nvswitch-manager/pkg/sshclient"
 	"strings"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/secretstring"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/objects/nvos"
+	"github.com/NVIDIA/infra-controller/rest-api/nvswitch-manager/pkg/sshclient"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"

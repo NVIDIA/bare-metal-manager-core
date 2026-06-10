@@ -6,8 +6,8 @@ package model
 import (
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // APISku is the data structure to capture API representation of a SKU

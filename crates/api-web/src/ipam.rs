@@ -29,7 +29,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::Base;
+use super::{Base, LifecycleDetail, filters};
 
 #[derive(Template)]
 #[template(path = "ipam_dhcp.html")]
@@ -471,6 +471,7 @@ struct OverlayVpcPrefixDisplay {
     id: String,
     prefix: String,
     name: String,
+    lifecycle_state: String,
 }
 
 /// Overlay Networks -- lists VNIs and their prefixes.
@@ -485,7 +486,10 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
 
     // Fetch all VPC prefix IDs, and then the prefixes themselves.
-    let prefix_request = tonic::Request::new(forgerpc::VpcPrefixSearchQuery::default());
+    let prefix_request = tonic::Request::new(forgerpc::VpcPrefixSearchQuery {
+        deleted: forgerpc::DeletedFilter::Include as i32,
+        ..Default::default()
+    });
     let prefix_ids = match state
         .search_vpc_prefixes(prefix_request)
         .await
@@ -508,6 +512,7 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         match state
             .get_vpc_prefixes(tonic::Request::new(forgerpc::VpcPrefixGetRequest {
                 vpc_prefix_ids: prefix_ids,
+                deleted: forgerpc::DeletedFilter::Include as i32,
             }))
             .await
             .map(|r| r.into_inner().vpc_prefixes)
@@ -553,6 +558,7 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                 id: p.id.map(|id| id.to_string()).unwrap_or_default(),
                 prefix: prefix_str,
                 name,
+                lifecycle_state: lifecycle_state_label(&p),
             });
     }
 
@@ -582,6 +588,26 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
 
     let tmpl = IpamOverlay { vpcs };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+fn lifecycle_state_label(prefix: &forgerpc::VpcPrefix) -> String {
+    let Some(lifecycle) = prefix
+        .status
+        .as_ref()
+        .and_then(|status| status.lifecycle.as_ref())
+    else {
+        return "Unavailable".to_string();
+    };
+
+    serde_json::from_str::<serde_json::Value>(&lifecycle.state)
+        .ok()
+        .and_then(|state| {
+            state
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| lifecycle.state.clone())
 }
 
 async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> {
@@ -628,6 +654,9 @@ struct IpamOverlayPrefix {
     vpc_name: String,
     vpc_id: String,
     vni: String,
+    lifecycle_detail: Option<LifecycleDetail>,
+    state_history: Vec<forgerpc::StateHistoryRecord>,
+    state_history_load_error: Option<String>,
     segments: Vec<OverlaySegmentDisplay>,
 }
 
@@ -663,6 +692,7 @@ pub async fn overlay_prefix_html(
     let prefix = match state
         .get_vpc_prefixes(tonic::Request::new(forgerpc::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_uuid],
+            deleted: forgerpc::DeletedFilter::Include as i32,
         }))
         .await
         .map(|r| r.into_inner().vpc_prefixes)
@@ -690,6 +720,35 @@ pub async fn overlay_prefix_html(
         .map(|m| m.name.clone())
         .unwrap_or_else(|| "<no name>".to_string());
     let vpc_id = prefix.vpc_id.map(|id| id.to_string()).unwrap_or_default();
+    let lifecycle_detail = prefix
+        .status
+        .as_ref()
+        .and_then(|status| status.lifecycle.clone())
+        .map(Into::into);
+
+    // Fetch the controller state history for this prefix.
+    let (mut state_history, state_history_load_error) = match state
+        .find_vpc_prefix_state_histories(tonic::Request::new(
+            forgerpc::VpcPrefixStateHistoriesRequest {
+                vpc_prefix_ids: vec![vpc_prefix_uuid],
+            },
+        ))
+        .await
+        .map(|r| r.into_inner().histories)
+    {
+        Ok(mut histories) => (
+            histories
+                .remove(&vpc_prefix_uuid.to_string())
+                .map(|history| history.records)
+                .unwrap_or_default(),
+            None,
+        ),
+        Err(err) => {
+            tracing::error!(%err, "find_vpc_prefix_state_histories");
+            (Vec::new(), Some(err.to_string()))
+        }
+    };
+    state_history.reverse();
 
     // Fetch the parent VPC for name/VNI.
     let (vpc_name, vni) = if let Ok(vpc_uuid) = vpc_id.parse() {
@@ -759,6 +818,9 @@ pub async fn overlay_prefix_html(
         vpc_name,
         vpc_id,
         vni,
+        lifecycle_detail,
+        state_history,
+        state_history_load_error,
         segments,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()

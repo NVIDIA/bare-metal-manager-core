@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/endpoint"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/endpoint"
 )
 
 const (

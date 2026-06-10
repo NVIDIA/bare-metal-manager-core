@@ -34,7 +34,7 @@ mod error_state;
 mod fixtures;
 mod maintenance;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
-use forge_secrets::credentials::TestCredentialManager;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 
 #[crate::sqlx_test]
 async fn test_power_shelf_state_transition_validation(
@@ -127,7 +127,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         .services(
             PowerShelfStateHandlerServices {
                 db_pool: pool.clone(),
-                rms_client: None,
+                component_manager: None,
                 credential_manager: credential_manager.clone(),
             }
             .into(),

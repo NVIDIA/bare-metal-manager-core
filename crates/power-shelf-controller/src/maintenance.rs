@@ -17,14 +17,16 @@
 
 //! Handler for PowerShelfControllerState::Maintenance.
 
-use carbide_rack::rack_manager_error;
 use carbide_uuid::power_shelf::PowerShelfId;
+use component_manager::power_shelf_manager::{
+    PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfVendor,
+};
 use db::power_shelf as db_power_shelf;
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
-use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
+use model::component_manager::PowerAction;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
 use sqlx::PgPool;
 use state_controller::state_handler::{
@@ -32,11 +34,6 @@ use state_controller::state_handler::{
 };
 
 use crate::context::PowerShelfStateHandlerContextObjects;
-
-/// Default BMC HTTPS port used when populating `rms::BmcEndpoint` for power
-/// shelves. Mirrors the value used by `crate::rack::firmware_update`.
-const POWER_SHELF_BMC_PORT: i32 = 443;
-
 /// Handles the Maintenance state for a power shelf, dispatching on the
 /// requested operation (`PowerOn` / `PowerOff`).
 pub async fn handle_maintenance(
@@ -68,14 +65,7 @@ async fn handle_power_on(
         power_shelf_id = %power_shelf_id,
         "PowerShelf maintenance: PowerOn"
     );
-    invoke_rms_power_operation(
-        power_shelf_id,
-        state,
-        ctx,
-        rms::PowerOperation::PowerOn,
-        "PowerOn",
-    )
-    .await
+    invoke_power_operation(power_shelf_id, state, ctx, PowerAction::On, "PowerOn").await
 }
 
 async fn handle_power_off(
@@ -87,36 +77,35 @@ async fn handle_power_off(
         power_shelf_id = %power_shelf_id,
         "PowerShelf maintenance: PowerOff"
     );
-    invoke_rms_power_operation(
+    invoke_power_operation(
         power_shelf_id,
         state,
         ctx,
-        rms::PowerOperation::PowerOff,
+        PowerAction::ForceOff,
         "PowerOff",
     )
     .await
 }
 
-/// Common driver for RMS-backed power maintenance operations. Builds a
-/// caller-supplied `NodeSet` with the power shelf's BMC connection details
-/// and dispatches `SetPowerStateByDeviceList` against the configured
-/// `RmsApi` client. Returns to `Ready` on success or transitions to `Error`
-/// on failure. In both terminal cases the `power_shelf_maintenance_requested`
-/// row is cleared so the controller does not re-enter `Maintenance` on the
-/// next iteration.
-async fn invoke_rms_power_operation(
+/// Common driver for component-manager-backed power maintenance operations.
+/// Builds a `PowerShelfEndpoint` with the power shelf's BMC connection details
+/// and dispatches `power_control` against the configured backend. Returns to
+/// `Ready` on success or transitions to `Error` on failure. In both terminal
+/// cases the `power_shelf_maintenance_requested` row is cleared so the
+/// controller does not re-enter `Maintenance` on the next iteration.
+async fn invoke_power_operation(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelf,
     ctx: &mut StateHandlerContext<'_, PowerShelfStateHandlerContextObjects>,
-    operation: rms::PowerOperation,
+    action: PowerAction,
     operation_label: &'static str,
 ) -> Result<StateHandlerOutcome<PowerShelfControllerState>, StateHandlerError> {
-    let Some(rms_client) = ctx.services.rms_client.as_ref() else {
+    let Some(component_manager) = ctx.services.component_manager.as_ref() else {
         return finish_maintenance_with_error(
             power_shelf_id,
             ctx,
             format!(
-                "PowerShelf {} maintenance ({}): RMS client not configured",
+                "PowerShelf {} maintenance ({}): component manager not configured",
                 power_shelf_id, operation_label
             ),
         )
@@ -135,16 +124,15 @@ async fn invoke_rms_power_operation(
         .await;
     };
 
-    let device = match build_power_shelf_node_info(
+    let endpoint = match build_power_shelf_endpoint(
         power_shelf_id,
         state,
-        rack_id.to_string(),
         &ctx.services.db_pool,
         ctx.services.credential_manager.as_ref(),
     )
     .await
     {
-        Ok(device) => device,
+        Ok(endpoint) => endpoint,
         Err(cause) => {
             return finish_maintenance_with_error(
                 power_shelf_id,
@@ -158,24 +146,28 @@ async fn invoke_rms_power_operation(
         }
     };
 
-    let request = rms::SetPowerStateByDeviceListRequest {
-        nodes: Some(rms::NodeSet {
-            devices: vec![device],
-        }),
-        operation: operation as i32,
-        ..Default::default()
-    };
+    match component_manager
+        .power_shelf
+        .power_control(std::slice::from_ref(&endpoint), action)
+        .await
+    {
+        Ok(results) => {
+            let result = results
+                .into_iter()
+                .next()
+                .unwrap_or(PowerShelfComponentResult {
+                    pmc_mac: endpoint.pmc_mac,
+                    success: false,
+                    error: Some("component manager returned no result".into()),
+                });
 
-    match rms_client.set_power_state_by_device_list(request).await {
-        Ok(response) => {
-            let batch = response.response.unwrap_or_default();
-            if batch.status == rms::ReturnCode::Success as i32 && batch.failed_nodes == 0 {
+            if result.success {
                 tracing::info!(
                     power_shelf_id = %power_shelf_id,
                     rack_id = %rack_id,
                     operation = operation_label,
-                    successful_nodes = batch.successful_nodes,
-                    "RMS SetPowerStateByDeviceList succeeded; returning PowerShelf to Ready"
+                    backend = component_manager.power_shelf.name(),
+                    "Power shelf power control succeeded; returning PowerShelf to Ready"
                 );
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db_power_shelf::clear_power_shelf_maintenance_requested(&mut txn, *power_shelf_id)
@@ -185,78 +177,50 @@ async fn invoke_rms_power_operation(
                 );
             }
 
-            let node_error = batch
-                .node_results
-                .iter()
-                .find(|result| {
-                    result.status != rms::ReturnCode::Success as i32
-                        || !result.error_message.is_empty()
-                })
-                .map(|result| {
-                    if result.error_message.is_empty() {
-                        format!("status={}", result.status)
-                    } else {
-                        result.error_message.clone()
-                    }
-                });
-            let summary = if !batch.message.is_empty() {
-                batch.message.clone()
-            } else if let Some(error) = node_error.as_ref() {
-                error.clone()
-            } else {
-                format!(
-                    "batch status {}, failed_nodes {}",
-                    batch.status, batch.failed_nodes,
-                )
-            };
-
+            let summary = result
+                .error
+                .unwrap_or_else(|| "power control failed".into());
             tracing::warn!(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id,
                 operation = operation_label,
-                batch_status = batch.status,
-                successful_nodes = batch.successful_nodes,
-                failed_nodes = batch.failed_nodes,
+                backend = component_manager.power_shelf.name(),
                 summary = %summary,
-                "RMS SetPowerStateByDeviceList returned a non-success result",
+                "Power shelf power control returned a non-success result",
             );
             let cause = format!(
-                "PowerShelf {} maintenance ({}): RMS SetPowerStateByDeviceList failed: {}",
+                "PowerShelf {} maintenance ({}): power control failed: {}",
                 power_shelf_id, operation_label, summary
             );
             finish_maintenance_with_error(power_shelf_id, ctx, cause).await
         }
         Err(error) => {
-            let error = rack_manager_error("set_power_state_by_device_list", error);
             let cause = format!(
-                "PowerShelf {} maintenance ({}): RMS SetPowerStateByDeviceList failed: {}",
+                "PowerShelf {} maintenance ({}): power control failed: {}",
                 power_shelf_id, operation_label, error
             );
             tracing::warn!(
                 power_shelf_id = %power_shelf_id,
                 rack_id = %rack_id,
                 operation = operation_label,
+                backend = component_manager.power_shelf.name(),
                 error = %error,
-                "RMS SetPowerStateByDeviceList transport error",
+                "Power shelf power control transport error",
             );
             finish_maintenance_with_error(power_shelf_id, ctx, cause).await
         }
     }
 }
 
-/// Build the `rms::NewNodeInfo` describing this power shelf for inclusion
-/// in any caller-supplied `NodeSet` request (`SetPowerStateByDeviceList`
-/// from `Maintenance`, `GetDeviceInfoByDeviceList` from `Ready`). Resolves
-/// the BMC IP from the database and BMC credentials via the credential
-/// manager, since these RPCs require the BMC connection details inline
-/// rather than relying on RMS's inventory.
-pub(super) async fn build_power_shelf_node_info(
+/// Build the `PowerShelfEndpoint` describing this power shelf for component
+/// manager power operations. Resolves the BMC IP from the database and BMC
+/// credentials via the credential manager.
+pub(super) async fn build_power_shelf_endpoint(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelf,
-    rack_id: String,
     db_pool: &PgPool,
     credential_manager: &dyn CredentialManager,
-) -> Result<rms::NewNodeInfo, String> {
+) -> Result<PowerShelfEndpoint, String> {
     let bmc_mac = state.bmc_mac_address.ok_or_else(|| {
         format!(
             "power shelf {} has no BMC MAC address recorded",
@@ -267,19 +231,13 @@ pub(super) async fn build_power_shelf_node_info(
     let bmc_ip = lookup_power_shelf_bmc_ip(db_pool, power_shelf_id, bmc_mac).await?;
     let credentials = lookup_bmc_credentials(credential_manager, bmc_mac).await?;
 
-    Ok(rms::NewNodeInfo {
-        node_id: power_shelf_id.to_string(),
-        rack_id,
-        r#type: Some(rms::NodeType::Powershelf as i32),
-        bmc_endpoint: Some(rms::BmcEndpoint {
-            interface: Some(rms::NetworkInterface {
-                ip_address: bmc_ip,
-                mac_address: bmc_mac.to_string(),
-            }),
-            port: POWER_SHELF_BMC_PORT,
-            credentials: Some(credentials),
-        }),
-        host_endpoint: None,
+    Ok(PowerShelfEndpoint {
+        pmc_ip: bmc_ip
+            .parse()
+            .map_err(|error| format!("invalid BMC IP {bmc_ip}: {error}"))?,
+        pmc_mac: bmc_mac,
+        pmc_vendor: PowerShelfVendor::DEFAULT,
+        pmc_credentials: credentials,
     })
 }
 
@@ -309,7 +267,7 @@ async fn lookup_power_shelf_bmc_ip(
 async fn lookup_bmc_credentials(
     credential_manager: &dyn CredentialManager,
     bmc_mac: MacAddress,
-) -> Result<rms::Credentials, String> {
+) -> Result<Credentials, String> {
     let bmc_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {
             bmc_mac_address: bmc_mac,
@@ -326,8 +284,8 @@ async fn lookup_bmc_credentials(
         }
     };
 
-    let creds = match creds {
-        Some(creds) => creds,
+    match creds {
+        Some(creds) => Ok(creds),
         None => {
             let sitewide_key = CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRoot,
@@ -336,19 +294,9 @@ async fn lookup_bmc_credentials(
                 .get_credentials(&sitewide_key)
                 .await
                 .map_err(|error| format!("failed to read site-wide BMC credentials: {}", error))?
-                .ok_or_else(|| {
-                    format!("no BMC credentials configured for {} or sitewide", bmc_mac)
-                })?
+                .ok_or_else(|| format!("no BMC credentials configured for {} or sitewide", bmc_mac))
         }
-    };
-
-    let Credentials::UsernamePassword { username, password } = creds;
-    Ok(rms::Credentials {
-        auth: Some(rms::credentials::Auth::UserPass(rms::UsernamePassword {
-            username,
-            password,
-        })),
-    })
+    }
 }
 
 /// Clear the pending maintenance request and transition to `Error` with the

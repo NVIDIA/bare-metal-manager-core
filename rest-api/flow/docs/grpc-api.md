@@ -19,6 +19,7 @@
     - [CheckScheduleConflictsResponse](#v1-CheckScheduleConflictsResponse)
     - [Component](#v1-Component)
     - [ComponentDiff](#v1-ComponentDiff)
+    - [ComponentStatus](#v1-ComponentStatus)
     - [ComponentTarget](#v1-ComponentTarget)
     - [ComponentTargets](#v1-ComponentTargets)
     - [ComponentTypes](#v1-ComponentTypes)
@@ -128,6 +129,7 @@
     - [DiffType](#v1-DiffType)
     - [OperationType](#v1-OperationType)
     - [OverlapPolicy](#v1-OverlapPolicy)
+    - [Phase](#v1-Phase)
     - [PowerControlOp](#v1-PowerControlOp)
     - [RackFilterField](#v1-RackFilterField)
     - [RackOrderByField](#v1-RackOrderByField)
@@ -151,12 +153,15 @@
 <a name="v1-AddComponentRequest"></a>
 
 ### AddComponentRequest
-AddComponent - add a single component to an existing rack
+AddComponent - ingest a single component into the inventory. The component
+may optionally be attached to an existing rack via component.rack_id; when
+rack_id is omitted the component is stored without a rack assignment and
+can be moved into a rack later via PatchComponent.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| component | [Component](#v1-Component) |  | Required: the component to add; component.rack_id must be set |
+| component | [Component](#v1-Component) |  | Required: the component to add. component.rack_id is optional. |
 
 
 
@@ -276,6 +281,7 @@ AddTaskScheduleScopeResponse returns the newly created scope entries.
 | target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) |  | Target racks for bring-up |
 | description | [string](#string) |  | optional task description |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, allow the bring-up sequence (which may power-cycle hosts and reset rack-scoped components) to proceed even if any host in scope is still in the Assigned/* lifecycle state. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -390,6 +396,7 @@ An empty list means no conflicts were detected.
 | component_id | [string](#string) |  | Component&#39;s own ID from its source system (e.g., NICo machine_id for Compute) |
 | rack_id | [UUID](#v1-UUID) |  |  |
 | power_state | [string](#string) |  | Current power state (synced from external system by inventory loop) |
+| status | [ComponentStatus](#v1-ComponentStatus) |  |  |
 
 
 
@@ -410,6 +417,24 @@ An empty list means no conflicts were detected.
 | actual | [Component](#v1-Component) |  |  |
 | field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is MISMATCH |
 | id | [UUID](#v1-UUID) |  | Flow internal component UUID |
+
+
+
+
+
+
+<a name="v1-ComponentStatus"></a>
+
+### ComponentStatus
+ComponentStatus is Flow&#39;s view of a component&#39;s operability. The
+inventory loop computes it on every sync from core&#39;s controller_state.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| phase | [Phase](#v1-Phase) |  |  |
+| reason | [string](#string) |  | Human-readable detail (typically the raw core state string). |
+| blocked_operations | [OperationType](#v1-OperationType) | repeated | Operations Flow will reject while the component is in this status. Empty when phase is READY. |
 
 
 
@@ -729,14 +754,15 @@ scope entries. In-flight tasks are not cancelled.
 
 ### ExternalRef
 ExternalRef identifies a component by its external system ID.
-The component type determines which external system to query
-(e.g., COMPUTE -&gt; NICo, POWERSHELF -&gt; PSM)
+All component types are routed through Core (NICo); the ID is the
+identifier expected by NICo for that component type (e.g. machine_id
+for compute, PMC MAC for power shelf).
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ComponentType](#v1-ComponentType) |  | Component type determines the source system |
-| id | [string](#string) |  | ID in that system (e.g., NICo machine_id, PSM PMC MAC) |
+| id | [string](#string) |  | ID expected by NICo for this component type |
 
 
 
@@ -1259,14 +1285,19 @@ Results are ordered by creation time ascending.
 <a name="v1-ListTasksRequest"></a>
 
 ### ListTasksRequest
+ListTasks - list Tasks with optional filters.
 
+Filters compose with AND: a Task is returned only if it satisfies every
+set filter. Unset optional fields are not applied; with no filter set
+every Task is returned subject to pagination.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| rack_id | [UUID](#v1-UUID) | optional |  |
-| active_only | [bool](#bool) |  |  |
+| rack_id | [UUID](#v1-UUID) | optional | Restrict to Tasks created against this rack. |
+| active_only | [bool](#bool) |  | Restrict to non-terminal Tasks (Waiting, Pending, Running). |
 | pagination | [Pagination](#v1-Pagination) | optional |  |
+| component_id | [UUID](#v1-UUID) | optional | Restrict to Tasks that target this component UUID, regardless of component type. A rack_id &#43; component_id combination that references a component not on the given rack is not an error; it yields an empty result. |
 
 
 
@@ -1491,6 +1522,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-off even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1509,6 +1541,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-on even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1528,6 +1561,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the reset even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1841,17 +1875,18 @@ form &#34;&lt;schedule name&gt; — &lt;RFC3339 timestamp&gt;&#34;.
 | operation | [string](#string) |  |  |
 | rack_id | [UUID](#v1-UUID) |  |  |
 | component_uuids | [UUID](#v1-UUID) | repeated |  |
-| description | [string](#string) |  |  |
+| description | [string](#string) |  | description is provided by the client when the task is created. |
 | executor_type | [TaskExecutorType](#v1-TaskExecutorType) |  |  |
 | execution_id | [string](#string) |  |  |
 | status | [TaskStatus](#v1-TaskStatus) |  |  |
-| message | [string](#string) |  |  |
+| message | [string](#string) |  | message is brief text tied to status (not execution progress). |
 | queue_expires_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional | queue_expires_at is set only for waiting tasks; absent for all other statuses. |
 | created_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | finished_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional |  |
 | applied_rule_id | [UUID](#v1-UUID) | optional |  |
 | updated_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | started_at | [google.protobuf.Timestamp](#google-protobuf-Timestamp) | optional |  |
+| report | [string](#string) |  | report is a versioned JSON document with structured execution progress. |
 
 
 
@@ -2039,6 +2074,8 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 | description | [string](#string) |  | optional: task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
+| sub_targets | [string](#string) | repeated | Optional subset of firmware sub-parts to update within each tray selected by target_spec, e.g. [&#34;bmc&#34;, &#34;nvos&#34;] for switch trays or [&#34;psu&#34;] for powershelf trays. Named &#34;sub_targets&#34; (not &#34;components&#34;) to avoid colliding with OperationTargetSpec.components, which selects tray INSTANCES rather than sub-parts of a tray. Names are lowercase. Empty or omitted means update everything in the bundle (current default behavior). Unknown names are rejected by the downstream component manager. |
+| override_assignment_check | [bool](#bool) |  | When true, proceed with the firmware update even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. The flag is intended for operator-supervised maintenance windows where the tenant impact has been acknowledged out-of-band; setting it bypasses the safety gate that would otherwise block disruptive operations against tenanted hardware. The bypass is recorded in the server log. |
 
 
 
@@ -2208,6 +2245,24 @@ execution for the same scope is still active.
 | OVERLAP_POLICY_UNSPECIFIED | 0 |  |
 | OVERLAP_POLICY_SKIP | 1 | skip this firing cycle for any scope whose last task is still active |
 | OVERLAP_POLICY_QUEUE | 2 | submit unconditionally; the task manager queues behind the active task |
+
+
+
+<a name="v1-Phase"></a>
+
+### Phase
+Phase is the coarse lifecycle bucket a component is in, derived from
+core&#39;s per-component state machine. Shared across compute, nvswitch,
+and power shelf.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| PHASE_UNKNOWN | 0 |  |
+| PHASE_INITIALIZING | 1 |  |
+| PHASE_READY | 2 |  |
+| PHASE_IN_USE | 3 |  |
+| PHASE_ERROR | 4 |  |
+| PHASE_DELETING | 5 |  |
 
 
 

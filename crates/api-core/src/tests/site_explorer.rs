@@ -22,11 +22,8 @@ use std::sync::Arc;
 
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
-use carbide_utils::test_support::test_meter::TestMeter;
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
-use config_version::ConfigVersion;
 use db::sku::CURRENT_SKU_VERSION;
 use db::{self, ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explored_endpoints};
 use ipnetwork::IpNetwork;
@@ -37,25 +34,28 @@ use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
-use model::power_shelf::PowerShelfControllerState;
 use model::site_explorer::{
     Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
     ExploredDpu, ExploredEndpoint, ExploredManagedHost, PreingestionState, UefiDevicePath,
 };
 use model::switch::SwitchSearchFilter;
+use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
 use rpc::forge::forge_server::Forge;
 use rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use sqlx::PgPool;
 use tonic::Request;
 
+use crate::sqlx_test;
+use crate::test_support::fixture_config::{
+    DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     create_host_inband_network_segment,
@@ -67,16 +67,28 @@ use crate::tests::common::rpc_builder::DhcpDiscovery;
 struct FakeMachine {
     pub mac: MacAddress,
     pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
+    pub relay_address: &'static str,
     pub ip: String,
 }
 
+const UNDERLAY_RELAY: &str = "192.0.1.1";
+const ADMIN_RELAY: &str = "192.0.2.1";
+
 impl FakeMachine {
-    fn new(mac: &str, vendor: &str, segment: NetworkSegmentId) -> Self {
+    fn new_admin(mac: &str, vendor: &str) -> Self {
         Self {
             mac: mac.parse().unwrap(),
             dhcp_vendor: vendor.to_string(),
-            segment,
+            relay_address: ADMIN_RELAY,
+            ip: String::new(),
+        }
+    }
+
+    fn new(mac: &str, vendor: &str) -> Self {
+        Self {
+            mac: mac.parse().unwrap(),
+            dhcp_vendor: vendor.to_string(),
+            relay_address: UNDERLAY_RELAY,
             ip: String::new(),
         }
     }
@@ -84,7 +96,7 @@ impl FakeMachine {
     fn as_mock_dpu(&self) -> DpuConfig {
         DpuConfig {
             bmc_mac_address: self.mac,
-            ..Default::default()
+            ..DpuConfig::default()
         }
     }
 
@@ -92,27 +104,21 @@ impl FakeMachine {
         ManagedHostConfig {
             bmc_mac_address: self.mac,
             dpus,
-            ..Default::default()
+            ..ManagedHostConfig::default()
         }
     }
 }
 
-#[async_trait::async_trait]
 trait DiscoverDhcp {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-#[async_trait::async_trait]
 impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
-        let relay_address = match self.segment {
-            s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-            _ => "192.0.2.1".to_string(),
-        };
         let response = env
             .api
             .discover_dhcp(
-                DhcpDiscovery::builder(self.mac, relay_address)
+                DhcpDiscovery::builder(self.mac, self.relay_address)
                     .vendor_string(&self.dhcp_vendor)
                     .tonic_request(),
             )
@@ -128,7 +134,6 @@ impl DiscoverDhcp for FakeMachine {
     }
 }
 
-#[async_trait::async_trait]
 impl DiscoverDhcp for Vec<FakeMachine> {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
         for machine in self.iter_mut() {
@@ -138,75 +143,68 @@ impl DiscoverDhcp for Vec<FakeMachine> {
     }
 }
 
-struct FakePowerShelf {
-    pub bmc_mac_address: MacAddress,
-    pub serial_number: String,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    #[allow(dead_code)]
-    pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
-    pub ip: String, // DHCP assigned IP (may be different from ip_address)
+trait SiteExplorerConstructor {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer;
 }
 
-impl FakePowerShelf {
-    fn new(
-        bmc_mac_address: MacAddress,
-        ip: String,
-        serial_number: String,
-        bmc_username: String,
-        bmc_password: String,
-        dhcp_vendor: String,
-        segment: NetworkSegmentId,
-    ) -> Self {
-        Self {
-            bmc_mac_address,
-            ip,
-            serial_number,
-            bmc_username,
-            bmc_password,
-            dhcp_vendor,
-            segment,
-        }
-    }
-
-    /// Builds model input for `add_expected_power_shelf`; `bmc_ip_address` drives the same static
-    /// BMC pre-allocation path as expected machines / switches.
-    fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
-        model::expected_power_shelf::ExpectedPowerShelf {
-            expected_power_shelf_id: None,
-            bmc_mac_address: self.bmc_mac_address,
-            bmc_username: self.bmc_username.clone(),
-            bmc_password: self.bmc_password.clone(),
-            serial_number: self.serial_number.clone(),
-            bmc_ip_address: Some(self.ip.parse().unwrap()),
-            metadata: Metadata {
-                name: format!("Test Power Shelf {}", self.serial_number),
-                description: format!("A test power shelf with serial {}", self.serial_number),
-                labels: HashMap::new(),
-            },
-            rack_id: None,
-            bmc_retain_credentials: None,
-        }
+impl SiteExplorerConstructor for TestEnv {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer {
+        SiteExplorer::new(
+            self.pool.clone(),
+            explorer_config,
+            self.test_meter.meter(),
+            endpoint_explorer.clone(),
+            Arc::new(self.config.get_firmware_config()),
+            self.common_pools.clone(),
+            self.api.work_lock_manager_handle.clone(),
+            self.rms_sim.as_rms_client(),
+            self.test_credential_manager.clone(),
+        )
     }
 }
 
-#[crate::sqlx_test(fixtures("create_expected_machine_no_default_poweron"))]
+#[sqlx_test]
 async fn test_site_explorer_default_pause_ingestion_and_poweron(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machines = vec![FakeMachine::new(
-        "6a:6b:6c:6d:6e:6f",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    )];
+    let bmc_mac_address = "6a:6b:6c:6d:6e:6f".parse().unwrap();
+    let mut txn = pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".into(),
+                bmc_password: "Pwd2023x0x0x0x0x7".into(),
+                serial_number: "VVG121GL".into(),
+                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                default_pause_ingestion_and_poweron: Some(true),
+                ..Default::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await?;
+
+    let mut machines = vec![FakeMachine::new(&bmc_mac_address.to_string(), "Vendor1")];
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         1
@@ -228,18 +226,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // check the ingestion state of the machine
     let response = env
@@ -343,97 +330,10 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_handle_redfish_error_powers_on_machine(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut machine = FakeMachine::new(
-        "6a:6b:6c:6d:6e:70",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
-    machine.discover_dhcp(&env).await?;
-    let bmc_ip: IpAddr = machine.ip.parse()?;
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: machine.mac,
-            data: ExpectedMachineData {
-                serial_number: "host-needs-power-on".to_string(),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_result(
-        bmc_ip,
-        Err(EndpointExplorationError::RedfishError {
-            details: "transient redfish failure".to_string(),
-            response_body: None,
-            response_code: Some(500),
-        }),
-    );
-    endpoint_explorer
-        .power_states
-        .lock()
-        .unwrap()
-        .insert(bmc_ip, libredfish::PowerState::Off);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await?;
-
-    {
-        let calls = endpoint_explorer
-            .redfish_power_control_calls
-            .lock()
-            .unwrap();
-        assert_eq!(
-            calls.as_slice(),
-            &[(
-                std::net::SocketAddr::new(bmc_ip, 443),
-                libredfish::SystemPowerControl::On
-            )]
-        );
-    }
-
-    let mut txn = env.pool.begin().await?;
-    let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
-    txn.commit().await?;
-    assert_eq!(endpoints.len(), 1, "expected one explored endpoint");
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     // Let's create 3 machines on the underlay, and 1 on the admin network
     // The 1 on the admin network is not supposed to be searched. This is verified
@@ -441,35 +341,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // to a panic if the machine is queried
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
-        FakeMachine::new(
-            "B8:3F:D2:90:97:A6",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
         // machines[1] has 1 dpu (machines[0])
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:02",
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
         // machines[2] has no DPUs
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:03",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3"),
         // machines[3] is not on the underlay network and should not be searched.
-        FakeMachine::new(
-            "AA:AB:AC:AD:BB:01",
-            "VendorInvalidSegment",
-            env.admin_segment(),
-        ),
+        FakeMachine::new_admin("AA:AB:AC:AD:BB:01", "VendorInvalidSegment"),
     ];
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         3
@@ -552,6 +436,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
                 physical_slot_number: None,
                 revision_id: None,
                 topology_id: None,
+                remediation_error: None,
             }),
         ),
     ]);
@@ -569,18 +454,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -789,7 +664,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     addresses.sort();
     let mut expected_addresses: Vec<String> = machines
         .iter()
-        .filter(|m| m.segment == env.underlay_segment.unwrap())
+        .filter(|m| m.relay_address == UNDERLAY_RELAY)
         .map(|m| m.ip.to_string())
         .collect();
     expected_addresses.sort();
@@ -844,352 +719,73 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Strict ingestion gate: a host whose BMC reports no DPU PCIe devices
-/// and whose `ExpectedMachine` does not declare `NoDpu` is skipped (with
-/// a warning + a `NoDpuReportedByHost` pairing-blocker metric) rather
-/// than ingested. Operators must explicitly opt in to zero-DPU.
-#[crate::sqlx_test]
-async fn test_site_explorer_skips_unexpected_zero_dpu_host(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:11",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
-    machine.discover_dhcp(&env).await?;
-
-    // expected_machine WITHOUT a NoDpu declaration -- the host is
-    // "expected to have DPUs" by default.
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: machine.mac,
-            data: ExpectedMachineData {
-                serial_number: "host-expected-dpus-but-has-none".to_string(),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    // BMC report with no PCIe devices / no chassis -- the gate sees
-    // zero DPUs.
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
-        machine.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
-            systems: vec![ComputerSystem {
-                serial_number: Some("0123456789".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }),
-    )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // First iteration populates `explored_endpoints`; second runs
-    // `identify_managed_hosts` after preingestion is complete.
-    explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
-    explorer.run_single_iteration().await.unwrap();
-
-    // No managed host should have been identified.
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    assert!(
-        explored_managed_hosts.is_empty(),
-        "strict gate should refuse to ingest a zero-DPU host without a `NoDpu` declaration, got {:?}",
-        explored_managed_hosts,
-    );
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
-            .unwrap(),
-        "0"
-    );
-
-    // The pairing-blocker metric should have ticked for `NoDpuReportedByHost`.
-    let blocker_metric = test_meter
-        .formatted_metric("carbide_host_dpu_pairing_blockers_count")
-        .expect("expected `carbide_host_dpu_pairing_blockers_count` to be emitted");
-    assert!(
-        blocker_metric.contains("no_dpu_reported_by_host"),
-        "expected pairing-blocker metric to mention `no_dpu_reported_by_host`, got {blocker_metric}",
-    );
-
-    Ok(())
-}
-
-/// Companion to `test_site_explorer_skips_unexpected_zero_dpu_host`: when
-/// the operator explicitly declares `dpu_mode = "nic_mode"`, a host whose
-/// BMC reports zero usable DPU PCIe devices (because anything that is a
-/// BlueField has been stripped as "DPU in NIC mode") should be ingested as
-/// a zero-DPU managed host -- the operator has already opted into "treat
-/// as zero-DPU" semantics by declaring NicMode.
-#[crate::sqlx_test]
-async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:22",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
-    machine.discover_dhcp(&env).await?;
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: machine.mac,
-            data: ExpectedMachineData {
-                serial_number: "host-nic-mode-no-observed-dpus".to_string(),
-                dpu_mode: model::expected_machine::DpuMode::NicMode,
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
-        machine.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
-            systems: vec![ComputerSystem {
-                serial_number: Some("0123456789".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }),
-    )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
-    explorer.run_single_iteration().await.unwrap();
-
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    assert_eq!(
-        explored_managed_hosts.len(),
-        1,
-        "NicMode declaration should let the host through the strict gate even with zero observed DPUs",
-    );
-    assert!(
-        explored_managed_hosts[0].dpus.is_empty(),
-        "NicMode hosts ingest with an empty `dpus` vector",
-    );
-
-    Ok(())
-}
-
-/// Third member of the zero-DPU triad (alongside the `DpuMode::DpuMode`
-/// skip test and the `DpuMode::NicMode` ingest test): a host explicitly
-/// declared `dpu_mode = "no_dpu"` ingests as a zero-DPU managed host. The
-/// `NoDpu` fast-path in `identify_managed_hosts` short-circuits before any
-/// DPU PCIe enumeration, so this holds regardless of what the BMC reports.
-#[crate::sqlx_test]
-async fn test_site_explorer_ingests_no_dpu_host(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:33",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
-    machine.discover_dhcp(&env).await?;
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: machine.mac,
-            data: ExpectedMachineData {
-                serial_number: "host-no-dpu-declared".to_string(),
-                dpu_mode: model::expected_machine::DpuMode::NoDpu,
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    endpoint_explorer.insert_endpoint_results(vec![(
-        machine.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
-            systems: vec![ComputerSystem {
-                serial_number: Some("0123456789".to_string()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }),
-    )]);
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
-    explorer.run_single_iteration().await.unwrap();
-
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    assert_eq!(
-        explored_managed_hosts.len(),
-        1,
-        "NoDpu declaration should ingest the host as zero-DPU",
-    );
-    assert!(
-        explored_managed_hosts[0].dpus.is_empty(),
-        "NoDpu hosts ingest with an empty `dpus` vector",
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test(fixtures("create_expected_machine"))]
+#[sqlx_test]
 async fn test_site_explorer_audit_exploration_results(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
+
+    let mut txn = pool.begin().await?;
+    for (bmc_mac_address, serial_number, fallback_dpu_serial_numbers) in [
+        ("0a:0b:0c:0d:0e:0f", "VVG121GG", vec![]),
+        ("1a:1b:1c:1d:1e:1f", "VVG121GH", vec![]),
+        ("2a:2b:2c:2d:2e:2f", "VVG121GI", vec![]),
+        ("3a:3b:3c:3d:3e:3f", "VVG121GJ", vec!["dpu_serial1"]),
+        (
+            "4a:4b:4c:4d:4e:4f",
+            "VVG121GK",
+            vec!["dpu_serial2", "dpu_serial3"],
+        ),
+        ("5a:5b:5c:5d:5e:5f", "VVG121GL", vec![]),
+    ] {
+        db::expected_machine::create(
+            &mut txn,
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: bmc_mac_address.parse().unwrap(),
+                data: ExpectedMachineData {
+                    bmc_username: "ADMIN".into(),
+                    bmc_password: "Pwd2023x0x0x0x0x7".into(),
+                    serial_number: serial_number.into(),
+                    fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
+                        .into_iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+    }
+    txn.commit().await?;
 
     let mut machines = vec![
         // This will be our expected DPU, and it will have the
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
-        FakeMachine::new(
-            "5a:5b:5c:5d:5e:5f",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1"),
         // This will be expected but unauthorized, and the serial is mismatched
-        FakeMachine::new(
-            "0a:0b:0c:0d:0e:0f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3"),
         // This host will be expected but missing credentials, and the serial is mismatched
-        FakeMachine::new(
-            "1a:1b:1c:1d:1e:1f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3"),
         // This host will be expected, but the serial number will be mismatched.
-        FakeMachine::new(
-            "2a:2b:2c:2d:2e:2f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3"),
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
-        FakeMachine::new(
-            "3a:3b:3c:3d:3e:3f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3"),
         // This host is not expected.
-        FakeMachine::new(
-            "ab:cd:ef:ab:cd:ef",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3"),
         // This DPU is really not expected. (i.e. no DB entry)
-        FakeMachine::new(
-            "ef:cd:ab:ef:cd:ab",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3"),
     ];
 
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         7
@@ -1235,6 +831,7 @@ async fn test_site_explorer_audit_exploration_results(
                 physical_slot_number: None,
                 revision_id: None,
                 topology_id: None,
+                remediation_error: None,
             },
         ),
         (
@@ -1265,6 +862,7 @@ async fn test_site_explorer_audit_exploration_results(
                 physical_slot_number: None,
                 revision_id: None,
                 topology_id: None,
+                remediation_error: None,
             },
         ),
         (
@@ -1290,6 +888,7 @@ async fn test_site_explorer_audit_exploration_results(
                 physical_slot_number: None,
                 revision_id: None,
                 topology_id: None,
+                remediation_error: None,
             },
         ),
         (
@@ -1319,6 +918,7 @@ async fn test_site_explorer_audit_exploration_results(
                 physical_slot_number: None,
                 revision_id: None,
                 topology_id: None,
+                remediation_error: None,
             },
         ),
         (
@@ -1352,18 +952,8 @@ async fn test_site_explorer_audit_exploration_results(
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // carbide_endpoint_exploration_preingestions_incomplete_overall_count
@@ -1507,30 +1097,21 @@ async fn test_site_explorer_audit_exploration_results(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_reexplore(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     let mut machines = vec![
-        FakeMachine::new(
-            "B8:3F:D2:90:97:A6",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:02",
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
     ];
 
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         2
@@ -1567,18 +1148,7 @@ async fn test_site_explorer_reexplore(
         ..Default::default()
     };
 
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
@@ -1694,9 +1264,9 @@ async fn test_site_explorer_reexplore(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_clear_last_known_error(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
     let mut txn = db::Transaction::begin(&env.pool).await?;
@@ -1708,7 +1278,7 @@ async fn test_site_explorer_clear_last_known_error(
 
     let mut dpu_report1: EndpointExplorationReport = DpuConfig {
         last_exploration_error: last_error.clone(),
-        ..Default::default()
+        ..DpuConfig::default()
     }
     .into();
     dpu_report1.generate_machine_id(false)?;
@@ -1738,10 +1308,56 @@ async fn test_site_explorer_clear_last_known_error(
     Ok(())
 }
 
+/// Clearing the site exploration error should also lift a terminal preingestion
+/// `Failed` state back to `Initial`, so an operator can retry preingestion
+/// without force-deleting and rediscovering the endpoint.
+#[sqlx_test]
+async fn test_clear_error_resets_failed_preingestion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let ip_address = "192.168.1.2";
+    let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
+
+    let mut report: EndpointExplorationReport = DpuConfig::default().into();
+    report.generate_machine_id(false)?;
+    db::explored_endpoints::insert(bmc_ip, &report, false, &mut txn).await?;
+
+    // Put the endpoint in the terminal Failed preingestion state, as a failed
+    // BMC time sync would.
+    db::explored_endpoints::set_preingestion_failed(
+        bmc_ip,
+        "BMC time synchronization failed after 3 reset attempts. Time difference exceeds 5 minutes threshold.".to_string(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .clear_site_exploration_error(Request::new(rpc::forge::ClearSiteExplorationErrorRequest {
+            ip_address: ip_address.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(
+        nodes.first().unwrap().preingestion_state,
+        PreingestionState::Initial,
+        "clearing the error should reset a Failed preingestion to Initial"
+    );
+
+    Ok(())
+}
+
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_disable_machine_creation_outside_site_explorer(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.site_explorer = SiteExplorerConfig {
@@ -1787,6 +1403,7 @@ async fn test_disable_machine_creation_outside_site_explorer(
             machine_interface_id: response.machine_interface_id,
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: true,
+            ..Default::default()
         }))
         .await;
 
@@ -1795,21 +1412,17 @@ async fn test_disable_machine_creation_outside_site_explorer(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(
-        HOST1_DPU_BMC_MAC,
-        "NVIDIA/BF/BMC",
-        env.underlay_segment.unwrap(),
-    );
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -1821,11 +1434,11 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let host1_dpu_report = DpuConfig {
         serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
         bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
-        ..Default::default()
+        ..DpuConfig::default()
     };
     let host1_report = ManagedHostConfig {
         bmc_mac_address: HOST1_BMC_MAC.parse()?,
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
     endpoint_explorer.insert_endpoint_results(vec![
         (
@@ -1849,18 +1462,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -1993,16 +1595,14 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         assert!(
             <Vec<Machine> as AsRef<Vec<Machine>>>::as_ref(&machines)
                 .iter()
-                .any(|x| { x.bmc_info.ip.clone().unwrap_or_default() == bmc_ip })
+                .any(|x| { x.bmc_info.ip.is_some_and(|ip| ip.to_string() == bmc_ip) })
         );
     }
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_health_report(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) =
         common::api_fixtures::create_managed_host(&env).await.into();
@@ -2054,10 +1654,12 @@ async fn test_site_explorer_health_report(
     // There is currently no separate segment for tenant, admin and underlay networks,
     // which prevents site explorer from running
     let mut txn = env.pool.begin().await?;
-    let query = format!(
-        "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{segment_id}'",
-    );
-    sqlx::query::<_>(&query).execute(&mut *txn).await.unwrap();
+    let query = "UPDATE network_segments SET network_segment_type='underlay' WHERE id=$1";
+    sqlx::query::<_>(query)
+        .bind(segment_id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let explorer_config = SiteExplorerConfig {
@@ -2075,17 +1677,7 @@ async fn test_site_explorer_health_report(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        env.test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Run site explorer and check the health state of the Machine
     explorer.run_single_iteration().await.unwrap();
@@ -2143,9 +1735,9 @@ async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExpl
         .into_inner()
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_fetch_host_primary_interface_mac(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut mock_dpus = (0..NUM_DPUS).map(|_| DpuConfig::default()).collect_vec();
 
@@ -2209,9 +1801,9 @@ async fn test_fetch_host_primary_interface_mac(
 
 /// Test the [`api_fixtures::site_explorer::new_host`] factory with various configurations and make
 /// sure they work.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_new_host_fixture(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2251,9 +1843,9 @@ async fn test_site_explorer_new_host_fixture(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_singledpu(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
 
@@ -2320,15 +1912,15 @@ async fn test_site_explorer_fixtures_singledpu(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_multidpu(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
 
     let mock_host = ManagedHostConfig {
         dpus: vec![DpuConfig::default(), DpuConfig::default()],
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
     api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
@@ -2397,9 +1989,9 @@ async fn test_site_explorer_fixtures_multidpu(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2425,7 +2017,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
     api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
@@ -2486,9 +2078,9 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
 /// chance to run (and a machine_interface is created for its MAC with no machine-id), that
 /// site-explorer can "repair" the situation when it discovers the machine, by migrating the machine
 /// interface to the new managed host.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2514,7 +2106,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
 
     let mock_host = ManagedHostConfig {
         dpus: vec![],
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
     api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
@@ -2609,96 +2201,8 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_unknown_vendor(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut machine = FakeMachine::new(
-        "B8:3F:D2:90:97:A7",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
-    machine.discover_dhcp(&env).await?;
-
-    let mut txn = env.pool.begin().await?;
-    assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
-        1
-    );
-    txn.commit().await.unwrap();
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    endpoint_explorer.insert_endpoint_result(
-        machine.ip.parse().unwrap(),
-        Err(EndpointExplorationError::UnsupportedVendor {
-            vendor: "Unknown".to_string(),
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        allocate_secondary_vtep_ip: true,
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-    // Since we configured a limit of 2 entries, we should have those 2 results now
-    let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
-        .await
-        .unwrap();
-    txn.commit().await?;
-    assert_eq!(explored.len(), 1);
-    let report = &explored[0];
-    assert_eq!(report.report_version.version_nr(), 1);
-    assert_eq!(
-        report.report.last_exploration_error,
-        Some(EndpointExplorationError::UnsupportedVendor {
-            vendor: "Unknown".to_string(),
-        })
-    );
-
-    let guard = endpoint_explorer.reports.lock().unwrap();
-    let res = guard.get(&report.address).unwrap().as_ref();
-    assert!(res.is_err());
-    assert_eq!(
-        res.unwrap_err(),
-        report.report.last_exploration_error.as_ref().unwrap()
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_delete_explored_endpoint(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Delete an endpoint that doesn't exist
@@ -2813,35 +2317,27 @@ async fn test_delete_explored_endpoint(
 
     // Verify both endpoints still exist
     let mut txn = env.pool.begin().await?;
-    let host_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(host_ip)?, &mut txn).await?;
+    let host_endpoints = db::explored_endpoints::find_all_by_ip(*host_ip, &mut txn).await?;
     assert_eq!(host_endpoints.len(), 1);
 
-    let dpu_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(dpu_ip)?, &mut txn).await?;
+    let dpu_endpoints = db::explored_endpoints::find_all_by_ip(*dpu_ip, &mut txn).await?;
     assert_eq!(dpu_endpoints.len(), 1);
     txn.commit().await?;
 
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_machine_creation_with_sku(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(
-        HOST1_DPU_BMC_MAC,
-        "NVIDIA/BF/BMC",
-        env.underlay_segment.unwrap(),
-    );
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -2853,11 +2349,11 @@ async fn test_machine_creation_with_sku(
     let host1_dpu_report = DpuConfig {
         serial: HOST1_DPU_SERIAL_NUMBER.to_string(),
         bmc_mac_address: HOST1_DPU_BMC_MAC.parse()?,
-        ..Default::default()
+        ..DpuConfig::default()
     };
     let host1_report = ManagedHostConfig {
         bmc_mac_address: HOST1_BMC_MAC.parse()?,
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
     endpoint_explorer.insert_endpoint_results(vec![
         (
@@ -2881,18 +2377,8 @@ async fn test_machine_creation_with_sku(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -2988,467 +2474,9 @@ async fn test_machine_creation_with_sku(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_expected_machine_device_type_metrics(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let test_sku_gpu_id = format!("test-sku-gpu-{}", uuid::Uuid::new_v4());
-    let test_sku_no_type_id = format!("test-sku-no-type-{}", uuid::Uuid::new_v4());
-    const EXPECTED_MACHINE_1_MAC: &str = "AA:BB:CC:DD:EE:01";
-    const EXPECTED_MACHINE_2_MAC: &str = "AA:BB:CC:DD:EE:02";
-    const EXPECTED_MACHINE_3_MAC: &str = "AA:BB:CC:DD:EE:03";
-
-    // Create fake machines with network interfaces so they can be discovered
-    let mut machines = vec![
-        FakeMachine::new(
-            EXPECTED_MACHINE_1_MAC,
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            EXPECTED_MACHINE_2_MAC,
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            EXPECTED_MACHINE_3_MAC,
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
-    ];
-    machines.discover_dhcp(&env).await?;
-
-    // Create test SKUs in database
-    let mut txn = env.pool.begin().await?;
-
-    let test_sku_with_device_type = model::sku::Sku {
-        schema_version: CURRENT_SKU_VERSION,
-        id: test_sku_gpu_id.clone(),
-        description: "Test GPU SKU".to_string(),
-        created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
-                vendor: format!("test_vendor_gpu_{}", uuid::Uuid::new_v4()),
-                model: format!("test_model_gpu_{}", uuid::Uuid::new_v4()),
-                architecture: "x86_64".to_string(),
-            },
-            cpus: vec![],
-            gpus: vec![],
-            memory: vec![],
-            infiniband_devices: vec![],
-            storage: vec![],
-            tpm: None,
-        },
-        device_type: Some("gpu".to_string()),
-    };
-
-    let test_sku_without_device_type = model::sku::Sku {
-        schema_version: CURRENT_SKU_VERSION,
-        id: test_sku_no_type_id.clone(),
-        description: "Test SKU without device type".to_string(),
-        created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
-                vendor: format!("test_vendor_no_type_{}", uuid::Uuid::new_v4()),
-                model: format!("test_model_no_type_{}", uuid::Uuid::new_v4()),
-                architecture: "x86_64".to_string(),
-            },
-            cpus: vec![],
-            gpus: vec![],
-            memory: vec![],
-            infiniband_devices: vec![],
-            storage: vec![],
-            tpm: None,
-        },
-        device_type: None,
-    };
-
-    db::sku::create(&mut txn, &test_sku_with_device_type).await?;
-    db::sku::create(&mut txn, &test_sku_without_device_type).await?;
-
-    // Create expected machines with different SKU configurations
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: EXPECTED_MACHINE_1_MAC.parse().unwrap(),
-            data: ExpectedMachineData {
-                bmc_username: "user1".to_string(),
-                bmc_password: "pass1".to_string(),
-                serial_number: "serial1".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some(test_sku_gpu_id.clone()),
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
-                bmc_ip_address: None,
-                bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
-                host_lifecycle_profile: Default::default(),
-            },
-        },
-    )
-    .await?;
-
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: EXPECTED_MACHINE_2_MAC.parse().unwrap(),
-            data: ExpectedMachineData {
-                bmc_username: "user2".to_string(),
-                bmc_password: "pass2".to_string(),
-                serial_number: "serial2".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: Some(test_sku_no_type_id.clone()),
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
-                bmc_ip_address: None,
-                bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
-                host_lifecycle_profile: Default::default(),
-            },
-        },
-    )
-    .await?;
-
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: EXPECTED_MACHINE_3_MAC.parse().unwrap(),
-            data: ExpectedMachineData {
-                bmc_username: "user3".to_string(),
-                bmc_password: "pass3".to_string(),
-                serial_number: "serial3".to_string(),
-                fallback_dpu_serial_numbers: vec![],
-                metadata: Metadata::new_with_default_name(),
-                sku_id: None, // No SKU
-                default_pause_ingestion_and_poweron: None,
-                host_nics: vec![],
-                rack_id: None,
-                dpf_enabled: Some(true),
-                bmc_ip_address: None,
-                bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
-                host_lifecycle_profile: Default::default(),
-            },
-        },
-    )
-    .await?;
-
-    txn.commit().await?;
-
-    // Set up endpoint explorer with mock results for our machines
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock exploration results for each machine
-    endpoint_explorer.insert_endpoint_results(vec![
-        (
-            machines[0].ip.parse().unwrap(),
-            Ok(EndpointExplorationReport {
-                endpoint_type: EndpointType::Bmc,
-                last_exploration_error: None,
-                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
-                vendor: Some(bmc_vendor::BMCVendor::Dell),
-                managers: vec![],
-                systems: vec![],
-                chassis: vec![],
-                service: vec![],
-                machine_id: None,
-                versions: std::collections::HashMap::new(),
-                model: Some("test-model".to_string()),
-                machine_setup_status: None,
-                secure_boot_status: None,
-                lockdown_status: None,
-                power_shelf_id: None,
-                switch_id: None,
-                compute_tray_index: None,
-                physical_slot_number: None,
-                revision_id: None,
-                topology_id: None,
-            }),
-        ),
-        (
-            machines[1].ip.parse().unwrap(),
-            Ok(EndpointExplorationReport {
-                endpoint_type: EndpointType::Bmc,
-                last_exploration_error: None,
-                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
-                vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-                managers: vec![],
-                systems: vec![],
-                chassis: vec![],
-                service: vec![],
-                machine_id: None,
-                versions: std::collections::HashMap::new(),
-                model: Some("test-model".to_string()),
-                machine_setup_status: None,
-                secure_boot_status: None,
-                lockdown_status: None,
-                power_shelf_id: None,
-                switch_id: None,
-                compute_tray_index: None,
-                physical_slot_number: None,
-                revision_id: None,
-                topology_id: None,
-            }),
-        ),
-        (
-            machines[2].ip.parse().unwrap(),
-            Ok(EndpointExplorationReport {
-                endpoint_type: EndpointType::Bmc,
-                last_exploration_error: None,
-                last_exploration_latency: Some(std::time::Duration::from_millis(100)),
-                vendor: Some(bmc_vendor::BMCVendor::Supermicro),
-                managers: vec![],
-                systems: vec![],
-                chassis: vec![],
-                service: vec![],
-                machine_id: None,
-                versions: std::collections::HashMap::new(),
-                model: Some("test-model".to_string()),
-                machine_setup_status: None,
-                secure_boot_status: None,
-                lockdown_status: None,
-                power_shelf_id: None,
-                switch_id: None,
-                compute_tray_index: None,
-                physical_slot_number: None,
-                revision_id: None,
-                topology_id: None,
-            }),
-        ),
-    ]);
-
-    let test_meter = TestMeter::default();
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 3, // Explore our 3 machines
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(false.into()),
-        allocate_secondary_vtep_ip: true,
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // Run site explorer to collect metrics
-    explorer.run_single_iteration().await.unwrap();
-
-    // Verify expected machines SKU count metrics
-    let device_type_metrics: HashMap<String, String> = test_meter
-        .parsed_metrics("carbide_site_exploration_expected_machines_sku_count")
-        .into_iter()
-        .collect();
-
-    assert!(!device_type_metrics.is_empty());
-
-    // Expected machines metrics are now recorded based on both SKU ID and device type
-    // Now that we properly set device_type using update_metadata:
-    // - 1 machine with GPU SKU -> sku_id=test_sku_gpu_id, device_type="gpu"
-    // - 1 machine with no device_type SKU -> sku_id=test_sku_no_type_id, device_type="unknown"
-    // - 1 machine with no SKU -> sku_id="unknown", device_type="unknown"
-
-    // Check machine with GPU SKU
-    let gpu_sku_key = format!("{{device_type=\"gpu\",sku_id=\"{test_sku_gpu_id}\"}}");
-    assert_eq!(device_type_metrics.get(&gpu_sku_key).unwrap(), "1");
-
-    // Check machine with SKU but no device type
-    let no_type_sku_key = format!("{{device_type=\"unknown\",sku_id=\"{test_sku_no_type_id}\"}}");
-    assert_eq!(device_type_metrics.get(&no_type_sku_key).unwrap(), "1");
-
-    // Check machine with no SKU
-    assert_eq!(
-        device_type_metrics
-            .get("{device_type=\"unknown\",sku_id=\"unknown\"}")
-            .unwrap(),
-        "1"
-    );
-
-    // Verify total count by summing all device types
-    let total_count: u32 = device_type_metrics
-        .values()
-        .map(|v| v.parse::<u32>().unwrap())
-        .sum();
-    assert_eq!(total_count, 3);
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_discovery(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            machine_id: None,
-            managers: Vec::new(),
-            systems: vec![ComputerSystem {
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            chassis: vec![Chassis {
-                model: Some("PowerShelf-2000".to_string()),
-                id: "powershelf".to_string(),
-                manufacturer: Some("lite-on technology corp.".to_string()),
-                part_number: Some("PS123456789".to_string()),
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            service: Vec::new(),
-            versions: HashMap::default(),
-            model: Some("PowerShelf-2000".to_string()),
-            machine_setup_status: None,
-            secure_boot_status: None,
-            lockdown_status: None,
-            power_shelf_id: None,
-            switch_id: None,
-            compute_tray_index: None,
-            physical_slot_number: None,
-            revision_id: None,
-            topology_id: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
-    txn.commit().await?;
-    assert_eq!(explored.len(), 1);
-
-    for report in &explored {
-        assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
-        assert!(res.is_ok());
-        assert_eq!(
-            res.clone().unwrap().endpoint_type,
-            report.report.endpoint_type
-        );
-        assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-        assert_eq!(res.clone().unwrap().systems, report.report.systems);
-    }
-    let mut txn = env.pool.begin().await?;
-    db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
-
-    explorer.run_single_iteration().await.unwrap();
-    // Check metrics
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_endpoint_explorations_count")
-            .unwrap(),
-        "1"
-    );
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
-            .unwrap(),
-        "1"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_switch_discovery(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -3456,20 +2484,10 @@ async fn test_site_explorer_switch_discovery(
     let serial_number = "SW-SN-001".to_string();
     let bmc_username = "ADMIN".to_string();
     let bmc_password = "Pwd2023".to_string();
-    let segment = env.underlay_segment.unwrap();
 
     let response = env
         .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                bmc_mac.to_string(),
-                match segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
+        .discover_dhcp(DhcpDiscovery::builder(bmc_mac.to_string(), UNDERLAY_RELAY).tonic_request())
         .await?
         .into_inner();
     tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
@@ -3533,6 +2551,7 @@ async fn test_site_explorer_switch_discovery(
             physical_slot_number: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         }),
     );
 
@@ -3546,18 +2565,8 @@ async fn test_site_explorer_switch_discovery(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -3601,1618 +2610,8 @@ async fn test_site_explorer_switch_discovery(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_with_expected_config(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    // Create a power shelf using the new FakePowerShelf struct
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.168.1.100".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create an expected power shelf entry
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration result with matching serial
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(), // Use expected IP address, not DHCP-assigned IP
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            machine_id: None,
-            managers: Vec::new(),
-            systems: vec![ComputerSystem {
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            chassis: vec![Chassis {
-                model: Some("PowerShelf-2000".to_string()),
-                id: "powershelf".to_string(),
-                manufacturer: Some("lite-on technology corp.".to_string()),
-                part_number: Some("PS123456789".to_string()),
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            service: Vec::new(),
-            versions: HashMap::default(),
-            model: Some("PowerShelf-2000".to_string()),
-            machine_setup_status: None,
-            secure_boot_status: None,
-            lockdown_status: None,
-            power_shelf_id: None,
-            switch_id: None,
-            compute_tray_index: None,
-            physical_slot_number: None,
-            revision_id: None,
-            topology_id: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
-    explorer.run_single_iteration().await.unwrap();
-
-    // Verify power shelf was created with expected metadata
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let power_shelf_db = &power_shelves[0];
-    assert_eq!(power_shelf_db.config.name, "Test Power Shelf PS123456789");
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_creation_limit(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    // Create multiple power shelf machines using FakePowerShelf
-    let mut power_shelves = vec![
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B2".parse().unwrap(),
-            "".to_string(),
-            "PS123456790".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor1".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B3".parse().unwrap(),
-            "".to_string(),
-            "PS123456791".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor2".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B4".parse().unwrap(),
-            "".to_string(),
-            "PS123456792".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor3".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
-    ];
-    for power_shelf in &mut power_shelves {
-        let response = env
-            .api
-            .discover_dhcp(
-                DhcpDiscovery::builder(
-                    power_shelf.bmc_mac_address.to_string(),
-                    match power_shelf.segment {
-                        s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                        _ => "192.0.2.1".to_string(),
-                    },
-                )
-                .tonic_request(),
-            )
-            .await?
-            .into_inner();
-        tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            power_shelf.bmc_mac_address,
-            response.address
-        );
-        power_shelf.ip = response.address.clone();
-    }
-    // Create expected power shelf entries in the database
-    let mut txn = env.pool.begin().await?;
-    for power_shelf in &power_shelves {
-        let expected_power_shelf = power_shelf.as_expected_power_shelf();
-        db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    }
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock exploration results for all power shelves
-    for power_shelf in &power_shelves {
-        endpoint_explorer.insert_endpoint_result(
-            power_shelf.ip.parse().unwrap(), // Use expected IP address, not DHCP-assigned IP
-            Ok(EndpointExplorationReport {
-                endpoint_type: EndpointType::Bmc,
-                last_exploration_error: None,
-                last_exploration_latency: None,
-                vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-                machine_id: None,
-                managers: Vec::new(),
-                systems: vec![ComputerSystem {
-                    serial_number: Some(power_shelf.serial_number.clone()),
-                    ..Default::default()
-                }],
-                chassis: vec![Chassis {
-                    model: Some("PowerShelf-2000".to_string()),
-                    id: "powershelf".to_string(),
-                    manufacturer: Some("lite-on technology corp.".to_string()),
-                    part_number: Some("PS123456789".to_string()),
-                    serial_number: Some(power_shelf.serial_number.clone()),
-                    ..Default::default()
-                }],
-                service: Vec::new(),
-                versions: HashMap::default(),
-                model: Some("PowerShelf-2000".to_string()),
-                machine_setup_status: None,
-                secure_boot_status: None,
-                lockdown_status: None,
-                power_shelf_id: None,
-                switch_id: None,
-                compute_tray_index: None,
-                physical_slot_number: None,
-                revision_id: None,
-                topology_id: None,
-            }),
-        );
-    }
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 3,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 2, // Limit to 2 per run
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    for power_shelf in &power_shelves {
-        db_explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-            .await?;
-    }
-    txn.commit().await?;
-
-    explorer.run_single_iteration().await.unwrap();
-
-    // Check that only 2 power shelves were created due to limit
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
-            .unwrap(),
-        "2"
-    );
-
-    // Run another iteration to create the remaining power shelf
-    explorer.run_single_iteration().await.unwrap();
-
-    // Check that all 3 power shelves were created
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
-            .unwrap(),
-        "1"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_disabled(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B5".parse().unwrap(),
-        "".to_string(),
-        "PS123456793".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            machine_id: None,
-            managers: Vec::new(),
-            systems: vec![ComputerSystem {
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            chassis: vec![Chassis {
-                model: Some("PowerShelf-2000".to_string()),
-                ..Default::default()
-            }],
-            service: Vec::new(),
-            versions: HashMap::default(),
-            model: Some("PowerShelf-2000".to_string()),
-            machine_setup_status: None,
-            secure_boot_status: None,
-            lockdown_status: None,
-            power_shelf_id: None,
-            switch_id: None,
-            compute_tray_index: None,
-            physical_slot_number: None,
-            revision_id: None,
-            topology_id: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(false.into()), // Disabled
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-
-    // Check that no power shelves were created
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
-            .unwrap(),
-        "0"
-    );
-
-    // Verify no power shelves exist in database
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 0);
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_error_handling(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B6".parse().unwrap(),
-        "".to_string(),
-        "PS123456794".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration error
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(),
-        Err(EndpointExplorationError::Unauthorized {
-            details: "Not authorized".to_string(),
-            response_body: None,
-            response_code: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
-    txn.commit().await?;
-    assert_eq!(explored.len(), 1);
-
-    // Verify error was recorded
-    let report = &explored[0];
-    assert_eq!(
-        report.report.last_exploration_error,
-        Some(EndpointExplorationError::Unauthorized {
-            details: "Not authorized".to_string(),
-            response_body: None,
-            response_code: None,
-        })
-    );
-
-    // Check metrics for error
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_endpoint_exploration_failures_count")
-            .unwrap(),
-        "{failure=\"unauthorized\"} 1"
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_creates_power_shelf(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    // Create exploration report for power shelf
-    let exploration_report = EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        last_exploration_error: None,
-        last_exploration_latency: None,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        machine_id: None,
-        managers: Vec::new(),
-        systems: vec![ComputerSystem {
-            serial_number: Some("PS123456789".to_string()),
-            ..Default::default()
-        }],
-        chassis: vec![Chassis {
-            model: Some("PowerShelf-2000".to_string()),
-            ..Default::default()
-        }],
-        service: Vec::new(),
-        versions: HashMap::default(),
-        model: Some("PowerShelf-2000".to_string()),
-        machine_setup_status: None,
-        secure_boot_status: None,
-        lockdown_status: None,
-        power_shelf_id: None,
-        switch_id: None,
-        compute_tray_index: None,
-        physical_slot_number: None,
-        revision_id: None,
-        topology_id: None,
-    };
-
-    let explored_endpoint = ExploredEndpoint {
-        address: power_shelf.ip.parse().unwrap(),
-        report: exploration_report.clone(),
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    // Test power shelf creation
-    assert!(
-        explorer
-            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
-            .await?
-    );
-
-    // Verify power shelf was created in database
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let created_power_shelf = &power_shelves[0];
-    assert_eq!(
-        created_power_shelf.config.name,
-        "Test Power Shelf PS123456789"
-    );
-
-    // Test that duplicate creation returns false
-    assert!(
-        !explorer
-            .create_power_shelf(explored_endpoint, &expected_power_shelf, &env.pool,)
-            .await?
-    );
-
-    // Verify only one power shelf exists (no duplicate created)
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-
-    // Test power shelf state controller functionality
-    // Run power shelf controller iteration to test state transitions
-    // TODO(chet): Enable this once the state machine stuff is wired up!
-    // env.run_power_shelf_controller_iteration().await;
-    if 1 == 1 {
-        return Ok(());
-    }
-
-    // Verify power shelf state transitions
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let power_shelf = &power_shelves[0];
-
-    // Check that the power shelf has a controller state
-    assert!(power_shelf.controller_state.value != PowerShelfControllerState::Initializing);
-
-    // Run multiple iterations to test state transitions
-    // TODO(chet): Enable this once the state machine stuff is wired up!
-    // for _ in 0..3 {
-    //    println!("Running power shelf controller iteration");
-    //    env.run_power_shelf_controller_iteration().await;
-    //}
-    if 1 == 1 {
-        return Ok(());
-    }
-
-    // Verify final state
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let power_shelf = &power_shelves[0];
-
-    // The power shelf should be in Ready state after multiple iterations
-    assert_eq!(
-        power_shelf.controller_state.value,
-        PowerShelfControllerState::Ready
-    );
-
-    Ok(())
-}
-
-/// Test power shelf state history functionality
-#[crate::sqlx_test]
-async fn test_power_shelf_state_history(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    // Create exploration report for power shelf
-    let exploration_report = EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        last_exploration_error: None,
-        last_exploration_latency: None,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        machine_id: None,
-        managers: Vec::new(),
-        systems: vec![ComputerSystem {
-            serial_number: Some("PS123456789".to_string()),
-            ..Default::default()
-        }],
-        chassis: vec![Chassis {
-            model: Some("PowerShelf-2000".to_string()),
-            ..Default::default()
-        }],
-        service: Vec::new(),
-        versions: HashMap::default(),
-        model: Some("PowerShelf-2000".to_string()),
-        machine_setup_status: None,
-        secure_boot_status: None,
-        lockdown_status: None,
-        power_shelf_id: None,
-        switch_id: None,
-        compute_tray_index: None,
-        physical_slot_number: None,
-        revision_id: None,
-        topology_id: None,
-    };
-
-    let explored_endpoint = ExploredEndpoint {
-        address: power_shelf.ip.parse().unwrap(),
-        report: exploration_report.clone(),
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // Create the power shelf using site explorer
-    assert!(
-        explorer
-            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
-            .await?
-    );
-
-    // Find the created power shelf
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let created_power_shelf = &power_shelves[0];
-    let power_shelf_id = created_power_shelf.id;
-
-    // Test state history persistence
-    // Test initial state
-    let mut txn = env.pool.begin().await?;
-    let initial_state = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Initial state should be empty since no state transitions have occurred yet
-    assert!(initial_state.is_empty(), "Initial state should be empty");
-
-    // Test state transition by running controller iteration
-    // TODO(chet): Enable this once the state machine stuff is wired up!
-    // env.run_power_shelf_controller_iteration().await;
-    if 1 == 1 {
-        return Ok(());
-    }
-
-    // Verify state was persisted
-    let mut txn = env.pool.begin().await?;
-    let updated_state = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Should have at least one state entry now
-    assert!(
-        !updated_state.is_empty(),
-        "Should have state entries after controller iteration"
-    );
-
-    // Test finding history by multiple power shelf IDs
-    let mut txn = env.pool.begin().await?;
-    let history_by_ids = db::state_history::find_by_object_ids(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &[power_shelf_id],
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert!(history_by_ids.contains_key(&power_shelf_id.to_string()));
-    let power_shelf_history = &history_by_ids[&power_shelf_id.to_string()];
-    assert_eq!(power_shelf_history.len(), updated_state.len());
-
-    // Run multiple iterations to test state transitions
-    // TODO(chet): Enable this once the state machine stuff is wired up!
-    // for _ in 0..3 {
-    //     env.run_power_shelf_controller_iteration().await;
-    // }
-    if 1 == 1 {
-        return Ok(());
-    }
-
-    // Verify final state history
-    let mut txn = env.pool.begin().await?;
-    let final_state = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Should have multiple state entries now
-    assert!(
-        final_state.len() > 1,
-        "Should have multiple state entries after multiple iterations"
-    );
-
-    // Verify state versions are incrementing
-    // let mut state_versions = std::collections::HashSet::new();
-    // for entry in &final_state {
-    //     state_versions.insert(entry.state_version.clone());
-    // }
-
-    // // Should have multiple state versions indicating state transitions
-    // assert!(
-    //     state_versions.len() > 1,
-    //     "Should have multiple state versions"
-    // );
-
-    Ok(())
-}
-
-/// Test power shelf state history with multiple power shelves
-#[crate::sqlx_test]
-async fn test_power_shelf_state_history_multiple(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    // Create multiple power shelves
-    let power_shelf1 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.2".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor1".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let power_shelf2 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.0.1.3".parse().unwrap(),
-        "PS987654321".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor2".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    // Create expected power shelf entries in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf1 = power_shelf1.as_expected_power_shelf();
-    let expected_power_shelf2 = power_shelf2.as_expected_power_shelf();
-
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf1.clone()).await?;
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf2.clone()).await?;
-    txn.commit().await?;
-
-    // Create exploration reports for power shelves
-    let exploration_report1 = EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        last_exploration_error: None,
-        last_exploration_latency: None,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        machine_id: None,
-        managers: Vec::new(),
-        systems: vec![ComputerSystem {
-            serial_number: Some("PS123456789".to_string()),
-            ..Default::default()
-        }],
-        chassis: vec![Chassis {
-            model: Some("PowerShelf-2000".to_string()),
-            ..Default::default()
-        }],
-        service: Vec::new(),
-        versions: HashMap::default(),
-        model: Some("PowerShelf-2000".to_string()),
-        machine_setup_status: None,
-        secure_boot_status: None,
-        lockdown_status: None,
-        power_shelf_id: None,
-        switch_id: None,
-        compute_tray_index: None,
-        physical_slot_number: None,
-        revision_id: None,
-        topology_id: None,
-    };
-
-    let exploration_report2 = EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        last_exploration_error: None,
-        last_exploration_latency: None,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        machine_id: None,
-        managers: Vec::new(),
-        systems: vec![ComputerSystem {
-            serial_number: Some("PS987654321".to_string()),
-            ..Default::default()
-        }],
-        chassis: vec![Chassis {
-            model: Some("PowerShelf-3000".to_string()),
-            ..Default::default()
-        }],
-        service: Vec::new(),
-        versions: HashMap::default(),
-        model: Some("PowerShelf-3000".to_string()),
-        machine_setup_status: None,
-        secure_boot_status: None,
-        lockdown_status: None,
-        power_shelf_id: None,
-        switch_id: None,
-        compute_tray_index: None,
-        physical_slot_number: None,
-        revision_id: None,
-        topology_id: None,
-    };
-
-    let explored_endpoint1 = ExploredEndpoint {
-        address: power_shelf1.ip.parse().unwrap(),
-        report: exploration_report1.clone(),
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    let explored_endpoint2 = ExploredEndpoint {
-        address: power_shelf2.ip.parse().unwrap(),
-        report: exploration_report2.clone(),
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 2,
-        ..Default::default()
-    };
-
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // Create the power shelves using site explorer
-    assert!(
-        explorer
-            .create_power_shelf(
-                explored_endpoint1.clone(),
-                &expected_power_shelf1,
-                &env.pool,
-            )
-            .await?
-    );
-
-    assert!(
-        explorer
-            .create_power_shelf(
-                explored_endpoint2.clone(),
-                &expected_power_shelf2,
-                &env.pool,
-            )
-            .await?
-    );
-    // Find the created power shelves
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 2);
-    let power_shelf1_id = power_shelves[0].id;
-    let power_shelf2_id = power_shelves[1].id;
-
-    // Test state history for multiple power shelves
-    let mut txn = env.pool.begin().await?;
-    let _history_by_ids = db::state_history::find_by_object_ids(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &[power_shelf1_id, power_shelf2_id],
-    )
-    .await?;
-    txn.commit().await?;
-
-    // println!("history_by_ids: {:?}", history_by_ids);
-    // assert!(history_by_ids.contains_key(&power_shelf1_id));
-    // assert!(history_by_ids.contains_key(&power_shelf2_id));
-
-    // Test individual power shelf state history
-    let mut txn = env.pool.begin().await?;
-    let power_shelf1_history = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf1_id,
-    )
-    .await?;
-    let power_shelf2_history = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf2_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Both should start with empty state history
-    assert!(power_shelf1_history.is_empty());
-    assert!(power_shelf2_history.is_empty());
-
-    // Run controller iterations to trigger state transitions
-    // TODO(chet): Enable this once the state machine stuff is wired up!
-    // for _ in 0..3 {
-    //    env.run_power_shelf_controller_iteration().await;
-    // }
-    if 1 == 1 {
-        return Ok(());
-    }
-
-    // Verify state history has been updated for both power shelves
-    let mut txn = env.pool.begin().await?;
-    let updated_history1 = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf1_id,
-    )
-    .await?;
-    let updated_history2 = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf2_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Both should have state entries now
-    assert!(!updated_history1.is_empty());
-    assert!(!updated_history2.is_empty());
-
-    // Test finding history by multiple power shelf IDs again
-    let mut txn = env.pool.begin().await?;
-    let final_history_by_ids = db::state_history::find_by_object_ids(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &[power_shelf1_id, power_shelf2_id],
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(
-        final_history_by_ids[&power_shelf1_id.to_string()].len(),
-        updated_history1.len()
-    );
-    assert_eq!(
-        final_history_by_ids[&power_shelf2_id.to_string()].len(),
-        updated_history2.len()
-    );
-
-    Ok(())
-}
-
-/// Test power shelf state history error handling
-#[crate::sqlx_test]
-async fn test_power_shelf_state_history_error_handling(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS999999999".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "TestVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
-        .await?
-        .into_inner();
-    tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
-    );
-    power_shelf.ip = response.address.clone();
-    // Create expected power shelf entry in the database
-    let mut txn = env.pool.begin().await?;
-    let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
-    txn.commit().await?;
-
-    // Create exploration report for power shelf
-    let exploration_report = EndpointExplorationReport {
-        endpoint_type: EndpointType::Bmc,
-        last_exploration_error: None,
-        last_exploration_latency: None,
-        vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-        machine_id: None,
-        managers: Vec::new(),
-        systems: vec![ComputerSystem {
-            serial_number: Some("PS999999999".to_string()),
-            ..Default::default()
-        }],
-        chassis: vec![Chassis {
-            model: Some("TestModel".to_string()),
-            ..Default::default()
-        }],
-        service: Vec::new(),
-        versions: HashMap::default(),
-        model: Some("TestModel".to_string()),
-        machine_setup_status: None,
-        secure_boot_status: None,
-        lockdown_status: None,
-        power_shelf_id: None,
-        switch_id: None,
-        compute_tray_index: None,
-        physical_slot_number: None,
-        revision_id: None,
-        topology_id: None,
-    };
-
-    let explored_endpoint = ExploredEndpoint {
-        address: power_shelf.ip.parse().unwrap(),
-        report: exploration_report.clone(),
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    // Create the power shelf using site explorer
-    assert!(
-        explorer
-            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
-            .await?
-    );
-
-    // Get the created power shelf
-    let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert_eq!(power_shelves.len(), 1);
-    let power_shelf = &power_shelves[0];
-    let power_shelf_id = power_shelf.id;
-
-    // Test state history with various state types
-    let test_states = [
-        PowerShelfControllerState::Initializing,
-        PowerShelfControllerState::FetchingData,
-        PowerShelfControllerState::Configuring,
-        PowerShelfControllerState::Ready,
-    ];
-
-    let mut txn = env.pool.begin().await?;
-
-    for state in test_states.iter() {
-        let version = ConfigVersion::initial();
-
-        let history_entry = db::state_history::persist(
-            &mut txn,
-            db::state_history::StateHistoryTableId::PowerShelf,
-            &power_shelf_id,
-            state,
-            version,
-        )
-        .await?;
-
-        assert_eq!(
-            history_entry.state.replace(" ", ""),
-            serde_json::to_string(&state)?
-        );
-        assert_eq!(history_entry.state_version, version);
-
-        // Verify the entry can be retrieved
-        let retrieved_history = db::state_history::for_object(
-            &mut txn,
-            db::state_history::StateHistoryTableId::PowerShelf,
-            &power_shelf_id,
-        )
-        .await?;
-        let found_entry = retrieved_history
-            .iter()
-            .find(|entry| entry.state_version == version);
-        assert!(found_entry.is_some());
-        assert_eq!(
-            found_entry.unwrap().state.replace(" ", ""),
-            serde_json::to_string(&state)?
-        );
-    }
-
-    txn.commit().await?;
-
-    // Test finding history for non-existent power shelf
-    let mut txn = env.pool.begin().await?;
-    let non_existent_id = carbide_uuid::power_shelf::PowerShelfId::new(
-        carbide_uuid::power_shelf::PowerShelfIdSource::ProductBoardChassisSerial,
-        [0; 32],
-        carbide_uuid::power_shelf::PowerShelfType::Host,
-    );
-    let empty_history = db::state_history::for_object(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &non_existent_id,
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert!(empty_history.is_empty());
-
-    // Test finding history for empty list of power shelf IDs
-    let mut txn = env.pool.begin().await?;
-    let empty_history_map = db::state_history::find_by_object_ids(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &[] as &[carbide_uuid::power_shelf::PowerShelfId],
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert!(empty_history_map.is_empty());
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_power_shelf_discovery_with_static_ip(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.180".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
-
-    tracing::info!(
-        "Static ip {} assigned to power shelf mac {}",
-        power_shelf.ip,
-        power_shelf.bmc_mac_address,
-    );
-    // Create expected power shelf via the RPC handler, which
-    // pre-allocates a machine interface with the static IP.
-    env.api
-        .add_expected_power_shelf(tonic::Request::new(
-            power_shelf.as_expected_power_shelf().into(),
-        ))
-        .await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    // Mock power shelf exploration result
-    endpoint_explorer.insert_endpoint_result(
-        power_shelf.ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            machine_id: None,
-            managers: Vec::new(),
-            systems: vec![ComputerSystem {
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            chassis: vec![Chassis {
-                model: Some("PowerShelf-2000".to_string()),
-                id: "powershelf".to_string(),
-                manufacturer: Some("lite-on technology corp.".to_string()),
-                part_number: Some("PS123456789".to_string()),
-                serial_number: Some("PS123456789".to_string()),
-                ..Default::default()
-            }],
-            service: Vec::new(),
-            versions: HashMap::default(),
-            model: Some("PowerShelf-2000".to_string()),
-            machine_setup_status: None,
-            secure_boot_status: None,
-            lockdown_status: None,
-            power_shelf_id: None,
-            switch_id: None,
-            compute_tray_index: None,
-            physical_slot_number: None,
-            revision_id: None,
-            topology_id: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        ..Default::default()
-    };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    explorer.run_single_iteration().await.unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
-    txn.commit().await?;
-    assert_eq!(explored.len(), 1);
-
-    for report in &explored {
-        assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
-        assert!(res.is_ok());
-        assert_eq!(
-            res.clone().unwrap().endpoint_type,
-            report.report.endpoint_type
-        );
-        assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-        assert_eq!(res.clone().unwrap().systems, report.report.systems);
-    }
-
-    // explorer.run_single_iteration().await.unwrap();
-    // Check metrics
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_endpoint_explorations_count")
-            .unwrap(),
-        "1"
-    );
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_site_explorer_created_power_shelves_count")
-            .unwrap(),
-        "1"
-    );
-
-    Ok(())
-}
-
-/// Test the get_machine_position_info API endpoint
-#[crate::sqlx_test]
-async fn test_get_machine_position_info(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use rpc::forge::forge_server::Forge;
-
+#[sqlx_test]
+async fn test_get_machine_position_info(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) =
         common::api_fixtures::create_managed_host(&env).await.into();
@@ -5265,9 +2664,9 @@ async fn test_get_machine_position_info(
 }
 
 /// Test get_machine_position_info with a machine that has no explored endpoint
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_get_machine_position_info_no_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use rpc::forge::forge_server::Forge;
 
@@ -5306,9 +2705,9 @@ async fn test_get_machine_position_info_no_endpoint(
 /// This exercises the full wire (site-explorer iteration → per-host mode
 /// resolution → `check_and_configure_dpu_mode` → mock Redfish
 /// `set_nic_mode`) that the unit tests only cover in pieces.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
     use model::site_explorer::NicMode;
@@ -5318,12 +2717,11 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     // DPU hardware reports DPU mode (so it looks like a "properly
     // configured" DPU to the BF3-DPU heuristic) -- the operator-declared
     // override is what forces the correction to NIC mode.
-    let dpu_config = common::api_fixtures::dpu::DpuConfig {
+    let dpu_config = DpuConfig {
         nic_mode: Some(NicMode::Dpu),
-        ..Default::default()
+        ..DpuConfig::default()
     };
-    let mock_host =
-        common::api_fixtures::managed_host::ManagedHostConfig::with_dpus(vec![dpu_config.clone()]);
+    let mock_host = model::test_support::ManagedHostConfig::with_dpus(vec![dpu_config.clone()]);
     let host_bmc_mac = mock_host.bmc_mac_address;
 
     // Seed an ExpectedMachine with `dpu_mode: NicMode` that matches the
@@ -5378,13 +2776,200 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     Ok(())
 }
 
+/// A queued `set_nic_mode` only takes effect after a host power cycle, and
+/// site-explorer drives that power cycle itself for every vendor -- the
+/// Redfish `ComputerSystem.Reset` action is standard across BMCs. This is
+/// the non-Dell guard for that behavior: a Lenovo host whose DPU needs the
+/// mode correction gets an automatic `PowerCycle` on its host BMC in the
+/// same pass that issued `set_nic_mode`, rather than parking on a manual
+/// power cycle.
+#[sqlx_test]
+async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+    use model::site_explorer::NicMode;
+
+    let env = common::api_fixtures::create_test_env(pool).await;
+
+    // DPU hardware reports DPU mode; the operator-declared NicMode override
+    // is what forces the correction (and therefore the power cycle).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-866-NIC-POWERCYCLE".to_string(),
+                metadata: model::metadata::Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    common::api_fixtures::site_explorer::MockExploredHost::new(&env, mock_host)
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await?
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .await?
+        .insert_site_exploration_results()?
+        // First iteration: initial endpoint exploration.
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        // Second iteration: the matching loop issues `set_nic_mode` and,
+        // with the DPU now needing reconfiguration, power-cycles the host
+        // so the queued mode change applies.
+        .run_site_explorer_iteration()
+        .await;
+
+    let nic_mode_calls = env.endpoint_explorer.set_nic_mode_calls.lock().unwrap();
+    assert!(
+        nic_mode_calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+        "expected set_nic_mode(Nic) before the power cycle; calls so far: {nic_mode_calls:?}"
+    );
+
+    let power_calls = env
+        .endpoint_explorer
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    assert!(
+        power_calls
+            .iter()
+            .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+        "expected an automatic host PowerCycle on the non-Dell (Lenovo) host to apply the queued NIC mode change; power calls so far: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// A managed host's DPU-facing `machine_interface` is created (via DHCP) with
+/// just a MAC and no `boot_interface_id`. The exploration that ingests the host
+/// then backfills the vendor-specific Redfish interface id onto that row, matched
+/// by MAC, at which the primary interface ends up with a full `MachineBootInterface`.
+/// This is the same backfill path any DHCP-derived interface takes (the capture is
+/// keyed on MAC, not on how the row was created).
+#[sqlx_test]
+async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let dpu = DpuConfig::default();
+    let host_pf_mac = dpu.host_mac_address;
+    let mh = common::api_fixtures::create_managed_host_with_config(
+        &env,
+        ManagedHostConfig::with_dpus(vec![dpu]),
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let primary = interfaces
+        .get(&mh.id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.primary_interface)
+        .expect("ingested host should have a primary machine_interface");
+
+    // The primary row is the DPU host-PF interface (same factory MAC), now
+    // holding both halves of the pair: its MAC plus the Redfish interface id the
+    // host report named for it. The `ManagedHostConfig` fixture ids its DPU
+    // interfaces "NIC.Slot.{index + 5}-1", so the first DPU is "NIC.Slot.5-1".
+    assert_eq!(primary.mac_address, host_pf_mac);
+    assert_eq!(
+        primary.boot_interface_id.as_deref(),
+        Some("NIC.Slot.5-1"),
+        "exploration should backfill the Redfish interface id onto the machine_interface row",
+    );
+
+    Ok(())
+}
+
+/// A zero-DPU host whose only NIC is a plain (non-DPU) host NIC.
+/// We expect to walk over the report ethernet interfaces and record
+/// the NIC's Redfish-reported interface id onto its machine_interface
+/// row, matched/paired with its MAC address.
+#[sqlx_test]
+async fn test_site_explorer_records_boot_interface_id_onto_non_dpu_nic(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let non_dpu_mac = MacAddress::from_str("d4:04:e6:84:13:98").unwrap();
+    let mh = common::api_fixtures::create_managed_host_with_config(
+        &env,
+        ManagedHostConfig {
+            dpus: vec![],
+            non_dpu_macs: vec![non_dpu_mac],
+            ..ManagedHostConfig::default()
+        },
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let nic = interfaces
+        .get(&mh.id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.mac_address == non_dpu_mac)
+        .expect("the non-DPU host NIC should have a machine_interface row");
+
+    assert_eq!(
+        nic.boot_interface_id.as_deref(),
+        Some("NIC.Embedded.1-1-1"),
+        "exploration should record a non-DPU NIC's Redfish interface id on its row",
+    );
+
+    Ok(())
+}
+
 /// A Managed Host whose `expected_machines` row is later removed becomes an
 /// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
 /// alert on the host's Machine. Re-adding the entry clears the alert on the
 /// next iteration.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_orphan_managed_host_alert_emitted(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let host_config = ManagedHostConfig::default();
@@ -5477,9 +3062,9 @@ fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
         .count()
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_bumps_report_version(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5503,9 +3088,9 @@ async fn test_refresh_endpoint_report_bumps_report_version(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -5522,9 +3107,9 @@ async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5548,9 +3133,9 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5581,9 +3166,9 @@ async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5614,9 +3199,9 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5644,9 +3229,9 @@ async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_lock_is_per_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh_a = common::api_fixtures::create_managed_host(&env).await;
@@ -5729,9 +3314,9 @@ fn expected_switch_fixture(
 
 /// When a switch is rediscovered with a chassis serial that hashes to a new
 /// `SwitchId`, the BMC MAC check must keep us from inserting a second record.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn switch_skips_creation_when_bmc_mac_already_used(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:D0".parse().unwrap();
@@ -5804,9 +3389,9 @@ async fn switch_skips_creation_when_bmc_mac_already_used(
 /// `MissingHardwareInfo::Serial` rather than give us a junk `SwitchId`, and
 /// no record gets created. The next exploration cycle picks the switch up
 /// once a real serial is reported.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn switch_treats_na_chassis_serial_as_missing(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:D2".parse().unwrap();
@@ -5838,533 +3423,6 @@ async fn switch_treats_na_chassis_serial_as_missing(
     assert!(
         ids.is_empty(),
         "no switch row must be inserted when chassis serial is NA"
-    );
-
-    Ok(())
-}
-
-/// Power-shelf companion to `switch_skips_creation_when_bmc_mac_already_used`:
-/// a second call to `create_power_shelf` for the same BMC MAC must not insert
-/// a second row, even if the inputs we'd hash into a `PowerShelfId` differ.
-#[crate::sqlx_test]
-async fn power_shelf_skips_creation_when_bmc_mac_already_used(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let bmc_mac: MacAddress = "B8:3F:D2:90:97:E0".parse().unwrap();
-    let bmc_ip: IpAddr = "192.168.1.200".parse().unwrap();
-
-    // Seed an `expected_power_shelves` record so the foreign key on
-    // power_shelves.bmc_mac_address (which references
-    // expected_power_shelves.bmc_mac_address) is satisfied.
-    let mut txn = env.pool.begin().await?;
-    db::expected_power_shelf::create(
-        &mut txn,
-        model::expected_power_shelf::ExpectedPowerShelf {
-            expected_power_shelf_id: None,
-            bmc_mac_address: bmc_mac,
-            bmc_username: "admin".to_string(),
-            bmc_password: "password".to_string(),
-            serial_number: "PS-EXISTING".to_string(),
-            bmc_ip_address: Some(bmc_ip),
-            metadata: Metadata {
-                name: "PS-EXISTING-NAME".to_string(),
-                description: String::new(),
-                labels: HashMap::new(),
-            },
-            rack_id: None,
-            bmc_retain_credentials: None,
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        SiteExplorerConfig {
-            create_power_shelves: Arc::new(true.into()),
-            ..Default::default()
-        },
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
-
-    let explored_endpoint = ExploredEndpoint {
-        address: bmc_ip,
-        report: EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            chassis: vec![Chassis::default()],
-            ..Default::default()
-        },
-        report_version: ConfigVersion::initial(),
-        preingestion_state: PreingestionState::Complete,
-        waiting_for_explorer_refresh: false,
-        exploration_requested: false,
-        last_redfish_bmc_reset: None,
-        last_ipmitool_bmc_reset: None,
-        last_redfish_reboot: None,
-        last_redfish_powercycle: None,
-        pause_remediation: false,
-        boot_interface_mac: None,
-        pause_ingestion_and_poweron: false,
-    };
-
-    let expected_first = model::expected_power_shelf::ExpectedPowerShelf {
-        expected_power_shelf_id: None,
-        bmc_mac_address: bmc_mac,
-        bmc_username: "admin".to_string(),
-        bmc_password: "password".to_string(),
-        serial_number: "PS-EXISTING".to_string(),
-        bmc_ip_address: Some(bmc_ip),
-        metadata: Metadata {
-            name: "PS-name-v1".to_string(),
-            description: String::new(),
-            labels: HashMap::new(),
-        },
-        rack_id: None,
-        bmc_retain_credentials: None,
-    };
-    assert!(
-        explorer
-            .create_power_shelf(explored_endpoint.clone(), &expected_first, &env.pool)
-            .await?,
-        "first discovery must create a power_shelves row"
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let after_first = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-    assert_eq!(after_first.len(), 1);
-    let original_id = after_first[0].id;
-
-    // Second discovery for the same BMC MAC but a different name (which is
-    // what currently feeds `PowerShelfId` generation). Without the BMC MAC
-    // check, this would insert a second record.
-    let expected_second = model::expected_power_shelf::ExpectedPowerShelf {
-        metadata: Metadata {
-            name: "PS-name-v2".to_string(),
-            description: String::new(),
-            labels: HashMap::new(),
-        },
-        ..expected_first
-    };
-    assert!(
-        !explorer
-            .create_power_shelf(explored_endpoint, &expected_second, &env.pool)
-            .await?,
-        "second discovery with same BMC MAC must not create a duplicate row"
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let after_second = db::power_shelf::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-    )
-    .await?;
-    txn.commit().await?;
-    assert_eq!(after_second.len(), 1, "exactly one power_shelves row");
-    assert_eq!(after_second[0].id, original_id, "original ID preserved");
-
-    Ok(())
-}
-
-/// Site-explorer reconciles every `expected_*` row's configured static IPs into
-/// `machine_interface` rows by calling `try_preallocate_one` per static IP during
-/// `update_explored_endpoints`. This test drives the same per-row materialization directly,
-/// covering the static-assignments-segment counterpart to the DHCP `discover()` recovery hook:
-/// devices whose IP lives outside any Carbide-managed network never reach `discover()`, so this
-/// per-row preallocation is what gets their rows onto the books.
-#[crate::sqlx_test]
-async fn test_site_explorer_reconcile_creates_missing_preallocations(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let machine_bmc_mac: MacAddress = "AA:BB:CC:DD:E0:01".parse().unwrap();
-    let machine_bmc_ip: IpAddr = "10.99.0.10".parse().unwrap();
-    let switch_bmc_mac: MacAddress = "AA:BB:CC:DD:E0:02".parse().unwrap();
-    let switch_bmc_ip: IpAddr = "10.99.0.11".parse().unwrap();
-    let power_shelf_bmc_mac: MacAddress = "AA:BB:CC:DD:E0:03".parse().unwrap();
-    let power_shelf_bmc_ip: IpAddr = "10.99.0.12".parse().unwrap();
-
-    // Seed each expected_* row WITHOUT a corresponding machine_interface. The gRPC `add`
-    // handlers don't preallocate inline; site-explorer's reconciliation pass is what
-    // materializes the rows.
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: machine_bmc_mac,
-            data: ExpectedMachineData {
-                serial_number: "reconcile-m-001".to_string(),
-                bmc_ip_address: Some(machine_bmc_ip),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    db::expected_switch::create(
-        &mut txn,
-        model::expected_switch::ExpectedSwitch {
-            expected_switch_id: None,
-            bmc_mac_address: switch_bmc_mac,
-            nvos_mac_addresses: vec![],
-            bmc_username: "ADMIN".into(),
-            serial_number: "reconcile-sw-001".into(),
-            bmc_password: "PASS".into(),
-            nvos_username: None,
-            nvos_password: None,
-            bmc_ip_address: Some(switch_bmc_ip),
-            nvos_ip_address: None,
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-        },
-    )
-    .await?;
-    db::expected_power_shelf::create(
-        &mut txn,
-        model::expected_power_shelf::ExpectedPowerShelf {
-            expected_power_shelf_id: None,
-            bmc_mac_address: power_shelf_bmc_mac,
-            bmc_username: "ADMIN".into(),
-            serial_number: "reconcile-ps-001".into(),
-            bmc_password: "PASS".into(),
-            bmc_ip_address: Some(power_shelf_bmc_ip),
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Baseline: no interfaces yet.
-    let mut txn = env.pool.begin().await?;
-    for mac in [machine_bmc_mac, switch_bmc_mac, power_shelf_bmc_mac] {
-        let before = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
-        assert!(
-            before.is_empty(),
-            "no machine_interface should exist before site-explorer reconciles for {mac}"
-        );
-    }
-    txn.commit().await?;
-
-    for (mac, ip, kind) in [
-        (machine_bmc_mac, machine_bmc_ip, "expected_machine BMC"),
-        (switch_bmc_mac, switch_bmc_ip, "expected_switch BMC"),
-        (
-            power_shelf_bmc_mac,
-            power_shelf_bmc_ip,
-            "expected_power_shelf BMC",
-        ),
-    ] {
-        carbide_site_explorer::try_preallocate_one(
-            &env.pool,
-            mac,
-            ip,
-            model::machine_interface::InterfaceType::Bmc,
-            kind,
-        )
-        .await;
-    }
-
-    let mut txn = env.pool.begin().await?;
-    for (mac, ip) in [
-        (machine_bmc_mac, machine_bmc_ip),
-        (switch_bmc_mac, switch_bmc_ip),
-        (power_shelf_bmc_mac, power_shelf_bmc_ip),
-    ] {
-        let after = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
-        assert_eq!(after.len(), 1, "should be preallocated for {mac}");
-        assert!(
-            after[0].addresses.contains(&ip),
-            "preallocated row for {mac} should carry {ip}, got {:?}",
-            after[0].addresses,
-        );
-        assert_eq!(
-            after[0].interface_type,
-            model::machine_interface::InterfaceType::Bmc,
-            "BMC IPs should be preallocated with InterfaceType::Bmc, not Data ({mac})"
-        );
-    }
-
-    Ok(())
-}
-
-/// Site-explorer's reconciliation pass must materialize `ExpectedHostNic.fixed_ip`
-/// reservations too, not just BMC IPs.
-#[crate::sqlx_test]
-async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let bmc_mac: MacAddress = "AA:BB:CC:DD:E1:01".parse().unwrap();
-    let nic_mac: MacAddress = "AA:BB:CC:DD:E1:02".parse().unwrap();
-    let fixed_ip = "10.99.0.20";
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: bmc_mac,
-            data: ExpectedMachineData {
-                serial_number: "reconcile-hostnic-001".to_string(),
-                host_nics: vec![model::expected_machine::ExpectedHostNic {
-                    mac_address: nic_mac,
-                    nic_type: Some("onboard".into()),
-                    fixed_ip: Some(fixed_ip.into()),
-                    fixed_mask: None,
-                    fixed_gateway: None,
-                    primary: None,
-                }],
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    let parsed_fixed_ip: IpAddr = fixed_ip.parse().unwrap();
-    carbide_site_explorer::try_preallocate_one(
-        &env.pool,
-        nic_mac,
-        parsed_fixed_ip,
-        model::machine_interface::InterfaceType::Data,
-        "expected_machine host NIC",
-    )
-    .await;
-
-    let mut txn = env.pool.begin().await?;
-    let nic_iface = db::machine_interface::find_by_mac_address(&mut *txn, nic_mac).await?;
-    assert_eq!(
-        nic_iface.len(),
-        1,
-        "host NIC interface should be preallocated"
-    );
-    assert!(
-        nic_iface[0].addresses.contains(&parsed_fixed_ip),
-        "preallocated host NIC interface should carry the fixed_ip"
-    );
-    assert_eq!(
-        nic_iface[0].interface_type,
-        model::machine_interface::InterfaceType::Data,
-        "host NIC preallocation should mark the interface as InterfaceType::Data, not Bmc"
-    );
-
-    Ok(())
-}
-
-/// Running `try_preallocate_one` twice for the same (mac, ip) must be a no-op the second time
-/// -- no new rows, no errors. This is the steady-state behavior since site-explorer iterates
-/// continuously and re-issues the same calls on every pass.
-#[crate::sqlx_test]
-async fn test_site_explorer_reconcile_is_idempotent(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let bmc_mac: MacAddress = "AA:BB:CC:DD:E2:01".parse().unwrap();
-    let bmc_ip: IpAddr = "10.99.0.30".parse().unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_machine::create(
-        &mut txn,
-        ExpectedMachine {
-            id: None,
-            bmc_mac_address: bmc_mac,
-            data: ExpectedMachineData {
-                serial_number: "reconcile-idem-001".to_string(),
-                bmc_ip_address: Some(bmc_ip),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    for _ in 0..2 {
-        carbide_site_explorer::try_preallocate_one(
-            &env.pool,
-            bmc_mac,
-            bmc_ip,
-            model::machine_interface::InterfaceType::Bmc,
-            "expected_machine BMC",
-        )
-        .await;
-    }
-
-    let mut txn = env.pool.begin().await?;
-    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
-    assert_eq!(
-        interfaces.len(),
-        1,
-        "two preallocate calls should not create duplicate machine_interface rows"
-    );
-    assert!(interfaces[0].addresses.contains(&bmc_ip));
-
-    Ok(())
-}
-
-/// A per-entry conflict (e.g., two expected_machines configured with the same static IP -- a
-/// genuine operator misconfiguration) must not abort the whole reconciliation pass. The
-/// conflicting entry gets logged and skipped; the rest of the iteration continues.
-#[crate::sqlx_test]
-async fn test_site_explorer_reconcile_tolerates_per_entry_conflicts(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let mac_a: MacAddress = "AA:BB:CC:DD:E3:01".parse().unwrap();
-    let mac_b: MacAddress = "AA:BB:CC:DD:E3:02".parse().unwrap();
-    let mac_c: MacAddress = "AA:BB:CC:DD:E3:03".parse().unwrap();
-    let shared_ip: IpAddr = "10.99.0.40".parse().unwrap();
-    let ok_ip: IpAddr = "10.99.0.41".parse().unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    // Two machines configured with the SAME bmc_ip_address -- the second will conflict at
-    // preallocate time. A third has its own valid IP and should still get preallocated.
-    for (mac, ip, sn) in [
-        (mac_a, shared_ip, "reconcile-conflict-a"),
-        (mac_b, shared_ip, "reconcile-conflict-b"),
-        (mac_c, ok_ip, "reconcile-conflict-c"),
-    ] {
-        db::expected_machine::create(
-            &mut txn,
-            ExpectedMachine {
-                id: None,
-                bmc_mac_address: mac,
-                data: ExpectedMachineData {
-                    serial_number: sn.to_string(),
-                    bmc_ip_address: Some(ip),
-                    ..Default::default()
-                },
-            },
-        )
-        .await?;
-    }
-    txn.commit().await?;
-
-    // try_preallocate_one swallows per-entry errors -- the conflict between mac_a and mac_b
-    // gets logged and the third call still succeeds.
-    for (mac, ip) in [(mac_a, shared_ip), (mac_b, shared_ip), (mac_c, ok_ip)] {
-        carbide_site_explorer::try_preallocate_one(
-            &env.pool,
-            mac,
-            ip,
-            model::machine_interface::InterfaceType::Bmc,
-            "expected_machine BMC",
-        )
-        .await;
-    }
-
-    let mut txn = env.pool.begin().await?;
-    // Exactly one of {mac_a, mac_b} won the race for the shared IP.
-    let a = db::machine_interface::find_by_mac_address(&mut *txn, mac_a).await?;
-    let b = db::machine_interface::find_by_mac_address(&mut *txn, mac_b).await?;
-    let winners = a.len() + b.len();
-    assert_eq!(
-        winners, 1,
-        "exactly one of the two conflicting MACs should have a preallocated row"
-    );
-    // The third, non-conflicting entry must still be preallocated.
-    let c = db::machine_interface::find_by_mac_address(&mut *txn, mac_c).await?;
-    assert_eq!(
-        c.len(),
-        1,
-        "non-conflicting expected_machine should still be preallocated despite the upstream conflict"
-    );
-    assert!(c[0].addresses.contains(&ok_ip));
-
-    Ok(())
-}
-
-/// Site-explorer's reconciliation pass must materialize the (nvos_mac, nvos_ip_address)
-/// pairing for expected switches, mirroring how it handles `bmc_ip_address` and the
-/// host-NIC `fixed_ip` paths. Calls `try_preallocate_one` directly the same way the
-/// expected_switches loop does, and verifies the resulting row carries the configured
-/// IP with `InterfaceType::Data`.
-#[crate::sqlx_test]
-async fn test_site_explorer_reconcile_preallocates_nvos_ip(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let bmc_mac: MacAddress = "AA:BB:CC:DD:E4:01".parse().unwrap();
-    let nvos_mac: MacAddress = "AA:BB:CC:DD:E4:02".parse().unwrap();
-    let nvos_ip: IpAddr = "10.99.0.50".parse().unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    db::expected_switch::create(
-        &mut txn,
-        model::expected_switch::ExpectedSwitch {
-            expected_switch_id: None,
-            bmc_mac_address: bmc_mac,
-            nvos_mac_addresses: vec![nvos_mac],
-            bmc_username: "ADMIN".into(),
-            serial_number: "reconcile-nvos-001".into(),
-            bmc_password: "PASS".into(),
-            nvos_username: None,
-            nvos_password: None,
-            bmc_ip_address: None,
-            nvos_ip_address: Some(nvos_ip),
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Baseline: no NVOS interface yet.
-    let mut txn = env.pool.begin().await?;
-    let before = db::machine_interface::find_by_mac_address(&mut *txn, nvos_mac).await?;
-    assert!(
-        before.is_empty(),
-        "no machine_interface should exist before site-explorer reconciles for {nvos_mac}"
-    );
-    txn.commit().await?;
-
-    carbide_site_explorer::try_preallocate_one(
-        &env.pool,
-        nvos_mac,
-        nvos_ip,
-        model::machine_interface::InterfaceType::Data,
-        "expected_switch NVOS",
-    )
-    .await;
-
-    let mut txn = env.pool.begin().await?;
-    let after = db::machine_interface::find_by_mac_address(&mut *txn, nvos_mac).await?;
-    assert_eq!(
-        after.len(),
-        1,
-        "expected_switch NVOS should be preallocated for {nvos_mac}"
-    );
-    assert!(
-        after[0].addresses.contains(&nvos_ip),
-        "preallocated row should carry {nvos_ip}, got {:?}",
-        after[0].addresses,
-    );
-    assert_eq!(
-        after[0].interface_type,
-        model::machine_interface::InterfaceType::Data,
-        "NVOS IPs should be preallocated with InterfaceType::Data, not Bmc"
     );
 
     Ok(())

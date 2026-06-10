@@ -211,11 +211,16 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // still recover it from the linked BMC machine_interface.
     let mut txn = db_pool.begin().await?;
 
-    let query = format!(
-        "UPDATE machine_topologies SET topology = jsonb_set(topology, '{{bmc_info}}',  '{{\"ip\": \"{bmc_ip}\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}}', false) WHERE machine_id = $1"
-    );
-    let _ = sqlx::query(&query)
+    let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}', $2::jsonb, false) WHERE machine_id = $1";
+    let bmc_info = serde_json::json!({
+        "ip": bmc_ip,
+        "port": null,
+        "version": "1",
+        "firmware_version": "5.10",
+    });
+    let _ = sqlx::query(query)
         .bind(host_machine_id.to_string())
+        .bind(sqlx::types::Json(bmc_info))
         .execute(txn.deref_mut())
         .await?;
     txn.commit().await?;

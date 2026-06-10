@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc};
 use carbide_machine_controller::handler::attestation::trigger_attestation;
 use carbide_uuid::machine::MachineId;
 use db::ObjectFilter;
+use model::attestation::spdm as model_spdm;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tokio::time as tt;
 use tonic::{Request, Response, Status};
@@ -123,23 +123,105 @@ pub(crate) async fn cancel_machine_attestation(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn list_machine_ids_under_attestation(
-    api: &Api,
-    request: Request<()>,
-) -> Result<Response<MachineIdList>, Status> {
-    log_request_data(&request);
-
-    let mut txn = api.txn_begin().await?;
-    let machine_ids = db::attestation::spdm::list_machine_ids(&mut txn).await?;
-    txn.commit().await?;
-
-    Ok(Response::new(MachineIdList { machine_ids }))
+fn convert_model_status_to_rpc_status(
+    model_status: model_spdm::SpdmAttestationStatus,
+) -> rpc::SpdmAttestationStatus {
+    match model_status {
+        model_spdm::SpdmAttestationStatus::InProgress => {
+            rpc::SpdmAttestationStatus::SpdmAttInProgress
+        }
+        model_spdm::SpdmAttestationStatus::Cancelled => {
+            rpc::SpdmAttestationStatus::SpdmAttCancelled
+        }
+        model_spdm::SpdmAttestationStatus::Passed => rpc::SpdmAttestationStatus::SpdmAttPassed,
+        model_spdm::SpdmAttestationStatus::Failed => rpc::SpdmAttestationStatus::SpdmAttFailed,
+    }
 }
 
-pub(crate) async fn list_attestations_for_machine_id(
+pub(crate) async fn list_attestation_machines(
     api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<rpc::SpdmListAttestationsResponse>, Status> {
+    request: tonic::Request<rpc::SpdmListAttestationMachinesRequest>,
+) -> Result<Response<rpc::SpdmListAttestationMachinesResponse>, Status> {
+    // if selector is not selected AND machine id is None,
+    // just list all machines + their attestation status
+    // if machine id not None, print the attestation status for this machine only
+    // if machine id is None AND selector is unsucessful, print failed attestations
+    // if machine is None AND selector is in progress, print all machines that are in progress
+
+    let mut txn = api.txn_begin().await?;
+
+    let response = match &request.get_ref().variant {
+        None => db::attestation::spdm::list_all_attestation_statuses(
+            &mut txn,
+            db::attestation::spdm::ListSelector::None,
+        )
+        .await
+        .map(|statuses| {
+            Response::new(rpc::SpdmListAttestationMachinesResponse {
+                statuses: statuses
+                    .iter()
+                    .map(|elem| rpc::SpdmMachineAttestationStatus {
+                        machine_id: Some(elem.0),
+                        attestation_status: convert_model_status_to_rpc_status(elem.1).into(),
+                    })
+                    .collect(),
+            })
+        })?,
+        Some(variant) => match variant {
+            rpc::spdm_list_attestation_machines_request::Variant::MachineId(machine_id) => {
+                db::attestation::spdm::list_single_machine_attestation_status(&mut txn, machine_id)
+                    .await
+                    .map(|status| {
+                        Response::new(rpc::SpdmListAttestationMachinesResponse {
+                            statuses: vec![rpc::SpdmMachineAttestationStatus {
+                                machine_id: Some(*machine_id),
+                                attestation_status: convert_model_status_to_rpc_status(status)
+                                    .into(),
+                            }],
+                        })
+                    })?
+            }
+            rpc::spdm_list_attestation_machines_request::Variant::Selector(selector) => {
+                let request_selector = rpc::SpdmListAttestationMachinesRequestSelector::try_from(
+                    *selector,
+                )
+                .map_err(|_| Status::invalid_argument("invalid attestation machine selector"))?;
+
+                let list_selector = match request_selector {
+                    rpc::SpdmListAttestationMachinesRequestSelector::SpdmListInProgress => {
+                        db::attestation::spdm::ListSelector::InProgress
+                    }
+                    rpc::SpdmListAttestationMachinesRequestSelector::SpdmListUnsuccessful => {
+                        db::attestation::spdm::ListSelector::Unsuccessful
+                    }
+                };
+                db::attestation::spdm::list_all_attestation_statuses(&mut txn, list_selector)
+                    .await
+                    .map(|statuses| {
+                        Response::new(rpc::SpdmListAttestationMachinesResponse {
+                            statuses: statuses
+                                .iter()
+                                .map(|elem| rpc::SpdmMachineAttestationStatus {
+                                    machine_id: Some(elem.0),
+                                    attestation_status: convert_model_status_to_rpc_status(elem.1)
+                                        .into(),
+                                })
+                                .collect(),
+                        })
+                    })?
+            }
+        },
+    };
+
+    txn.commit().await?;
+
+    Ok(response)
+}
+
+pub(crate) async fn get_attestation_machine(
+    api: &Api,
+    request: tonic::Request<MachineId>,
+) -> Result<Response<rpc::SpdmGetAttestationMachineResponse>, Status> {
     log_request_data(&request);
 
     let machine_id = request.get_ref();
@@ -150,33 +232,13 @@ pub(crate) async fn list_attestations_for_machine_id(
         db::attestation::spdm::get_attestations_for_machine_id(&mut txn, machine_id).await?;
     txn.commit().await?;
 
-    Ok(Response::new(rpc::SpdmListAttestationsResponse {
+    Ok(Response::new(rpc::SpdmGetAttestationMachineResponse {
         attestations_details: attestations_details
             .iter()
             .map(|elem| {
                 std::convert::Into::<::rpc::forge::SpdmAttestationDetails>::into((*elem).clone())
             })
             .collect(),
-    }))
-}
-
-pub(crate) async fn get_machine_attestations_status(
-    api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<rpc::SpdmMachineAttestationStatusResponse>, Status> {
-    log_request_data(&request);
-
-    let machine_id = request.get_ref();
-    log_machine_id(machine_id);
-
-    let mut txn = api.txn_begin().await?;
-    let attestation_status =
-        db::attestation::spdm::get_attestation_status_for_machine_id(&mut txn, machine_id).await?;
-    txn.commit().await?;
-
-    Ok(Response::new(rpc::SpdmMachineAttestationStatusResponse {
-        machine_id: Some(*machine_id),
-        attestation_status: rpc::SpdmAttestationStatus::from(attestation_status).into(),
     }))
 }
 
@@ -310,6 +372,7 @@ pub(crate) async fn attest_quote(
 }
 
 #[cfg(not(feature = "linux-build"))]
+#[allow(clippy::unused_async)]
 pub(crate) async fn attest_quote(
     _api: &Api,
     _request: Request<rpc::AttestQuoteRequest>,

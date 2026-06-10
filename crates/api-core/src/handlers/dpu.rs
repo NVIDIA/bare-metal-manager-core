@@ -671,11 +671,23 @@ pub(crate) async fn get_managed_host_network_config_inner(
             rpc::TrafficInterceptConfig {
                 bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
                     internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
-                    host_intercept_bridge_name: b.host_intercept_bridge_name.clone(),
+                    hbn_bridge: b.hbn_bridge.clone(),
                     vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
                     vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
-                    host_intercept_bridge_port: b.host_intercept_bridge_port.clone(),
                     vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
+                    host_representor_intercept_bridging: b
+                        .host_representor_intercept_bridging
+                        .iter()
+                        .map(|(representor, bridge)| {
+                            (
+                                representor.clone(),
+                                rpc::HostRepresentorInterceptBridging {
+                                    bridge: bridge.bridge.clone(),
+                                    patch_port: bridge.patch_port.clone(),
+                                },
+                            )
+                        })
+                        .collect(),
                 }),
                 public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
                 secondary_vtep_aggregate_prefixes: c
@@ -782,9 +794,6 @@ pub(crate) async fn record_dpu_network_status(
 
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
-
-    // TODO: persist this somewhere
-    let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
 
     let mut txn = api.txn_begin().await?;
 
@@ -1101,9 +1110,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .classifications
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
-        return Err(CarbideError::InvalidArgument(
-            "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
-        ).into());
+        return Err(CarbideError::InvalidArgument(format!(
+            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+        )).into());
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
@@ -1183,7 +1192,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    "No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs.".to_string(),
+                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
                 )
                     .into());
             }

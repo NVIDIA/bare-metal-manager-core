@@ -14,18 +14,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cdmu "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -86,35 +85,35 @@ func TestOperatingSystemHandler_Create(t *testing.T) {
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
 
-	osObj := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-1", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), IpxeScript: cdb.GetStrPtr("ipxe"), ImageDisk: cdb.GetStrPtr("/dev/sda"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), IsCloudInit: true, AllowOverride: false}
+	osObj := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-1", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), IpxeScript: cutil.GetPtr("ipxe"), ImageDisk: cutil.GetPtr("/dev/sda"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: true, AllowOverride: false}
 	okBody, err := json.Marshal(osObj)
 	assert.Nil(t, err)
 
-	osImageURLObj1 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-2", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), ImageSHA: nil}
+	osImageURLObj1 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-2", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), ImageSHA: nil}
 	errImageURLBody, err := json.Marshal(osImageURLObj1)
 	assert.Nil(t, err)
 
-	osImageURLObj2 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-3", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cdb.GetStrPtr("//cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit)}
+	osImageURLObj2 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-3", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cutil.GetPtr("//cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit)}
 	badImageURLBody, err := json.Marshal(osImageURLObj2)
 	assert.Nil(t, err)
 
-	osImageURLObj3 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-4", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant2.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), ImageAuthType: cdb.GetStrPtr("Basic"), ImageAuthToken: cdb.GetStrPtr("rsa"), ImageDisk: cdb.GetStrPtr("/dev/nvme1n3"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), IsCloudInit: false, AllowOverride: true}
+	osImageURLObj3 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-4", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant2.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), ImageAuthType: cutil.GetPtr("Basic"), ImageAuthToken: cutil.GetPtr("rsa"), ImageDisk: cutil.GetPtr("/dev/nvme1n3"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: false, AllowOverride: true}
 	validImageURLBody, err := json.Marshal(osImageURLObj3)
 	assert.Nil(t, err)
 
-	osImageURLObj4 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-5", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, IpxeScript: cdb.GetStrPtr("ipxe"), ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsLabel: cdb.GetStrPtr("test-label"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit)}
+	osImageURLObj4 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-5", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, IpxeScript: cutil.GetPtr("ipxe"), ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsLabel: cutil.GetPtr("test-label"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit)}
 	errIpxeImageUrlBody, err := json.Marshal(osImageURLObj4)
 	assert.Nil(t, err)
 
-	osImageURLObj5 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-6", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsID: cdb.GetStrPtr("abc123"), RootFsLabel: cdb.GetStrPtr("test-label"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit)}
+	osImageURLObj5 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-6", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsID: cutil.GetPtr("abc123"), RootFsLabel: cutil.GetPtr("test-label"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit)}
 	errRootFsBody, err := json.Marshal(osImageURLObj5)
 	assert.Nil(t, err)
 
-	osImageURLObj6 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-7", Description: cdb.GetStrPtr("test"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsID: cdb.GetStrPtr("abc123"), ImageDisk: cdb.GetStrPtr("/dev/junk"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit)}
+	osImageURLObj6 := model.APIOperatingSystemCreateRequest{Name: "test-operating-system-7", Description: cutil.GetPtr("test"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant1.ID.String()), SiteIDs: []string{site.ID.String()}, ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), RootFsID: cutil.GetPtr("abc123"), ImageDisk: cutil.GetPtr("/dev/junk"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit)}
 	errDiskImageBody, err := json.Marshal(osImageURLObj6)
 	assert.Nil(t, err)
 
-	osImageURLObj7 := model.APIOperatingSystemCreateRequest{Name: "terminate-workflow-operating-system", Description: cdb.GetStrPtr("test termination"), InfrastructureProviderID: nil, TenantID: cdb.GetStrPtr(tenant2.ID.String()), SiteIDs: []string{site1.ID.String()}, ImageURL: cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), ImageSHA: cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), ImageAuthType: cdb.GetStrPtr("Basic"), ImageAuthToken: cdb.GetStrPtr("rsa"), ImageDisk: cdb.GetStrPtr("/dev/nvme1n3"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), IsCloudInit: false, AllowOverride: true}
+	osImageURLObj7 := model.APIOperatingSystemCreateRequest{Name: "terminate-workflow-operating-system", Description: cutil.GetPtr("test termination"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(tenant2.ID.String()), SiteIDs: []string{site1.ID.String()}, ImageURL: cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), ImageAuthType: cutil.GetPtr("Basic"), ImageAuthToken: cutil.GetPtr("rsa"), ImageDisk: cutil.GetPtr("/dev/nvme1n3"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: false, AllowOverride: true}
 	terminateCreationImageURLBody, err := json.Marshal(osImageURLObj7)
 	assert.Nil(t, err)
 
@@ -429,17 +428,17 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 				nil,
 				cdbm.OperatingSystemCreateInput{
 					Name:               fmt.Sprintf("test-os-%02d", i),
-					Description:        cdb.GetStrPtr("test"),
+					Description:        cutil.GetPtr("test"),
 					Org:                tnOrg1,
 					TenantID:           &tenant1.ID,
 					OsType:             cdbm.OperatingSystemTypeImage,
-					ImageURL:           cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"),
-					ImageSHA:           cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
-					ImageAuthType:      cdb.GetStrPtr("Basic"),
-					ImageAuthToken:     cdb.GetStrPtr("rsa"),
-					ImageDisk:          cdb.GetStrPtr("/dev/nvme1n3"),
-					RootFsId:           cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
-					UserData:           cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					ImageURL:           cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"),
+					ImageSHA:           cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
+					ImageAuthType:      cutil.GetPtr("Basic"),
+					ImageAuthToken:     cutil.GetPtr("rsa"),
+					ImageDisk:          cutil.GetPtr("/dev/nvme1n3"),
+					RootFsId:           cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
+					UserData:           cutil.GetPtr(cdmu.TestCommonCloudInit),
 					IsCloudInit:        true,
 					AllowOverride:      false,
 					EnableBlockStorage: false,
@@ -449,20 +448,20 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 				},
 			)
 			assert.Nil(t, err)
-			common.TestBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site.ID, db.GetStrPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSyncing, tnu)
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusSyncing, cdb.GetStrPtr("received Operating System creation request, syncing"))
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cdb.GetStrPtr("Operating System is now ready for use"))
+			common.TestBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSyncing, tnu)
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusSyncing, cutil.GetPtr("received Operating System creation request, syncing"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cutil.GetPtr("Operating System is now ready for use"))
 		} else {
 			os, err := osDAO.Create(
 				ctx,
 				nil,
 				cdbm.OperatingSystemCreateInput{
 					Name:               fmt.Sprintf("test-os-%02d", i),
-					Description:        cdb.GetStrPtr("test"),
+					Description:        cutil.GetPtr("test"),
 					Org:                tnOrg1,
 					TenantID:           &tenant1.ID,
 					OsType:             cdbm.OperatingSystemTypeIPXE,
-					IpxeScript:         cdb.GetStrPtr("ipxe"),
+					IpxeScript:         cutil.GetPtr("ipxe"),
 					IsCloudInit:        true,
 					AllowOverride:      false,
 					EnableBlockStorage: false,
@@ -472,8 +471,8 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 				},
 			)
 			assert.Nil(t, err)
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusPending, cdb.GetStrPtr("request received, pending processing"))
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cdb.GetStrPtr("OPerating System is now ready for use"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusPending, cutil.GetPtr("request received, pending processing"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cutil.GetPtr("OPerating System is now ready for use"))
 		}
 		oss = append(oss, *os)
 	}
@@ -499,17 +498,17 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 				nil,
 				cdbm.OperatingSystemCreateInput{
 					Name:               fmt.Sprintf("site-test-os-%02d", i),
-					Description:        cdb.GetStrPtr("test"),
+					Description:        cutil.GetPtr("test"),
 					Org:                tnOrg4,
 					TenantID:           &tenant4.ID,
 					OsType:             cdbm.OperatingSystemTypeImage,
-					ImageURL:           cdb.GetStrPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"),
-					ImageSHA:           cdb.GetStrPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
-					ImageAuthType:      cdb.GetStrPtr("Basic"),
-					ImageAuthToken:     cdb.GetStrPtr("rsa"),
-					ImageDisk:          cdb.GetStrPtr("/dev/nvme1n3"),
-					RootFsId:           cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
-					UserData:           cdb.GetStrPtr(cdmu.TestCommonCloudInit),
+					ImageURL:           cutil.GetPtr("https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.1.0-amd64-netinst.iso"),
+					ImageSHA:           cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"),
+					ImageAuthType:      cutil.GetPtr("Basic"),
+					ImageAuthToken:     cutil.GetPtr("rsa"),
+					ImageDisk:          cutil.GetPtr("/dev/nvme1n3"),
+					RootFsId:           cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"),
+					UserData:           cutil.GetPtr(cdmu.TestCommonCloudInit),
 					IsCloudInit:        true,
 					AllowOverride:      false,
 					EnableBlockStorage: false,
@@ -520,9 +519,9 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			)
 			assert.Nil(t, err)
 
-			ossa := common.TestBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site2.ID, db.GetStrPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSyncing, tnu)
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusSyncing, cdb.GetStrPtr("received Operating System creation request, syncing"))
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cdb.GetStrPtr("Operating System is now ready for use"))
+			ossa := common.TestBuildOperatingSystemSiteAssociation(t, dbSession, os.ID, site2.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSyncing, tnu)
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusSyncing, cutil.GetPtr("received Operating System creation request, syncing"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cutil.GetPtr("Operating System is now ready for use"))
 
 			assert.Nil(t, err)
 			imageoss = append(imageoss, *os)
@@ -534,11 +533,11 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 				nil,
 				cdbm.OperatingSystemCreateInput{
 					Name:               fmt.Sprintf("site-test-os-%02d", i),
-					Description:        cdb.GetStrPtr("test"),
+					Description:        cutil.GetPtr("test"),
 					Org:                tnOrg4,
 					TenantID:           &tenant4.ID,
 					OsType:             cdbm.OperatingSystemTypeIPXE,
-					IpxeScript:         cdb.GetStrPtr("ipxe"),
+					IpxeScript:         cutil.GetPtr("ipxe"),
 					IsCloudInit:        true,
 					AllowOverride:      false,
 					EnableBlockStorage: false,
@@ -549,8 +548,8 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			)
 			assert.Nil(t, err)
 
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusPending, cdb.GetStrPtr("request received, pending processing"))
-			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cdb.GetStrPtr("OPerating System is now ready for use"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusPending, cutil.GetPtr("request received, pending processing"))
+			common.TestBuildStatusDetail(t, dbSession, os.ID.String(), cdbm.OperatingSystemStatusReady, cutil.GetPtr("OPerating System is now ready for use"))
 
 			ipxeoss = append(ipxeoss, *os)
 		}
@@ -616,12 +615,12 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			name:                   "success when tenant relation are specified",
 			reqOrgName:             tnOrg1,
 			user:                   tnu,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.TenantRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.TenantRelationName),
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
 			expectedCnt:            paginator.DefaultLimit,
 			expectedTotal:          &totalCount,
-			expectedTenantOrg:      cdb.GetStrPtr(tenant1.Org),
+			expectedTenantOrg:      cutil.GetPtr(tenant1.Org),
 		},
 		{
 			name:           "success case when no objects returned",
@@ -635,22 +634,22 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			name:               "success when pagination params are specified",
 			reqOrgName:         tnOrg1,
 			user:               tnu,
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("NAME_DESC"),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("NAME_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry: &oss[29],
 		},
 		{
 			name:           "failure when invalid pagination params are specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -659,7 +658,7 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			name:           "success when name query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test"),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -669,17 +668,17 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			name:           "success when unexisted status query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("ready"),
+			querySearch:    cutil.GetPtr("ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when name and status query search specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			querySearch:    cdb.GetStrPtr("test ready"),
+			querySearch:    cutil.GetPtr("test ready"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
@@ -689,33 +688,33 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			name:           "success when OperatingSystemStatusPending status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr(cdbm.OperatingSystemStatusPending),
+			queryStatus:    cutil.GetPtr(cdbm.OperatingSystemStatusPending),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    paginator.DefaultLimit,
-			expectedTotal:  cdb.GetIntPtr(totalCount),
+			expectedTotal:  cutil.GetPtr(totalCount),
 		},
 		{
 			name:           "success when BadStatus status is specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
-			queryStatus:    cdb.GetStrPtr("BadRequest"),
+			queryStatus:    cutil.GetPtr("BadRequest"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
-			expectedTotal:  cdb.GetIntPtr(0),
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "success when site and type filter specified",
 			reqOrgName:     tnOrg1,
 			user:           tnu,
 			siteID:         &site.ID,
-			osType:         cdb.GetStrPtr(cdbm.OperatingSystemTypeImage),
-			querySearch:    cdb.GetStrPtr("test"),
+			osType:         cutil.GetPtr(cdbm.OperatingSystemTypeImage),
+			querySearch:    cutil.GetPtr("test"),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 		},
 		{
 			name:           "success when only site filter specified",
@@ -726,17 +725,17 @@ func TestOperatingSystemHandler_GetAll(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    len(imageoss) + len(ipxeoss),
-			expectedTotal:  cdb.GetIntPtr(len(imageoss) + len(ipxeoss)),
+			expectedTotal:  cutil.GetPtr(len(imageoss) + len(ipxeoss)),
 		},
 		{
 			name:           "success when only image type filter specified",
 			reqOrgName:     tnOrg4,
 			user:           tnu,
-			osType:         cdb.GetStrPtr(cdbm.OperatingSystemTypeImage),
+			osType:         cutil.GetPtr(cdbm.OperatingSystemTypeImage),
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 			expectedCnt:    len(imageoss),
-			expectedTotal:  cdb.GetIntPtr(len(imageoss)),
+			expectedTotal:  cutil.GetPtr(len(imageoss)),
 		},
 	}
 	for _, tc := range tests {
@@ -887,11 +886,11 @@ func TestOperatingSystemHandler_GetByID(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test1",
-			Description:        cdb.GetStrPtr("test"),
+			Description:        cutil.GetPtr("test"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -908,11 +907,11 @@ func TestOperatingSystemHandler_GetByID(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test2",
-			Description:        cdb.GetStrPtr("test"),
+			Description:        cutil.GetPtr("test"),
 			Org:                ipOrg2,
 			TenantID:           &tenant2.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -929,7 +928,7 @@ func TestOperatingSystemHandler_GetByID(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test3",
-			Description:        cdb.GetStrPtr("test"),
+			Description:        cutil.GetPtr("test"),
 			Org:                ipOrg2,
 			TenantID:           &tenant2.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
@@ -1030,9 +1029,9 @@ func TestOperatingSystemHandler_GetByID(t *testing.T) {
 			os:                     os1,
 			expectedErr:            false,
 			expectedStatus:         http.StatusOK,
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.TenantRelationName),
-			expectedTenantOrg:      cdb.GetStrPtr(tenant1.Org),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.TenantRelationName),
+			expectedTenantOrg:      cutil.GetPtr(tenant1.Org),
 		},
 		{
 			name:               "success case with image based os",
@@ -1173,11 +1172,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-1",
-			Description:        cdb.GetStrPtr("Test Description 1"),
+			Description:        cutil.GetPtr("Test Description 1"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1194,11 +1193,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-2",
-			Description:        cdb.GetStrPtr("Test Description 2"),
+			Description:        cutil.GetPtr("Test Description 2"),
 			Org:                ipOrg2,
 			TenantID:           &tenant2.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1215,11 +1214,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-3",
-			Description:        cdb.GetStrPtr("Test Description 3"),
+			Description:        cutil.GetPtr("Test Description 3"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1236,11 +1235,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-4",
-			Description:        cdb.GetStrPtr("Test Description 4"),
+			Description:        cutil.GetPtr("Test Description 4"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:         cdb.GetStrPtr("ipxe"),
+			IpxeScript:         cutil.GetPtr("ipxe"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1257,11 +1256,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-5",
-			Description:        cdb.GetStrPtr("Test Description 5"),
+			Description:        cutil.GetPtr("Test Description 5"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: true,
@@ -1290,12 +1289,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-6",
-			Description:        cdb.GetStrPtr("Test Description 6"),
+			Description:        cutil.GetPtr("Test Description 6"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsId:           cdb.GetStrPtr("fsID"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsId:           cutil.GetPtr("fsID"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: true,
@@ -1312,12 +1311,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-7",
-			Description:        cdb.GetStrPtr("Test Description 7"),
+			Description:        cutil.GetPtr("Test Description 7"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1334,12 +1333,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-8",
-			Description:        cdb.GetStrPtr("Test Description 8"),
+			Description:        cutil.GetPtr("Test Description 8"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1356,11 +1355,11 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-9",
-			Description:        cdb.GetStrPtr("Test Description 9"),
+			Description:        cutil.GetPtr("Test Description 9"),
 			Org:                ipOrg2,
 			TenantID:           &tenant2.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: true,
@@ -1389,12 +1388,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-10",
-			Description:        cdb.GetStrPtr("Test Description 10"),
+			Description:        cutil.GetPtr("Test Description 10"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1412,12 +1411,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-11",
-			Description:        cdb.GetStrPtr("Test Description 11"),
+			Description:        cutil.GetPtr("Test Description 11"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1435,12 +1434,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-12",
-			Description:        cdb.GetStrPtr("Test Description 12"),
+			Description:        cutil.GetPtr("Test Description 12"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1451,7 +1450,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, os12)
-	os12, err = osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os12.ID, IsActive: cdb.GetBoolPtr(false)})
+	os12, err = osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os12.ID, IsActive: cutil.GetPtr(false)})
 	assert.Nil(t, err)
 	assert.NotNil(t, os12)
 
@@ -1461,12 +1460,12 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-13",
-			Description:        cdb.GetStrPtr("Test Description 13"),
+			Description:        cutil.GetPtr("Test Description 13"),
 			Org:                ipOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
-			RootFsLabel:        cdb.GetStrPtr("fs-label"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			RootFsLabel:        cutil.GetPtr("fs-label"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: false,
@@ -1477,43 +1476,43 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, os13)
-	os13, err = osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os13.ID, IsActive: cdb.GetBoolPtr(false)})
+	os13, err = osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os13.ID, IsActive: cutil.GetPtr(false)})
 	assert.Nil(t, err)
 	assert.NotNil(t, os13)
 
-	updReq := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated"), Description: cdb.GetStrPtr("Updated Description"), IpxeScript: cdb.GetStrPtr("updatedIpxe"), UserData: cdb.GetStrPtr(cdmu.TestCommonCloudInit), IsCloudInit: cdb.GetBoolPtr(false), AllowOverride: cdb.GetBoolPtr(true), PhoneHomeEnabled: cdb.GetBoolPtr(false)}
+	updReq := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated"), Description: cutil.GetPtr("Updated Description"), IpxeScript: cutil.GetPtr("updatedIpxe"), UserData: cutil.GetPtr(cdmu.TestCommonCloudInit), IsCloudInit: cutil.GetPtr(false), AllowOverride: cutil.GetPtr(true), PhoneHomeEnabled: cutil.GetPtr(false)}
 	okBody, err := json.Marshal(updReq)
 	assert.Nil(t, err)
 
-	updReqNameClash := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-operating-system-3")}
+	updReqNameClash := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-operating-system-3")}
 	errBodyNameClash, err := json.Marshal(updReqNameClash)
 	assert.Nil(t, err)
 
-	updReq2 := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-operating-system-2")}
+	updReq2 := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-operating-system-2")}
 	okBody2, err := json.Marshal(updReq2)
 	assert.Nil(t, err)
 
-	updReqImageUrl := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-2"), Description: cdb.GetStrPtr("Updated Description"), ImageURL: cdb.GetStrPtr("http://imagepath.iso")}
+	updReqImageUrl := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-2"), Description: cutil.GetPtr("Updated Description"), ImageURL: cutil.GetPtr("http://imagepath.iso")}
 	errBodyImageUrlIpxe, err := json.Marshal(updReqImageUrl)
 	assert.Nil(t, err)
 
-	updReqValidImageUrl := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-3"), Description: cdb.GetStrPtr("Updated Description"), ImageURL: cdb.GetStrPtr("http://newimagepath.iso"), ImageSHA: cdb.GetStrPtr("10886660c5b2746ff48224646c5094ebcf88c889"), RootFsID: cdb.GetStrPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cdb.GetStrPtr("/dev/nvme2n1")}
+	updReqValidImageUrl := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-3"), Description: cutil.GetPtr("Updated Description"), ImageURL: cutil.GetPtr("http://newimagepath.iso"), ImageSHA: cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cutil.GetPtr("/dev/nvme2n1")}
 	okBodyImageUrl, err := json.Marshal(updReqValidImageUrl)
 	assert.Nil(t, err)
 
-	updReqDeactivate := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-deactivate"), Description: cdb.GetStrPtr("Updated Description for deactivation"), IsActive: cdb.GetBoolPtr(false), DeactivationNote: cdb.GetStrPtr("Deactivated for a valid reason")}
+	updReqDeactivate := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-deactivate"), Description: cutil.GetPtr("Updated Description for deactivation"), IsActive: cutil.GetPtr(false), DeactivationNote: cutil.GetPtr("Deactivated for a valid reason")}
 	okBodyDeactivate, err := json.Marshal(updReqDeactivate)
 	assert.Nil(t, err)
 
-	updReqDeactivateNoNote := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-deactivate-no-note"), Description: cdb.GetStrPtr("Updated Description for deactivation"), IsActive: cdb.GetBoolPtr(false)}
+	updReqDeactivateNoNote := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-deactivate-no-note"), Description: cutil.GetPtr("Updated Description for deactivation"), IsActive: cutil.GetPtr(false)}
 	okBodyDeactivateNoNote, err := json.Marshal(updReqDeactivateNoNote)
 	assert.Nil(t, err)
 
-	updReqChangeNote := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-change-note"), DeactivationNote: cdb.GetStrPtr("Changed Note")}
+	updReqChangeNote := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-change-note"), DeactivationNote: cutil.GetPtr("Changed Note")}
 	okBodyChangeNote, err := json.Marshal(updReqChangeNote)
 	assert.Nil(t, err)
 
-	updReqActivate := model.APIOperatingSystemUpdateRequest{Name: cdb.GetStrPtr("test-os-updated-activate"), Description: cdb.GetStrPtr("Updated Description for activation"), IsActive: cdb.GetBoolPtr(true)}
+	updReqActivate := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-activate"), Description: cutil.GetPtr("Updated Description for activation"), IsActive: cutil.GetPtr(true)}
 	okBodyActivate, err := json.Marshal(updReqActivate)
 	assert.Nil(t, err)
 
@@ -1663,7 +1662,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 
-			expectedName: cdb.GetStrPtr("test-operating-system-2"),
+			expectedName: cutil.GetPtr("test-operating-system-2"),
 		},
 		{
 			name:           "success case - can update all fields",
@@ -1674,13 +1673,13 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
 
-			expectedName:             cdb.GetStrPtr("test-os-updated"),
-			expectedDesc:             cdb.GetStrPtr("Updated Description"),
-			expectedIpxeScript:       cdb.GetStrPtr("updatedIpxe"),
-			expectedUserData:         cdb.GetStrPtr(cdmu.TestCommonPhoneHomeCloudInit),
-			expectedIsCloudInit:      cdb.GetBoolPtr(false),
-			expectedAllowOverride:    cdb.GetBoolPtr(true),
-			expectedPhoneHomeEnabled: cdb.GetBoolPtr(true),
+			expectedName:             cutil.GetPtr("test-os-updated"),
+			expectedDesc:             cutil.GetPtr("Updated Description"),
+			expectedIpxeScript:       cutil.GetPtr("updatedIpxe"),
+			expectedUserData:         cutil.GetPtr(cdmu.TestCommonPhoneHomeCloudInit),
+			expectedIsCloudInit:      cutil.GetPtr(false),
+			expectedAllowOverride:    cutil.GetPtr(true),
+			expectedPhoneHomeEnabled: cutil.GetPtr(true),
 			verifyChildSpanner:       true,
 		},
 		{
@@ -1694,7 +1693,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 
 			expectedName:             updReqDeactivate.Name,
 			expectedDesc:             updReqDeactivate.Description,
-			expectedIsActive:         cdb.GetBoolPtr(false),
+			expectedIsActive:         cutil.GetPtr(false),
 			expectedDeactivationNote: updReqDeactivate.DeactivationNote,
 		},
 		{
@@ -1708,7 +1707,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 
 			expectedName:             updReqDeactivateNoNote.Name,
 			expectedDesc:             updReqDeactivateNoNote.Description,
-			expectedIsActive:         cdb.GetBoolPtr(false),
+			expectedIsActive:         cutil.GetPtr(false),
 			expectedDeactivationNote: updReqDeactivateNoNote.DeactivationNote,
 		},
 		{
@@ -1731,7 +1730,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 
 			expectedName:             updReqChangeNote.Name,
 			expectedDesc:             updReqChangeNote.Description,
-			expectedIsActive:         cdb.GetBoolPtr(false),
+			expectedIsActive:         cutil.GetPtr(false),
 			expectedDeactivationNote: updReqChangeNote.DeactivationNote,
 		},
 		{
@@ -1745,7 +1744,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 
 			expectedName:             updReqActivate.Name,
 			expectedDesc:             updReqActivate.Description,
-			expectedIsActive:         cdb.GetBoolPtr(false),
+			expectedIsActive:         cutil.GetPtr(false),
 			expectedDeactivationNote: nil,
 		},
 		{
@@ -1757,7 +1756,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			osID:             os5.ID.String(),
 			expectedErr:      false,
 			expectedStatus:   http.StatusOK,
-			expectedImageURL: cdb.GetStrPtr("http://newimagepath.iso"),
+			expectedImageURL: cutil.GetPtr("http://newimagepath.iso"),
 		},
 		{
 			name:           "error when updated with required valid imageURL attribute failed with context deadline error",
@@ -1917,11 +1916,11 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
 	os1, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
 		Name:               "test1",
-		Description:        cdb.GetStrPtr("test"),
+		Description:        cutil.GetPtr("test"),
 		Org:                ipOrg1,
 		TenantID:           &tenant1.ID,
 		OsType:             cdbm.OperatingSystemTypeIPXE,
-		IpxeScript:         cdb.GetStrPtr("ipxe"),
+		IpxeScript:         cutil.GetPtr("ipxe"),
 		IsCloudInit:        true,
 		AllowOverride:      false,
 		EnableBlockStorage: false,
@@ -1933,11 +1932,11 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 	assert.NotNil(t, os1)
 	os3, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
 		Name:               "test2",
-		Description:        cdb.GetStrPtr("test"),
+		Description:        cutil.GetPtr("test"),
 		Org:                ipOrg3,
 		TenantID:           &tenant3.ID,
 		OsType:             cdbm.OperatingSystemTypeIPXE,
-		IpxeScript:         cdb.GetStrPtr("ipxe"),
+		IpxeScript:         cutil.GetPtr("ipxe"),
 		IsCloudInit:        true,
 		AllowOverride:      false,
 		EnableBlockStorage: false,
@@ -1953,14 +1952,14 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 
 	// build some machines, and map the machines to the instancetypes
 	for i := 1; i <= 3; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip3.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip3.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it3)
 		assert.NotNil(t, mcinst1)
 	}
 
 	acGoodIT := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it3.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 2}
-	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cdb.GetStrPtr(""), TenantID: tenant3.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
+	okBodyIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), TenantID: tenant3.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT}})
 	assert.Nil(t, err)
 	testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg3, string(okBodyIT))
 	instanceDAO := cdbm.NewInstanceDAO(dbSession)
@@ -1986,11 +1985,11 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-5",
-			Description:        cdb.GetStrPtr("Test Description 5"),
+			Description:        cutil.GetPtr("Test Description 5"),
 			Org:                tnOrg1,
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: true,
@@ -2010,7 +2009,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 		cdbm.OperatingSystemSiteAssociationCreateInput{
 			OperatingSystemID: os5.ID,
 			SiteID:            site.ID,
-			Version:           db.GetStrPtr("test"),
+			Version:           cutil.GetPtr("test"),
 			Status:            cdbm.OperatingSystemSiteAssociationStatusSyncing,
 			CreatedBy:         tnu.ID,
 		},
@@ -2021,11 +2020,11 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 		nil,
 		cdbm.OperatingSystemCreateInput{
 			Name:               "test-operating-system-6",
-			Description:        cdb.GetStrPtr("Test Description 6"),
+			Description:        cutil.GetPtr("Test Description 6"),
 			Org:                tnOrg3,
 			TenantID:           &tenant3.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
-			ImageURL:           cdb.GetStrPtr("https://oldimagepath.iso"),
+			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
 			IsCloudInit:        true,
 			AllowOverride:      false,
 			EnableBlockStorage: true,
@@ -2044,7 +2043,7 @@ func TestOperatingSystemHandler_Delete(t *testing.T) {
 		cdbm.OperatingSystemSiteAssociationCreateInput{
 			OperatingSystemID: os6.ID,
 			SiteID:            site2.ID,
-			Version:           db.GetStrPtr("test"),
+			Version:           cutil.GetPtr("test"),
 			Status:            cdbm.OperatingSystemSiteAssociationStatusSyncing,
 			CreatedBy:         tnu.ID,
 		},

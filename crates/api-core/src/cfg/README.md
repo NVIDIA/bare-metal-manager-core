@@ -27,6 +27,7 @@ applicable.
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
 | `vpc_isolation_behavior` | `VpcIsolationBehaviorType` | `MutualIsolation` | VPC isolation policy: `mutual_isolation` or `open`. |
+| `host_naming_strategy` | `HostNamingStrategyKind` | `IpAddress` | How new machine hostnames are derived: `ip_address` (IP-derived, e.g. `10-1-2-3`; the default and backwards-compatible), `fun` (stable adjective-noun handles like `wholesale-walrus`), `serial_number` (a machine's hardware serial -- the primary interface gets the bare serial, secondary interfaces get `serial-<mac>`, BMC interfaces stay IP-named), or `mac_address` (each interface's own MAC, e.g. `0a-1b-2c-3d-4e-5f`). Only `fun` leaves existing hostnames unchanged; the others re-derive, so switching to one progressively renames interfaces as they reconcile. Junk placeholder serials (e.g. `To Be Filled By O.E.M.`) fall back to the IP name, and `serial_number` errors on duplicate serials rather than assigning a substitute name. |
 | `dpu_network_monitor_pinger_type` | `Option<String>` | — | Pinger implementation type (e.g., `"OobNetBind"`) for DPU link health checks. |
 | `tls` | `Option<TlsConfig>` | — | TLS certificate/key paths (see [TlsConfig](#tlsconfig)). |
 | `listen_mode` | `ListenMode` | `Tls` | Transport mode: `plaintext_http1`, `plaintext_http2`, or `tls`. |
@@ -49,6 +50,7 @@ applicable.
 | `tpm_required` | `bool` | `true` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | Network segment state controller timing. |
+| `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | DPA interface state controller timing. |
 | `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | Rack state controller timing. |
@@ -169,7 +171,7 @@ applicable.
 
 ### `StateControllerConfig`
 
-Shared by all `*StateControllerConfig` structs (machine, network segment, IB
+Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, IB
 partition, DPA interface, rack, power shelf, switch, SPDM).
 
 | Field | Type | Default | Description |
@@ -204,6 +206,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `network_segment_drain_time` | `Duration` | `5m` | Time a network segment must have 0 allocated IPs before release. |
+
+### `VpcPrefixStateControllerConfig`
+
+Extends `StateControllerConfig` with:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `vpc_prefix_drain_time` | `Duration` | `5m` | Time a VPC prefix must have 0 referencing network prefixes before release. |
 
 ### `FirmwareGlobal`
 
@@ -250,6 +260,25 @@ Extends `StateControllerConfig` with:
 | `public_prefixes` | `Vec<Ipv4Network>` | **required** | Publicly routable IPv4 CIDR prefixes used by traffic-intercept users. |
 | `secondary_vtep_aggregate_prefixes` | `Vec<IpNetwork>` | `[]` | IPv4 or IPv6 aggregate prefixes used only for routing and filtering. IP allocation is provided by the secondary VTEP resource pool. |
 | `secondary_overlay_support` | `bool` | `true` | Whether secondary overlay VTEP IPs are expected for DPUs. |
+
+### `TrafficInterceptBridging`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `internal_bridge_routing_prefix` | `Ipv4Network` | **required** | Prefix used for internal routing between HBN and intercept bridges within the DPU. |
+| `hbn_bridge` | `String` | `"br-hbn"` | Bridge that intercept patch ports attach to during BlueField provisioning. |
+| `vf_intercept_bridge_name` | `String` | `"br-dpu"` | Bridge between VM-owned VFs and br-hbn. |
+| `vf_intercept_bridge_port` | `String` | `"patch-br-dpu-to-hbn"` | Patch port on the VF intercept bridge side. |
+| `vf_intercept_bridge_sf` | `String` | **required** | SF used for internal routing of VF traffic. |
+| `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by representor name. Non-skipped entries are sent to BlueField provisioning as `<representor>:<bridge>:<patch_port>`. |
+
+### `HostInterceptBridging`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `bridge` | `String` | **required** | Bridge that sits between the host PF/VF representor and br-hbn or br-sfc. |
+| `patch_port` | `String` | **required** | Patch port on this bridge that connects it toward HBN or SFC. |
+| `skip_create` | `bool` | `false` | When true, the entry is sent to DPU agents but omitted from provisioning-time bridge creation. |
 
 ### `DpuConfig`
 

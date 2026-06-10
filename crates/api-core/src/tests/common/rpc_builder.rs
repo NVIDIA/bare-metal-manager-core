@@ -15,141 +15,21 @@
  * limitations under the License.
  */
 
-use carbide_uuid::compute_allocation::ComputeAllocationId;
+use rpc::forge::InstanceConfigBuilder;
+pub use rpc::forge::{
+    ComputeAllocationAttributes, CreateComputeAllocationRequest, DeleteComputeAllocationRequest,
+    DhcpDiscovery, InstanceAllocationRequest, InstanceConfig, InstanceConfigUpdateRequest,
+    UpdateComputeAllocationRequest, VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest,
+};
 
-use crate::tests::common::api_fixtures::instance::{default_os_config, default_tenant_config};
-
-// Reflection of rpc::forge::DhcpDiscovery. It should contain exactly
-// the same fields as rpc::forge::DhcpDiscovery. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct DhcpDiscovery {
-    pub mac_address: ::prost::alloc::string::String,
-    pub relay_address: ::prost::alloc::string::String,
-    pub vendor_string: ::core::option::Option<::prost::alloc::string::String>,
-    pub link_address: ::core::option::Option<::prost::alloc::string::String>,
-    pub circuit_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub remote_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub desired_address: ::core::option::Option<::prost::alloc::string::String>,
+pub trait InstanceConfigExt {
+    fn default_tenant_and_os() -> InstanceConfigBuilder;
 }
 
-// Reflection of rpc::forge::VpcCreationRequest. It should contain exactly
-// the same fields as rpc::forge::VpcCreationRequest. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct VpcCreationRequest {
-    pub tenant_organization_id: ::prost::alloc::string::String,
-    pub tenant_keyset_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub network_virtualization_type: ::core::option::Option<i32>,
-    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
-    pub metadata: ::core::option::Option<rpc::forge::Metadata>,
-    pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub vni: ::core::option::Option<u32>,
-    pub routing_profile_type: ::core::option::Option<::prost::alloc::string::String>,
-    pub default_nvlink_logical_partition_id:
-        ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
-}
-
-// Reflection of rpc::forge::VpcUpdateRequest. It should contain exactly
-// the same fields as rpc::forge::VpcUpdateRequest. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct VpcUpdateRequest {
-    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
-    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
-    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
-    pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub default_nvlink_logical_partition_id:
-        ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
-}
-
-// Reflection of rpc::forge::VpcCreationRequest. It should contain exactly
-// the same fields as rpc::forge::VpcDeletionRequest. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct VpcDeletionRequest {
-    pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
-}
-
-// Reflection of rpc::forge::InstanceAllocationRequest. It should contain exactly
-// the same fields as rpc::forge::InstanceAllocationRequest. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct InstanceAllocationRequest {
-    pub machine_id: ::core::option::Option<::carbide_uuid::machine::MachineId>,
-    pub config: ::core::option::Option<::rpc::forge::InstanceConfig>,
-    pub instance_id: ::core::option::Option<::carbide_uuid::instance::InstanceId>,
-    pub instance_type_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
-    pub allow_unhealthy_machine: bool,
-}
-
-// Reflection of rpc::forge::InstanceConfigUpdateRequest. It should contain exactly
-// the same fields as rpc::forge::InstanceAllocationRequest. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct InstanceConfigUpdateRequest {
-    pub config: ::core::option::Option<::rpc::forge::InstanceConfig>,
-    pub instance_id: ::core::option::Option<::carbide_uuid::instance::InstanceId>,
-    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
-    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
-}
-
-// Reflection of rpc::forge::InstanceConfig. It should contain exactly
-// the same fields as rpc::forge::InstanceConfig. Otherwise it will
-// produce error on carbide_prost_builder::Builder derivation.
-#[derive(carbide_prost_builder::Builder)]
-pub struct InstanceConfig {
-    pub tenant: ::core::option::Option<::rpc::forge::TenantConfig>,
-    pub os: ::core::option::Option<::rpc::forge::InstanceOperatingSystemConfig>,
-    pub network: ::core::option::Option<rpc::forge::InstanceNetworkConfig>,
-    pub infiniband: ::core::option::Option<::rpc::forge::InstanceInfinibandConfig>,
-    pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
-    pub dpu_extension_services:
-        ::core::option::Option<::rpc::forge::InstanceDpuExtensionServicesConfig>,
-    pub nvlink: ::core::option::Option<::rpc::forge::InstanceNvLinkConfig>,
-    pub spxconfig: ::core::option::Option<::rpc::forge::InstanceSpxConfig>,
-}
-
-impl InstanceConfig {
-    pub fn default_tenant_and_os() -> Self {
-        Self::builder()
-            .tenant(default_tenant_config())
-            .os(default_os_config())
+impl InstanceConfigExt for InstanceConfig {
+    fn default_tenant_and_os() -> InstanceConfigBuilder {
+        InstanceConfig::builder()
+            .tenant(crate::tests::common::api_fixtures::instance::default_tenant_config())
+            .os(crate::tests::common::api_fixtures::instance::default_os_config())
     }
-}
-
-// Reflection of rpc::forge::ComputeAllocationAttributes.
-#[derive(carbide_prost_builder::Builder)]
-pub struct ComputeAllocationAttributes {
-    pub instance_type_id: ::prost::alloc::string::String,
-    pub count: u32,
-}
-
-// Reflection of rpc::forge::CreateComputeAllocationRequest.
-#[derive(carbide_prost_builder::Builder)]
-pub struct CreateComputeAllocationRequest {
-    pub id: ::core::option::Option<ComputeAllocationId>,
-    pub tenant_organization_id: ::prost::alloc::string::String,
-    pub created_by: ::core::option::Option<::prost::alloc::string::String>,
-    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
-    pub attributes: ::core::option::Option<::rpc::forge::ComputeAllocationAttributes>,
-}
-
-// Reflection of rpc::forge::UpdateComputeAllocationRequest.
-#[derive(carbide_prost_builder::Builder)]
-pub struct UpdateComputeAllocationRequest {
-    pub id: ::core::option::Option<ComputeAllocationId>,
-    pub tenant_organization_id: ::prost::alloc::string::String,
-    pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
-    pub attributes: ::core::option::Option<::rpc::forge::ComputeAllocationAttributes>,
-    pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
-    pub updated_by: ::core::option::Option<::prost::alloc::string::String>,
-}
-
-// Reflection of rpc::forge::DeleteComputeAllocationRequest.
-#[derive(carbide_prost_builder::Builder)]
-pub struct DeleteComputeAllocationRequest {
-    pub id: ::core::option::Option<ComputeAllocationId>,
-    pub tenant_organization_id: ::prost::alloc::string::String,
 }

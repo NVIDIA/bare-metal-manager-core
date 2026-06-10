@@ -18,4 +18,14 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Compare configured vs deployed DPF service versions:
+    $ carbide-admin-cli dpf service-version
+
+Same, using the short alias:
+    $ carbide-admin-cli dpf sv
+
+")]
 pub struct Args {}

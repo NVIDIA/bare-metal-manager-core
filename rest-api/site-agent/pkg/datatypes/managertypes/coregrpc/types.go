@@ -4,7 +4,7 @@
 package coregrpctypes
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"go.uber.org/atomic"
 )
 

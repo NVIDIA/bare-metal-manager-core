@@ -20,9 +20,10 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::extract::{self, Path as AxumPath, State as AxumState};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use carbide_api_core::{Api, AuthContext};
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -30,12 +31,14 @@ use health_report::HealthReport;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportApplyMode, InsertMachineHealthReportRequest, InsertPowerShelfHealthReportRequest,
-    InsertRackHealthReportRequest, InsertSwitchHealthReportRequest,
+    HealthReportApplyMode, InsertMachineHealthReportRequest, InsertNvLinkDomainHealthReportRequest,
+    InsertPowerShelfHealthReportRequest, InsertRackHealthReportRequest,
+    InsertSwitchHealthReportRequest, ListNvLinkDomainHealthReportsRequest,
     ListPowerShelfHealthReportsRequest, ListRackHealthReportsRequest,
     ListSwitchHealthReportsRequest, MachinesByIdsRequest, PowerShelvesByIdsRequest,
-    RacksByIdsRequest, RemoveMachineHealthReportRequest, RemovePowerShelfHealthReportRequest,
-    RemoveRackHealthReportRequest, RemoveSwitchHealthReportRequest, SwitchesByIdsRequest,
+    RacksByIdsRequest, RemoveMachineHealthReportRequest, RemoveNvLinkDomainHealthReportRequest,
+    RemovePowerShelfHealthReportRequest, RemoveRackHealthReportRequest,
+    RemoveSwitchHealthReportRequest, SwitchesByIdsRequest,
 };
 
 use super::{Base, filters};
@@ -88,6 +91,7 @@ struct LabeledHealthReport {
 #[derive(Clone)]
 enum HealthObject {
     Machine(MachineId),
+    NvLinkDomain(NvLinkDomainId),
     PowerShelf(PowerShelfId),
     Rack(RackId),
     Switch(SwitchId),
@@ -97,6 +101,7 @@ impl HealthObject {
     fn id(&self) -> String {
         match self {
             HealthObject::Machine(id) => id.to_string(),
+            HealthObject::NvLinkDomain(id) => id.to_string(),
             HealthObject::PowerShelf(id) => id.to_string(),
             HealthObject::Rack(id) => id.to_string(),
             HealthObject::Switch(id) => id.to_string(),
@@ -106,6 +111,7 @@ impl HealthObject {
     fn kind(&self) -> &'static str {
         match self {
             HealthObject::Machine(_) => "machine",
+            HealthObject::NvLinkDomain(_) => "nvlink-domain",
             HealthObject::PowerShelf(_) => "power-shelf",
             HealthObject::Rack(_) => "rack",
             HealthObject::Switch(_) => "switch",
@@ -115,6 +121,7 @@ impl HealthObject {
     fn label(&self) -> String {
         match self {
             HealthObject::Machine(id) => id.machine_type().to_string(),
+            HealthObject::NvLinkDomain(_) => "NVLink Domain".to_string(),
             HealthObject::PowerShelf(_) => "Power Shelf".to_string(),
             HealthObject::Rack(_) => "Rack".to_string(),
             HealthObject::Switch(_) => "Switch".to_string(),
@@ -125,9 +132,15 @@ impl HealthObject {
         format!("/admin/{}/{}", self.kind(), self.id())
     }
 
+    /// Returns the admin health page URL for this object.
+    fn health_url(&self) -> String {
+        format!("{}/health", self.detail_url())
+    }
+
     fn history_url(&self) -> Option<String> {
         match self {
             HealthObject::Machine(id) => Some(format!("/admin/machine/{id}/health-history")),
+            HealthObject::NvLinkDomain(_) => None,
             HealthObject::PowerShelf(_) => None,
             HealthObject::Rack(_) => None,
             HealthObject::Switch(_) => None,
@@ -141,6 +154,11 @@ impl HealthObject {
                 if id.machine_type().is_host() || id.machine_type().is_predicted_host()
         )
     }
+}
+
+/// Builds the admin health URL for an NVLink domain.
+pub(super) fn nvlink_domain_health_url(domain_id: &NvLinkDomainId) -> String {
+    HealthObject::NvLinkDomain(*domain_id).health_url()
 }
 
 struct HealthPageData {
@@ -221,6 +239,34 @@ pub async fn switch_health(
     };
 
     render_health(HealthObject::Switch(switch_id), data)
+}
+
+/// View NVLink domain health.
+pub async fn nvlink_domain_health(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(domain_id): AxumPath<String>,
+) -> Response {
+    let Ok(domain_id) = NvLinkDomainId::from_str(&domain_id) else {
+        return (StatusCode::BAD_REQUEST, "invalid NVLink domain id").into_response();
+    };
+
+    let data = match fetch_nvlink_domain_health_page_data(&state, &domain_id).await {
+        Ok(data) => data,
+        Err(response) => return response,
+    };
+
+    render_health(HealthObject::NvLinkDomain(domain_id), data)
+}
+
+/// Redirect NVLink domain details to the health page.
+pub async fn nvlink_domain_detail(AxumPath(domain_id): AxumPath<String>) -> Response {
+    let Ok(domain_id) = NvLinkDomainId::from_str(&domain_id) else {
+        return (StatusCode::BAD_REQUEST, "invalid NVLink domain id").into_response();
+    };
+
+    let health_url = nvlink_domain_health_url(&domain_id);
+
+    Redirect::to(&health_url).into_response()
 }
 
 fn render_health(object: HealthObject, data: HealthPageData) -> Response {
@@ -364,6 +410,30 @@ async fn fetch_switch_health_page_data(
     })
 }
 
+async fn fetch_nvlink_domain_health_page_data(
+    api: &Api,
+    domain_id: &NvLinkDomainId,
+) -> Result<HealthPageData, Response> {
+    let entries = match list_nvlink_domain_health_report_entries(api, domain_id).await {
+        Ok(entries) => entries,
+        Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
+        Err(err) => {
+            tracing::error!(%err, %domain_id, "list_nvlink_domain_health_reports");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    };
+    let aggregate_health = aggregate_health_report_entries(&entries);
+
+    Ok(HealthPageData {
+        entries,
+        aggregate_health,
+        health_contributors: Vec::new(),
+        history: HealthHistoryTable {
+            records: Vec::new(),
+        },
+    })
+}
+
 async fn fetch_dpu_health_contributors(
     api: &Api,
     host_machine_id: &MachineId,
@@ -447,6 +517,21 @@ async fn list_switch_health_report_entries(
         .list_switch_health_reports(tonic::Request::new(ListSwitchHealthReportsRequest {
             switch_id: Some(*switch_id),
         }))
+        .await?
+        .into_inner()
+        .health_report_entries)
+}
+
+async fn list_nvlink_domain_health_report_entries(
+    api: &Api,
+    domain_id: &NvLinkDomainId,
+) -> Result<Vec<::rpc::forge::HealthReportEntry>, tonic::Status> {
+    Ok(api
+        .list_nv_link_domain_health_reports(tonic::Request::new(
+            ListNvLinkDomainHealthReportsRequest {
+                domain_id: Some(*domain_id),
+            },
+        ))
         .await?
         .into_inner()
         .health_report_entries)
@@ -728,6 +813,27 @@ pub async fn add_switch_health_report(
     .await
 }
 
+/// Insert an NVLink domain health report from the admin web UI.
+pub async fn add_nvlink_domain_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(domain_id): AxumPath<String>,
+    auth_context: Option<axum::Extension<AuthContext>>,
+    extract::Json(payload): extract::Json<HealthReportEntry>,
+) -> Response {
+    let domain_id = match domain_id.parse::<NvLinkDomainId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    add_health_report_for(
+        state,
+        HealthObject::NvLinkDomain(domain_id),
+        auth_context,
+        payload,
+    )
+    .await
+}
+
 async fn add_health_report_for(
     state: Arc<Api>,
     object: HealthObject,
@@ -752,6 +858,19 @@ async fn add_health_report_for(
             }
             state
                 .insert_machine_health_report(request)
+                .await
+                .map(|response| response.into_inner())
+        }
+        HealthObject::NvLinkDomain(domain_id) => {
+            let mut request = tonic::Request::new(InsertNvLinkDomainHealthReportRequest {
+                domain_id: Some(domain_id),
+                health_report_entry: Some(entry),
+            });
+            if let Some(axum::Extension(auth_context)) = auth_context {
+                request.extensions_mut().insert(auth_context);
+            }
+            state
+                .insert_nv_link_domain_health_report(request)
                 .await
                 .map(|response| response.into_inner())
         }
@@ -860,6 +979,20 @@ pub async fn remove_switch_health_report(
     remove_health_report_for(state, HealthObject::Switch(switch_id), payload).await
 }
 
+/// Remove an NVLink domain health report from the admin web UI.
+pub async fn remove_nvlink_domain_health_report(
+    AxumState(state): AxumState<Arc<Api>>,
+    AxumPath(domain_id): AxumPath<String>,
+    extract::Json(payload): extract::Json<RemoveHealthReport>,
+) -> Response {
+    let domain_id = match domain_id.parse::<NvLinkDomainId>() {
+        Ok(id) => id,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    remove_health_report_for(state, HealthObject::NvLinkDomain(domain_id), payload).await
+}
+
 async fn remove_health_report_for(
     state: Arc<Api>,
     object: HealthObject,
@@ -873,6 +1006,15 @@ async fn remove_health_report_for(
                 machine_id: Some(machine_id),
                 source: payload.source,
             }))
+            .await
+            .map(|response| response.into_inner()),
+        HealthObject::NvLinkDomain(domain_id) => state
+            .remove_nv_link_domain_health_report(tonic::Request::new(
+                RemoveNvLinkDomainHealthReportRequest {
+                    domain_id: Some(domain_id),
+                    source: payload.source,
+                },
+            ))
             .await
             .map(|response| response.into_inner()),
         HealthObject::PowerShelf(power_shelf_id) => state
@@ -917,6 +1059,30 @@ fn health_report_from_rpc_convert_invalid(
 ) -> health_report::HealthReport {
     health_report::HealthReport::try_from(report)
         .unwrap_or_else(health_report::HealthReport::malformed_report)
+}
+
+fn aggregate_health_report_entries(
+    entries: &[::rpc::forge::HealthReportEntry],
+) -> Option<HealthReport> {
+    let mut aggregate = HealthReport::empty("aggregate-nvlink-domain-health".to_string());
+    let mut has_merge = false;
+    let mut replace = None;
+
+    for entry in entries {
+        let Some(report) = entry.report.as_ref() else {
+            continue;
+        };
+        let report = health_report_from_rpc_convert_invalid(report.clone());
+
+        if entry.mode() == HealthReportApplyMode::Replace {
+            replace = Some(report);
+        } else {
+            aggregate.merge(&report);
+            has_merge = true;
+        }
+    }
+
+    replace.or_else(|| has_merge.then_some(aggregate))
 }
 
 pub(super) async fn fetch_health_history(

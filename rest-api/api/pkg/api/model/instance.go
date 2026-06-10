@@ -10,17 +10,16 @@ import (
 	"slices"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 	"gopkg.in/yaml.v3"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -49,7 +48,7 @@ var (
 	instanceDeprecations = []DeprecatedEntity{
 		{
 			OldValue:     "sshkeygroups",
-			NewValue:     cdb.GetStrPtr("sshKeyGroups"),
+			NewValue:     cutil.GetPtr("sshKeyGroups"),
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: sshKeyGroupsLegacyDeprecatedTime,
 		},
@@ -589,12 +588,12 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 		}
 
 		if mergedPhoneHomeEnabled == nil {
-			mergedPhoneHomeEnabled = cdb.GetBoolPtr(false)
+			mergedPhoneHomeEnabled = cutil.GetPtr(false)
 			icr.PhoneHomeEnabled = mergedPhoneHomeEnabled
 		}
 
 		if mergedAlwaysBootWithCustomIpxe == nil {
-			mergedAlwaysBootWithCustomIpxe = cdb.GetBoolPtr(false)
+			mergedAlwaysBootWithCustomIpxe = cutil.GetPtr(false)
 			icr.AlwaysBootWithCustomIpxe = mergedAlwaysBootWithCustomIpxe
 		}
 
@@ -654,7 +653,7 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 			// default to false.
 			// This means that a user MUST send in an
 			// instance-level override (via the API request) if desired.
-			mergedAlwaysBootWithCustomIpxe = cdb.GetBoolPtr(false)
+			mergedAlwaysBootWithCustomIpxe = cutil.GetPtr(false)
 
 			// Set it so that the DB gets updated.
 			icr.AlwaysBootWithCustomIpxe = mergedAlwaysBootWithCustomIpxe
@@ -735,7 +734,7 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cdb.GetStrPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -752,13 +751,13 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
 					}
 				}
-				icr.UserData = cdb.GetStrPtr(string(byteUserData))
+				icr.UserData = cutil.GetPtr(string(byteUserData))
 			} else if isUserDataValidYAML && !*mergedPhoneHomeEnabled {
 				// This would be a case of valid YAML where the user
 				// disabled phone-home.
 				// If the only user-data _was_ the phone-home data but phone-home
 				// is being disabled, then we'll blank out the field in the DB.
-				icr.UserData = cdb.GetStrPtr("")
+				icr.UserData = cutil.GetPtr("")
 			}
 			// There's an implied case here of invalid YAML
 			// In that case, we do nothing, and icr.UserData will stay untouched.
@@ -767,7 +766,7 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 			// we need to set the default phone-home settings string.
 			// (Nothing to do if user-data is nil or empty and phone-home is being disabled.)
 			if *mergedPhoneHomeEnabled {
-				icr.UserData = db.GetStrPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
+				icr.UserData = cutil.GetPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
 			}
 		}
 	}
@@ -943,12 +942,12 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 		}
 
 		if mergedPhoneHomeEnabled == nil {
-			mergedPhoneHomeEnabled = cdb.GetBoolPtr(false)
+			mergedPhoneHomeEnabled = cutil.GetPtr(false)
 			bicr.PhoneHomeEnabled = mergedPhoneHomeEnabled
 		}
 
 		if mergedAlwaysBootWithCustomIpxe == nil {
-			mergedAlwaysBootWithCustomIpxe = cdb.GetBoolPtr(false)
+			mergedAlwaysBootWithCustomIpxe = cutil.GetPtr(false)
 			bicr.AlwaysBootWithCustomIpxe = mergedAlwaysBootWithCustomIpxe
 		}
 
@@ -981,7 +980,7 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 		}
 
 		if mergedAlwaysBootWithCustomIpxe == nil {
-			mergedAlwaysBootWithCustomIpxe = cdb.GetBoolPtr(false)
+			mergedAlwaysBootWithCustomIpxe = cutil.GetPtr(false)
 			bicr.AlwaysBootWithCustomIpxe = mergedAlwaysBootWithCustomIpxe
 		}
 
@@ -1055,7 +1054,7 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 				}
 
 			} else if isUserDataValidYAML {
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cdb.GetStrPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1071,15 +1070,15 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
 					}
 				}
-				bicr.UserData = cdb.GetStrPtr(string(byteUserData))
+				bicr.UserData = cutil.GetPtr(string(byteUserData))
 			} else if isUserDataValidYAML && !*mergedPhoneHomeEnabled {
-				bicr.UserData = cdb.GetStrPtr("")
+				bicr.UserData = cutil.GetPtr("")
 			}
 		} else {
 			// If user-data is nil or empty, but phone-home is being enabled,
 			// we need to set the default phone-home settings string.
 			if *mergedPhoneHomeEnabled {
-				bicr.UserData = db.GetStrPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
+				bicr.UserData = cutil.GetPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
 			}
 		}
 	}
@@ -1166,12 +1165,12 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 		// settings must all be explicitly passed in..
 		if iur.OperatingSystemID != nil && *iur.OperatingSystemID == "" {
 			if mergedUserData == nil {
-				mergedUserData = cdb.GetStrPtr("")
+				mergedUserData = cutil.GetPtr("")
 				iur.UserData = mergedUserData
 			}
 
 			if mergedPhoneHomeEnabled == nil {
-				mergedPhoneHomeEnabled = cdb.GetBoolPtr(false)
+				mergedPhoneHomeEnabled = cutil.GetPtr(false)
 				iur.PhoneHomeEnabled = mergedPhoneHomeEnabled
 			}
 		} else {
@@ -1347,7 +1346,7 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cdb.GetStrPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1363,13 +1362,13 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
 					}
 				}
-				iur.UserData = cdb.GetStrPtr(string(byteUserData))
+				iur.UserData = cutil.GetPtr(string(byteUserData))
 			} else if isUserDataValidYAML && !*mergedPhoneHomeEnabled {
 				// This would be a case of valid YAML where the user
 				// disabled phone-home.
 				// If the only user-data _was_ the phone-home data but phone-home
 				// is being disabled, then we'll blank out the field in the DB.
-				iur.UserData = cdb.GetStrPtr("")
+				iur.UserData = cutil.GetPtr("")
 			}
 			// There's an implied case here of invalid YAML
 			// In that case, we do nothing, and iur.UserData will stay untouche
@@ -1378,7 +1377,7 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 			// we need to set the default phone-home settings string.
 			// (Nothing to do if user-data is nil or empty and phone-home is being disabled.)
 			if *mergedPhoneHomeEnabled {
-				iur.UserData = db.GetStrPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
+				iur.UserData = cutil.GetPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg.GetSitePhoneHomeUrl()))
 			}
 		}
 	}
@@ -1583,7 +1582,7 @@ type APIInstanceDeleteRequest struct {
 }
 
 // Validate ensures the values passed in request are acceptable
-func (idr APIInstanceDeleteRequest) Validate() error {
+func (idr *APIInstanceDeleteRequest) Validate() error {
 	if idr.MachineHealthIssue != nil {
 		err := validation.ValidateStruct(idr.MachineHealthIssue,
 			validation.Field(&idr.MachineHealthIssue.Category,
@@ -1604,6 +1603,36 @@ func (idr APIInstanceDeleteRequest) Validate() error {
 	}
 
 	return nil
+}
+
+// ToProto builds the workflow request that asks a Site to release
+// (delete) the given Instance for this API request. `instance` is the
+// loaded DB record; its `ToReleaseRequestProto()` is the source of the
+// canonical wire ID. Optional request-side fields (`MachineHealthIssue`,
+// `IsRepairTenant`) are overlaid on top.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see. In particular, the `IsRepairTenant` capability gate
+// (TargetedInstanceCreation on the Tenant config) is an authorization
+// check that stays in the handler before this method runs.
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.InstanceReleaseRequest {
+	req := instance.ToReleaseRequestProto()
+	if idr.MachineHealthIssue != nil {
+		req.Issue = &cwssaws.Issue{
+			Category: cwssaws.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
+		}
+		if idr.MachineHealthIssue.Summary != nil {
+			req.Issue.Summary = *idr.MachineHealthIssue.Summary
+		}
+		if idr.MachineHealthIssue.Details != nil {
+			req.Issue.Details = *idr.MachineHealthIssue.Details
+		}
+	}
+	if idr.IsRepairTenant != nil {
+		req.IsRepairTenant = idr.IsRepairTenant
+	}
+	return req
 }
 
 // SSHKeyGroupsSummaryDeprecated ensures we keep returning empty array until deprecation time even with omitempty
@@ -1722,7 +1751,7 @@ type APIInstance struct {
 func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Interface, dbibis []cdbm.InfiniBandInterface, dbdesds []cdbm.DpuExtensionServiceDeployment, dbnvlis []cdbm.NVLinkInterface, dbskgs []cdbm.SSHKeyGroup, dbsds []cdbm.StatusDetail) *APIInstance {
 	var instanceTypeID *string
 	if dbinst.InstanceTypeID != nil {
-		instanceTypeID = cdb.GetStrPtr(dbinst.InstanceTypeID.String())
+		instanceTypeID = cutil.GetPtr(dbinst.InstanceTypeID.String())
 	}
 	apiInstance := APIInstance{
 		ID:                                     dbinst.ID.String(),
@@ -1748,7 +1777,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 	}
 
 	if dbinst.OperatingSystemID != nil {
-		apiInstance.OperatingSystemID = cdb.GetStrPtr(dbinst.OperatingSystemID.String())
+		apiInstance.OperatingSystemID = cutil.GetPtr(dbinst.OperatingSystemID.String())
 	}
 
 	if dbinst.ControllerInstanceID != nil {
@@ -1793,7 +1822,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 
 	if dbinst.ControllerInstanceID != nil && dbSite != nil && dbSite.SerialConsoleHostname != nil {
 		serialConsoleURL := fmt.Sprintf("ssh://%s@%s", dbinst.ControllerInstanceID.String(), *dbSite.SerialConsoleHostname)
-		apiInstance.SerialConsoleURL = cdb.GetStrPtr(serialConsoleURL)
+		apiInstance.SerialConsoleURL = cutil.GetPtr(serialConsoleURL)
 	}
 
 	if dbinst.TpmEkCertificate != nil {

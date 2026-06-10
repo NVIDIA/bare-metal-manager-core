@@ -31,6 +31,8 @@ pub struct DpaMonitorMetrics {
     pub num_instances_scanned: usize,
     pub num_dpa_interfaces_scanned: usize,
     pub num_heartbeats_sent: usize,
+    pub num_creates: usize,
+    pub num_deletes: usize,
 }
 
 impl DpaMonitorMetrics {
@@ -41,6 +43,8 @@ impl DpaMonitorMetrics {
             num_instances_scanned: 0,
             num_dpa_interfaces_scanned: 0,
             num_heartbeats_sent: 0,
+            num_creates: 0,
+            num_deletes: 0,
         }
     }
 }
@@ -89,6 +93,8 @@ pub struct DpaMonitorInstruments {
     pub operations_latency: Histogram<f64>,
     pub dpa_config_apply_latency: Histogram<f64>,
     pub heartbeats_sent: Counter<u64>,
+    pub creates: Counter<u64>,
+    pub deletes: Counter<u64>,
 }
 
 impl DpaMonitorInstruments {
@@ -112,6 +118,14 @@ impl DpaMonitorInstruments {
             .u64_counter("carbide_dpa_monitor_heartbeats_sent")
             .with_description("The number of heartbeats sent to DPA interfaces")
             .build();
+        let creates = meter
+            .u64_counter("carbide_dpa_monitor_creates")
+            .with_description("The number of DPA interfaces created")
+            .build();
+        let deletes = meter
+            .u64_counter("carbide_dpa_monitor_deletes")
+            .with_description("The number of DPA interfaces deleted")
+            .build();
 
         meter
             .u64_observable_gauge("carbide_dpa_monitor_interfaces_scanned_count")
@@ -128,11 +142,15 @@ impl DpaMonitorInstruments {
             dpa_config_apply_latency,
             operations_latency,
             heartbeats_sent,
+            creates,
+            deletes,
         }
     }
 
     fn init_counters_and_histograms(&self) {
         self.heartbeats_sent.add(0, &[]);
+        self.creates.add(0, &[]);
+        self.deletes.add(0, &[]);
     }
 
     fn emit_counters_and_histograms(&self, metrics: &DpaMonitorMetrics) {
@@ -142,5 +160,7 @@ impl DpaMonitorInstruments {
         );
         self.heartbeats_sent
             .add(metrics.num_heartbeats_sent as u64, &[]);
+        self.creates.add(metrics.num_creates as u64, &[]);
+        self.deletes.add(metrics.num_deletes as u64, &[]);
     }
 }

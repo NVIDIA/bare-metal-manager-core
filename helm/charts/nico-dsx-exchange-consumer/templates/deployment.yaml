@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-dsx-exchange-consumer
+  name: {{ include "nico-dsx-exchange-consumer.name" . }}
   namespace: {{ include "nico-dsx-exchange-consumer.namespace" . }}
   labels:
     {{- include "nico-dsx-exchange-consumer.labels" . | nindent 4 }}
@@ -17,13 +17,13 @@ spec:
       labels:
         {{- include "nico-dsx-exchange-consumer.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: nico-dsx-exchange-consumer
+      serviceAccountName: {{ include "nico-dsx-exchange-consumer.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nico-dsx-exchange-consumer
+        - name: {{ include "nico-dsx-exchange-consumer.name" . }}
           image: "{{ include "nico-dsx-exchange-consumer.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           securityContext:
@@ -57,4 +57,4 @@ spec:
       volumes:
         - name: spiffe
           secret:
-            secretName: nico-dsx-exchange-consumer-certificate
+            secretName: {{ include "nico-dsx-exchange-consumer.name" . }}-certificate

@@ -38,13 +38,13 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 
 # 2. Set environment variables
 export KUBECONFIG=/path/to/kubeconfig
-export REGISTRY_PULL_SECRET=<your-registry-pull-secret-or-ngc-api-key>
-export NCX_IMAGE_REGISTRY=<your-registry>        # e.g. my-registry.example.com/infra-controller
-export NCX_CORE_IMAGE_TAG=<nico-core-tag>     # e.g. v2025.12.30
-export NCX_REST_IMAGE_TAG=<nico-rest-tag>     # e.g. v1.0.4
+export NICO_IMAGE_REGISTRY=<your-registry>           # e.g. my-registry.example.com/infra-controller
+export NICO_CORE_IMAGE_TAG=<nico-core-tag>           # e.g. 2.0.0-pr-58-g38a54a3f
+export NICO_REST_IMAGE_TAG=<nico-rest-tag>           # e.g. 2.0.0-pr-58-g38a54a3f
+# export REGISTRY_PULL_SECRET=<raw API key>          # optional; raw key for authenticated registries
 
 # 3. Customize site-specific values
-#    Edit helm-prereqs/values/ncx-core.yaml:
+#    Edit helm-prereqs/values/nico-core.yaml:
 #      nico-api.hostname      — your site's external API hostname
 #      nico-api.siteConfig    — network pools, VLAN ranges, IB config, MetalLB VIPs
 #    Edit helm-prereqs/values/metallb-config.yaml:
@@ -52,13 +52,13 @@ export NCX_REST_IMAGE_TAG=<nico-rest-tag>     # e.g. v1.0.4
 #    Edit helm-prereqs/values.yaml:
 #      siteName                  — short site identifier
 
-# 4. Point NCX_REPO at infra-controller-rest (auto-detected if a sibling directory)
-export NCX_REPO=/path/to/infra-controller-rest   # optional
+# 4. Point NICO_REST_REPO at infra-controller-rest (auto-detected if a sibling directory)
+export NICO_REST_REPO=/path/to/infra-controller-rest   # optional
 
 # 5. Run setup — installs common services, NICo Core, and NICo REST in order
 cd helm-prereqs
-./setup.sh        # interactive
-./setup.sh -y     # non-interactive (CI/CD)
+./setup.sh        # interactive — prompts before deploying Core and REST
+./setup.sh -y     # non-interactive — deploys everything (CI/CD)
 ```
 
 To tear everything down:

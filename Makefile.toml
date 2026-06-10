@@ -28,6 +28,10 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
+# Temporary: increase Rust test thread stack to avoid stack overflows in tests.
+# TODO: remove after stack-heavy tests/code paths are refactored.
+RUST_MIN_STACK = { value = "8388608", condition = { env_not_set = ["RUST_MIN_STACK"] } }
+
 BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = [
   "BUILD_CONTAINER_X86_URL",
 ] } }
@@ -93,6 +97,33 @@ description = "Generate carbide-admin-cli man pages into target/man"
 workspace = false
 script = '''
 cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+'''
+
+[tasks.gen-cli-docs]
+category = "Build"
+description = "Generate the carbide-admin-cli markdown reference into docs/cli"
+workspace = false
+# `generate-cli-docs` renders each command's man page and converts it to
+# markdown with pandoc, so the `pandoc` binary must be installed. It writes one
+# directory per top-level command under docs/cli/commands plus the four domain
+# index files (Hardware/Network/Tenant/Admin). The hand-authored pages
+# (README.md, setup.md, workflows.md, rest-cli-parity.md) are left alone.
+script = '''
+cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
+'''
+
+[tasks.check-cli-docs]
+category = "Test"
+description = "Fail if docs/cli is stale or a command is missing a domain"
+workspace = false
+# Keeps the checked-in CLI reference honest as commands are added. First the
+# domain-mapping test fails CI if a new command is not categorized in
+# cli_domains.yaml; then we regenerate and fail if the result differs from
+# what is committed (regenerate locally with `cargo make gen-cli-docs`).
+script = '''
+cargo test -p carbide-admin-cli cfg::cli_options::tests
+cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
+git diff --exit-code -- docs/cli
 '''
 
 [tasks.build-cli]
@@ -542,14 +573,14 @@ dependencies = [
 workspace = false
 description = "Tasks that run on workspace level (not crate level) in pre-commit-verify"
 category = "CI"
-# clippy-flow, check-format-flow are default targets provided by cargo-make.
+# clippy-flow is a default target provided by cargo-make.
 # NOTE: If you add something here, and you also want it to be checked by CI, make sure to add it to the lint-police job in .github/workflows/ci.yaml too.
 dependencies = [
   "clippy-flow",
   "carbide-lints",
-  "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
+  "check-isolated-package-builds",
   "check-licenses",
   "check-bans",
 ]
@@ -611,6 +642,32 @@ args = [
   "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
 ]
 
+[tasks.check-aarch64-release-container-services-page-size]
+workspace = false
+script = '''
+set -e
+
+for artifact in \
+  carbide-api \
+  carbide \
+  carbide-dns \
+  carbide-admin-cli \
+  carbide-dsx-exchange-consumer \
+  forge-dpu-agent \
+  forge-dhcp-server \
+  forge-hw-health \
+  forge-log-parser \
+  ssh-console \
+  carbide-bmc-proxy \
+  libdhcp.so; do
+  for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/${artifact}" \
+    "${REPO_ROOT}/target/release/${artifact}"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+  done
+done
+'''
+
 [tasks.build-and-test-release-container-services]
 workspace = false
 # Important: We only build perform a single build task here since every additional
@@ -622,6 +679,7 @@ workspace = false
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
   "test-flow",     # Then run all tests
+  "check-aarch64-release-container-services-page-size",
 ]
 
 [tasks.clippy-ci-flow]
@@ -720,6 +778,11 @@ description = "Check Cargo.toml files for dependency versions declared in crates
 script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
 ]
+
+[tasks.check-isolated-package-builds]
+workspace = false
+description = "Check that workspace packages build independently with default features"
+script = ["cargo xtask check-isolated-package-builds"]
 
 [tasks.check-licenses]
 workspace = false

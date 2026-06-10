@@ -139,30 +139,31 @@ pub async fn persist(
     health.hash_without_timestamps(&mut hasher);
     let health_hash = format!("{:#x}", hasher.finish());
 
-    let sql_table = table_id.sql_table();
-    let query = format!("WITH new_history_record as(
+    let query = match table_id {
+        HealthHistoryTableId::Machine => "WITH new_history_record as(
             SELECT $1 as object_id,
             $2::jsonb as health,
             $3 as health_hash,
             $4 as time
         ),
         last_history_record as(
-            SELECT health_hash FROM {sql_table}
+            SELECT health_hash FROM machine_health_history
             WHERE object_id = $1
             ORDER BY id DESC
             LIMIT 1
         )
-        INSERT INTO {sql_table} (object_id, health, health_hash, time)
+        INSERT INTO machine_health_history (object_id, health, health_hash, time)
         SELECT * FROM new_history_record
-        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);");
-    let _query_result = sqlx::query(&query)
+        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);",
+    };
+    let _query_result = sqlx::query(query)
         .bind(object_id.to_string())
         .bind(sqlx::types::Json(health))
         .bind(health_hash)
         .bind(chrono::Utc::now())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
 }
 
@@ -173,14 +174,17 @@ pub async fn update_object_ids(
     old_object_id: &impl std::fmt::Display,
     new_object_id: &impl std::fmt::Display,
 ) -> Result<(), DatabaseError> {
-    let sql_table = table_id.sql_table();
-    let query = format!("UPDATE {sql_table} SET object_id=$1 WHERE object_id=$2");
-    sqlx::query(&query)
+    let query = match table_id {
+        HealthHistoryTableId::Machine => {
+            "UPDATE machine_health_history SET object_id=$1 WHERE object_id=$2"
+        }
+    };
+    sqlx::query(query)
         .bind(new_object_id.to_string())
         .bind(old_object_id.to_string())
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
 }

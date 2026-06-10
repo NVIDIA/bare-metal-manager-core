@@ -10,7 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 
-	cloudutils "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cloudutils "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"

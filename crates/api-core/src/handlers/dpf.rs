@@ -49,6 +49,14 @@ pub(crate) async fn modify_dpf_state(
             id: machine_id.to_string(),
         })?;
 
+    if !request.dpf_enabled && machine_snapshot.host_snapshot.dpf.used_for_ingestion {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Cannot disable DPF for host {}: machine was ingested via DPF.",
+            machine_id
+        ))
+        .into());
+    }
+
     db::machine::modify_dpf_state(&mut txn, &machine_id, request.dpf_enabled).await?;
 
     // Keep DPUs also in sync.

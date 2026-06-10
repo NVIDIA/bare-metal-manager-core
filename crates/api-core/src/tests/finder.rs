@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-use common::api_fixtures::managed_host::ManagedHostConfig;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_managed_host_with_config,
     create_test_env, dpu,
 };
+use model::test_support::ManagedHostConfig;
 use rpc::forge::IpType;
 use rpc::forge::forge_server::Forge;
 
+use crate::test_support::fixture_config::FixtureDefault as _;
 use crate::tests::common;
 
 /// Test searching for an IP address. Tests all the cases in a single

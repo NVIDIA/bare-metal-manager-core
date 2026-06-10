@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,17 +60,17 @@ func TestVpcSQLDAO_GetByID(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn, st, "testNetworkSecurityGroup")
 
-	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), nil, db.GetStrPtr(VpcStatusReady), tnu.ID, &networkSecurityGroup.ID)
+	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusReady), tnu.ID, &networkSecurityGroup.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -154,11 +155,11 @@ func TestVpcSQLDAO_GetCountByStatus(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe1@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe2@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe1@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe2@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu1.ID)
 	assert.NotNil(t, tn1)
@@ -169,11 +170,11 @@ func TestVpcSQLDAO_GetCountByStatus(t *testing.T) {
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 	assert.NotNil(t, st)
 
-	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), nil, db.GetStrPtr(VpcStatusReady), tnu1.ID, nil)
+	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusReady), tnu1.ID, nil)
 	assert.NotNil(t, vpc)
-	vpc2 := testBuildVpc(t, dbSession, nil, "test-vpc-1", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), nil, db.GetStrPtr(VpcStatusDeleting), tnu1.ID, nil)
+	vpc2 := testBuildVpc(t, dbSession, nil, "test-vpc-1", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusDeleting), tnu1.ID, nil)
 	assert.NotNil(t, vpc2)
-	vpc3 := testBuildVpc(t, dbSession, nil, "test-vpc-1", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), nil, db.GetStrPtr(VpcStatusReady), tnu1.ID, nil)
+	vpc3 := testBuildVpc(t, dbSession, nil, "test-vpc-1", nil, tn1.Org, ip.ID, tn1.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusReady), tnu1.ID, nil)
 	assert.NotNil(t, vpc3)
 
 	// OTEL Spanner configuration
@@ -213,7 +214,7 @@ func TestVpcSQLDAO_GetCountByStatus(t *testing.T) {
 				VpcStatusReady:        2,
 				"total":               3,
 			},
-			reqTenant:          db.GetUUIDPtr(tn1.ID),
+			reqTenant:          cutil.GetPtr(tn1.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -226,7 +227,7 @@ func TestVpcSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: true,
-			reqTenant: db.GetUUIDPtr(tn2.ID),
+			reqTenant: cutil.GetPtr(tn2.ID),
 		},
 		{
 			name: "get vpc status count with no filter vpc returns success",
@@ -267,7 +268,7 @@ func TestVpcSQLDAO_GetCountByStatus(t *testing.T) {
 				VpcStatusReady:        2,
 				"total":               3,
 			},
-			reqInfrastructureProviderID: db.GetUUIDPtr(ip.ID),
+			reqInfrastructureProviderID: cutil.GetPtr(ip.ID),
 		},
 	}
 	for _, tt := range tests {
@@ -332,21 +333,21 @@ func TestVpc_GetAll(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("janed@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("janed@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant-1", "test-tenant-org-1", tnu1.ID)
 
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jimd@test.com"), db.GetStrPtr("Jim"), db.GetStrPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jimd@test.com"), cutil.GetPtr("Jim"), cutil.GetPtr("Doe"))
 	tn2 := testBuildTenant(t, dbSession, nil, "test-tenant-2", "test-tenant-org-2", tnu2.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn1, st, "testNetworkSecurityGroup")
 
-	nvlinkLogicalPartition := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
+	nvlinkLogicalPartition := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
 
 	totalCount := 30
 
@@ -366,9 +367,9 @@ func TestVpc_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			vpc = testBuildVpc(t, dbSession, nil, fmt.Sprintf("test-vpc-batch-v1-%v", i), db.GetStrPtr(fmt.Sprintf("test-vpc-desc-batch-1-%v", i)), tn.Org, ip.ID, tn.ID, st.ID, db.GetUUIDPtr(nvlinkLogicalPartition.ID), db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), map[string]string{fmt.Sprintf("test-vpc-batch-key1-%v", i): fmt.Sprintf("test-vpc-batch-value1-%v", i)}, db.GetStrPtr(VpcStatusReady), tn.CreatedBy, &networkSecurityGroup.ID)
+			vpc = testBuildVpc(t, dbSession, nil, fmt.Sprintf("test-vpc-batch-v1-%v", i), cutil.GetPtr(fmt.Sprintf("test-vpc-desc-batch-1-%v", i)), tn.Org, ip.ID, tn.ID, st.ID, cutil.GetPtr(nvlinkLogicalPartition.ID), cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), map[string]string{fmt.Sprintf("test-vpc-batch-key1-%v", i): fmt.Sprintf("test-vpc-batch-value1-%v", i)}, cutil.GetPtr(VpcStatusReady), tn.CreatedBy, &networkSecurityGroup.ID)
 		} else {
-			vpc = testBuildVpc(t, dbSession, nil, fmt.Sprintf("test-vpc-batch-v2-%v", i), db.GetStrPtr(fmt.Sprintf("test-vpc-desc-batch-2-%v", i)), tn.Org, ip.ID, tn.ID, st.ID, nil, db.GetStrPtr(VpcFNN), db.GetUUIDPtr(uuid.New()), map[string]string{fmt.Sprintf("test-vpc-batch-key2-%v", i): fmt.Sprintf("test-vpc-batch-value2-%v", i)}, db.GetStrPtr(VpcStatusDeleting), tn.CreatedBy, &networkSecurityGroup.ID)
+			vpc = testBuildVpc(t, dbSession, nil, fmt.Sprintf("test-vpc-batch-v2-%v", i), cutil.GetPtr(fmt.Sprintf("test-vpc-desc-batch-2-%v", i)), tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcFNN), cutil.GetPtr(uuid.New()), map[string]string{fmt.Sprintf("test-vpc-batch-key2-%v", i): fmt.Sprintf("test-vpc-batch-value2-%v", i)}, cutil.GetPtr(VpcStatusDeleting), tn.CreatedBy, &networkSecurityGroup.ID)
 		}
 
 		vpcs = append(vpcs, *vpc)
@@ -453,7 +454,7 @@ func TestVpc_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:      context.Background(),
-				name:     db.GetStrPtr("test-vpc-batch-v1-8"),
+				name:     cutil.GetPtr("test-vpc-batch-v1-8"),
 				tenantID: &tn1.ID,
 				siteID:   nil,
 				org:      nil,
@@ -530,7 +531,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:                  nil,
 				siteID:                    nil,
 				org:                       nil,
-				networkVirtualizationType: db.GetStrPtr(VpcFNN),
+				networkVirtualizationType: cutil.GetPtr(VpcFNN),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -546,7 +547,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID: nil,
 				siteID:   &st.ID,
 				org:      nil,
-				limit:    db.GetIntPtr(10),
+				limit:    cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount,
@@ -562,7 +563,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID: &tn1.ID,
 				siteID:   nil,
 				org:      nil,
-				offset:   db.GetIntPtr(5),
+				offset:   cutil.GetPtr(5),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount / 2,
@@ -627,7 +628,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-v1-"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-v1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -643,7 +644,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-desc-batch-1-"),
+				searchQuery: cutil.GetPtr("test-vpc-desc-batch-1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -659,7 +660,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-key1-"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-key1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -675,7 +676,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-value1-"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-value1-"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -691,7 +692,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-key1-6"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-key1-6"),
 			},
 			wantCount:      1,
 			wantTotalCount: 1,
@@ -707,7 +708,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-value2-7"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-value2-7"),
 			},
 			wantCount:      1,
 			wantTotalCount: 1,
@@ -723,7 +724,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-value2-7 test-vpc-batch-key1-6"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-value2-7 test-vpc-batch-key1-6"),
 			},
 			wantCount:      2,
 			wantTotalCount: 2,
@@ -739,7 +740,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-desc-batch-key12-"),
+				searchQuery: cutil.GetPtr("test-vpc-desc-batch-key12-"),
 			},
 			wantCount:      0,
 			wantTotalCount: 0,
@@ -755,7 +756,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr(VpcStatusReady),
+				searchQuery: cutil.GetPtr(VpcStatusReady),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -771,7 +772,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr(VpcStatusDeleting),
+				searchQuery: cutil.GetPtr(VpcStatusDeleting),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -787,7 +788,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-batch-v1- | ready"),
+				searchQuery: cutil.GetPtr("test-vpc-batch-v1- | ready"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -803,7 +804,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-desc-batch-1- error"),
+				searchQuery: cutil.GetPtr("test-vpc-desc-batch-1- error"),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -819,7 +820,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr(VpcFNN),
+				searchQuery: cutil.GetPtr(VpcFNN),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -835,7 +836,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr("test-vpc-desc-batch-3- error"),
+				searchQuery: cutil.GetPtr("test-vpc-desc-batch-3- error"),
 			},
 			wantCount:      0,
 			wantTotalCount: 0,
@@ -851,7 +852,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID:    nil,
 				siteID:      nil,
 				org:         nil,
-				searchQuery: db.GetStrPtr(""),
+				searchQuery: cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -868,7 +869,7 @@ func TestVpc_GetAll(t *testing.T) {
 				siteID:                   nil,
 				infrastructureProviderID: &ip.ID,
 				org:                      nil,
-				searchQuery:              db.GetStrPtr(""),
+				searchQuery:              cutil.GetPtr(""),
 			},
 			wantCount:      20,
 			wantTotalCount: 30,
@@ -884,7 +885,7 @@ func TestVpc_GetAll(t *testing.T) {
 				tenantID: nil,
 				siteID:   nil,
 				org:      nil,
-				status:   db.GetStrPtr(VpcStatusDeleting),
+				status:   cutil.GetPtr(VpcStatusDeleting),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -987,10 +988,10 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -999,16 +1000,16 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 
 	vpc := &Vpc{
 		Name:                      "test-vpc",
-		Description:               db.GetStrPtr("Test VPC"),
+		Description:               cutil.GetPtr("Test VPC"),
 		Org:                       tn.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
-		NetworkVirtualizationType: db.GetStrPtr(VpcEthernetVirtualizer),
-		RoutingProfile:            db.GetStrPtr("INTERNAL"),
-		ControllerVpcID:           db.GetUUIDPtr(uuid.New()),
+		NetworkVirtualizationType: cutil.GetPtr(VpcEthernetVirtualizer),
+		RoutingProfile:            cutil.GetPtr("INTERNAL"),
+		ControllerVpcID:           cutil.GetPtr(uuid.New()),
 		ActiveVni:                 nil,
-		Vni:                       db.GetIntPtr(555),
+		Vni:                       cutil.GetPtr(555),
 		NetworkSecurityGroupID:    &networkSecurityGroup.ID,
 		NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
 			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
@@ -1061,7 +1062,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 				labels:                                 vpc.Labels,
 				status:                                 vpc.Status,
 				createdBy:                              User{ID: vpc.CreatedBy},
-				id:                                     db.GetUUIDPtr(vpc.ID),
+				id:                                     cutil.GetPtr(vpc.ID),
 			},
 			want:               vpc,
 			wantErr:            false,
@@ -1135,10 +1136,10 @@ func TestVpcSQLDAO_UpdateFromParams(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -1146,17 +1147,17 @@ func TestVpcSQLDAO_UpdateFromParams(t *testing.T) {
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn, st, "testNetworkSecurityGroup")
 	networkSecurityGroup2 := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn, st, "testNetworkSecurityGroup2")
 
-	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, nil, tnu.ID, &networkSecurityGroup.ID)
+	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, nil, tnu.ID, &networkSecurityGroup.ID)
 
 	uvpc := &Vpc{
 		Name:                      "test-updated",
-		Description:               db.GetStrPtr("Test Updated"),
-		NetworkVirtualizationType: db.GetStrPtr(VpcEthernetVirtualizerWithNVUE),
-		RoutingProfile:            db.GetStrPtr("EXTERNAL"),
+		Description:               cutil.GetPtr("Test Updated"),
+		NetworkVirtualizationType: cutil.GetPtr(VpcEthernetVirtualizerWithNVUE),
+		RoutingProfile:            cutil.GetPtr("EXTERNAL"),
 		NetworkSecurityGroupID:    &networkSecurityGroup2.ID,
-		ControllerVpcID:           db.GetUUIDPtr(uuid.New()),
-		ActiveVni:                 db.GetIntPtr(777),
-		Vni:                       db.GetIntPtr(888),
+		ControllerVpcID:           cutil.GetPtr(uuid.New()),
+		ActiveVni:                 cutil.GetPtr(777),
+		Vni:                       cutil.GetPtr(888),
 		Status:                    VpcStatusReady,
 		IsMissingOnSite:           true,
 		Labels: map[string]string{
@@ -1304,17 +1305,17 @@ func TestVpcSQLDAO_DeleteByID(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn, st, "testNetworkSecurityGroup")
 
-	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, nil, tnu.ID, &networkSecurityGroup.ID)
+	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", nil, tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, nil, tnu.ID, &networkSecurityGroup.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -1371,17 +1372,17 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 	testVpcSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "test-provider-org", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tn, st, "testNetworkSecurityGroup")
 
-	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", db.GetStrPtr("Test Description"), tn.Org, ip.ID, tn.ID, st.ID, nil, db.GetStrPtr(VpcEthernetVirtualizer), db.GetUUIDPtr(uuid.New()), nil, db.GetStrPtr(VpcStatusReady), tnu.ID, &networkSecurityGroup.ID)
+	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", cutil.GetPtr("Test Description"), tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusReady), tnu.ID, &networkSecurityGroup.ID)
 	vpc.NetworkSecurityGroupPropagationDetails = &NetworkSecurityGroupPropagationDetails{
 		NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{},
 	}
@@ -1492,15 +1493,6 @@ func TestVpc_GetSiteID(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, ctrlID, *got)
 	})
-}
-
-func TestVpc_ToDeletionRequestProto(t *testing.T) {
-	id := uuid.New()
-	v := &Vpc{ID: id}
-	req := v.ToDeletionRequestProto()
-	require.NotNil(t, req)
-	require.NotNil(t, req.Id)
-	assert.Equal(t, id.String(), req.Id.Value)
 }
 
 func TestVpc_ToProto(t *testing.T) {
@@ -1622,7 +1614,7 @@ func TestVpc_FromProto(t *testing.T) {
 				Name:        "vpc-a",
 				Description: "primary",
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		})

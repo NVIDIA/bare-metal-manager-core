@@ -43,6 +43,7 @@ pub mod extension_service;
 pub mod health_history;
 pub mod health_report;
 pub mod host_machine_update;
+pub mod host_naming;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;
@@ -67,6 +68,7 @@ pub mod network_security_group;
 pub mod network_segment;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
+pub mod nvlink_domain_health_report;
 pub mod nvlink_nmxc_endpoints;
 pub mod operating_system;
 pub mod os_image;
@@ -149,20 +151,20 @@ pub enum ObjectColumnFilter<'a, C: ColumnInfo<'a>> {
 }
 
 /// Newtype wrapper around sqlx::QueryBuilder that allows passing an ObjectColumnFilter to build the WHERE clause
-pub struct FilterableQueryBuilder<'q>(sqlx::QueryBuilder<'q, Postgres>);
+pub struct FilterableQueryBuilder(sqlx::QueryBuilder<Postgres>);
 
-impl<'q> FilterableQueryBuilder<'q> {
+impl FilterableQueryBuilder {
     pub fn new(init: impl Into<String>) -> Self {
         FilterableQueryBuilder(sqlx::QueryBuilder::new(init))
     }
 
     /// Push a WHERE clause to this query builder that matches the given filter, optionally using
     /// the given relation to qualify the column names
-    pub fn filter_relation<'a, C: ColumnInfo<'q>>(
+    pub fn filter_relation<'a, C: ColumnInfo<'a>>(
         mut self,
-        filter: &ObjectColumnFilter<'q, C>,
+        filter: &ObjectColumnFilter<'a, C>,
         relation: Option<&str>,
-    ) -> sqlx::QueryBuilder<'q, Postgres> {
+    ) -> sqlx::QueryBuilder<Postgres> {
         match filter {
             ObjectColumnFilter::All => self.0.push(" WHERE true".to_string()),
             ObjectColumnFilter::List(column, list) => {
@@ -195,10 +197,10 @@ impl<'q> FilterableQueryBuilder<'q> {
     }
 
     /// Push a WHERE clause to this query builder that matches the given filter.
-    pub fn filter<'a, C: ColumnInfo<'q>>(
+    pub fn filter<'a, C: ColumnInfo<'a>>(
         self,
-        filter: &ObjectColumnFilter<'q, C>,
-    ) -> sqlx::QueryBuilder<'q, Postgres> {
+        filter: &ObjectColumnFilter<'a, C>,
+    ) -> sqlx::QueryBuilder<Postgres> {
         self.filter_relation(filter, None)
     }
 }
@@ -299,12 +301,12 @@ pub struct AnnotatedSqlxError {
 
 impl AnnotatedSqlxError {
     #[track_caller]
-    pub fn new(op_name: &str, source: sqlx::Error) -> Self {
+    pub fn new(op_name: impl AsRef<str>, source: sqlx::Error) -> Self {
         let loc = Location::caller();
         AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: op_name.to_string(),
+            query: op_name.as_ref().to_string(),
             source,
         }
     }
@@ -422,12 +424,12 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 impl DatabaseError {
     #[track_caller]
-    pub fn new(op_name: &str, source: sqlx::Error) -> DatabaseError {
+    pub fn new(op_name: impl AsRef<str>, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: op_name.to_string(),
+            query: op_name.as_ref().to_string(),
             source,
         })
     }
@@ -471,12 +473,12 @@ impl DatabaseError {
     }
 
     #[track_caller]
-    pub fn query(query: &str, source: sqlx::Error) -> DatabaseError {
+    pub fn query(query: impl AsRef<str>, source: sqlx::Error) -> DatabaseError {
         let loc = Location::caller();
         DatabaseError::Sqlx(AnnotatedSqlxError {
             file: loc.file(),
             line: loc.line(),
-            query: query.to_string(),
+            query: query.as_ref().to_string(),
             source,
         })
     }

@@ -15,16 +15,16 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 )
 
 // ~~~~~ Update Handler ~~~~~ //
@@ -244,13 +244,13 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 					ctx,
 					tx,
 					allocationIDs,
-					cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType),
+					cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType),
 					[]uuid.UUID{dbit.ID},
-					cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved),
+					cutil.GetPtr(cdbm.AllocationConstraintTypeReserved),
 					nil,
 					nil,
 					nil,
-					cdb.GetIntPtr(paginator.TotalLimit),
+					cutil.GetPtr(paginator.TotalLimit),
 					nil,
 				)
 				if derr != nil {
@@ -414,8 +414,8 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 					tx,
 					cdbm.IPBlockUpdateInput{
 						IPBlockID:    existingChildIPBlock.ID,
-						Prefix:       cdb.GetStrPtr(newPrefix),
-						PrefixLength: cdb.GetIntPtr(newBlockSize),
+						Prefix:       cutil.GetPtr(newPrefix),
+						PrefixLength: cutil.GetPtr(newBlockSize),
 					},
 				)
 				if derr != nil {
@@ -424,7 +424,7 @@ func (uach UpdateAllocationConstraintHandler) Handle(c echo.Context) error {
 				}
 			}
 
-			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cdb.GetIntPtr(apiRequest.ConstraintValue), nil)
+			newac, derr := acDAO.UpdateFromParams(ctx, tx, ac.ID, nil, nil, nil, nil, cutil.GetPtr(apiRequest.ConstraintValue), nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Allocation Constraint in DB")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Allocation Constraint with new constraint value, DB error", nil)

@@ -12,16 +12,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ManageInstanceType is an activity wrapper for managing InstanceType lifecycle that allows
@@ -64,7 +63,7 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 	instanceTypeDAO := cdbm.NewInstanceTypeDAO(mv.dbSession)
 	macCapDAO := cdbm.NewMachineCapabilityDAO(mv.dbSession)
 
-	existingInstanceTypes, _, err := instanceTypeDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{site.ID}}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	existingInstanceTypes, _, err := instanceTypeDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: []uuid.UUID{site.ID}}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get InstanceTypes for Site from DB")
 		return err
@@ -155,7 +154,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 	// that the properties (metadata and capabilities) match and update cloud if not.
 
 	// Build some maps we'll need before we start a new transaction.
-	cloudCaps, _, err := macCapDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceType.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	cloudCaps, _, err := macCapDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceType.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return fmt.Errorf("failed to get capabilitites for InstanceType in DB: %w", err)
 	}
@@ -188,7 +187,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 	}
 
 	if instanceType.Description == nil || *instanceType.Description != controllerInstanceType.GetMetadata().GetDescription() {
-		instanceType.Description = cdb.GetStrPtr(controllerInstanceType.GetMetadata().GetDescription())
+		instanceType.Description = cwutil.GetPtr(controllerInstanceType.GetMetadata().GetDescription())
 	}
 
 	if instanceType.Name != controllerInstanceType.GetMetadata().GetName() {
@@ -224,7 +223,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 
 		cloudCap := cloudCapMap[macCapName]
 
-		if cloudCap == nil || !util.MachineCapabilitiesEqual(cloudCap, controllerCap) {
+		if cloudCap == nil || !cloudCap.Equal(controllerCap) {
 
 			if cloudCap != nil {
 				// If cloud and site knew about it but they have mismatched properties,
@@ -308,7 +307,7 @@ func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *c
 	instanceType, err := instanceTypeDAO.Create(ctx, tx, cdbm.InstanceTypeCreateInput{
 		ID:                       &id,
 		Name:                     controllerInstanceType.GetMetadata().GetName(),
-		Description:              cdb.GetStrPtr(controllerInstanceType.GetMetadata().GetDescription()),
+		Description:              cwutil.GetPtr(controllerInstanceType.GetMetadata().GetDescription()),
 		InfrastructureProviderID: site.InfrastructureProviderID,
 		SiteID:                   &site.ID,
 		Status:                   cdbm.InstanceTypeStatusReady,

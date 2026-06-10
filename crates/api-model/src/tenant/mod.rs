@@ -216,7 +216,7 @@ impl sqlx::Type<sqlx::Postgres> for TenantOrganizationId {
 impl sqlx::Encode<'_, sqlx::Postgres> for TenantOrganizationId {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.0, buf)
     }
@@ -248,7 +248,6 @@ pub struct TenantIdentityConfig {
     pub signing_key_public_2: Option<Json<identity_config::SigningKeyPublicV1>>,
     pub current_signing_key_slot: identity_config::TenantIdentityCurrentSigningKeySlot,
     pub non_active_slot_expires_at: Option<DateTime<Utc>>,
-    pub encryption_key_id: EncryptionKeyId,
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,

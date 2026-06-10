@@ -15,6 +15,8 @@ explaining the system to a network team.
 - [IP Resource Pools](../networking/ip_resource_pools.md) — IP pool configuration
 - [Networking Requirements](../networking_requirements.md) — underlay and EVPN prerequisites
 - [DPU Configuration](../../dpu-management/dpu_configuration.md) — declarative DPU config flow
+- [Flat VPCs and Zero-DPU Hosts](flat_vpcs_zero_dpu.md) — the operator-managed
+  alternative for hosts without a NICo-managed DPU (no DPU overlay)
 
 ---
 
@@ -127,6 +129,58 @@ The handler proceeds as follows:
 The DPU applies the received configuration to HBN via NVUE and reports back to NICo. NICo marks
 the instance as ready only after the DPU confirms the configuration has been applied. See
 [DPU Configuration](../../dpu-management/dpu_configuration.md) for the full lifecycle.
+
+---
+
+## Default Isolation: The Admin Overlay
+
+NICo guarantees that a managed host never carries tenant traffic unless an explicit tenant
+configuration places it into a VPC. A "default VPC" in the cloud-provider sense — a system-created
+VPC that every tenant inherits — does not exist. Tenants get the VPCs an operator (or the tenant
+API) creates for them; absent any such VPC, an instance has no place to send tenant traffic.
+
+The guarantee is upheld by an **admin overlay** that is separate from every tenant VPC, and by a
+fail-closed default when no configuration is available at all.
+
+### The admin VPC and admin segments
+
+During site initialisation NICo creates an admin VPC together with a set of admin network
+segments. These are not tenant-visible and exist only to give the DPU somewhere safe to attach a
+host before, between, and after tenant allocations. The admin VPC follows the same VPC / VRF
+mechanics as any tenant VPC — it has its own VRF on each DPU, its own VNI, and its own routing
+profile — but it is reserved for NICo's own use.
+
+### `use_admin_network`
+
+When the API server assembles `ManagedHostNetworkConfig` for a DPU, it sets
+`use_admin_network = true` whenever any of the following hold:
+
+- The host has no instance allocated.
+- The instance has no interfaces configured for this DPU.
+- The host is in a transient lifecycle state (provisioning, repair, termination) in which tenant
+  traffic must not flow.
+
+With `use_admin_network = true` the DPU agent places every host interface into the admin VRF
+instead of any tenant VPC's VRF. From the wire's perspective, the host is on the admin overlay
+and cannot exchange traffic with any tenant instance.
+
+### Isolated mode (fail-closed)
+
+A DPU that cannot retrieve its configuration at all — for example, because the host is unknown to
+NICo and `GetManagedHostNetworkConfig` returns `NOT_FOUND` — places itself into **isolated
+mode**: every host interface is detached from any overlay until NICo issues an explicit
+configuration. This is the fail-closed default. Nothing in the data path silently falls back to a
+tenant network.
+
+### Termination guard
+
+The instance state machine blocks the termination flow until the DPU confirms that all tenant
+interfaces have been moved off tenant VPCs and onto the admin overlay (or that the machine has
+been tagged with a health alert preventing reuse). This is what guarantees that a tenant whose
+instance has been released cannot remain on the wire as a "ghost instance" pending disk wipe.
+
+For the per-fabric isolation story across Ethernet, InfiniBand, and NVLink, see
+[Network Isolation](../network_isolation.md).
 
 ---
 

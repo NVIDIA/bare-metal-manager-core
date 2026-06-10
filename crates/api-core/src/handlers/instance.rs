@@ -1022,10 +1022,11 @@ pub(crate) async fn invoke_power(
     // TODO: The API call should maybe not directly trigger the reboot
     // but instead queue it for the state handler. That will avoid racing
     // with other internal reboot requests from the state handler.
+    let bmc_ip = bmc_ip.to_string();
     let client = api
         .redfish_pool
         .create_client(
-            bmc_ip,
+            &bmc_ip,
             snapshot.host_snapshot.bmc_info.port,
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },

@@ -16,13 +16,14 @@ import (
 
 	"github.com/uptrace/bun/extra/bundebug"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/roles"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/roles"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 )
 
 // TestInitDB init DB
@@ -176,9 +177,9 @@ func TestBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, org
 	u, err := uDAO.Create(context.Background(), nil, cdbm.UserCreateInput{
 		AuxiliaryID: nil,
 		StarfleetID: &starfleetID,
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData:     OrgData,
 	})
 	assert.Nil(t, err)
@@ -192,7 +193,7 @@ func TestBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session, name 
 		ID:             uuid.New(),
 		Name:           name,
 		Org:            org,
-		OrgDisplayName: cdb.GetStrPtr(org),
+		OrgDisplayName: cutil.GetPtr(org),
 		CreatedBy:      user.ID,
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -205,13 +206,13 @@ func TestBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastructure
 	st := &cdbm.Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 cdb.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           true,
 		InventoryReceived:           inventoryReceived,
 		Status:                      status,
@@ -228,7 +229,7 @@ func TestBuildTenant(t *testing.T, dbSession *cdb.Session, org string, orgDispla
 		ID:             uuid.New(),
 		Name:           orgDisplayName,
 		Org:            org,
-		OrgDisplayName: cdb.GetStrPtr(orgDisplayName),
+		OrgDisplayName: cutil.GetPtr(orgDisplayName),
 		Config:         config,
 		CreatedBy:      user.ID,
 	}
@@ -272,11 +273,11 @@ func TestBuildSubnet(t *testing.T, dbSession *cdb.Session, tenant *cdbm.Tenant, 
 }
 
 // TestBuildInfiniBandPartition builds and returns an InfiniBandPartition
-func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartitionID *uuid.UUID, status string, isMissingOnSite bool) *cdbm.InfiniBandPartition {
+func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartitionID *uuid.UUID, status cdbm.InfiniBandPartitionStatus, isMissingOnSite bool) *cdbm.InfiniBandPartition {
 	ibp := &cdbm.InfiniBandPartition{
 		ID:                      uuid.New(),
 		Name:                    name,
-		Description:             cdb.GetStrPtr("Test InfiniBand Partition"),
+		Description:             cutil.GetPtr("Test InfiniBand Partition"),
 		Org:                     tenant.Org,
 		SiteID:                  site.ID,
 		TenantID:                tenant.ID,
@@ -291,7 +292,7 @@ func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name str
 }
 
 // TestBuildNVLinkLogicalPartition builds and returns an NVLinkLogicalPartition
-func TestBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, site *cdbm.Site, tenant *cdbm.Tenant, status string, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
+func TestBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, site *cdbm.Site, tenant *cdbm.Tenant, status cdbm.NVLinkLogicalPartitionStatus, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
 	nvllp := &cdbm.NVLinkLogicalPartition{
 		ID:              uuid.New(),
 		Name:            name,
@@ -371,13 +372,13 @@ func TestBuildImageOperatingSystem(t *testing.T, dbSession *cdb.Session, ipID *u
 		ControllerOperatingSystemID: nil,
 		Version:                     version,
 		Type:                        cdbm.OperatingSystemTypeImage,
-		ImageURL:                    cdb.GetStrPtr("http://testos.net"),
-		ImageSHA:                    cdb.GetStrPtr("123213ddddsa1231asd"),
-		ImageAuthType:               cdb.GetStrPtr("bear"),
-		ImageAuthToken:              cdb.GetStrPtr("1211331asdadad21123"),
-		ImageDisk:                   cdb.GetStrPtr("disk"),
-		RootFsID:                    cdb.GetStrPtr("rootfsID"),
-		RootFsLabel:                 cdb.GetStrPtr("rootFsLabel"),
+		ImageURL:                    cutil.GetPtr("http://testos.net"),
+		ImageSHA:                    cutil.GetPtr("123213ddddsa1231asd"),
+		ImageAuthType:               cutil.GetPtr("bear"),
+		ImageAuthToken:              cutil.GetPtr("1211331asdadad21123"),
+		ImageDisk:                   cutil.GetPtr("disk"),
+		RootFsID:                    cutil.GetPtr("rootfsID"),
+		RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 		Status:                      status,
 		CreatedBy:                   uuid.New(),
 	}
@@ -524,9 +525,9 @@ func TestBuildMachineInterface(t *testing.T, dbSession *cdb.Session, machineID s
 			ControllerInterfaceID: controllerInterfaceID,
 			ControllerSegmentID:   controllerSegmentID,
 			SubnetID:              subnetID,
-			Hostname:              cdb.GetStrPtr("hostname"),
+			Hostname:              cutil.GetPtr("hostname"),
 			IsPrimary:             true,
-			MacAddress:            cdb.GetStrPtr("0:0:0:0:0:0"),
+			MacAddress:            cutil.GetPtr("0:0:0:0:0:0"),
 			IpAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 		},
 	)
@@ -550,12 +551,12 @@ func TestBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip *cdbm.In
 
 	input := cdbm.VpcCreateInput{
 		Name:                      name,
-		Description:               cdb.GetStrPtr("Test Vpc"),
+		Description:               cutil.GetPtr("Test Vpc"),
 		Org:                       st.Org,
 		InfrastructureProviderID:  ip.ID,
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
-		NetworkVirtualizationType: cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer),
+		NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
 		ControllerVpcID:           cnvID,
 		Labels:                    lb,
 		Status:                    status,

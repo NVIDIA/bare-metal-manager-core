@@ -16,19 +16,19 @@ import (
 	tclient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -131,7 +131,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 			SiteIDs:   []uuid.UUID{site.ID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -158,7 +158,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 			Names:     []string{apiRequest.Name},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -207,7 +207,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 
 		// Create a status detail record for the DPU Extension Service
 		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusPending,
-			cdb.GetStrPtr("Received DPU Extension Service creation request, pending processing"))
+			cutil.GetPtr("Received DPU Extension Service creation request, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for DPU Extension Service", nil)
@@ -218,33 +218,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			statusDetails = append(statusDetails, *statusDetail)
 		}
 
-		createDpuExtensionServiceRequest := &cwssaws.CreateDpuExtensionServiceRequest{
-			ServiceId:            cdb.GetStrPtr(dpuExtensionService.ID.String()),
-			ServiceName:          apiRequest.Name,
-			Description:          apiRequest.Description,
-			TenantOrganizationId: org,
-			Data:                 apiRequest.Data,
-		}
-
-		if apiRequest.ServiceType == model.DpuExtensionServiceTypeKubernetesPod {
-			createDpuExtensionServiceRequest.ServiceType = cwssaws.DpuExtensionServiceType_KUBERNETES_POD
-		}
-
-		if apiRequest.Credentials != nil {
-			createDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-				RegistryUrl: apiRequest.Credentials.RegistryURL,
-				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-					UsernamePassword: &cwssaws.UsernamePassword{
-						Username: *apiRequest.Credentials.Username,
-						Password: *apiRequest.Credentials.Password,
-					},
-				},
-			}
-		}
-
-		if apiRequest.Observability != nil {
-			createDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-		}
+		createDpuExtensionServiceRequest := apiRequest.ToProto(dpuExtensionService.ID.String(), org)
 
 		logger.Info().Msg("triggering DPU Extension Service create workflow on Site")
 
@@ -335,7 +309,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			// Don't fail the request, the service will get updated on next inventory sync
 		} else {
 			statusDetail, serr := sdDAO.CreateFromParams(ctx, nil, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusReady,
-				cdb.GetStrPtr("DPU Extension Service is ready for deployment"))
+				cutil.GetPtr("DPU Extension Service is ready for deployment"))
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			} else {
@@ -443,7 +417,7 @@ func (gadesh GetAllDpuExtensionServiceHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				SiteIDs:   []uuid.UUID{site.ID},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+			paginator.PageInput{Limit: cutil.GetPtr(1)},
 			nil,
 		)
 		if err != nil {
@@ -788,7 +762,7 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 				Names:     []string{*apiRequest.Name},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+			paginator.PageInput{Limit: cutil.GetPtr(1)},
 			nil,
 		)
 		if err != nil {
@@ -833,31 +807,7 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		updatedDpuExtensionService = udes
 
 		// Trigger workflow to update DPU Extension Service
-		updateDpuExtensionServiceRequest := &cwssaws.UpdateDpuExtensionServiceRequest{
-			ServiceId:   updatedDpuExtensionService.ID.String(),
-			ServiceName: apiRequest.Name,
-			Description: apiRequest.Description,
-		}
-
-		if apiRequest.Data != nil {
-			updateDpuExtensionServiceRequest.Data = *apiRequest.Data
-		}
-
-		if apiRequest.Credentials != nil {
-			updateDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-				RegistryUrl: apiRequest.Credentials.RegistryURL,
-				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-					UsernamePassword: &cwssaws.UsernamePassword{
-						Username: *apiRequest.Credentials.Username,
-						Password: *apiRequest.Credentials.Password,
-					},
-				},
-			}
-		}
-
-		if apiRequest.Observability != nil {
-			updateDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-		}
+		updateDpuExtensionServiceRequest := apiRequest.ToProto(updatedDpuExtensionService.ID.String())
 
 		logger.Info().Msg("triggering DPU Extension Service update workflow on Site")
 
@@ -1061,7 +1011,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		cdbm.DpuExtensionServiceDeploymentFilterInput{
 			DpuExtensionServiceIDs: []uuid.UUID{dpuExtensionService.ID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -1086,7 +1036,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dpuExtensionService.ID,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusDeleting),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusDeleting),
 			},
 		)
 		if derr != nil {
@@ -1102,9 +1052,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		}
 
 		// Trigger workflow to delete DPU Extension Service
-		deleteDpuExtensionServiceRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-			ServiceId: dpuExtensionService.ID.String(),
-		}
+		deleteDpuExtensionServiceRequest := dpuExtensionService.ToDeletionRequestProto()
 
 		// Get the temporal client for the site we are working with
 		stc, derr := ddesh.scp.GetClientByID(dpuExtensionService.SiteID)
@@ -1463,7 +1411,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 			DpuExtensionServiceIDs: []uuid.UUID{dpuExtensionService.ID},
 			Versions:               []string{versionID},
 		},
-		paginator.PageInput{Limit: cdb.GetIntPtr(1)},
+		paginator.PageInput{Limit: cutil.GetPtr(1)},
 		nil,
 	)
 	if err != nil {
@@ -1531,7 +1479,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 			_, derr := desDAO.Update(ctx, tx, cdbm.DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dpuExtensionService.ID,
 				ActiveVersions:        remainingVersions,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusReady),
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version")
@@ -1560,10 +1508,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 		}
 
 		// Trigger workflow to delete DPU Extension Service version
-		deleteDpuExtensionServiceVersionRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-			ServiceId: dpuExtensionService.ID.String(),
-			Versions:  []string{versionID},
-		}
+		deleteDpuExtensionServiceVersionRequest := dpuExtensionService.ToVersionDeletionRequestProto(versionID)
 
 		// Get the temporal client for the site we are working with
 		siteClient, derr := ddesvh.scp.GetClientByID(dpuExtensionService.SiteID)
@@ -1695,7 +1640,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 				Version:               &remainingVersions[0],
 				VersionInfo:           versionInfo,
 				ActiveVersions:        remainingVersions,
-				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
+				Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusReady),
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version (best-effort; ignoring)")

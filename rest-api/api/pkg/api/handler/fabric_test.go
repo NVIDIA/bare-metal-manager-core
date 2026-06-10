@@ -12,10 +12,11 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -23,11 +24,11 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	tmocks "go.temporal.io/sdk/mocks"
 )
 
@@ -53,7 +54,7 @@ func testFabricBuildInfrastructureProvider(t *testing.T, dbSession *cdb.Session,
 
 func testFabricBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, name string, config *cdbm.SiteConfig, status *string) *cdbm.Site {
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.SiteStatusRegistered)
+		status = cutil.GetPtr(cdbm.SiteStatusRegistered)
 	}
 
 	st := &cdbm.Site{
@@ -61,12 +62,12 @@ func testFabricBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastr
 		Name:                        name,
 		Org:                         ip.Org,
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:           cdb.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: cdb.GetTimePtr(cdb.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(cdb.GetCurTime()),
 		IsInfinityEnabled:           false,
-		SerialConsoleHostname:       cdb.GetStrPtr("TestSshHostname"),
+		SerialConsoleHostname:       cutil.GetPtr("TestSshHostname"),
 		Status:                      *status,
 		Config:                      config,
 		CreatedBy:                   uuid.New(),
@@ -95,9 +96,9 @@ func testFabricBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID strin
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("jdoe@test.com"),
-			FirstName:   cdb.GetStrPtr("John"),
-			LastName:    cdb.GetStrPtr("Doe"),
+			Email:       cutil.GetPtr("jdoe@test.com"),
+			FirstName:   cutil.GetPtr("John"),
+			LastName:    cutil.GetPtr("Doe"),
 			OrgData:     OrgData,
 		},
 	)
@@ -128,10 +129,10 @@ func testFabricBuildTenant(t *testing.T, dbSession *cdb.Session, org, name strin
 
 func testFabricBuildFabric(t *testing.T, dbSession *cdb.Session, org string, id *string, ip *cdbm.InfrastructureProvider, site *cdbm.Site, status *string, isMissingOnSite bool) *cdbm.Fabric {
 	if id == nil {
-		id = cdb.GetStrPtr("IFabric1")
+		id = cutil.GetPtr("IFabric1")
 	}
 	if status == nil {
-		status = cdb.GetStrPtr(cdbm.FabricStatusReady)
+		status = cutil.GetPtr(cdbm.FabricStatusReady)
 	}
 	fb := &cdbm.Fabric{
 		ID:                       *id,
@@ -181,10 +182,10 @@ func TestFabricHandler_Get(t *testing.T) {
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg1, tn1.ID, site1.ID, tnu1.ID)
 	assert.NotNil(t, ts1)
 
-	fb1 := testFabricBuildFabric(t, dbSession, ip1.Org, cdb.GetStrPtr("IFabric1"), ip1, site1, nil, false)
+	fb1 := testFabricBuildFabric(t, dbSession, ip1.Org, cutil.GetPtr("IFabric1"), ip1, site1, nil, false)
 	assert.NotNil(t, fb1)
 
-	fb2 := testFabricBuildFabric(t, dbSession, ip2.Org, cdb.GetStrPtr("IFabric2"), ip2, site2, nil, false)
+	fb2 := testFabricBuildFabric(t, dbSession, ip2.Org, cutil.GetPtr("IFabric2"), ip2, site2, nil, false)
 	assert.NotNil(t, fb2)
 
 	testFabricBuildStatusDetail(t, dbSession, fb1.ID, cdbm.FabricStatusReady)
@@ -265,10 +266,10 @@ func TestFabricHandler_Get(t *testing.T) {
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        fb1.ID,
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site1.Name),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.SiteRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
+			expectedSiteName:                  cutil.GetPtr(site1.Name),
 			verifyChildSpanner:                true,
 		},
 		{
@@ -280,8 +281,8 @@ func TestFabricHandler_Get(t *testing.T) {
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedID:                        fb1.ID,
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site1.Name),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
+			expectedSiteName:                  cutil.GetPtr(site1.Name),
 		},
 		{
 			name:           "success case for Tenant when they have site association",
@@ -417,7 +418,7 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			site = site2
 		}
 
-		fb := testFabricBuildFabric(t, dbSession, ip.Org, cdb.GetStrPtr(fmt.Sprintf("IFabric%d", i)), ip, site, nil, false)
+		fb := testFabricBuildFabric(t, dbSession, ip.Org, cutil.GetPtr(fmt.Sprintf("IFabric%d", i)), ip, site, nil, false)
 		assert.NotNil(t, fb)
 
 		if i%2 == 0 {
@@ -510,7 +511,7 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        totalCount / 2,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			verifyChildSpanner: true,
 		},
 		{
@@ -521,7 +522,7 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        totalCount / 2,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			verifyChildSpanner: true,
 		},
 		{
@@ -532,7 +533,7 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        0,
-			expectedTotal:      cdb.GetIntPtr(0),
+			expectedTotal:      cutil.GetPtr(0),
 			verifyChildSpanner: true,
 		},
 		{
@@ -540,13 +541,13 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			reqOrgName:         ipOrg1,
 			user:               ipu,
 			querySiteID:        site1.ID.String(),
-			pageNumber:         cdb.GetIntPtr(1),
-			pageSize:           cdb.GetIntPtr(10),
-			orderBy:            cdb.GetStrPtr("CREATED_DESC"),
+			pageNumber:         cutil.GetPtr(1),
+			pageSize:           cutil.GetPtr(10),
+			orderBy:            cutil.GetPtr("CREATED_DESC"),
 			expectedErr:        false,
 			expectedStatus:     http.StatusOK,
 			expectedCnt:        10,
-			expectedTotal:      cdb.GetIntPtr(totalCount / 2),
+			expectedTotal:      cutil.GetPtr(totalCount / 2),
 			expectedFirstEntry: &fbs[28],
 		},
 		{
@@ -554,9 +555,9 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			reqOrgName:     ipOrg1,
 			user:           ipu,
 			querySiteID:    site1.ID.String(),
-			pageNumber:     cdb.GetIntPtr(1),
-			pageSize:       cdb.GetIntPtr(10),
-			orderBy:        cdb.GetStrPtr("TEST_ASC"),
+			pageNumber:     cutil.GetPtr(1),
+			pageSize:       cutil.GetPtr(10),
+			orderBy:        cutil.GetPtr("TEST_ASC"),
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,
 			expectedCnt:    0,
@@ -569,11 +570,11 @@ func TestFabricHandler_GetAll(t *testing.T) {
 			expectedErr:                       false,
 			expectedStatus:                    http.StatusOK,
 			expectedCnt:                       totalCount / 2,
-			expectedTotal:                     cdb.GetIntPtr(totalCount / 2),
-			queryIncludeRelations1:            cdb.GetStrPtr(cdbm.InfrastructureProviderRelationName),
-			queryIncludeRelations2:            cdb.GetStrPtr(cdbm.SiteRelationName),
-			expectedInfrastructureProviderOrg: cdb.GetStrPtr(ip1.Org),
-			expectedSiteName:                  cdb.GetStrPtr(site1.Name),
+			expectedTotal:                     cutil.GetPtr(totalCount / 2),
+			queryIncludeRelations1:            cutil.GetPtr(cdbm.InfrastructureProviderRelationName),
+			queryIncludeRelations2:            cutil.GetPtr(cdbm.SiteRelationName),
+			expectedInfrastructureProviderOrg: cutil.GetPtr(ip1.Org),
+			expectedSiteName:                  cutil.GetPtr(site1.Name),
 		},
 	}
 	for _, tc := range tests {

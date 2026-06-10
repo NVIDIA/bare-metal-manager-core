@@ -87,7 +87,7 @@ pub(crate) async fn handle_machine_validation_state(
                 let machine_id = mh_snapshot.host_snapshot.id;
                 let machine_validation_id = *id;
                 let mut txn = ctx.services.db_pool.begin().await?;
-                db::machine_validation::mark_machine_validation_complete(
+                let completed = db::machine_validation::mark_machine_validation_complete(
                     txn.as_mut(),
                     &machine_id,
                     &machine_validation_id,
@@ -97,6 +97,14 @@ pub(crate) async fn handle_machine_validation_state(
                     },
                 )
                 .await?;
+                if !completed {
+                    tracing::info!(
+                        %machine_id,
+                        %machine_validation_id,
+                        "skipped machine validation completion ignored because run is no longer active"
+                    );
+                    return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+                }
                 let machine_validation = db::machine_validation::find_by_id(txn.as_mut(), id)
                     .await
                     .map_err(|err| StateHandlerError::GenericError(err.into()))?;

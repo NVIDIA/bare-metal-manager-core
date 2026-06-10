@@ -27,14 +27,10 @@ use sqlx::{FromRow, Row};
 use version_compare::Cmp;
 
 use crate::errors::{ModelError, ModelResult};
-// TODO(chet): Once SocketAddr::parse_ascii is no longer an experimental
-// feature, it would be good to parse bmc_info.ip to verify it's a valid IP
-// address.
-
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BmcInfo {
     pub machine_interface_id: Option<MachineInterfaceId>,
-    pub ip: Option<String>,
+    pub ip: Option<IpAddr>,
     pub port: Option<u16>,
     pub mac: Option<MacAddress>,
     pub version: Option<String>,
@@ -62,13 +58,7 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
 
 impl BmcInfo {
     pub fn ip_addr(&self) -> Result<IpAddr, Report> {
-        self.ip
-            .as_ref()
-            .ok_or(eyre! {"Missing BMC address"})?
-            .parse()
-            .map_err(|e| {
-                eyre! {"Bad address {:?} {e}", self.ip }
-            })
+        self.ip.ok_or(eyre! {"Missing BMC address"})
     }
 }
 

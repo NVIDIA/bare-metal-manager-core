@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"net/http"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/labstack/echo/v4"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -17,13 +17,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	common "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -189,8 +189,8 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 		}
 
 		// Create a status detail record for the tenantaccount
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), *cdb.GetStrPtr(cdbm.TenantAccountStatusInvited),
-			cdb.GetStrPtr("received tenant account creation request, pending accept"))
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), *cutil.GetPtr(cdbm.TenantAccountStatusInvited),
+			cutil.GetPtr("received tenant account creation request, pending accept"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
@@ -455,7 +455,7 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		if tenantID != nil {
 			allocationFilter.TenantIDs = append(allocationFilter.TenantIDs, *tenantID)
 		}
-		allocationPage := cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}
+		allocationPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
 		als, _, serr := aDAO.GetAll(ctx, nil, allocationFilter, allocationPage, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving allocation for Tenant from DB")
@@ -827,8 +827,8 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 	// TODO start transaction
 	ta, err = taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
 		TenantAccountID: taID,
-		TenantContactID: cdb.GetUUIDPtr(dbUser.ID),
-		Status:          cdb.GetStrPtr(cdbm.TenantAccountStatusReady),
+		TenantContactID: cutil.GetPtr(dbUser.ID),
+		Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
 	})
 	if err != nil {
 		logger.Error().Err(err).Msg("error updating TenantAccount in DB")
@@ -838,15 +838,15 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 
 	// create status detail record for the update
 	sdDAO := cdbm.NewStatusDetailDAO(utah.dbSession)
-	_, serr := sdDAO.CreateFromParams(ctx, nil, ta.ID.String(), *cdb.GetStrPtr(cdbm.TenantAccountStatusReady),
-		cdb.GetStrPtr("received tenant account update request, ready"))
+	_, serr := sdDAO.CreateFromParams(ctx, nil, ta.ID.String(), *cutil.GetPtr(cdbm.TenantAccountStatusReady),
+		cutil.GetPtr("received tenant account update request, ready"))
 	if serr != nil {
 		// TODO rollback transaction
 		logger.Error().Err(serr).Msg("error updating Status Detail DB entry")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
 	}
 
-	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, ta.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+	ssds, _, err := sdDAO.GetAllByEntityID(ctx, nil, ta.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 	if err != nil {
 		// TODO rollback transaction
 		logger.Error().Err(err).Msg("error retrieving Status Details for TenantAccount from DB")

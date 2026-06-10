@@ -25,6 +25,24 @@ use serde::{Deserialize, Serialize};
 use crate::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use crate::instance::status::network::InstanceNetworkStatusObservation;
 
+/// The fabric interface status last reported by a DPU agent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DpuFabricInterfaceStatusObservation {
+    pub interface_name: String,
+    pub link_data: Option<DpuLinkStatusObservation>,
+}
+
+/// The persisted subset of link attributes reported for a DPU fabric interface.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DpuLinkStatusObservation {
+    pub link_type: Option<String>,
+    pub state: Option<String>,
+    pub carrier_up: Option<bool>,
+    pub mtu: Option<u32>,
+    pub carrier_up_count: Option<u32>,
+    pub carrier_down_count: Option<u32>,
+}
+
 /// The network status that was last reported by the networking subsystem
 /// Stored in a Postgres JSON field so new fields have to be Option until fully deployed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +55,8 @@ pub struct MachineNetworkStatusObservation {
     pub agent_version_superseded_at: Option<DateTime<Utc>>,
     pub instance_network_observation: Option<InstanceNetworkStatusObservation>,
     pub extension_service_observation: Option<InstanceExtensionServiceStatusObservation>,
+    #[serde(default)]
+    pub fabric_interfaces: Vec<DpuFabricInterfaceStatusObservation>,
 }
 
 impl MachineNetworkStatusObservation {

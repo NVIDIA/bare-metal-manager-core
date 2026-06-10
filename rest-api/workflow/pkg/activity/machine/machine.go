@@ -17,15 +17,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 const (
@@ -158,7 +158,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			Status:            &status,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(mm.dbSession)
@@ -173,7 +173,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			InventoryReceived: &curTime,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 	}
 
@@ -182,7 +182,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 
 	filterInput := cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{site.ID}}
 
-	existingMachines, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingMachines, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve existing Machines from DB")
 		return err
@@ -288,7 +288,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		// Extract Machine Hostname
 		var hostname *string
 		if len(controllerMachine.Interfaces) > 0 {
-			hostname = cdb.GetStrPtr(controllerMachine.Interfaces[0].Hostname)
+			hostname = cwutil.GetPtr(controllerMachine.Interfaces[0].Hostname)
 		}
 
 		var controllerInstanceTypeID *uuid.UUID
@@ -299,7 +299,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				slogger.Error().Err(serr).Msg("failed to parse InstanceType ID in Machine data")
 				continue
 			}
-			controllerInstanceTypeID = cdb.GetUUIDPtr(id)
+			controllerInstanceTypeID = cwutil.GetPtr(id)
 		}
 
 		// Verify if VPC's metadata update required, if yes trigger `UpdateVPC` workflow
@@ -388,7 +388,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				}
 
 				// Get attached dpu id
-				attachedDpuMachineID := cdb.GetStrPtr(controllerMachineInterface.AttachedDpuMachineId.GetId())
+				attachedDpuMachineID := cwutil.GetPtr(controllerMachineInterface.AttachedDpuMachineId.GetId())
 
 				_, serr = miDAO.Create(
 					ctx,
@@ -459,7 +459,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				Hostname:              hostname,
 				Labels:                labels,
 				Status:                &machineStatus,
-				IsMissingOnSite:       cdb.GetBoolPtr(false),
+				IsMissingOnSite:       cwutil.GetPtr(false),
 			}
 
 			_, serr := mDAO.Update(ctx, txn, updateInput)
@@ -474,7 +474,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			// and fix empty/stale state even when Machine.InstanceTypeID already matches.
 			clearInstanceTypeID := controllerInstanceTypeID == nil && existingCloudMachine.InstanceTypeID != nil
 
-			machineInstanceTypes, _, err := mitDAO.GetAll(ctx, txn, &existingCloudMachine.ID, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			machineInstanceTypes, _, err := mitDAO.GetAll(ctx, txn, &existingCloudMachine.ID, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to get MachineInstanceTypes for reconciliation")
 				txn.Rollback()
@@ -543,7 +543,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			} else {
 				// Check if the latest status detail message is different from the current status message
 				// Leave orderBy nil since the result is sorted by create timestamp by default
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingCloudMachine.ID, nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingCloudMachine.ID, nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Machine")
 				} else if len(latestsd) == 0 || (latestsd[0].Message != nil && *latestsd[0].Message != statusMessage) {
@@ -568,7 +568,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				cdbm.MachineInterfaceFilterInput{
 					MachineIDs: []string{existingCloudMachine.ID},
 				},
-				cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+				cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 				nil,
 			)
 			if serr != nil {
@@ -602,7 +602,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				}
 
 				// Get attached dpu id
-				attachedDpuMachineID := cdb.GetStrPtr(controllerMachineInterface.AttachedDpuMachineId.GetId())
+				attachedDpuMachineID := cwutil.GetPtr(controllerMachineInterface.AttachedDpuMachineId.GetId())
 
 				existingInterface, found := machineInterfaceMap[controllerInterfaceID]
 				if !found {
@@ -697,7 +697,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 
 			// Update machine status/create status detail if it doesn't have this error recorded already
 			if status == existingMachine.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingMachine.ID, nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingMachine.ID, nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Machine")
 					continue
@@ -709,7 +709,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				}
 			}
 
-			_, serr := mDAO.Update(ctx, nil, cdbm.MachineUpdateInput{MachineID: existingMachine.ID, Status: &status, IsMissingOnSite: cdb.GetBoolPtr(true), IsUsableByTenant: cdb.GetBoolPtr(false)})
+			_, serr := mDAO.Update(ctx, nil, cdbm.MachineUpdateInput{MachineID: existingMachine.ID, Status: &status, IsMissingOnSite: cwutil.GetPtr(true), IsUsableByTenant: cwutil.GetPtr(false)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update missing on Site flag in DB")
 				continue
@@ -735,7 +735,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 
 	// Get existing Machine Capability records for this Machine
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
-	mcs, _, err := mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	mcs, _, err := mcDAO.GetAll(ctx, nil, []string{machine.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		slogger.Error().Err(err).Msg("failed to retrieve Machine Capabilities from DB")
 		return err
@@ -934,7 +934,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 			}
 		} else {
 			// Compare the orignal with the current and update if there's a diff.
-			if !util.MachineCapabilitiesEqual(cloudCap, controllerCap) {
+			if !cloudCap.Equal(controllerCap) {
 				_, serr := mcDAO.Update(ctx, nil, cdbm.MachineCapabilityUpdateInput{
 					ID:               cloudCap.ID,
 					Frequency:        controllerCap.Frequency,

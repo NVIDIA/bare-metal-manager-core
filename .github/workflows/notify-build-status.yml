@@ -26,7 +26,7 @@ on:
         description: 'Workflow name to display'
         required: false
         type: string
-        default: 'Carbide CI'
+        default: 'NICo Core CI'
       needs-context:
         description: 'JSON string of needs context from calling workflow'
         required: true

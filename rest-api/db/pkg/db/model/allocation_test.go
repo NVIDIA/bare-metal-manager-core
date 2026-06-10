@@ -10,10 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -60,7 +61,7 @@ func testAllocationBuildInfrastructureProvider(t *testing.T, dbSession *db.Sessi
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -72,13 +73,13 @@ func testAllocationBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastruc
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr(name + "-display"),
+		DisplayName:                 cutil.GetPtr(name + "-display"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -91,7 +92,7 @@ func testAllocationBuildTenant(t *testing.T, dbSession *db.Session, name string)
 	tenant := &Tenant{
 		ID:             uuid.New(),
 		Name:           name,
-		OrgDisplayName: db.GetStrPtr(name + "-display"),
+		OrgDisplayName: cutil.GetPtr(name + "-display"),
 		Org:            "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
@@ -102,10 +103,10 @@ func testAllocationBuildTenant(t *testing.T, dbSession *db.Session, name string)
 func testAllocationBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -147,7 +148,7 @@ func TestAllocationSQLDAO_Create(t *testing.T) {
 			desc: "create multiple, some with null description",
 			as: []Allocation{
 				{
-					Name: "test1", Description: db.GetStrPtr("description"), InfrastructureProviderID: ip.ID, TenantID: tenant.ID, SiteID: site.ID, CreatedBy: user.ID,
+					Name: "test1", Description: cutil.GetPtr("description"), InfrastructureProviderID: ip.ID, TenantID: tenant.ID, SiteID: site.ID, CreatedBy: user.ID,
 				},
 				{
 					Name: "test2", InfrastructureProviderID: ip.ID, TenantID: tenant.ID, SiteID: site.ID, CreatedBy: user.ID,
@@ -192,7 +193,7 @@ func TestAllocationSQLDAO_Create(t *testing.T) {
 
 				it, err := asd.Create(ctx, nil, AllocationCreateInput{
 					Name:                     i.Name,
-					Description:              db.GetStrPtr("description"),
+					Description:              cutil.GetPtr("description"),
 					InfrastructureProviderID: i.InfrastructureProviderID,
 					TenantID:                 i.TenantID,
 					SiteID:                   i.SiteID,
@@ -226,7 +227,7 @@ func TestAllocationSQLDAO_GetByID(t *testing.T) {
 	asd := NewAllocationDAO(dbSession)
 	a, err := asd.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test1",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant.ID,
 		SiteID:                   site.ID,
@@ -236,7 +237,7 @@ func TestAllocationSQLDAO_GetByID(t *testing.T) {
 	assert.Nil(t, err)
 	a2, err := asd.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test2",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant.ID,
 		SiteID:                   site.ID,
@@ -377,7 +378,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 	for i := 0; i < totalCount/2; i++ {
 		at, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 			Name:                     fmt.Sprintf("test-%v", i),
-			Description:              db.GetStrPtr("Test Allocation for Tenant 1"),
+			Description:              cutil.GetPtr("Test Allocation for Tenant 1"),
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 tenant1.ID,
 			SiteID:                   site1.ID,
@@ -403,7 +404,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 	for i := 0; i < totalCount/2; i++ {
 		at, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 			Name:                     fmt.Sprintf("test-%v", i),
-			Description:              db.GetStrPtr("Test Allocation for Tenant 2"),
+			Description:              cutil.GetPtr("Test Allocation for Tenant 2"),
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 tenant2.ID,
 			SiteID:                   site2.ID,
@@ -447,7 +448,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:                   "GetAll with ip and name filters returns objects",
-			filter:                 AllocationFilterInput{Name: db.GetStrPtr("test-0"), InfrastructureProviderID: &ip.ID},
+			filter:                 AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID},
 			infrastructureProvider: ip,
 			expectedCount:          2,
 			expectedError:          false,
@@ -486,7 +487,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with ip filter returns no objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: db.GetUUIDPtr(uuid.New())},
+			filter:        AllocationFilterInput{InfrastructureProviderID: cutil.GetPtr(uuid.New())},
 			expectedCount: 0,
 			expectedError: false,
 		},
@@ -498,7 +499,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with Tenant and name filters returns objects",
-			filter:        AllocationFilterInput{Name: db.GetStrPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: 1,
 			expectedError: false,
 		},
@@ -527,7 +528,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 				TenantIDs:                []uuid.UUID{tenant1.ID},
 				SiteIDs:                  []uuid.UUID{site1.ID},
 				ResourceTypes:            []string{AllocationResourceTypeInstanceType},
-				SearchQuery:              db.GetStrPtr("test-"),
+				SearchQuery:              cutil.GetPtr("test-"),
 			},
 			expectedCount: totalCount / 4,
 			expectedError: false,
@@ -547,17 +548,17 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with limit returns objects",
 			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID},
-			page:          paginator.PageInput{Offset: db.GetIntPtr(0), Limit: db.GetIntPtr(5)},
+			page:          paginator.PageInput{Offset: cutil.GetPtr(0), Limit: cutil.GetPtr(5)},
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with offset returns objects",
 			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
-			page:          paginator.PageInput{Offset: db.GetIntPtr(3)},
+			page:          paginator.PageInput{Offset: cutil.GetPtr(3)},
 			expectedCount: 7,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -569,36 +570,36 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with name search query returns objects",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr("test-")},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr("test-")},
 			expectedCount: totalCount,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with description search query returns objects",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr("Test Allocation for Tenant 1")},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr("Test Allocation for Tenant 1")},
 			expectedCount: totalCount,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with status search query returns objects",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr(AllocationStatusPending)},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr(AllocationStatusPending)},
 			expectedCount: totalCount,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with status search query returns no objects",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr(AllocationStatusDeleting)},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr(AllocationStatusDeleting)},
 			expectedCount: 0,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with empty search query returns objects",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr("")},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr("")},
 			expectedCount: totalCount,
 			expectedError: false,
 		},
@@ -690,7 +691,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc:   "GetAll with order by site name and site relation",
@@ -701,7 +702,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:           &allocationsTenant1[0],
 			expectedCount:        totalCount,
-			expectedTotal:        db.GetIntPtr(totalCount),
+			expectedTotal:        cutil.GetPtr(totalCount),
 			includeSiteRelations: true,
 		},
 		{
@@ -713,7 +714,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 		},
 		{
 			desc:   "GetAll with order by tenant name and tenant relation",
@@ -724,7 +725,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:             &allocationsTenant1[0],
 			expectedCount:          totalCount,
-			expectedTotal:          db.GetIntPtr(totalCount),
+			expectedTotal:          cutil.GetPtr(totalCount),
 			includeTenantRelations: true,
 		},
 		{
@@ -736,7 +737,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 		},
 		{
 			desc:   "GetAll with order by ip block name",
@@ -747,7 +748,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[1],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 		},
 		{
 			desc:   "GetAll with order by constraint value",
@@ -758,7 +759,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 		},
 		{
 			desc:   "GetAll with order by instance type name and filter on resource type",
@@ -769,7 +770,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &allocationsTenant1[0],
 			expectedCount: totalCount / 4,
-			expectedTotal: db.GetIntPtr(totalCount / 4),
+			expectedTotal: cutil.GetPtr(totalCount / 4),
 		},
 	}
 	for _, tc := range tests {
@@ -839,7 +840,7 @@ func TestAllocationSQLDAO_Update(t *testing.T) {
 	asd := NewAllocationDAO(dbSession)
 	a1, err := asd.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test1",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant.ID,
 		SiteID:                   site1.ID,
@@ -869,17 +870,17 @@ func TestAllocationSQLDAO_Update(t *testing.T) {
 			desc: "can update string fields, name, description, status",
 			input: AllocationUpdateInput{
 				AllocationID: a1.ID,
-				Name:         db.GetStrPtr("updatedName"),
-				Description:  db.GetStrPtr("updatedDescription"),
-				Status:       db.GetStrPtr(AllocationStatusRegistered),
+				Name:         cutil.GetPtr("updatedName"),
+				Description:  cutil.GetPtr("updatedDescription"),
+				Status:       cutil.GetPtr(AllocationStatusRegistered),
 			},
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedInfrastructureProviderID: &ip.ID,
 			expectedTenantID:                 &tenant.ID,
 			expectedSiteID:                   &site1.ID,
-			expectedStatus:                   db.GetStrPtr(AllocationStatusRegistered),
+			expectedStatus:                   cutil.GetPtr(AllocationStatusRegistered),
 			verifyChildSpanner:               true,
 		},
 		{
@@ -891,12 +892,12 @@ func TestAllocationSQLDAO_Update(t *testing.T) {
 				SiteID:                   &site2.ID,
 			},
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedTenantID:                 &tenant2.ID,
 			expectedSiteID:                   &site2.ID,
-			expectedStatus:                   db.GetStrPtr(AllocationStatusRegistered),
+			expectedStatus:                   cutil.GetPtr(AllocationStatusRegistered),
 		},
 		{
 			desc: "error updating due to foreign key violation",
@@ -907,12 +908,12 @@ func TestAllocationSQLDAO_Update(t *testing.T) {
 				SiteID:                   &site1.ID,
 			},
 			expectedError:                    true,
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("updatedDescription"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("updatedDescription"),
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedTenantID:                 &tenant2.ID,
 			expectedSiteID:                   &site2.ID,
-			expectedStatus:                   db.GetStrPtr(AllocationStatusRegistered),
+			expectedStatus:                   cutil.GetPtr(AllocationStatusRegistered),
 		},
 	}
 	for _, tc := range tests {
@@ -953,7 +954,7 @@ func TestAllocationSQLDAO_Clear(t *testing.T) {
 	asd := NewAllocationDAO(dbSession)
 	a1, err := asd.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test2",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant.ID,
 		SiteID:                   site1.ID,
@@ -1014,7 +1015,7 @@ func TestAllocationSQLDAO_Delete(t *testing.T) {
 	asd := NewAllocationDAO(dbSession)
 	a1, err := asd.Create(ctx, nil, AllocationCreateInput{
 		Name:                     "test2",
-		Description:              db.GetStrPtr("description"),
+		Description:              cutil.GetPtr("description"),
 		InfrastructureProviderID: ip.ID,
 		TenantID:                 tenant.ID,
 		SiteID:                   site1.ID,
@@ -1089,7 +1090,7 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 	for i := 0; i < totalCount/2; i++ {
 		at, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 			Name:                     fmt.Sprintf("test-%v", i),
-			Description:              db.GetStrPtr("Test Allocation for Tenant 1"),
+			Description:              cutil.GetPtr("Test Allocation for Tenant 1"),
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 tenant1.ID,
 			SiteID:                   site1.ID,
@@ -1112,7 +1113,7 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 	for i := 0; i < totalCount/2; i++ {
 		at, err := aDAO.Create(ctx, nil, AllocationCreateInput{
 			Name:                     fmt.Sprintf("test-%v", i),
-			Description:              db.GetStrPtr("Test Allocation for Tenant 2"),
+			Description:              cutil.GetPtr("Test Allocation for Tenant 2"),
 			InfrastructureProviderID: ip.ID,
 			TenantID:                 tenant2.ID,
 			SiteID:                   site2.ID,
@@ -1142,7 +1143,7 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 		},
 		{
 			desc:          "GetCount with ip and name filter",
-			filter:        AllocationFilterInput{Name: db.GetStrPtr("test-0"), InfrastructureProviderID: &ip.ID},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID},
 			expectedCount: 2,
 		},
 		{
@@ -1162,7 +1163,7 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 		},
 		{
 			desc:          "GetCount with Tenant and name filters",
-			filter:        AllocationFilterInput{Name: db.GetStrPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: 1,
 		},
 		{
@@ -1172,23 +1173,23 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 				TenantIDs:                []uuid.UUID{tenant1.ID},
 				SiteIDs:                  []uuid.UUID{site1.ID},
 				ResourceTypes:            []string{AllocationResourceTypeInstanceType},
-				SearchQuery:              db.GetStrPtr("test-"),
+				SearchQuery:              cutil.GetPtr("test-"),
 			},
 			expectedCount: totalCount / 4,
 		},
 		{
 			desc:          "GetCount with name search query",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr("test-")},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr("test-")},
 			expectedCount: totalCount,
 		},
 		{
 			desc:          "GetCount with description search query",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr("Test Allocation for Tenant 1")},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr("Test Allocation for Tenant 1")},
 			expectedCount: totalCount,
 		},
 		{
 			desc:          "GetCount with status search query",
-			filter:        AllocationFilterInput{SearchQuery: db.GetStrPtr(AllocationStatusPending)},
+			filter:        AllocationFilterInput{SearchQuery: cutil.GetPtr(AllocationStatusPending)},
 			expectedCount: totalCount,
 		},
 	}

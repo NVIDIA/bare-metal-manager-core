@@ -26,24 +26,24 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 )
 
 const MachineMissingDelayThreshold = 24 * time.Hour
@@ -75,7 +75,7 @@ func getAPIMachines(ctx context.Context, ms []cdbm.Machine, logger zerolog.Logge
 	for _, m := range ms {
 		mids = append(mids, m.ID)
 	}
-	instances, _, serr := instanceDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{MachineIDs: mids}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{cdbm.TenantRelationName})
+	instances, _, serr := instanceDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{MachineIDs: mids}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.TenantRelationName})
 	if serr != nil {
 		logger.Error().Err(serr).Msg("error retrieving Instances for Machines")
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Instances for Machines, DB error", nil)
@@ -92,7 +92,7 @@ func getAPIMachines(ctx context.Context, ms []cdbm.Machine, logger zerolog.Logge
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 	miDAO := cdbm.NewMachineInterfaceDAO(dbSession)
 
-	mcs, _, err := mcDAO.GetAll(ctx, tx, mids, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	mcs, _, err := mcDAO.GetAll(ctx, tx, mids, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		// Continue in spite of the error
 		logger.Error().Err(err).Msg("error retrieving Machine Capabilities for Machine from DB")
@@ -111,7 +111,7 @@ func getAPIMachines(ctx context.Context, ms []cdbm.Machine, logger zerolog.Logge
 		cdbm.MachineInterfaceFilterInput{
 			MachineIDs: mids,
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 		nil,
 	)
 	if err != nil {
@@ -246,7 +246,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			taDAO := cdbm.NewTenantAccountDAO(gamh.dbSession)
 			tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
 				TenantIDs: []uuid.UUID{tenant.ID},
-			}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for privileged Tenant")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Accounts for privileged Tenant", nil)
@@ -326,7 +326,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "hasInstanceType cannot be false when and instanceTypeId is specified in query", nil)
 		}
 
-		filterInput.HasInstanceType = cdb.GetBoolPtr(hiType)
+		filterInput.HasInstanceType = cutil.GetPtr(hiType)
 	}
 
 	// Check `includeMetadata` in query
@@ -379,7 +379,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 
 		// Get all instances matching the specified tenant ID(s)
 		instanceDAO := cdbm.NewInstanceDAO(gamh.dbSession)
-		matchingInstances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{TenantIDs: tenantIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		matchingInstances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{TenantIDs: tenantIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving instances for machine ID filtering")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve instances for machine ID filtering", nil)
@@ -411,7 +411,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "`hasInstance` cannot be false when `tenantId` is specified in query", nil)
 		}
 
-		filterInput.IsAssigned = cdb.GetBoolPtr(hi)
+		filterInput.IsAssigned = cutil.GetPtr(hi)
 	}
 
 	// Validate capability type from query param if it is provided
@@ -462,7 +462,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isMissingOnSite` query param", nil)
 		}
 
-		filterInput.IsMissingOnSite = cdb.GetBoolPtr(isMissingOnSite)
+		filterInput.IsMissingOnSite = cutil.GetPtr(isMissingOnSite)
 	}
 
 	// Get hwSkuDeviceType from query param
@@ -978,7 +978,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				// Update Machine and set new Instance Type
 				updateInput := cdbm.MachineUpdateInput{
 					MachineID:      machine.ID,
-					InstanceTypeID: cdb.GetUUIDPtr(newit.ID),
+					InstanceTypeID: cutil.GetPtr(newit.ID),
 				}
 				um, serr = mDAO.Update(ctx, itTx, updateInput)
 				if serr != nil {
@@ -1200,12 +1200,11 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusBadRequest, "Machine is currently not in maintenance mode, cannot remove maintenance mode", nil)
 			}
 
-			wfReq := &cwssaws.MaintenanceRequest{HostId: &cwssaws.MachineId{Id: machine.ID}}
+			var wfReq *cwssaws.MaintenanceRequest
 			if *apiRequest.SetMaintenanceMode {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Enable
-				wfReq.Reference = apiRequest.MaintenanceMessage
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, apiRequest.MaintenanceMessage)
 			} else {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Disable
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
 			}
 
 			// Add context deadlines
@@ -1297,21 +1296,10 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 			}
 
 			labels := util.ProtobufLabelsFromAPILabels(apiRequest.Labels)
-
-			machineName := machine.ID
-			if machine.Metadata != nil && machine.Metadata.Metadata != nil {
-				machineName = machine.Metadata.Metadata.Name
-			}
-
-			wfReq := &cwssaws.MachineMetadataUpdateRequest{
-				MachineId: &cwssaws.MachineId{
-					Id: machine.ID,
-				},
-				Metadata: &cwssaws.Metadata{
-					Name:   machineName, // Site Controller sets Machine ID as name and it must be specified to update labels
-					Labels: labels,
-				},
-			}
+			// Site Controller sets Machine ID as the metadata Name and requires it
+			// on every update; ToMetadataUpdateRequestProto reads the current name
+			// from the machine's stored metadata, with a fallback to the Machine ID.
+			wfReq := machine.ToMetadataUpdateRequestProto(labels)
 
 			// Add context deadlines
 			wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
@@ -1390,7 +1378,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 		err := cdb.WithTx(ctx, umh.dbSession, func(orTx *cdb.Tx) error {
 			iDAO := cdbm.NewInstanceDAO(umh.dbSession)
-			instances, _, derr := iDAO.GetAll(ctx, orTx, cdbm.InstanceFilterInput{MachineIDs: []string{machine.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(1)}, nil)
+			instances, _, derr := iDAO.GetAll(ctx, orTx, cdbm.InstanceFilterInput{MachineIDs: []string{machine.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Instance for Machine")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Instance for Machine", nil)
@@ -1405,7 +1393,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Instance must be in Ready state to enter online repair (current state: %s)", inst.Status), nil)
 				}
 
-				insReq, perr := apiRequest.ToInsertHealthReportOverrideProto(machine.ID)
+				insReq, perr := apiRequest.ToInsertHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build online repair request", nil)
@@ -1425,7 +1413,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				_, derr = iDAO.Update(ctx, orTx, cdbm.InstanceUpdateInput{
 					InstanceID: inst.ID,
 					InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-						Status: cdb.GetStrPtr(cdbm.InstanceStatusRepairing),
+						Status: cutil.GetPtr(cdbm.InstanceStatusRepairing),
 						Labels: instanceLabels,
 					},
 				})
@@ -1435,7 +1423,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				}
 
 				// Update Instance status in StatusDetail
-				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusRepairing, cdb.GetStrPtr("Instance is currently being repaired"))
+				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusRepairing, cutil.GetPtr("Instance is currently being repaired"))
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error updating Instance status in StatusDetail for online repair in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair", nil)
@@ -1450,7 +1438,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				wfCtx, wfCancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 				defer wfCancel()
 
-				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "CreateMachineHealthReportOverride", insReq)
+				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "CreateMachineHealthReport", insReq)
 				if wferr != nil {
 					logger.Error().Err(wferr).Msg("failed to start Temporal workflow for applying online repair health override")
 					return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to start applying online repair health override workflow on Site: %s", wferr), nil)
@@ -1464,7 +1452,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 						logger.Error().Err(wferr).Msg("failed to apply online repair health override, timeout occurred executing workflow on Site.")
 						timeoutCause := wferr // explicit capture; defensive against future refactors
 						timeoutResp = func() error {
-							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "CreateMachineHealthReportOverride")
+							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "CreateMachineHealthReport")
 						}
 						return cutil.NewAPIError(http.StatusInternalServerError, "Applying online repair health override workflow timed out", nil)
 					}
@@ -1501,7 +1489,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				_, derr = iDAO.Update(ctx, orTx, cdbm.InstanceUpdateInput{
 					InstanceID: inst.ID,
 					InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
-						Status: cdb.GetStrPtr(cdbm.InstanceStatusReady),
+						Status: cutil.GetPtr(cdbm.InstanceStatusReady),
 						Labels: instanceLabels,
 					},
 				})
@@ -1511,13 +1499,13 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				}
 
 				// Update Instance status in StatusDetail
-				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusReady, cdb.GetStrPtr("Instance repair has been completed, ready for use"))
+				_, derr = statusDetailDAO.CreateFromParams(ctx, orTx, inst.ID.String(), cdbm.InstanceStatusReady, cutil.GetPtr("Instance repair has been completed, ready for use"))
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error updating Instance status in StatusDetail for online repair exit in DB")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Instance status in StatusDetail for online repair exit", nil)
 				}
 
-				rmReq, perr := apiRequest.ToRemoveHealthReportOverrideProto(machine.ID)
+				rmReq, perr := apiRequest.ToRemoveHealthReportRequestProto(machine.ID)
 				if perr != nil {
 					logger.Error().Err(perr).Msg("failed to build remove online repair health override request")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build remove online repair request", nil)
@@ -1532,29 +1520,29 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				wfCtx, wfCancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 				defer wfCancel()
 
-				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "DeleteMachineHealthReportOverride", rmReq)
+				we, wferr := stc.ExecuteWorkflow(wfCtx, wfOpts, "DeleteMachineHealthReport", rmReq)
 				if wferr != nil {
-					logger.Error().Err(wferr).Msg("failed to start Temporal workflow to clear online repair health override")
+					logger.Error().Err(wferr).Msg("failed to start Temporal workflow to clear online repair health report")
 					return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to start clear online repair workflow on Site: %s", wferr), nil)
 				}
 				wid := we.GetID()
-				logger.Info().Str("Workflow ID", wid).Msg("executed synchronous DeleteMachineHealthReportOverride workflow")
+				logger.Info().Str("Workflow ID", wid).Msg("executed synchronous DeleteMachineHealthReport workflow")
 				wferr = we.Get(wfCtx, nil)
 				if wferr != nil {
 					var timeoutErr *tp.TimeoutError
 					if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil || ctx.Err() != nil {
-						logger.Error().Err(wferr).Msg("failed to clear online repair health override, timeout occurred executing workflow on Site.")
+						logger.Error().Err(wferr).Msg("failed to clear online repair health report, timeout occurred executing workflow on Site.")
 						timeoutCause := wferr // explicit capture; defensive against future refactors
 						timeoutResp = func() error {
-							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "DeleteMachineHealthReportOverride")
+							return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Machine", "DeleteMachineHealthReport")
 						}
 						return cutil.NewAPIError(http.StatusInternalServerError, "Clear online repair workflow timed out", nil)
 					}
 					code, werr := common.UnwrapWorkflowError(wferr)
-					logger.Error().Err(werr).Msg("clear online repair health override workflow failed")
+					logger.Error().Err(werr).Msg("clear online repair health report workflow failed")
 					return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute clear online repair workflow on Site: %s", werr), nil)
 				}
-				logger.Info().Str("Workflow ID", wid).Msg("completed synchronous DeleteMachineHealthReportOverride workflow")
+				logger.Info().Str("Workflow ID", wid).Msg("completed synchronous DeleteMachineHealthReport workflow")
 			}
 
 			return nil
@@ -1830,7 +1818,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 
 		// Even if IsMissingOnSite is true, we want to make sure it's been missing for a little while
 		statusDAO := cdbm.NewStatusDetailDAO(umh.dbSession)
-		statuses, _, derr := statusDAO.GetAllByEntityID(ctx, tx, machine.ID, nil, cdb.GetIntPtr(1), nil)
+		statuses, _, derr := statusDAO.GetAllByEntityID(ctx, tx, machine.ID, nil, cutil.GetPtr(1), nil)
 
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error while retrieving StatusDetail for Machine")
@@ -1886,7 +1874,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 			ctx, tx,
 			cdbm.InstanceFilterInput{MachineIDs: []string{machine.ID}},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(1),
+				Limit: cutil.GetPtr(1),
 			},
 			[]string{cdbm.TenantRelationName},
 		)
@@ -1916,7 +1904,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 
 		// Clean up capabilities
 		mcDAO := cdbm.NewMachineCapabilityDAO(umh.dbSession)
-		caps, _, derr := mcDAO.GetAll(ctx, tx, []string{machine.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		caps, _, derr := mcDAO.GetAll(ctx, tx, []string{machine.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error pulling machine capabilities for Machine in DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Capabilities for Machine, DB error", nil)
@@ -1938,7 +1926,7 @@ func (umh DeleteMachineHandler) Handle(c echo.Context) error {
 			cdbm.MachineInterfaceFilterInput{
 				MachineIDs: []string{machine.ID},
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if derr != nil {

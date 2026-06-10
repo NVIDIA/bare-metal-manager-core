@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,7 +58,11 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(nicoURL, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	conn, err := grpc.NewClient(
+		nicoURL,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}
@@ -272,6 +277,176 @@ func (c *grpcClient) FindMachinesByIds(ctx context.Context, machineIds []string)
 	var result []MachineDetail
 	for _, machine := range res.Machines {
 		result = append(result, machineDetailFromPb(machine))
+	}
+	return result, nil
+}
+
+// FindHostMachineIdsByRack queries Core for host machines (DPUs excluded) on
+// the given rack and returns their machine IDs.
+func (c *grpcClient) FindHostMachineIdsByRack(ctx context.Context, rackID string) ([]string, error) {
+	if rackID == "" {
+		return nil, errors.New("rack ID is required")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	cfg := &pb.MachineSearchConfig{
+		RackId: &pb.RackId{Id: rackID},
+		// include_dpus defaults to false; exclude_hosts defaults to false.
+		// We want hosts only because Assigned is a host-only state.
+	}
+
+	res, err := c.gclient.FindMachineIds(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("FindMachineIds for rack %s: %w", rackID, err)
+	}
+
+	ids := make([]string, 0, len(res.GetMachineIds()))
+	for _, mid := range res.GetMachineIds() {
+		if id := mid.GetId(); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// FindSwitchRackIDs returns the rack assignment of each given switch.
+func (c *grpcClient) FindSwitchRackIDs(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if rid := sw.GetRackId().GetId(); rid != "" {
+			result[sid] = rid
+		}
+	}
+	return result, nil
+}
+
+// FindSwitchControllerStates returns the raw controller_state string Core
+// reports for each switch. Switches without a controller_state (e.g. legacy
+// rows or transient errors) are simply omitted from the result map.
+func (c *grpcClient) FindSwitchControllerStates(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if s := sw.GetControllerState(); s != "" {
+			result[sid] = s
+		}
+	}
+	return result, nil
+}
+
+// FindPowerShelfRackIDs returns the rack assignment of each given power shelf.
+func (c *grpcClient) FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error) {
+	if len(shelfIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.PowerShelvesByIdsRequest{
+		PowerShelfIds: make([]*pb.PowerShelfId, 0, len(shelfIds)),
+	}
+	for _, id := range shelfIds {
+		req.PowerShelfIds = append(req.PowerShelfIds, &pb.PowerShelfId{Id: id})
+	}
+
+	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetPowerShelves()))
+	for _, ps := range resp.GetPowerShelves() {
+		pid := ps.GetId().GetId()
+		if pid == "" {
+			continue
+		}
+		if rid := ps.GetRackId().GetId(); rid != "" {
+			result[pid] = rid
+		}
+	}
+	return result, nil
+}
+
+// FindPowerShelfControllerStates returns the raw controller_state string Core
+// reports for each power shelf. Shelves without a controller_state are
+// omitted from the result map.
+func (c *grpcClient) FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error) {
+	if len(shelfIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.PowerShelvesByIdsRequest{
+		PowerShelfIds: make([]*pb.PowerShelfId, 0, len(shelfIds)),
+	}
+	for _, id := range shelfIds {
+		req.PowerShelfIds = append(req.PowerShelfIds, &pb.PowerShelfId{Id: id})
+	}
+
+	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetPowerShelves()))
+	for _, ps := range resp.GetPowerShelves() {
+		pid := ps.GetId().GetId()
+		if pid == "" {
+			continue
+		}
+		if s := ps.GetControllerState(); s != "" {
+			result[pid] = s
+		}
 	}
 	return result, nil
 }
@@ -646,5 +821,25 @@ func (c *grpcClient) SetLeakingMachineIds(ids []string) {
 }
 
 func (c *grpcClient) SetLeakingSwitchIds(ids []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchRackID(switchID, rackID string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetPowerShelfRackID(shelfID, rackID string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchControllerState(switchID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetRackHostMachineIDs(rackID string, machineIDs []string) {
 	panic("Not a unit test")
 }

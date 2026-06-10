@@ -26,20 +26,21 @@ use std::time::{Duration, Instant};
 
 use dns_record::DnsResourceRecordType;
 use eyre::Report;
+use hickory_resolver::proto::op::ResponseCode;
+use hickory_resolver::proto::rr::{DNSClass, Name, RData};
+use hickory_server::net::runtime::Time;
+use hickory_server::proto::op::Metadata;
+use hickory_server::proto::rr::Record;
+use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
+use hickory_server::zone_handler::MessageResponseBuilder;
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Counter, Meter};
+use opentelemetry::metrics::{Counter, Meter, ObservableGauge};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
 use rpc::protos::dns::DnsResourceRecordLookupRequest;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
-use trust_dns_resolver::proto::op::{Header, ResponseCode};
-use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
-use trust_dns_server::ServerFuture;
-use trust_dns_server::authority::MessageResponseBuilder;
-use trust_dns_server::proto::rr::{Record, RecordType};
-use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
+use tracing::{Instrument, error, info, warn};
 
 pub mod config;
 mod negative_cache;
@@ -51,11 +52,14 @@ struct DnsMetrics {
     negative_cache_hit: Counter<u64>,
     negative_cache_miss: Counter<u64>,
     negative_cache_eviction: Counter<u64>,
-    negative_cache_drop: Counter<u64>,
+    // Observable gauge of current cache occupancy: its callback reads the
+    // cache length on each scrape. Held only to keep that callback registered
+    // for the lifetime of the meter; never accessed directly.
+    _negative_cache_size: ObservableGauge<u64>,
 }
 
 impl DnsMetrics {
-    fn new(meter: &Meter) -> Self {
+    fn new(meter: &Meter, negative_cache: Arc<NegativeCache>) -> Self {
         Self {
             negative_cache_hit: meter
                 .u64_counter("carbide_dns_negative_cache_hit_count")
@@ -66,8 +70,12 @@ impl DnsMetrics {
             negative_cache_eviction: meter
                 .u64_counter("carbide_dns_negative_cache_eviction_count")
                 .build(),
-            negative_cache_drop: meter
-                .u64_counter("carbide_dns_negative_cache_drop_count")
+            _negative_cache_size: meter
+                .u64_observable_gauge("carbide_dns_negative_cache_size")
+                .with_description("Current number of entries in the negative DNS cache")
+                .with_callback(move |observer| {
+                    observer.observe(negative_cache.entry_count() as u64, &[]);
+                })
                 .build(),
         }
     }
@@ -84,147 +92,234 @@ impl std::fmt::Debug for DnsMetrics {
 pub struct DnsServer {
     forge_client: Mutex<ForgeClientT>,
     negative_cache: Arc<NegativeCache>,
+    /// Per-request ceiling on the upstream `lookup_record` call.
+    upstream_lookup_timeout: Duration,
     metrics: DnsMetrics,
+}
+
+/// How an upstream gRPC failure is surfaced to the DNS client.
+struct NegativeClassification {
+    /// The DNS response code returned to the client.
+    code: ResponseCode,
+    /// Whether the failure is transient (a momentary upstream problem, cached
+    /// only briefly) rather than a stable/authoritative negative cached for the
+    /// full TTL.
+    transient: bool,
+}
+
+/// Maps an upstream gRPC status to the DNS response code we return and how long
+/// it may be cached, following the closest RFC 1035 RCODE semantics.
+fn classify_failure(code: tonic::Code) -> NegativeClassification {
+    use tonic::Code;
+
+    let (code, transient) = match code {
+        // The name genuinely does not exist: a stable, authoritative negative.
+        Code::NotFound => (ResponseCode::NXDomain, false),
+        // The query itself was malformed (empty qname, unparseable qtype). It
+        // will stay malformed on retry, so the answer is stable.
+        Code::InvalidArgument => (ResponseCode::FormErr, false),
+        // The upstream does not implement this qtype/operation; stable, and
+        // consistent with the NotImp we already return for unsupported qtypes.
+        Code::Unimplemented => (ResponseCode::NotImp, false),
+        // An authorization/policy rejection — surfaced as a policy refusal.
+        Code::PermissionDenied | Code::Unauthenticated => (ResponseCode::Refused, false),
+        // Everything else —
+        // Surface it as ServFail and cache it only briefly: RFC 9520 requires
+        // caching resolution failures so a client retry storm collapses into one
+        // upstream call per name per window, while the short TTL keeps the
+        // failure from outliving the upstream's recovery.
+        _ => (ResponseCode::ServFail, true),
+    };
+
+    NegativeClassification { code, transient }
 }
 
 #[async_trait::async_trait]
 impl RequestHandler for DnsServer {
-    async fn handle_request<R: ResponseHandler>(
+    async fn handle_request<R: ResponseHandler, T: Time>(
         &self,
         request: &Request,
         mut response_handle: R,
     ) -> ResponseInfo {
-        let request_info = request.request_info();
-        let qtype = request.query().query_type();
-        let qname = request_info.query.name().to_string();
-
-        let span = tracing::info_span!("dns_request", %qname, %qtype);
-        let _guard = span.enter();
-
-        let start = Instant::now();
-
-        // Only handle types that DnsResourceRecordType supports and that we can build
-        // RData for; return NotImp for everything else. Currently, A and AAAA are
-        // supported; add arms here as the API and RData parsing are extended.
-        let dns_qtype = match DnsResourceRecordType::try_from(qtype.to_string().as_str()) {
-            Ok(t @ (DnsResourceRecordType::A | DnsResourceRecordType::AAAA)) => t,
-            _ => {
-                warn!(%qname, %qtype, "Unsupported query type");
-                let response = MessageResponseBuilder::from_message_request(request);
+        // `request_info()` is fallible in hickory: a request we can't even
+        // interpret gets a FormErr and no further processing.
+        let request_info = match request.request_info() {
+            Ok(request_info) => request_info,
+            Err(_) => {
                 return response_handle
-                    .send_response(response.error_msg(request.header(), ResponseCode::NotImp))
+                    .send_response(
+                        MessageResponseBuilder::new(&request.queries, None)
+                            .error_msg(&request.metadata, ResponseCode::FormErr),
+                    )
                     .await
                     .unwrap();
             }
         };
+        let qtype = request_info.query.query_type();
+        let qname = request_info.query.name().to_string();
 
-        let cache_key = CacheKey {
-            qname: qname.clone(),
-            qtype,
-        };
+        // Attach the span to the request future with `Instrument` rather than an
+        // `Entered` guard. A guard held across an `.await` is not dropped when the
+        // task yields.
+        let span = tracing::info_span!("dns_request", %qname, %qtype);
 
-        let cached = self.negative_cache.get(&cache_key).await;
+        async move {
+            let start = Instant::now();
 
-        let record_name = Name::from(request_info.query.name());
-        let message = MessageResponseBuilder::from_message_request(request);
-        let mut response_header = Header::response_from_request(request.header());
-
-        let (response_code, records) = if let Some(code) = cached {
-            self.metrics
-                .negative_cache_hit
-                .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
-            tracing::debug!("Negative cache hit");
-            (code, vec![])
-        } else {
-            // Clone the client out under the lock, then release it so the
-            // upstream RPC runs without serializing other in-flight queries.
-            let client = {
-                let guard = self.forge_client.lock().await;
-                guard.clone()
-            };
-            match Self::retrieve_records(client, &qname, dns_qtype, &record_name).await {
-                Ok(records) => {
-                    tracing::info!(record_count = records.len(), "DNS lookup succeeded");
-                    (ResponseCode::NoError, records)
+            // Only handle types that DnsResourceRecordType supports and that we can build
+            // RData for; return NotImp for everything else. Currently, A and AAAA are
+            // supported; add arms here as the API and RData parsing are extended.
+            let dns_qtype = match DnsResourceRecordType::try_from(qtype.to_string().as_str()) {
+                Ok(t @ (DnsResourceRecordType::A | DnsResourceRecordType::AAAA)) => t,
+                _ => {
+                    warn!(%qname, %qtype, "Unsupported query type");
+                    let response = MessageResponseBuilder::from_message_request(request);
+                    return response_handle
+                        .send_response(
+                            response.error_msg(request_info.metadata, ResponseCode::NotImp),
+                        )
+                        .await
+                        .unwrap();
                 }
-                Err(e) => {
-                    warn!(error = %e, "DNS lookup failed");
-                    let code = match e.code() {
-                        tonic::Code::NotFound => ResponseCode::NXDomain,
-                        tonic::Code::InvalidArgument => ResponseCode::Refused,
-                        _ => ResponseCode::ServFail,
-                    };
+            };
 
-                    if matches!(code, ResponseCode::NXDomain | ResponseCode::Refused) {
-                        // Count the upstream negative regardless of whether it
-                        // ends up cached below.
+            let cache_key = CacheKey {
+                qname: qname.clone(),
+                qtype,
+            };
+
+            let cached = self.negative_cache.get(&cache_key);
+
+            let record_name = Name::from(request_info.query.name());
+            let message = MessageResponseBuilder::from_message_request(request);
+            let mut response_header = Metadata::response_from_request(request_info.metadata);
+
+            let (response_code, records) = if let Some(code) = cached {
+                self.metrics
+                    .negative_cache_hit
+                    .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
+                tracing::debug!("Negative cache hit");
+                (code, vec![])
+            } else {
+                // Clone the client out under the lock, then release it so the
+                // upstream RPC runs without serializing other in-flight queries.
+                let client = {
+                    let guard = self.forge_client.lock().await;
+                    guard.clone()
+                };
+                // a slow or overloaded carbide-api would otherwise
+                // hold this handler open, piling up in-flight work and
+                // stalling new queries. On timeout we Err on DeadlineExceeded,
+                // which `classify_failure` maps to a briefly-cached ServFail, so we
+                // fail fast
+                //
+                // TODO: this limits each call's *duration* but not the *number* of calls
+                // Add a `tokio::sync::Semaphore`
+                let result = match tokio::time::timeout(
+                    self.upstream_lookup_timeout,
+                    Self::retrieve_records(client, &qname, dns_qtype, &record_name),
+                )
+                .await
+                {
+                    Ok(inner) => inner,
+                    Err(_elapsed) => Err(tonic::Status::deadline_exceeded(format!(
+                        "upstream lookup_record exceeded {}s",
+                        self.upstream_lookup_timeout.as_secs()
+                    ))),
+                };
+                match result {
+                    Ok(records) => {
+                        tracing::info!(record_count = records.len(), "DNS lookup succeeded");
+                        (ResponseCode::NoError, records)
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "DNS lookup failed");
+                        let NegativeClassification { code, transient } = classify_failure(e.code());
+
+                        // Count the upstream negative regardless of how it is cached
+                        // below.
                         self.metrics
                             .negative_cache_miss
                             .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
 
-                        if self.negative_cache.record(cache_key, code).await {
-                            tracing::debug!(%code, "Caching negative response");
-                        } else {
-                            self.metrics
-                                .negative_cache_drop
-                                .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
-                            warn!(
-                                %code,
-                                max_entries = self.negative_cache.max_entries(),
-                                "Negative cache full; not caching this response"
-                            );
+                        // The LRU cache always admits the entry; a `true` return means
+                        // a least-recently-used entry was evicted to make room.  Both are
+                        // entries leaving the cache — so capacity pressure surfaces as
+                        // a rising eviction rate.
+                        if self.negative_cache.record(cache_key, code, transient) {
+                            self.metrics.negative_cache_eviction.add(1, &[]);
                         }
+                        tracing::debug!(%code, "Caching negative response");
+
+                        (code, vec![])
                     }
-
-                    (code, vec![])
                 }
-            }
-        };
+            };
 
-        let duration = start.elapsed();
-        tracing::info!(
-            response_code = ?response_code,
-            record_count = records.len(),
-            duration_ms = duration.as_millis(),
-            "Request completed"
-        );
+            let duration = start.elapsed();
+            tracing::info!(
+                response_code = ?response_code,
+                record_count = records.len(),
+                duration_ms = duration.as_millis(),
+                "Request completed"
+            );
 
-        response_header.set_response_code(response_code);
-        let message = message.build(
-            response_header,
-            records.iter(),
-            iter::empty(),
-            iter::empty(),
-            iter::empty(),
-        );
+            response_header.response_code = response_code;
+            let message = message.build(
+                response_header,
+                records.iter(),
+                iter::empty(),
+                iter::empty(),
+                iter::empty(),
+            );
 
-        response_handle.send_response(message).await.unwrap()
+            response_handle.send_response(message).await.unwrap()
+        }
+        .instrument(span)
+        .await
     }
 }
 
 impl DnsServer {
     pub fn new(forge_client: Mutex<ForgeClientT>, meter: &Meter, config: &Config) -> Self {
+        let servfail_ttl = config.servfail_cache_ttl();
+        if servfail_ttl.as_secs() != config.negative_cache_servfail_ttl_secs {
+            warn!(
+                configured = config.negative_cache_servfail_ttl_secs,
+                clamped_secs = servfail_ttl.as_secs(),
+                min_secs = config::NEGATIVE_CACHE_SERVFAIL_TTL_MIN_SECS,
+                max_secs = config::NEGATIVE_CACHE_SERVFAIL_TTL_MAX_SECS,
+                "negative_cache_servfail_ttl_secs out of range; clamped"
+            );
+        }
+
+        let negative_cache = Arc::new(NegativeCache::new(
+            Duration::from_secs(config.negative_cache_ttl_secs),
+            servfail_ttl,
+            config.negative_cache_entries_max_count as usize,
+        ));
+
         Self {
             forge_client,
-            negative_cache: Arc::new(NegativeCache::new(
-                Duration::from_secs(config.negative_cache_ttl_secs),
-                config.negative_cache_entries_max_count as usize,
-            )),
-            metrics: DnsMetrics::new(meter),
+            upstream_lookup_timeout: Duration::from_secs(config.upstream_lookup_timeout_secs),
+            // The metrics gauge callback holds a clone of the cache to read its
+            // occupancy on scrape.
+            metrics: DnsMetrics::new(meter, negative_cache.clone()),
+            negative_cache,
         }
     }
 
     /// Queries carbide-api for DNS records matching `qname` and `qtype`, then
-    /// converts the results into trust-dns `Record` objects ready for the response.
+    /// converts the results into hickory `Record` objects ready for the response.
+    // `#[instrument]` attaches the span to the returned future. skip_all fields by default,
+    // then include only qname and qtype1
+    #[tracing::instrument(level = "debug", skip_all, fields(qname = %qname, qtype = %qtype))]
     async fn retrieve_records(
         mut forge_client: ForgeClientT,
         qname: &str,
         qtype: DnsResourceRecordType,
         record_name: &Name,
     ) -> Result<Vec<Record>, tonic::Status> {
-        let span = tracing::debug_span!("retrieve_records", %qname, %qtype);
-        let _guard = span.enter();
-
         let request = tonic::Request::new(DnsResourceRecordLookupRequest {
             qtype: qtype.to_string(),
             qname: qname.to_string(),
@@ -250,33 +345,29 @@ impl DnsServer {
             // The API returns all record types for the qname; keep only the requested type.
             .filter(|r| DnsResourceRecordType::try_from(r.qtype.as_str()).ok() == Some(qtype))
             .filter_map(|r| {
-                let (record_type, rdata) = match qtype {
+                let rdata = match qtype {
                     DnsResourceRecordType::A => {
                         let ip = r.content.parse::<std::net::Ipv4Addr>().map_err(|e| {
                             warn!(content = %r.content, error = %e, "Failed to parse IPv4 address");
                             e
                         }).ok()?;
-                        (RecordType::A, RData::A(ip.into()))
+                        RData::A(ip.into())
                     }
                     DnsResourceRecordType::AAAA => {
                         let ip = r.content.parse::<std::net::Ipv6Addr>().map_err(|e| {
                             warn!(content = %r.content, error = %e, "Failed to parse IPv6 address");
                             e
                         }).ok()?;
-                        (RecordType::AAAA, RData::AAAA(ip.into()))
+                        RData::AAAA(ip.into())
                     }
                     // Unreachable: handle_request only dispatches A and AAAA to this function.
                     _ => return None,
                 };
-                Some(
-                    Record::new()
-                        .set_ttl(r.ttl)
-                        .set_name(record_name.clone())
-                        .set_record_type(record_type)
-                        .set_dns_class(DNSClass::IN)
-                        .set_data(Some(rdata))
-                        .clone(),
-                )
+                // hickory infers the record type from the rdata; set the class
+                // explicitly since `from_rdata` defaults it.
+                let mut record = Record::from_rdata(record_name.clone(), r.ttl, rdata);
+                record.dns_class = DNSClass::IN;
+                Some(record)
             })
             .collect::<Vec<_>>();
 
@@ -308,7 +399,15 @@ impl DnsServer {
 
         let client = Mutex::new(ForgeTlsClient::retry_build(&api_config).await?);
 
-        let negative_ttl = Duration::from_secs(config.negative_cache_ttl_secs);
+        // Sweep at the shorter of the two negative-cache lifetimes. ServFail
+        // entries expire far sooner than NXDomain/Refused, and although an
+        // expired entry is never *served* (get() filters on expiry), it still
+        // occupies a slot against the entry cap until swept. Reclaiming on the
+        // short cadence keeps a ServFail flood from filling the cap with
+        // already-expired entries and starving genuinely-new negatives.
+        let sweep_interval = Duration::from_secs(config.negative_cache_ttl_secs)
+            .min(config.servfail_cache_ttl())
+            .max(Duration::from_secs(1));
 
         let metrics_setup = new_metrics_setup("carbide-dns", "carbide", true)?;
 
@@ -336,22 +435,24 @@ impl DnsServer {
 
         // Periodically remove expired negative cache entries.
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(negative_ttl);
+            let mut interval = tokio::time::interval(sweep_interval);
             loop {
                 interval.tick().await;
-                let evicted = cache.evict_expired().await;
+                let evicted = cache.evict_expired();
                 if evicted > 0 {
                     cache_eviction_counter.add(evicted as u64, &[]);
                 }
             }
         });
 
-        let mut srv = ServerFuture::new(server);
+        let mut srv = hickory_server::Server::new(server);
         let udp_socket = UdpSocket::bind(&listen).await?;
         srv.register_socket(udp_socket);
 
         let tcp_socket = TcpListener::bind(&listen).await?;
-        srv.register_listener(tcp_socket, Duration::new(5, 0));
+        // 32 is hickory_server's default response buffer size when run as a
+        // binary; match it here.
+        srv.register_listener(tcp_socket, Duration::new(5, 0), 32);
 
         info!(
             "Started DNS server on {} version {}",
@@ -371,5 +472,41 @@ impl DnsServer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_failure_maps_grpc_codes_to_dns_response_codes() {
+        use tonic::Code;
+
+        let cases = [
+            (Code::NotFound, ResponseCode::NXDomain, false),
+            (Code::InvalidArgument, ResponseCode::FormErr, false),
+            (Code::Unimplemented, ResponseCode::NotImp, false),
+            (Code::PermissionDenied, ResponseCode::Refused, false),
+            (Code::Unauthenticated, ResponseCode::Refused, false),
+            (Code::Internal, ResponseCode::ServFail, true),
+            (Code::Unavailable, ResponseCode::ServFail, true),
+            (Code::DeadlineExceeded, ResponseCode::ServFail, true),
+            (Code::ResourceExhausted, ResponseCode::ServFail, true),
+            (Code::Aborted, ResponseCode::ServFail, true),
+            (Code::Unknown, ResponseCode::ServFail, true),
+        ];
+
+        for (code, expected_code, expected_transient) in cases {
+            let classification = classify_failure(code);
+            assert_eq!(
+                classification.code, expected_code,
+                "response code for {code:?}"
+            );
+            assert_eq!(
+                classification.transient, expected_transient,
+                "transience for {code:?}"
+            );
+        }
     }
 }

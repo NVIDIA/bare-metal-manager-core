@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			EntityID: entityID,
 			Count:    1,
 			Status:   status,
-			Message:  db.GetStrPtr("test message"),
+			Message:  cutil.GetPtr("test message"),
 			Created:  db.GetCurTime().Add(time.Duration(i) * time.Second),
 		}
 
@@ -100,7 +101,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				entityid: entityID,
-				limit:    db.GetIntPtr(10),
+				limit:    cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: &totalCount,
@@ -114,7 +115,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			args: args{
 				ctx:      context.Background(),
 				entityid: entityID,
-				offset:   db.GetIntPtr(15),
+				offset:   cutil.GetPtr(15),
 			},
 			wantCount:      15,
 			wantTotalCount: &totalCount,
@@ -132,7 +133,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityID(t *testing.T) {
 			},
 			wantCount:           paginator.DefaultLimit,
 			wantFirstEntry:      &sds[totalCount-1], // The last entry would have last timestamp, and would appear first in the list
-			firstEntryAttribute: db.GetStrPtr("Created"),
+			firstEntryAttribute: cutil.GetPtr("Created"),
 			wantErr:             false,
 		},
 	}
@@ -194,7 +195,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			EntityID: entityID,
 			Count:    1,
 			Status:   status,
-			Message:  db.GetStrPtr("test message"),
+			Message:  cutil.GetPtr("test message"),
 			Created:  db.GetCurTime().Add(time.Duration(i) * time.Second),
 		}
 
@@ -253,7 +254,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 				entityids: []string{entityID1},
 			},
 			wantCount:      totalCount / 2,
-			wantTotalCount: db.GetIntPtr(totalCount / 2),
+			wantTotalCount: cutil.GetPtr(totalCount / 2),
 			wantErr:        false,
 		},
 		{
@@ -266,7 +267,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 				entityids: []string{},
 			},
 			wantCount:      0,
-			wantTotalCount: db.GetIntPtr(0),
+			wantTotalCount: cutil.GetPtr(0),
 			wantErr:        false,
 		},
 		{
@@ -277,7 +278,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			args: args{
 				ctx:       context.Background(),
 				entityids: []string{entityID1, entityID2},
-				limit:     db.GetIntPtr(10),
+				limit:     cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: &totalCount,
@@ -291,7 +292,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			args: args{
 				ctx:       context.Background(),
 				entityids: []string{entityID1, entityID2},
-				offset:    db.GetIntPtr(15),
+				offset:    cutil.GetPtr(15),
 			},
 			wantCount:      15,
 			wantTotalCount: &totalCount,
@@ -309,7 +310,7 @@ func TestStatusDetailSQLDAO_GetAllByEntityIDs(t *testing.T) {
 			},
 			wantCount:           paginator.DefaultLimit,
 			wantFirstEntry:      &sds[totalCount-1], // The last entry would have last timestamp, and would appear first in the list
-			firstEntryAttribute: db.GetStrPtr("Created"),
+			firstEntryAttribute: cutil.GetPtr("Created"),
 			wantErr:             false,
 		},
 	}
@@ -370,7 +371,7 @@ func TestStatusDetailSQLDAO_CreateFromParams(t *testing.T) {
 	sd := &StatusDetail{
 		EntityID: uuid.NewString(),
 		Status:   VpcStatusPending,
-		Message:  db.GetStrPtr("test message"),
+		Message:  cutil.GetPtr("test message"),
 	}
 
 	// OTEL Spanner configuration
@@ -456,7 +457,7 @@ func TestStatusDetailSQLDAO_UpdateFromParams(t *testing.T) {
 		EntityID: uuid.NewString(),
 		Count:    1,
 		Status:   VpcStatusPending,
-		Message:  db.GetStrPtr("test message"),
+		Message:  cutil.GetPtr("test message"),
 		Created:  time.Now(),
 	}
 
@@ -600,7 +601,7 @@ func TestStatusDetailSQLDAO_GetRecentByEntityIDs(t *testing.T) {
 					EntityID: entityID,
 					Count:    1,
 					Status:   status,
-					Message:  db.GetStrPtr("test message"),
+					Message:  cutil.GetPtr("test message"),
 					Created:  db.GetCurTime().Add(time.Duration(i) * time.Second),
 				}
 
@@ -657,17 +658,17 @@ func TestStatusDetailSQLDAO_CreateMultiple(t *testing.T) {
 				{
 					EntityID: "entity-1",
 					Status:   "Ready",
-					Message:  db.GetStrPtr("Entity 1 is ready"),
+					Message:  cutil.GetPtr("Entity 1 is ready"),
 				},
 				{
 					EntityID: "entity-2",
 					Status:   "Pending",
-					Message:  db.GetStrPtr("Entity 2 is pending"),
+					Message:  cutil.GetPtr("Entity 2 is pending"),
 				},
 				{
 					EntityID: "entity-3",
 					Status:   "Error",
-					Message:  db.GetStrPtr("Entity 3 has error"),
+					Message:  cutil.GetPtr("Entity 3 has error"),
 				},
 			},
 			expectError:   false,

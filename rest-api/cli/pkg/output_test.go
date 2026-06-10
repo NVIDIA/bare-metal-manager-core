@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	openapi "github.com/NVIDIA/infra-controller-rest/openapi"
+	openapi "github.com/NVIDIA/infra-controller/rest-api/openapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

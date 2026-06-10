@@ -59,7 +59,6 @@ reqwest = { default-features = false, features = [
 eyre = { workspace = true }
 tempfile = { workspace = true }
 duration-str = { workspace = true }
-rcgen = { workspace = true }
 rand = { workspace = true }
 russh = { workspace = true }
 
@@ -70,6 +69,7 @@ carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }
 carbide-network = { path = "../network" }
+carbide-utils = { path = "../utils", features = ["test-support"] }
 
 [dev-dependencies]
 toml = { workspace = true }

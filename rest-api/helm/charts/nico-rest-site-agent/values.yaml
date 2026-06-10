@@ -53,6 +53,9 @@ certificate:
   privateKey:
     algorithm: ECDSA
     size: 384
+  # -- Fully override the certificate dnsNames. When empty, dnsNames are
+  # generated from the chart name and namespace.
+  dnsNames: []
   # -- Override SPIFFE URIs for the certificate. Must match the service identifier
   # expected by nico-api's InternalRBACRules (SiteAgent = "elektra-site-agent").
   # For nico deployments set to: ["spiffe://nico.local/nico-system/sa/elektra-site-agent"]

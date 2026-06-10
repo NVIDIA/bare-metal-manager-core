@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const (
@@ -122,18 +122,24 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 		proto.BmcPassword = *creds.Password
 	}
 
-	if eps.Labels != nil {
-		protoLabels := make([]*cwssaws.Label, 0, len(eps.Labels))
-		for k, v := range eps.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata = &cwssaws.Metadata{
-			Labels: protoLabels,
-		}
+	metadata := &cwssaws.Metadata{
+		Labels: expectedComponentLabelsInput{
+			Manufacturer:    eps.Manufacturer,
+			Model:           eps.Model,
+			FirmwareVersion: eps.FirmwareVersion,
+			SlotID:          eps.SlotID,
+			TrayIdx:         eps.TrayIdx,
+			HostID:          eps.HostID,
+			Labels:          eps.Labels,
+		}.ToProto(),
 	}
+	if eps.Name != nil {
+		metadata.Name = *eps.Name
+	}
+	if eps.Description != nil {
+		metadata.Description = *eps.Description
+	}
+	proto.Metadata = metadata
 
 	return proto
 }

@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	commonConfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	commonConfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/processors"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/processors"
 	temporalClient "go.temporal.io/sdk/client"
 )
 

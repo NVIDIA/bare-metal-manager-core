@@ -29,78 +29,78 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	cwfh "github.com/NVIDIA/infra-controller-rest/workflow/pkg/health"
-	cwfn "github.com/NVIDIA/infra-controller-rest/workflow/pkg/namespace"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	cwfh "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/health"
+	cwfn "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/namespace"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	machineActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/machine"
-	machineWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/machine"
+	machineActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
+	machineWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/machine"
 
-	vpcActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpc"
-	vpcWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/vpc"
+	vpcActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpc"
+	vpcWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/vpc"
 
-	subnetActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/subnet"
-	subnetWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/subnet"
+	subnetActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/subnet"
+	subnetWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/subnet"
 
-	instanceActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/instance"
-	instanceWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/instance"
+	instanceActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/instance"
+	instanceWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/instance"
 
-	userActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/user"
-	userWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/user"
+	userActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/user"
+	userWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/user"
 
-	siteActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/site"
-	siteWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/site"
+	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
+	siteWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/site"
 
-	sshKeyGroupActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/sshkeygroup"
-	sshKeyGroupWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/sshkeygroup"
+	sshKeyGroupActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sshkeygroup"
+	sshKeyGroupWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/sshkeygroup"
 
-	ibpActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/infinibandpartition"
-	ibpWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/infinibandpartition"
+	ibpActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/infinibandpartition"
+	ibpWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/infinibandpartition"
 
-	expectedMachineActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/expectedmachine"
-	expectedMachineWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/expectedmachine"
+	expectedMachineActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedmachine"
+	expectedMachineWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedmachine"
 
-	expectedPowerShelfActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/expectedpowershelf"
-	expectedPowerShelfWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/expectedpowershelf"
+	expectedPowerShelfActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedpowershelf"
+	expectedPowerShelfWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedpowershelf"
 
-	expectedRackActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/expectedrack"
-	expectedRackWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/expectedrack"
+	expectedRackActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedrack"
+	expectedRackWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedrack"
 
-	expectedSwitchActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/expectedswitch"
-	expectedSwitchWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/expectedswitch"
+	expectedSwitchActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedswitch"
+	expectedSwitchWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/expectedswitch"
 
-	tenantActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/tenant"
-	tenantWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/tenant"
+	tenantActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/tenant"
+	tenantWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/tenant"
 
-	instanceTypeActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/instancetype"
-	instanceTypeWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/instancetype"
+	instanceTypeActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/instancetype"
+	instanceTypeWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/instancetype"
 
-	networkSecurityGroupActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/networksecuritygroup"
-	networkSecurityGroupWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/networksecuritygroup"
+	networkSecurityGroupActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/networksecuritygroup"
+	networkSecurityGroupWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/networksecuritygroup"
 
-	osImageActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/operatingsystem"
-	osImageWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/operatingsystem"
+	osImageActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/operatingsystem"
+	osImageWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/operatingsystem"
 
-	skuActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/sku"
-	skuWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/sku"
+	skuActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sku"
+	skuWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/sku"
 
-	vpcPrefixActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpcprefix"
-	vpcPrefixWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/vpcprefix"
+	vpcPrefixActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcprefix"
+	vpcPrefixWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/vpcprefix"
 
-	vpcPeeringActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/vpcpeering"
-	vpcPeeringWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/vpcpeering"
+	vpcPeeringActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcpeering"
+	vpcPeeringWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/vpcpeering"
 
-	dpuExtensionServiceActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/dpuextensionservice"
-	dpuExtensionServiceWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/dpuextensionservice"
+	dpuExtensionServiceActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/dpuextensionservice"
+	dpuExtensionServiceWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/dpuextensionservice"
 
-	nvLinkLogicalPartitionActivity "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/nvlinklogicalpartition"
-	nvLinkLogicalPartitionWorkflow "github.com/NVIDIA/infra-controller-rest/workflow/pkg/workflow/nvlinklogicalpartition"
+	nvLinkLogicalPartitionActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/nvlinklogicalpartition"
+	nvLinkLogicalPartitionWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/nvlinklogicalpartition"
 )
 
 const (

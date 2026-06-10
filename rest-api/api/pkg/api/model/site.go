@@ -6,9 +6,9 @@ package model
 import (
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )
@@ -293,7 +293,7 @@ func NewAPISite(dbs cdbm.Site, dbsds []cdbm.StatusDetail, ts *cdbm.TenantSite) A
 		apiSite.RegistrationTokenExpiration = dbs.RegistrationTokenExpiration
 	} else {
 		// Return Tenant specific information
-		apiSite.IsSerialConsoleSSHKeysEnabled = cdb.GetBoolPtr(ts.EnableSerialConsole)
+		apiSite.IsSerialConsoleSSHKeysEnabled = cutil.GetPtr(ts.EnableSerialConsole)
 	}
 
 	// Expand relation if available

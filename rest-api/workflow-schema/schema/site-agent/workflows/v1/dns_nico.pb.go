@@ -1063,7 +1063,7 @@ const file_dns_nico_proto_rawDesc = "" +
 	"\x05_name\"9\n" +
 	"\x15DomainDeletionRequest\x12 \n" +
 	"\x02id\x18\x01 \x01(\v2\x10.common.DomainIdR\x02id\"\x16\n" +
-	"\x14DomainDeletionResultB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\x14DomainDeletionResultBCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_dns_nico_proto_rawDescOnce sync.Once

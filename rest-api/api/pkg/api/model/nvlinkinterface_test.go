@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -9,13 +9,13 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
-	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
+	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 const (
@@ -203,10 +203,13 @@ func (m *Manager) FirmwareControl(
 	return nil
 }
 
-// BringUpControl simulates opening the bring-up gate.
+// BringUpControl simulates opening the bring-up gate. The info argument is
+// accepted to satisfy the BringUpController interface; the mock ignores its
+// contents.
 func (m *Manager) BringUpControl(
 	ctx context.Context,
 	target common.Target,
+	_ operations.BringUpTaskInfo,
 ) error {
 	log.Debug().
 		Str("component_type", m.componentType.String()).

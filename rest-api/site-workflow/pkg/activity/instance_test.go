@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
@@ -62,9 +62,9 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 						},
 					},
 					Config: &cwssaws.InstanceConfig{
-						Os: &cwssaws.OperatingSystem{
+						Os: &cwssaws.InstanceOperatingSystemConfig{
 							RunProvisioningInstructionsOnEveryBoot: true,
-							Variant: &cwssaws.OperatingSystem_Ipxe{
+							Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 								Ipxe: &cwssaws.InlineIpxe{
 									IpxeScript: ipxeScript,
 								},
@@ -135,9 +135,9 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 						},
 					},
 					Config: &cwssaws.InstanceConfig{
-						Os: &cwssaws.OperatingSystem{
+						Os: &cwssaws.InstanceOperatingSystemConfig{
 							RunProvisioningInstructionsOnEveryBoot: true,
-							Variant: &cwssaws.OperatingSystem_Ipxe{
+							Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 								Ipxe: &cwssaws.InlineIpxe{
 									IpxeScript: ipxeScript,
 								},
@@ -216,9 +216,9 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 								},
 							},
 							Config: &cwssaws.InstanceConfig{
-								Os: &cwssaws.OperatingSystem{
+								Os: &cwssaws.InstanceOperatingSystemConfig{
 									RunProvisioningInstructionsOnEveryBoot: true,
-									Variant: &cwssaws.OperatingSystem_Ipxe{
+									Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 										Ipxe: &cwssaws.InlineIpxe{
 											IpxeScript: ipxeScript,
 										},
@@ -240,9 +240,9 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 								},
 							},
 							Config: &cwssaws.InstanceConfig{
-								Os: &cwssaws.OperatingSystem{
+								Os: &cwssaws.InstanceOperatingSystemConfig{
 									RunProvisioningInstructionsOnEveryBoot: true,
-									Variant: &cwssaws.OperatingSystem_Ipxe{
+									Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
 										Ipxe: &cwssaws.InlineIpxe{
 											IpxeScript: ipxeScript,
 										},

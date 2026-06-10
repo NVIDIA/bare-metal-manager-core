@@ -240,6 +240,60 @@ impl InstanceNetworkConfig {
         }
     }
 
+    /// Returns the DPU machine IDs used by the instance network configuration.
+    pub fn get_used_dpus(
+        &self,
+        device_to_id_map: &HashMap<String, Vec<MachineId>>,
+        primary_dpu_machine_id: Option<MachineId>,
+    ) -> Vec<MachineId> {
+        let device_locators: Vec<&DeviceLocator> = self
+            .interfaces
+            .iter()
+            .filter_map(|i| i.device_locator.as_ref())
+            .collect();
+
+        let legacy_physical_interface_count = self
+            .interfaces
+            .iter()
+            .filter(|iface| {
+                iface.function_id == InterfaceFunctionId::Physical {}
+                    && iface.device_locator.is_none()
+            })
+            .count();
+
+        let use_primary_dpu_only = legacy_physical_interface_count > 0
+            || device_locators.is_empty()
+            || device_to_id_map.is_empty();
+
+        if use_primary_dpu_only {
+            return primary_dpu_machine_id.into_iter().collect();
+        }
+
+        let used_dpus: Vec<MachineId> = device_locators
+            .iter()
+            .filter_map(|device_locator| {
+                device_to_id_map
+                    .get(&device_locator.device)
+                    .and_then(|dpu_ids| dpu_ids.get(device_locator.device_instance))
+                    .copied()
+            })
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        if used_dpus.is_empty() {
+            return device_to_id_map
+                .values()
+                .flatten()
+                .copied()
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+        }
+
+        used_dpus
+    }
+
     /// Validates the network configuration.
     ///
     /// Note: this is also called on POST-resolution configs (i.e. after

@@ -27,13 +27,14 @@ use mac_address::MacAddress;
 use model::machine::{
     CleanupContext, DpuInitState, HostReprovisionState, MachineState, ManagedHostState,
 };
+use model::test_support::ManagedHostConfig;
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
 
+use crate::test_support::fixture_config::FixtureDefault as _;
+use crate::test_support::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
-use crate::tests::common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 async fn move_machine_to_needed_state(

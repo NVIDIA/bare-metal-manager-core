@@ -30,6 +30,29 @@ static POOL: OnceCell<PgPool> = OnceCell::const_new();
 static DB_NUMBER: AtomicUsize = AtomicUsize::new(0);
 static TEMPLATE_DB: &str = "sqlx_test_template_db";
 
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn drop_database_query(db_name: &str) -> String {
+    format!(
+        "drop database if exists {} WITH (FORCE);",
+        quote_identifier(db_name)
+    )
+}
+
+fn create_database_query(db_name: &str) -> String {
+    format!("create database {}", quote_identifier(db_name))
+}
+
+fn create_database_from_template_query(db_name: &str) -> String {
+    format!(
+        "create database {} template {}",
+        quote_identifier(db_name),
+        quote_identifier(TEMPLATE_DB)
+    )
+}
+
 pub trait TestFn {
     type Output;
 
@@ -114,11 +137,12 @@ where
 }
 
 async fn cleanup_test(db_name: &str) -> Result<(), sqlx::Error> {
+    let query = drop_database_query(db_name);
     POOL.get()
         .unwrap()
         .acquire()
         .await?
-        .execute(&format!("drop database if exists {db_name:?} WITH (FORCE);")[..])
+        .execute(sqlx::AssertSqlSafe(query))
         .await
         .map(|_| ())
 }
@@ -150,12 +174,11 @@ async fn init_pool() -> PgPool {
         .connect_lazy_with(opts);
 
     // Terminate any existing connections to the template database
-    root_pool
-        .execute(
-            &format!(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {TEMPLATE_DB:?} AND pid <> pg_backend_pid();"
-            )[..],
-        )
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid();",
+    )
+        .bind(TEMPLATE_DB)
+        .execute(&root_pool)
         .await
         .ok(); // Ignore errors if no connections exist
 
@@ -164,8 +187,9 @@ async fn init_pool() -> PgPool {
 
     // Try to drop and recreate the template database
     // Use WITH (FORCE) to forcefully disconnect any lingering sessions
+    let drop_template_query = drop_database_query(TEMPLATE_DB);
     let dropped = root_pool
-        .execute(&format!("drop database if exists {TEMPLATE_DB:?} WITH (FORCE);")[..])
+        .execute(sqlx::AssertSqlSafe(drop_template_query))
         .await
         .is_ok();
 
@@ -173,8 +197,9 @@ async fn init_pool() -> PgPool {
         eprintln!("Note: Template database is in use, reusing existing version");
     } else {
         // Create and migrate template database
+        let create_template_query = create_database_query(TEMPLATE_DB);
         root_pool
-            .execute(&format!("create database {TEMPLATE_DB}")[..])
+            .execute(sqlx::AssertSqlSafe(create_template_query))
             .await
             .expect("cannot create template database");
         let root_opts: std::sync::Arc<PgConnectOptions> = root_pool.connect_options();
@@ -197,29 +222,29 @@ async fn test_context(args: &TestArgs) -> Result<TestContext<Postgres>, sqlx::Er
         args.test_path.replace(":", "_"),
     );
 
+    let drop_test_query = drop_database_query(&new_db_name);
     pool.acquire()
         .await?
-        .execute(&format!("drop database if exists {new_db_name:?} WITH (FORCE);")[..])
+        .execute(sqlx::AssertSqlSafe(drop_test_query))
         .await?;
 
     // Terminate connections to template database before copying from it
     // PostgreSQL requires exclusive access to template databases
-    pool.acquire()
-        .await?
-        .execute(
-            &format!(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {TEMPLATE_DB:?} AND pid <> pg_backend_pid();"
-            )[..],
-        )
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid();",
+    )
+        .bind(TEMPLATE_DB)
+        .execute(pool)
         .await
         .ok(); // Ignore if no connections
 
     // Wait for PostgreSQL to fully close terminated connections
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
+    let create_test_query = create_database_from_template_query(&new_db_name);
     pool.acquire()
         .await?
-        .execute(&format!("create database {new_db_name:?} template {TEMPLATE_DB}")[..])
+        .execute(sqlx::AssertSqlSafe(create_test_query))
         .await?;
 
     Ok(TestContext {

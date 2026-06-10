@@ -10,17 +10,17 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -125,7 +125,7 @@ func (cepsh CreateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		BmcMacAddresses: []string{apiRequest.BmcMacAddress},
 		SiteIDs:         []uuid.UUID{site.ID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 
 	if err != nil {
@@ -287,7 +287,7 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		siteDAO := cdbm.NewSiteDAO(gaepsh.dbSession)
 		sites, _, err := siteDAO.GetAll(ctx, nil,
 			cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{infrastructureProvider.ID}},
-			paginator.PageInput{Limit: cdb.GetIntPtr(math.MaxInt)},
+			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
 			nil,
 		)
 		if err != nil {

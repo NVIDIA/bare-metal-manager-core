@@ -22,11 +22,12 @@ use health_report::{
 use model::expected_machine::ExpectedMachineData;
 use model::machine::LoadSnapshotOptions;
 use model::rack::RackConfig;
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as rpc_forge};
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
+use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_managed_host_with_config,

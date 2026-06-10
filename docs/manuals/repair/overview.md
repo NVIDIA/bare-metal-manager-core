@@ -25,6 +25,32 @@ Repair system integration is the provider-side behavior behind full repair. It e
 
 The repair tenant workflow is the operator runbook for the middle of the full repair process: targeted instance creation into a dedicated repair tenant, machine repair, repair outcome labeling, and repair tenant release.
 
+## Tenant Privileges for Repair Workflows
+
+### Targeted Instance Creation
+
+In a multi-Tenant Site, NICo allows certain Tenants to be designated as privileged Tenants who can carry out repair workflows. A privileged Tenant can access the following REST API endpoints that a regular Tenant cannot:
+
+- Retrieve Machines across any/all Sites owned by a Provider the privileged Tenant has a Tenant Account with
+- Update the labels of a Machine to indicate repair related metadata
+- Create a new Instance by specifying a Machine ID
+
+Tenant privileges are described in terms of Capabilities. The capabilities of a Tenant can be viewed by calling the [`GET /v2/org/{org}/nico/tenant/current` REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tenant/get-current-tenant) and inspecting the `capabilities` field. To elevate a Tenants privileges so they can access the above endpoints, the Tenant must have the `targetedInstanceCreation` capability enabled.
+
+In service account mode, the `targetedInstanceCreation` capability is granted to Service Account Tenant when [`GET /v2/org/{org}/nico/service-account/current` REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/service-account/get-current-service-account) is called.
+
+At present turning this capability on for regular Tenants (who are not part of a Service Account org) is not supported via the REST API. However the feature is in active development, relevant issue can be tracked [here](https://github.com/NVIDIA/infra-controller-rest/issues/304).
+
+NOTE: Privileged Tenants still need Network Allocations from Provider in order to create Instances.
+
+### Reporting an Issue with an Instance
+
+Reporting an issue with the underlying Machine when deleting the Instance doesn't require any special privileges. All Tenants can perform this action.
+
+### Online Repair
+
+Enabling and disabling online repair for an Instance does not require any special privileges. All Tenants can perform this action.
+
 ## API Surface
 
 | Workflow | REST operation | Restish operation |

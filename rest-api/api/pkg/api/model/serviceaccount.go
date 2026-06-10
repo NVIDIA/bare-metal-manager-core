@@ -4,8 +4,8 @@
 package model
 
 import (
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 // type APIServiceAccount is the data structure to capture API representation of a Service Account
@@ -25,10 +25,10 @@ func NewAPIServiceAccount(serviceAccountEnabled bool, dbProvider *cdbm.Infrastru
 	}
 
 	if dbProvider != nil {
-		apiServiceAccount.InfrastructureProviderID = cdb.GetStrPtr(dbProvider.ID.String())
+		apiServiceAccount.InfrastructureProviderID = cutil.GetPtr(dbProvider.ID.String())
 	}
 	if dbTenant != nil {
-		apiServiceAccount.TenantID = cdb.GetStrPtr(dbTenant.ID.String())
+		apiServiceAccount.TenantID = cutil.GetPtr(dbTenant.ID.String())
 	}
 
 	return &apiServiceAccount

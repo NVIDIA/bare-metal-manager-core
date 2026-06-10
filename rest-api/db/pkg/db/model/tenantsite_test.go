@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/roles"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/roles"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -405,8 +406,8 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				configKey: db.GetStrPtr("test-key"),
-				configVal: db.GetStrPtr("test-value"),
+				configKey: cutil.GetPtr("test-key"),
+				configVal: cutil.GetPtr("test-value"),
 			},
 			wantCount:      siteCount / 2,
 			wantTotalCount: siteCount / 2,
@@ -417,7 +418,7 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				limit: db.GetIntPtr(10),
+				limit: cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: siteCount,
@@ -428,7 +429,7 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				offset: db.GetIntPtr(10),
+				offset: cutil.GetPtr(10),
 			},
 			wantCount:      paginator.DefaultLimit,
 			wantTotalCount: siteCount,
@@ -647,7 +648,7 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 			},
 			args: args{
 				id:                  ts.ID,
-				enableSerialConsole: db.GetBoolPtr(true),
+				enableSerialConsole: cutil.GetPtr(true),
 			},
 			want: &TenantSite{
 				ID:                  ts.ID,

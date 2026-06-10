@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
@@ -39,7 +41,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 			desc: "ok when all fields are provided",
 			obj: APIDpuExtensionServiceCreateRequest{
 				Name:        "test-service",
-				Description: cdb.GetStrPtr("test description"),
+				Description: cutil.GetPtr("test description"),
 				ServiceType: DpuExtensionServiceTypeKubernetesPod,
 				SiteID:      validUUID,
 				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
@@ -55,8 +57,8 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Username:    cdb.GetStrPtr("testuser"),
-					Password:    cdb.GetStrPtr("testpass"),
+					Username:    cutil.GetPtr("testuser"),
+					Password:    cutil.GetPtr("testpass"),
 				},
 			},
 			expectErr: false,
@@ -189,7 +191,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Password:    cdb.GetStrPtr("testpass"),
+					Password:    cutil.GetPtr("testpass"),
 				},
 			},
 			expectErr: true,
@@ -203,7 +205,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Username:    cdb.GetStrPtr("testuser"),
+					Username:    cutil.GetPtr("testuser"),
 				},
 			},
 			expectErr: true,
@@ -217,8 +219,8 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Data:        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test",
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "not-a-valid-url",
-					Username:    cdb.GetStrPtr("testuser"),
-					Password:    cdb.GetStrPtr("testpass"),
+					Username:    cutil.GetPtr("testuser"),
+					Password:    cutil.GetPtr("testpass"),
 				},
 			},
 			expectErr: true,
@@ -305,7 +307,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Observability: &APIDpuExtensionServiceObservability{
 					Configs: []APIDpuExtensionServiceObservabilityConfig{
 						{
-							Name: cdb.GetStrPtr(strings.Repeat("a", DpuExtensionServiceMaxObservabilityConfigNameLength+1)),
+							Name: cutil.GetPtr(strings.Repeat("a", DpuExtensionServiceMaxObservabilityConfigNameLength+1)),
 							Prometheus: &APIDpuExtensionServiceObservabilityConfigPrometheus{
 								ScrapeIntervalSeconds: 30,
 								Endpoint:              "busybox:9090",
@@ -326,7 +328,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Observability: &APIDpuExtensionServiceObservability{
 					Configs: []APIDpuExtensionServiceObservabilityConfig{
 						{
-							Name: cdb.GetStrPtr(""),
+							Name: cutil.GetPtr(""),
 							Prometheus: &APIDpuExtensionServiceObservabilityConfigPrometheus{
 								ScrapeIntervalSeconds: 30,
 								Endpoint:              "busybox:9090",
@@ -347,7 +349,7 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 				Observability: &APIDpuExtensionServiceObservability{
 					Configs: []APIDpuExtensionServiceObservabilityConfig{
 						{
-							Name: cdb.GetStrPtr("   "),
+							Name: cutil.GetPtr("   "),
 							Prometheus: &APIDpuExtensionServiceObservabilityConfigPrometheus{
 								ScrapeIntervalSeconds: 30,
 								Endpoint:              "busybox:9090",
@@ -418,30 +420,30 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "ok when name is updated",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name: cdb.GetStrPtr("updated-name"),
+				Name: cutil.GetPtr("updated-name"),
 			},
 			expectErr: false,
 		},
 		{
 			desc: "ok when description is updated",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Description: cdb.GetStrPtr("updated description"),
+				Description: cutil.GetPtr("updated description"),
 			},
 			expectErr: false,
 		},
 		{
 			desc: "ok when data is updated",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Data: cdb.GetStrPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated"),
+				Data: cutil.GetPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated"),
 			},
 			expectErr: false,
 		},
 		{
 			desc: "ok when all fields are updated",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name:        cdb.GetStrPtr("updated-name"),
-				Description: cdb.GetStrPtr("updated description"),
-				Data:        cdb.GetStrPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated"),
+				Name:        cutil.GetPtr("updated-name"),
+				Description: cutil.GetPtr("updated description"),
+				Data:        cutil.GetPtr("apiVersion: v1\nkind: Pod\nmetadata:\n  name: updated"),
 			},
 			expectErr: false,
 		},
@@ -450,8 +452,8 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 			obj: APIDpuExtensionServiceUpdateRequest{
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Username:    cdb.GetStrPtr("newuser"),
-					Password:    cdb.GetStrPtr("newpass"),
+					Username:    cutil.GetPtr("newuser"),
+					Password:    cutil.GetPtr("newpass"),
 				},
 			},
 			expectErr: false,
@@ -483,28 +485,28 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 		{
 			desc: "error when name is empty string",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name: cdb.GetStrPtr(""),
+				Name: cutil.GetPtr(""),
 			},
 			expectErr: true,
 		},
 		{
 			desc: "error when name is too short",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name: cdb.GetStrPtr("t"),
+				Name: cutil.GetPtr("t"),
 			},
 			expectErr: true,
 		},
 		{
 			desc: "error when name is too long",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name: cdb.GetStrPtr(strings.Repeat("a", 257)),
+				Name: cutil.GetPtr(strings.Repeat("a", 257)),
 			},
 			expectErr: true,
 		},
 		{
 			desc: "error when name has invalid characters",
 			obj: APIDpuExtensionServiceUpdateRequest{
-				Name: cdb.GetStrPtr(" test_service"),
+				Name: cutil.GetPtr(" test_service"),
 			},
 			expectErr: true,
 		},
@@ -513,7 +515,7 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 			obj: APIDpuExtensionServiceUpdateRequest{
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Password:    cdb.GetStrPtr("testpass"),
+					Password:    cutil.GetPtr("testpass"),
 				},
 			},
 			expectErr: true,
@@ -523,7 +525,7 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 			obj: APIDpuExtensionServiceUpdateRequest{
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "https://registry.hub.docker.com",
-					Username:    cdb.GetStrPtr("testuser"),
+					Username:    cutil.GetPtr("testuser"),
 				},
 			},
 			expectErr: true,
@@ -533,8 +535,8 @@ func TestAPIDpuExtensionServiceUpdateRequest_Validate(t *testing.T) {
 			obj: APIDpuExtensionServiceUpdateRequest{
 				Credentials: &APIDpuExtensionServiceCredentials{
 					RegistryURL: "not-a-valid-url",
-					Username:    cdb.GetStrPtr("testuser"),
-					Password:    cdb.GetStrPtr("testpass"),
+					Username:    cutil.GetPtr("testuser"),
+					Password:    cutil.GetPtr("testpass"),
 				},
 			},
 			expectErr: true,
@@ -570,8 +572,8 @@ func TestAPIDpuExtensionServiceCredentials_Validate(t *testing.T) {
 			desc: "ok when all fields are provided with valid values",
 			obj: APIDpuExtensionServiceCredentials{
 				RegistryURL: "https://registry.hub.docker.com",
-				Username:    cdb.GetStrPtr("testuser"),
-				Password:    cdb.GetStrPtr("testpass"),
+				Username:    cutil.GetPtr("testuser"),
+				Password:    cutil.GetPtr("testpass"),
 			},
 			expectErr: false,
 		},
@@ -579,16 +581,16 @@ func TestAPIDpuExtensionServiceCredentials_Validate(t *testing.T) {
 			desc: "ok with different valid registry URL",
 			obj: APIDpuExtensionServiceCredentials{
 				RegistryURL: "https://nvcr.io",
-				Username:    cdb.GetStrPtr("$oauthtoken"),
-				Password:    cdb.GetStrPtr("secret-token"),
+				Username:    cutil.GetPtr("$oauthtoken"),
+				Password:    cutil.GetPtr("secret-token"),
 			},
 			expectErr: false,
 		},
 		{
 			desc: "error when registry URL is missing",
 			obj: APIDpuExtensionServiceCredentials{
-				Username: cdb.GetStrPtr("testuser"),
-				Password: cdb.GetStrPtr("testpass"),
+				Username: cutil.GetPtr("testuser"),
+				Password: cutil.GetPtr("testpass"),
 			},
 			expectErr: true,
 		},
@@ -596,8 +598,8 @@ func TestAPIDpuExtensionServiceCredentials_Validate(t *testing.T) {
 			desc: "error when registry URL is invalid",
 			obj: APIDpuExtensionServiceCredentials{
 				RegistryURL: "not-a-valid-url",
-				Username:    cdb.GetStrPtr("testuser"),
-				Password:    cdb.GetStrPtr("testpass"),
+				Username:    cutil.GetPtr("testuser"),
+				Password:    cutil.GetPtr("testpass"),
 			},
 			expectErr: true,
 		},
@@ -605,7 +607,7 @@ func TestAPIDpuExtensionServiceCredentials_Validate(t *testing.T) {
 			desc: "error when username is missing",
 			obj: APIDpuExtensionServiceCredentials{
 				RegistryURL: "https://registry.hub.docker.com",
-				Password:    cdb.GetStrPtr("testpass"),
+				Password:    cutil.GetPtr("testpass"),
 			},
 			expectErr: true,
 		},
@@ -613,7 +615,7 @@ func TestAPIDpuExtensionServiceCredentials_Validate(t *testing.T) {
 			desc: "error when password is missing",
 			obj: APIDpuExtensionServiceCredentials{
 				RegistryURL: "https://registry.hub.docker.com",
-				Username:    cdb.GetStrPtr("testuser"),
+				Username:    cutil.GetPtr("testuser"),
 			},
 			expectErr: true,
 		},
@@ -642,7 +644,7 @@ func TestNewAPIDpuExtensionService(t *testing.T) {
 		ID:          uuid.New(),
 		Name:        "test-service",
 		ServiceType: "test-type",
-		Version:     cdb.GetStrPtr("v1"),
+		Version:     cutil.GetPtr("v1"),
 		VersionInfo: &cdbm.DpuExtensionServiceVersionInfo{
 			Version:        "v1",
 			Data:           "apiVersion: v1\nkind: Pod",
@@ -712,4 +714,101 @@ func TestNewAPIDpuExtensionService(t *testing.T) {
 			assert.Equal(t, len(tc.dbdesds), len(ades.StatusHistory))
 		})
 	}
+}
+
+func TestAPIDpuExtensionServiceCredentials_ToProto(t *testing.T) {
+	t.Run("nil receiver yields nil", func(t *testing.T) {
+		var c *APIDpuExtensionServiceCredentials
+		assert.Nil(t, c.ToProto())
+	})
+	t.Run("populates UsernamePassword type", func(t *testing.T) {
+		user := "u"
+		pass := "p"
+		c := &APIDpuExtensionServiceCredentials{RegistryURL: "https://reg/", Username: &user, Password: &pass}
+		got := c.ToProto()
+		require.NotNil(t, got)
+		assert.Equal(t, "https://reg/", got.RegistryUrl)
+		up, ok := got.Type.(*cwssaws.DpuExtensionServiceCredential_UsernamePassword)
+		require.True(t, ok)
+		require.NotNil(t, up.UsernamePassword)
+		assert.Equal(t, "u", up.UsernamePassword.Username)
+		assert.Equal(t, "p", up.UsernamePassword.Password)
+	})
+	t.Run("nil username/password yields no Type", func(t *testing.T) {
+		c := &APIDpuExtensionServiceCredentials{RegistryURL: "https://reg/"}
+		got := c.ToProto()
+		require.NotNil(t, got)
+		assert.Equal(t, "https://reg/", got.RegistryUrl)
+		assert.Nil(t, got.Type)
+	})
+}
+
+func TestAPIDpuExtensionServiceCreateRequest_ToProto(t *testing.T) {
+	t.Run("populated request maps fields through", func(t *testing.T) {
+		desc := "primary"
+		user := "u"
+		pass := "p"
+		descr := APIDpuExtensionServiceCreateRequest{
+			Name:        "svc-a",
+			Description: &desc,
+			ServiceType: DpuExtensionServiceTypeKubernetesPod,
+			SiteID:      uuid.NewString(),
+			Data:        "kind: Pod",
+			Credentials: &APIDpuExtensionServiceCredentials{
+				RegistryURL: "https://reg/",
+				Username:    &user,
+				Password:    &pass,
+			},
+		}
+		req := descr.ToProto("svc-id-1", "org-1")
+		assert.NotNil(t, req)
+		assert.Equal(t, "svc-id-1", *req.ServiceId)
+		assert.Equal(t, "svc-a", req.ServiceName)
+		assert.Equal(t, &desc, req.Description)
+		assert.Equal(t, "org-1", req.TenantOrganizationId)
+		assert.Equal(t, "kind: Pod", req.Data)
+		assert.Equal(t, cwssaws.DpuExtensionServiceType_KUBERNETES_POD, req.ServiceType)
+		assert.NotNil(t, req.Credential)
+	})
+	t.Run("nil Credentials and Observability yield nil proto fields", func(t *testing.T) {
+		// Confirms the nested ToProto calls' nil-receiver behavior is
+		// what keeps the request mapper clean.
+		descr := APIDpuExtensionServiceCreateRequest{
+			Name:        "svc-c",
+			ServiceType: DpuExtensionServiceTypeKubernetesPod,
+			Data:        "kind: Pod",
+		}
+		req := descr.ToProto("svc-id-3", "org-1")
+		assert.NotNil(t, req)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
+}
+
+func TestAPIDpuExtensionServiceUpdateRequest_ToProto(t *testing.T) {
+	t.Run("populated request maps fields through", func(t *testing.T) {
+		name := "svc-b"
+		data := "kind: Pod V2"
+		desur := APIDpuExtensionServiceUpdateRequest{
+			Name: &name,
+			Data: &data,
+		}
+		req := desur.ToProto("svc-id-2")
+		assert.NotNil(t, req)
+		assert.Equal(t, "svc-id-2", req.ServiceId)
+		assert.Equal(t, &name, req.ServiceName)
+		assert.Equal(t, "kind: Pod V2", req.Data)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
+	t.Run("nil Data leaves proto Data at the zero value", func(t *testing.T) {
+		// Update's Data is *string on the request, but a required
+		// string on the wire; nil request Data maps to "".
+		desur := APIDpuExtensionServiceUpdateRequest{}
+		req := desur.ToProto("svc-id-4")
+		assert.NotNil(t, req)
+		assert.Equal(t, "", req.Data)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
 }

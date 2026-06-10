@@ -496,41 +496,24 @@ if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. NICo REST repo
+# 9. NICo REST source tree (in-tree at ../rest-api)
+#
+# The REST stack lives in this repo under rest-api/. No separate clone is
+# supported any more; the legacy NICO_REST_REPO / NICO_REPO env vars and the
+# sibling-directory fallbacks were removed once rest-api/ became part of
+# core. If rest-api/ is missing the checkout is broken — error out so the
+# user fixes it rather than installing a half-stack.
 # ---------------------------------------------------------------------------
-NICO_REST_REPO_RESOLVED=""
+NICO_REST_DIR=""
 _NICO_REST_ENABLED=true
 [[ "${SKIP_REST:-false}" == "true" ]] && _NICO_REST_ENABLED=false
 
-NICO_CLONE_URL="https://github.com/NVIDIA/infra-controller-rest.git"
-NICO_CLONE_PARENT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-
 if ${_NICO_REST_ENABLED}; then
-    _NICO_REST_REPO_INPUT="${NICO_REST_REPO:-${NICO_REPO:-}}"
-    _NICO_REST_REPO_VAR="NICO_REST_REPO"
-    [[ -z "${NICO_REST_REPO:-}" && -n "${NICO_REPO:-}" ]] && _NICO_REST_REPO_VAR="NICO_REPO"
-
-    if [[ -n "${_NICO_REST_REPO_INPUT:-}" ]]; then
-        if [[ -d "${_NICO_REST_REPO_INPUT}/helm/charts/nico-rest" ]]; then
-            NICO_REST_REPO_RESOLVED="$(cd "${_NICO_REST_REPO_INPUT}" && pwd)"
-        else
-            ERRORS+=("${_NICO_REST_REPO_VAR}='${_NICO_REST_REPO_INPUT}' but helm/charts/nico-rest was not found there")
-        fi
+    _NICO_REST_CANDIDATE="${SCRIPT_DIR}/../rest-api"
+    if [[ -d "${_NICO_REST_CANDIDATE}/helm/charts/nico-rest" ]]; then
+        NICO_REST_DIR="$(cd "${_NICO_REST_CANDIDATE}" && pwd)"
     else
-        for _candidate in \
-            "${SCRIPT_DIR}/../../infra-controller-rest" \
-            "${SCRIPT_DIR}/../../nico-rest" \
-            "${SCRIPT_DIR}/../../ncx-infra-controller-rest" \
-            "${SCRIPT_DIR}/../../ncx"; do
-            if [[ -d "${_candidate}/helm/charts/nico-rest" ]]; then
-                NICO_REST_REPO_RESOLVED="$(cd "${_candidate}" && pwd)"
-                break
-            fi
-        done
-    fi
-
-    if [[ -z "${NICO_REST_REPO_RESOLVED}" ]]; then
-        WARNINGS+=("NICo REST repo not found — expected a sibling directory with helm/charts/nico-rest")
+        ERRORS+=("rest-api/ not found at ${_NICO_REST_CANDIDATE} (or missing helm/charts/nico-rest under it) — check out the full core repo, or pass --skip-rest if you only need the infra prereqs.")
     fi
 fi
 
@@ -541,13 +524,9 @@ _print_separator() { echo "-----------------------------------------------------
 
 if [[ ${#ERRORS[@]} -eq 0 && ${#WARNINGS[@]} -eq 0 ]]; then
     if ${_NICO_REST_ENABLED}; then
-        echo "Pre-flight OK  (NICo REST repo: ${NICO_REST_REPO_RESOLVED:-not resolved})"
+        echo "Pre-flight OK  (NICo REST source: ${NICO_REST_DIR})"
     else
         echo "Pre-flight OK  (NICo REST skipped)"
-    fi
-    if [[ -n "${NICO_REST_REPO_RESOLVED}" ]]; then
-        export NICO_REST_REPO="${NICO_REST_REPO_RESOLVED}"
-        export NICO_REPO="${NICO_REST_REPO_RESOLVED}"
     fi
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
@@ -573,49 +552,6 @@ if [[ ${#WARNINGS[@]} -gt 0 ]]; then
     done
 fi
 
-# Offer to clone NICo REST repo if missing
-if ${_NICO_REST_ENABLED} && [[ -z "${NICO_REST_REPO_RESOLVED}" ]]; then
-    echo ""
-    echo "  NICo REST repo not found."
-    echo ""
-    echo "  setup.sh Phase 7 deploys the NICo REST stack (API, workflow engine, site-agent)"
-    echo "  using Helm charts and kustomize bases from a separate repository:"
-    echo "    ${NICO_CLONE_URL}"
-    echo ""
-    echo "  Options:"
-    echo "    c) Clone it now into ${NICO_CLONE_PARENT}/infra-controller-rest"
-    echo "    s) Skip — Phase 7 will be skipped or will fail"
-    echo "    q) Quit setup entirely"
-    echo ""
-    echo "  (You can also clone it manually and re-run with:"
-    echo "   export NICO_REST_REPO=/path/to/infra-controller-rest)"
-    if [[ "${AUTO_YES:-false}" == "true" ]]; then
-        _clone_reply="s"
-    else
-        echo ""
-        read -r -p "  ➤  Clone NICo REST repo now? [c=clone / s=skip / q=quit]: " _clone_reply
-        echo ""
-    fi
-    case "${_clone_reply:-s}" in
-        c|C)
-            echo "  Cloning ${NICO_CLONE_URL} ..."
-            git clone "${NICO_CLONE_URL}" "${NICO_CLONE_PARENT}/infra-controller-rest"
-            NICO_REST_REPO_RESOLVED="${NICO_CLONE_PARENT}/infra-controller-rest"
-            export NICO_REST_REPO="${NICO_REST_REPO_RESOLVED}"
-            export NICO_REPO="${NICO_REST_REPO_RESOLVED}"
-            echo "  Cloned OK — NICO_REST_REPO=${NICO_REST_REPO}"
-            WARNINGS=("${WARNINGS[@]/NICo REST repo not found*/}")
-            ;;
-        q|Q)
-            echo "  Aborted."
-            if ${_SOURCED}; then return 1; else exit 1; fi
-            ;;
-        *)
-            echo "  Skipping NICo REST repo — step [7/7] will fail."
-            ;;
-    esac
-fi
-
 echo ""
 _print_separator
 
@@ -632,20 +568,12 @@ if [[ ${#ERRORS[@]} -eq 0 ]]; then
             if ${_SOURCED}; then return 1; else exit 1; fi
         fi
     fi
-    if [[ -n "${NICO_REST_REPO_RESOLVED}" ]]; then
-        export NICO_REST_REPO="${NICO_REST_REPO_RESOLVED}"
-        export NICO_REPO="${NICO_REST_REPO_RESOLVED}"
-    fi
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 
 # Hard errors — default abort
 if [[ "${AUTO_YES:-false}" == "true" ]]; then
     echo "  Errors above noted — continuing (-y flag set). Things may fail."
-    if [[ -n "${NICO_REST_REPO_RESOLVED}" ]]; then
-        export NICO_REST_REPO="${NICO_REST_REPO_RESOLVED}"
-        export NICO_REPO="${NICO_REST_REPO_RESOLVED}"
-    fi
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 
@@ -656,10 +584,6 @@ read -r -p "  ➤  Continue anyway at your own risk? [y/N]: " _reply
 echo ""
 if [[ "${_reply:-N}" =~ ^[Yy]$ ]]; then
     echo "  Continuing — good luck."
-    if [[ -n "${NICO_REST_REPO_RESOLVED}" ]]; then
-        export NICO_REST_REPO="${NICO_REST_REPO_RESOLVED}"
-        export NICO_REPO="${NICO_REST_REPO_RESOLVED}"
-    fi
     if ${_SOURCED}; then return 0; else exit 0; fi
 fi
 

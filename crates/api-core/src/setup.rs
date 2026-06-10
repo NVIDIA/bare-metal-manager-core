@@ -16,9 +16,7 @@
  */
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -60,6 +58,9 @@ use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
 use carbide_utils::HostPortPair;
+use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
+use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
+use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -94,7 +95,6 @@ use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::start_dpa_handler;
 use crate::dynamic_settings::DynamicSettings;
-use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::listener::{AdminUiRoutesBuilder, ApiListenMode};
 use crate::logging::log_limiter::LogLimiter;
@@ -391,6 +391,10 @@ pub fn parse_carbide_config(
     // parsed config, before the web layer exists.
     crate::init_tools(config.web_ui_sidebar_tools.clone());
 
+    // Publish the deployment-wide host naming policy so the DB layer can read it
+    // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
+    db::host_naming::configure(config.host_naming_strategy);
+
     // Validate that the firmware profile config keys match their inner
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
@@ -495,7 +499,7 @@ pub async fn start_api(
     )
     .await?;
 
-    let rms_client = match carbide_config.rms.api_url.clone() {
+    let (rms_client, switch_system_image_rms_api) = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
             let rms_client_config = librms::client_config::RmsClientConfig::new(
                 carbide_config.rms.root_ca_path.clone(),
@@ -506,9 +510,11 @@ pub async fn start_api(
             let rms_api_config = librms::client::RmsApiConfig::new(&url, &rms_client_config);
             let rms_client_pool = librms::RmsClientPool::new(&rms_api_config);
             let shared_rms_client = rms_client_pool.create_client().await;
-            Some(shared_rms_client)
+            let switch_system_image_rms_api =
+                Arc::new(librms::RackManagerApi::new(&rms_api_config));
+            (Some(shared_rms_client), Some(switch_system_image_rms_api))
         }
-        _ => None,
+        _ => (None, None),
     };
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
@@ -554,14 +560,12 @@ pub async fn start_api(
         // buggy -- otherwise).
         //
         // These are of course set with RouteServerSourceType::ConfigFile.
-        let route_servers: Vec<IpAddr> = carbide_config
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-        db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
-            .await?;
+        db::route_servers::replace(
+            &mut txn,
+            &carbide_config.route_servers,
+            RouteServerSourceType::ConfigFile,
+        )
+        .await?;
 
         txn.commit().await?;
     };
@@ -600,7 +604,11 @@ pub async fn start_api(
 
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
-        dhcp_servers: carbide_config.dhcp_servers.clone(),
+        dhcp_servers: carbide_config
+            .dhcp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect(),
         deny_prefixes: carbide_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };
@@ -665,7 +673,7 @@ pub async fn start_api(
 
         let provider = CarbideBmcPasswordProvider::new(credential_manager.clone());
 
-        let mandatory_services = carbide_config.dpf.services.clone();
+        let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
         let dpf_mandatory_services = vec![
             crate::dpf_services::dts_service(&mandatory_services.dts),
             crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
@@ -707,6 +715,9 @@ pub async fn start_api(
         match component_manager::component_manager::build_component_manager(
             cd_config,
             rms_client.clone(),
+            switch_system_image_rms_api.clone().map(|client| {
+                client as Arc<dyn component_manager::rms::RmsSwitchSystemImageStatusApi>
+            }),
             Some(db_pool.clone()),
             Some(shared_redfish_pool.clone()),
         )
@@ -831,6 +842,7 @@ pub async fn initialize_and_start_controllers<'a>(
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
         rms_client,
+        component_manager,
         dpf_sdk,
         credential_manager,
         ..
@@ -855,8 +867,22 @@ pub async fn initialize_and_start_controllers<'a>(
         tracing::info!("Created initial domain {domain_name}");
     }
 
-    const EXPECTED_MACHINE_FILE_PATH: &str = "/etc/forge/carbide-api/site/expected_machines.json";
-    if let Ok(file_str) = tokio::fs::read_to_string(EXPECTED_MACHINE_FILE_PATH).await {
+    // Probe the helm-chart layout first, then the forged-kustomize layout.
+    // The first path that exists wins; if reading that path then fails
+    // (e.g. permissions) the error propagates rather than silently falling
+    // through to the next layout.
+    const EXPECTED_MACHINE_FILE_PATHS: &[&str] = &[
+        "/etc/nico/nico-api/site/expected_machines.json",
+        "/etc/forge/carbide-api/site/expected_machines.json",
+    ];
+    let expected_machine_path = EXPECTED_MACHINE_FILE_PATHS
+        .iter()
+        .find(|p| std::path::Path::new(p).exists());
+    if let Some(path_used) = expected_machine_path {
+        tracing::debug!(path = path_used, "Loading expected_machines.json");
+        let file_str = tokio::fs::read_to_string(path_used)
+            .await
+            .wrap_err_with(|| format!("Failed to read {path_used}"))?;
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
             })?;
@@ -1157,6 +1183,25 @@ pub async fn initialize_and_start_controllers<'a>(
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build NetworkSegmentController");
 
+    StateController::<VpcPrefixStateControllerIO>::builder()
+        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .meter("carbide_vpc_prefixes", meter.clone())
+        .processor_id(state_controller_id.clone())
+        .services(
+            VpcPrefixStateHandlerServices {
+                db_pool: db_pool.clone(),
+            }
+            .into(),
+        )
+        .iteration_config((&carbide_config.vpc_prefix_state_controller.controller).into())
+        .state_handler(Arc::new(VpcPrefixStateHandler::new(
+            carbide_config
+                .vpc_prefix_state_controller
+                .vpc_prefix_drain_time,
+        )))
+        .build_and_spawn(join_set, cancel_token.clone())
+        .expect("Unable to build VpcPrefixStateController");
+
     if carbide_config.spdm.enabled {
         let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
             return Err(eyre::eyre!(
@@ -1210,7 +1255,7 @@ pub async fn initialize_and_start_controllers<'a>(
         .services(
             PowerShelfStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_client.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
             }
             .into(),
@@ -1250,7 +1295,7 @@ pub async fn initialize_and_start_controllers<'a>(
         .services(
             SwitchStateHandlerServices {
                 db_pool: db_pool.clone(),
-                rms_client: rms_client.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
             }
             .into(),
@@ -1298,7 +1343,7 @@ pub async fn initialize_and_start_controllers<'a>(
             mqtt_client,
         };
 
-        let dpa_info = Some(Arc::new(info));
+        let dpa_info = Arc::new(info);
 
         DpaMonitor::new(
             db_pool.clone(),
@@ -1446,10 +1491,12 @@ mod tests {
         prefix: &str,
         segment_type: NetworkDefinitionSegmentType,
     ) -> NetworkDefinition {
+        let prefix = prefix.parse::<ipnetwork::IpNetwork>().unwrap();
         NetworkDefinition {
             segment_type,
-            prefix: prefix.to_string(),
-            gateway: "".to_string(),
+            prefix,
+            // Test helper placeholder; callers under test do not use this as a routable gateway.
+            gateway: prefix.network(),
             mtu: 0,
             reserve_first: 0,
             allocation_strategy: Default::default(),

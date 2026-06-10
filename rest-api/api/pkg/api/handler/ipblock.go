@@ -19,18 +19,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -216,8 +216,8 @@ func (cipbh CreateIPBlockHandler) Handle(c echo.Context) error {
 		// Create a status detail record for the IPBlock
 		sdDAO := cdbm.NewStatusDetailDAO(cipbh.dbSession)
 		var serr error
-		ssd, serr = sdDAO.CreateFromParams(ctx, tx, ipb.ID.String(), *cdb.GetStrPtr(cdbm.IPBlockStatusReady),
-			cdb.GetStrPtr("IP Block is ready for use"))
+		ssd, serr = sdDAO.CreateFromParams(ctx, tx, ipb.ID.String(), *cutil.GetPtr(cdbm.IPBlockStatusReady),
+			cutil.GetPtr("IP Block is ready for use"))
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for IPBlock", nil)
@@ -384,7 +384,7 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 			Statuses:                  statuses,
 			SearchQuery:               searchQuery,
 			ExcludeDerived:            true,
-		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting IPBlocks from db")
@@ -403,7 +403,7 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 			TenantIDs:   []uuid.UUID{tenant.ID},
 			Statuses:    statuses,
 			SearchQuery: searchQuery,
-		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting IPBlocks from db")
@@ -637,7 +637,7 @@ func (gadipbh GetAllDerivedIPBlockHandler) Handle(c echo.Context) error {
 
 	// Get allocation constraints by resourcetype ID (parent IPBlock)
 	acDAO := cdbm.NewAllocationConstraintDAO(gadipbh.dbSession)
-	acs, _, err := acDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{ipb.ID}, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	acs, _, err := acDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{ipb.ID}, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Allocation Constraints for parent IPBlock from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for parent IPBlock", nil)
@@ -1009,7 +1009,7 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 
 		sdDAO := cdbm.NewStatusDetailDAO(uipbh.dbSession)
 		var sderr error
-		ssds, _, sderr = sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		ssds, _, sderr = sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if sderr != nil {
 			logger.Error().Err(sderr).Msg("error retrieving Status Details for IPBlock from DB")
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for IPBlock", nil)
@@ -1129,7 +1129,7 @@ func (dipbh DeleteIPBlockHandler) Handle(c echo.Context) error {
 
 	// Verify that the IPBlock does not have any allocations associated with it
 	acDAO := cdbm.NewAllocationConstraintDAO(dipbh.dbSession)
-	_, acCount, err := acDAO.GetAll(ctx, nil, nil, cdb.GetStrPtr(cdbm.AllocationResourceTypeIPBlock), []uuid.UUID{ipb.ID}, nil, nil, nil, nil, nil, nil)
+	_, acCount, err := acDAO.GetAll(ctx, nil, nil, cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock), []uuid.UUID{ipb.ID}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting allocation constraints")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Allocations for IP Block", nil)

@@ -62,9 +62,18 @@ lazy_static = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
+[features]
+default = []
+# Exposes src/test_support.rs (test-only helpers) without shipping them in a
+# production build.
+test-support = []
+
 [dev-dependencies]
 axum = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
+# Self dev-dependency so the crate's own integration tests get the test-support
+# helpers; applies only to test/bench targets, never the production library.
+bmc-explorer = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

@@ -6,8 +6,8 @@ package componentmanager
 import (
 	"context"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
 // Operation interfaces describe the optional callable behaviors behind
@@ -69,8 +69,11 @@ type FirmwareStatusReader interface {
 // Required descriptor capability: capability.CapabilityBringUpControl.
 type BringUpController interface {
 	// BringUpControl opens the power-on gate for the target components, allowing
-	// them to proceed through the bring-up sequence.
-	BringUpControl(ctx context.Context, target common.Target) error
+	// them to proceed through the bring-up sequence. The info argument carries
+	// the parent BringUp task settings — notably OverrideAssignmentCheck —
+	// because bring-up can power-cycle hosts and must consult the same safety
+	// gate as PowerControl / FirmwareControl.
+	BringUpControl(ctx context.Context, target common.Target, info operations.BringUpTaskInfo) error //nolint
 }
 
 // BringUpStatusReader is implemented by component managers that can report

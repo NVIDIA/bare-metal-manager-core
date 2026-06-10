@@ -4,8 +4,8 @@
 package powershelfmanager
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/credentials"
-	"github.com/NVIDIA/infra-controller-rest/powershelf-manager/pkg/pmcregistry"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/credentials"
+	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/pmcregistry"
 )
 
 // DataStoreType selects between Persistent (Postgres+Vault) and InMemory backends.

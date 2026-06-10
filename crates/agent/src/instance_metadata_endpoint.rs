@@ -70,9 +70,9 @@ pub trait InstanceMetadataRouterState: Sync + Send {
     );
     async fn phone_home(&self) -> Result<(), eyre::Error>;
 
-    /// Calls Carbide `SignMachineIdentity` gRPC using the agent's TLS client identity. The SPIFFE ID
-    /// in the client certificate must match the managed host machine row used by Carbide for
-    /// tenant identity config.
+    /// Calls Carbide `SignMachineIdentity` gRPC using the agent's DPU TLS client identity.
+    /// Carbide maps the DPU SPIFFE ID to the owning host when resolving the active instance and
+    /// tenant identity config; the issued JWT `sub` still reflects the caller's machine ID.
     ///
     /// **Note:** `GET …/meta-data/identity` does not use this trait method directly; it goes through
     /// [`Self::serve_meta_data_identity`], which enforces the identity rate limit before Carbide or

@@ -26,6 +26,7 @@ toml_edit = { workspace = true }
 walkdir = { workspace = true }
 eyre = { workspace = true }
 clap = { workspace = true }
+cargo_metadata = { workspace = true }
 similar = { workspace = true }
 version-compare = { workspace = true }
 

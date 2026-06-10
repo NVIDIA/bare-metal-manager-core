@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en"
+early_access: false
+tone_instructions: >-
+  Act as a Principal Engineer focusing on clean code, performance, and maintainability. Maintain a formal tone, highlighting issues, and suggesting production-grade, elegant, and concise solutions.
+reviews:
+  profile: chill # Options: assertive / chill
+  high_level_summary_in_walkthrough: true
+  suggested_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  path_filters:
+    - "!rest-api/**/*.pb.go"
+    - "!rest-api/workflow-schema/site-agent/workflows/v1/*_nico.proto"
+  path_instructions:
+    - path: 'rest-api/**/*.go'
+      instructions: >-
+        Review the Go code, point out issues relative to principles of clean
+        code, expressiveness, and performance.
+    - path: 'rest-api/**/*.proto'
+      instructions: >-
+        Review the Protobuf definitions, point out issues relative to
+        compatibility, and expressiveness.
+    - path: 'rest-api/openapi/spec.yaml'
+      instructions: >-
+        Review the OpenAPI specification, check for consistency and correctness, check for misspellings and grammatical errors.
+    - path: 'rest-api/**/*.sh'
+      instructions: >-
+        Review the shell scripts, point out issues relative to security,
+        performance, and maintainability.
+    - path: "rest-api/**/*.md"
+      instructions: |
+        "Assess the documentation for misspellings, grammatical errors, missing documentation and correctness"
+    - path: "rest-api/sdk/standard/"
+      instructions: >-
+        Changes in these Go files are auto-generated, except for files in "sdk/standard/helpers" directory. Review accordingly.
+  auto_review:
+    enabled: false
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - AGENTS.md
+      - README.md
+      - CONTRIBUTING.md
+      - STYLE_GUIDE.md
+      - rest-api/AGENTS.md
+      - rest-api/README.md
+      - rest-api/CONTRIBUTING.md
+issue_enrichment:
+  planning:
+    enabled: true

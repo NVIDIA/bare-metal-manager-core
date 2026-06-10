@@ -14,11 +14,11 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 
-	activitypkg "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/activity"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	activitypkg "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // Mock activities for testing
@@ -355,7 +355,7 @@ func TestGenericComponentStepWorkflow_BringUpAndWait(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	mockBringUpControl := func(ctx context.Context, target common.Target) error {
+	mockBringUpControl := func(_ context.Context, _ common.Target, _ operations.BringUpTaskInfo) error {
 		return nil
 	}
 	mockGetBringUpStatus := func(ctx context.Context, target common.Target) (*activitypkg.GetBringUpStatusResult, error) {
@@ -367,7 +367,7 @@ func TestGenericComponentStepWorkflow_BringUpAndWait(t *testing.T) {
 	env.RegisterActivityWithOptions(mockGetBringUpStatus,
 		activity.RegisterOptions{Name: activitypkg.NameGetBringUpStatus})
 
-	env.OnActivity(mockBringUpControl, mock.Anything, mock.Anything).Return(nil)
+	env.OnActivity(mockBringUpControl, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	env.OnActivity(mockGetBringUpStatus, mock.Anything, mock.Anything).Return(
 		&activitypkg.GetBringUpStatusResult{
 			States: map[string]operations.MachineBringUpState{

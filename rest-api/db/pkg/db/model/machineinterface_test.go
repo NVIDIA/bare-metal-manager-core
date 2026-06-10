@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestMachineInterfaceSQLDAO_Create(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
 	miDAO := NewMachineInterfaceDAO(dbSession)
 
 	badSession, err := db.NewSession(context.Background(), "localhost", 1234, "postgres", "postgres", "postgres", "")
@@ -62,8 +63,8 @@ func TestMachineInterfaceSQLDAO_Create(t *testing.T) {
 			dao:  miDAO,
 			mis: []MachineInterface{
 				{
-					MachineID: machine.ID, Hostname: db.GetStrPtr("test.com"), IsPrimary: true, AttachedDPUMachineID: db.GetStrPtr(uuid.New().String()), SubnetID: db.GetUUIDPtr(subnet.ID),
-					MacAddress: db.GetStrPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
+					MachineID: machine.ID, Hostname: cutil.GetPtr("test.com"), IsPrimary: true, AttachedDPUMachineID: cutil.GetPtr(uuid.New().String()), SubnetID: cutil.GetPtr(subnet.ID),
+					MacAddress: cutil.GetPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
 				},
 			},
 			expectError:        false,
@@ -74,8 +75,8 @@ func TestMachineInterfaceSQLDAO_Create(t *testing.T) {
 			dao:  badDAO,
 			mis: []MachineInterface{
 				{
-					MachineID: machine.ID, Hostname: db.GetStrPtr("test.com"), IsPrimary: true, SubnetID: db.GetUUIDPtr(subnet.ID),
-					MacAddress: db.GetStrPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
+					MachineID: machine.ID, Hostname: cutil.GetPtr("test.com"), IsPrimary: true, SubnetID: cutil.GetPtr(subnet.ID),
+					MacAddress: cutil.GetPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
 				},
 			},
 			expectError: true,
@@ -85,8 +86,8 @@ func TestMachineInterfaceSQLDAO_Create(t *testing.T) {
 			dao:  miDAO,
 			mis: []MachineInterface{
 				{
-					MachineID: uuid.NewString(), Hostname: db.GetStrPtr("test.com"), IsPrimary: true, SubnetID: db.GetUUIDPtr(subnet.ID),
-					MacAddress: db.GetStrPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
+					MachineID: uuid.NewString(), Hostname: cutil.GetPtr("test.com"), IsPrimary: true, SubnetID: cutil.GetPtr(subnet.ID),
+					MacAddress: cutil.GetPtr("00:00:00:00:00:00"), IPAddresses: []string{"192.168.0.1, 172.168.0.1"},
 				},
 			},
 			expectError: true,
@@ -127,12 +128,12 @@ func TestMachineInterfaceSQLDAO_GetByID(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
 	miDAO := NewMachineInterfaceDAO(dbSession)
 	ctx := context.Background()
 	mi, err := miDAO.Create(
-		ctx, nil, MachineInterfaceCreateInput{MachineID: machine.ID, ControllerInterfaceID: db.GetUUIDPtr(uuid.New()), ControllerSegmentID: db.GetUUIDPtr(uuid.New()), AttachedDpuMachineID: db.GetStrPtr(uuid.New().String()), SubnetID: db.GetUUIDPtr(subnet.ID),
-			Hostname: db.GetStrPtr("hostname"), IsPrimary: true, MacAddress: db.GetStrPtr("0:0:0:0:0:0"), IpAddresses: []string{"192.168.0.1, 172.168.0.1"},
+		ctx, nil, MachineInterfaceCreateInput{MachineID: machine.ID, ControllerInterfaceID: cutil.GetPtr(uuid.New()), ControllerSegmentID: cutil.GetPtr(uuid.New()), AttachedDpuMachineID: cutil.GetPtr(uuid.New().String()), SubnetID: cutil.GetPtr(subnet.ID),
+			Hostname: cutil.GetPtr("hostname"), IsPrimary: true, MacAddress: cutil.GetPtr("0:0:0:0:0:0"), IpAddresses: []string{"192.168.0.1, 172.168.0.1"},
 		})
 	assert.Nil(t, err)
 
@@ -217,7 +218,7 @@ func TestMachineInterfaceSQLDAO_GetAll(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
 	miDAO := NewMachineInterfaceDAO(dbSession)
 
 	ctx := context.Background()
@@ -230,8 +231,8 @@ func TestMachineInterfaceSQLDAO_GetAll(t *testing.T) {
 
 	for i := 0; i < totalCount; i++ {
 		mi, err := miDAO.Create(
-			ctx, nil, MachineInterfaceCreateInput{MachineID: machine.ID, ControllerInterfaceID: db.GetUUIDPtr(uuid.New()), ControllerSegmentID: &controllerSegmentID, AttachedDpuMachineID: db.GetStrPtr(uuid.New().String()), SubnetID: db.GetUUIDPtr(subnet.ID),
-				Hostname: db.GetStrPtr(fmt.Sprintf("hostname-%v", i)), IsPrimary: true, MacAddress: db.GetStrPtr(testGenerateMacAddress(t)), IpAddresses: []string{fmt.Sprintf("192.168.0.%v", i), fmt.Sprintf("172.168.0.%v", i)},
+			ctx, nil, MachineInterfaceCreateInput{MachineID: machine.ID, ControllerInterfaceID: cutil.GetPtr(uuid.New()), ControllerSegmentID: &controllerSegmentID, AttachedDpuMachineID: cutil.GetPtr(uuid.New().String()), SubnetID: cutil.GetPtr(subnet.ID),
+				Hostname: cutil.GetPtr(fmt.Sprintf("hostname-%v", i)), IsPrimary: true, MacAddress: cutil.GetPtr(testGenerateMacAddress(t)), IpAddresses: []string{fmt.Sprintf("192.168.0.%v", i), fmt.Sprintf("172.168.0.%v", i)},
 			})
 		assert.Nil(t, err)
 		mis = append(mis, *mi)
@@ -314,8 +315,8 @@ func TestMachineInterfaceSQLDAO_GetAll(t *testing.T) {
 			desc:          "GetAll with limit returns objects",
 			dao:           miDAO,
 			machineIDs:    []string{machine.ID},
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -324,7 +325,7 @@ func TestMachineInterfaceSQLDAO_GetAll(t *testing.T) {
 			desc:          "GetAll with offset returns objects",
 			dao:           miDAO,
 			machineIDs:    []string{machine.ID},
-			offset:        db.GetIntPtr(15),
+			offset:        cutil.GetPtr(15),
 			expectedCount: 15,
 			expectedTotal: &totalCount,
 			expectedError: false,
@@ -400,13 +401,13 @@ func TestMachineInterfaceSQLDAO_UpdateFromParams(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest2"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest2"))
 	miDAO := NewMachineInterfaceDAO(dbSession)
 	ctx := context.Background()
 	controllerInterfaceID := uuid.New()
 	controllerSegmentID := uuid.New()
-	AttachedDPUMachineID := db.GetStrPtr(uuid.NewString())
+	AttachedDPUMachineID := cutil.GetPtr(uuid.NewString())
 	updatedIPAddresses := []string{"192.168.0.2, 172.168.0.2"}
 	mi1, err := miDAO.Create(
 		ctx, nil, MachineInterfaceCreateInput{MachineID: machine.ID, IsPrimary: true, IpAddresses: []string{}})
@@ -464,9 +465,9 @@ func TestMachineInterfaceSQLDAO_UpdateFromParams(t *testing.T) {
 			paramControllerSegmentID:   &controllerSegmentID,
 			paramAttachedDPUMachineID:  AttachedDPUMachineID,
 			paramSubnetID:              &subnet.ID,
-			paramHostname:              db.GetStrPtr("hostname"),
-			paramIsPrimary:             db.GetBoolPtr(false),
-			paramMacAddress:            db.GetStrPtr("0:0:0:0:0:1"),
+			paramHostname:              cutil.GetPtr("hostname"),
+			paramIsPrimary:             cutil.GetPtr(false),
+			paramMacAddress:            cutil.GetPtr("0:0:0:0:0:1"),
 			paramIPAddresses:           updatedIPAddresses,
 
 			expectedMachineID:             &machine2.ID,
@@ -474,9 +475,9 @@ func TestMachineInterfaceSQLDAO_UpdateFromParams(t *testing.T) {
 			expectedControllerSegmentID:   &controllerSegmentID,
 			expectedAttachedDPUMachineID:  AttachedDPUMachineID,
 			expectedSubnetID:              &subnet.ID,
-			expectedHostname:              db.GetStrPtr("hostname"),
-			expectedIsPrimary:             db.GetBoolPtr(false),
-			expectedMacAddress:            db.GetStrPtr("0:0:0:0:0:1"),
+			expectedHostname:              cutil.GetPtr("hostname"),
+			expectedIsPrimary:             cutil.GetPtr(false),
+			expectedMacAddress:            cutil.GetPtr("0:0:0:0:0:1"),
 			expectedIPAddresses:           updatedIPAddresses,
 		},
 	}
@@ -537,12 +538,12 @@ func TestMachineInterfaceSQLDAO_Clear(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
 	miDAO := NewMachineInterfaceDAO(dbSession)
 	ctx := context.Background()
 	controllerInterfaceID := uuid.New()
 	controllerSegmentID := uuid.New()
-	AttachedDPUMachineID := db.GetStrPtr(uuid.NewString())
+	AttachedDPUMachineID := cutil.GetPtr(uuid.NewString())
 	updatedIPAddresses := []string{"192.168.0.2, 172.168.0.2"}
 	mi1, err := miDAO.Create(
 		ctx,
@@ -553,9 +554,9 @@ func TestMachineInterfaceSQLDAO_Clear(t *testing.T) {
 			ControllerSegmentID:   &controllerSegmentID,
 			AttachedDpuMachineID:  AttachedDPUMachineID,
 			SubnetID:              &subnet.ID,
-			Hostname:              db.GetStrPtr("hostname"),
+			Hostname:              cutil.GetPtr("hostname"),
 			IsPrimary:             true,
-			MacAddress:            db.GetStrPtr("0:0:0:0:0:1"),
+			MacAddress:            cutil.GetPtr("0:0:0:0:0:1"),
 			IpAddresses:           updatedIPAddresses,
 		},
 	)
@@ -657,7 +658,7 @@ func TestMachineInterfaceSQLDAO_Delete(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVPC")
 	subnet := testInstanceBuildSubnet(t, dbSession, tenant, vpc, "testsubnet")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr("mcTypeTest"))
 
 	miDAO := NewMachineInterfaceDAO(dbSession)
 
@@ -667,13 +668,13 @@ func TestMachineInterfaceSQLDAO_Delete(t *testing.T) {
 		nil,
 		MachineInterfaceCreateInput{
 			MachineID:             machine.ID,
-			ControllerInterfaceID: db.GetUUIDPtr(uuid.New()),
-			ControllerSegmentID:   db.GetUUIDPtr(uuid.New()),
-			AttachedDpuMachineID:  db.GetStrPtr(uuid.NewString()),
-			SubnetID:              db.GetUUIDPtr(subnet.ID),
-			Hostname:              db.GetStrPtr("hostname"),
+			ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+			ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+			AttachedDpuMachineID:  cutil.GetPtr(uuid.NewString()),
+			SubnetID:              cutil.GetPtr(subnet.ID),
+			Hostname:              cutil.GetPtr("hostname"),
 			IsPrimary:             true,
-			MacAddress:            db.GetStrPtr("0:0:0:0:0:0"),
+			MacAddress:            cutil.GetPtr("0:0:0:0:0:0"),
 			IpAddresses:           []string{"192.168.0.1, 172.168.0.1"},
 		},
 	)
@@ -683,13 +684,13 @@ func TestMachineInterfaceSQLDAO_Delete(t *testing.T) {
 		nil,
 		MachineInterfaceCreateInput{
 			MachineID:             machine.ID,
-			ControllerInterfaceID: db.GetUUIDPtr(uuid.New()),
-			ControllerSegmentID:   db.GetUUIDPtr(uuid.New()),
-			AttachedDpuMachineID:  db.GetStrPtr(uuid.NewString()),
-			SubnetID:              db.GetUUIDPtr(subnet.ID),
-			Hostname:              db.GetStrPtr("hostname"),
+			ControllerInterfaceID: cutil.GetPtr(uuid.New()),
+			ControllerSegmentID:   cutil.GetPtr(uuid.New()),
+			AttachedDpuMachineID:  cutil.GetPtr(uuid.NewString()),
+			SubnetID:              cutil.GetPtr(subnet.ID),
+			Hostname:              cutil.GetPtr("hostname"),
 			IsPrimary:             true,
-			MacAddress:            db.GetStrPtr("0:0:0:0:0:0"),
+			MacAddress:            cutil.GetPtr("0:0:0:0:0:0"),
 			IpAddresses:           []string{"192.168.0.2, 172.168.0.2"},
 		},
 	)

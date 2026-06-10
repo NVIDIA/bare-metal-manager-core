@@ -16,7 +16,6 @@
  */
 
 mod cancel;
-mod find;
 mod get;
 mod list;
 mod trigger;
@@ -30,11 +29,9 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(about = "Cancel attestation for a given machine id")]
     Cancel(cancel::args::Args),
-    #[clap(about = "Find all machines under attestations")]
-    Find(find::args::Args),
-    #[clap(about = "Get attestation status for a given machine id")]
+    #[clap(about = "Get SPDM attestation details for a given machine id")]
     Get(get::args::Args),
-    #[clap(about = "List all attestations for a given machine id")]
+    #[clap(about = "List SPDM attestation machine statuses")]
     List(list::args::Args),
     #[clap(about = "Trigger attestation for a given machine with id")]
     Trigger(trigger::args::Args),

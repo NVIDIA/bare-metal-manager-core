@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -90,7 +90,7 @@ func TestNewAPIDpuExtensionServiceDeployment(t *testing.T) {
 		ID:          uuid.New(),
 		Name:        "test-service",
 		ServiceType: "test-type",
-		Version:     cdb.GetStrPtr("v1"),
+		Version:     cutil.GetPtr("v1"),
 		VersionInfo: &cdbm.DpuExtensionServiceVersionInfo{
 			Version:        "v1",
 			Data:           "apiVersion: v1\nkind: Pod",

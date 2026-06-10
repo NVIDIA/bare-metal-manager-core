@@ -1,6 +1,10 @@
 #!/bin/bash
 {{- $bridgingConfig := . }}
 
+{{ range .HostRepresentorBridgeMappings }}
+ovs-vsctl br-set-external-id {{ .Bridge }} host-link-prefix {{ .Gateway }}
+{{- end }}
+
 # Get the IPs currently on the bridge used for intercepting VMaaS traffic.
 VF_BRIDGE_IPS=$(ip addr show dev {{ .VfInterceptBridgeName }} | grep -oP 'inet\s\K[\d.\/]+')
 

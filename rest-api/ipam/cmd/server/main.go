@@ -15,7 +15,7 @@ import (
 	"log/slog"
 	"os"
 
-	goipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	goipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/metal-stack/v"
 	"github.com/urfave/cli/v2"
 	"go.mongodb.org/mongo-driver/mongo/options"

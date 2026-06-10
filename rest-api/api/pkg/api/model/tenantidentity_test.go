@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,7 +18,7 @@ import (
 func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 	newValidRequest := func() APITenantIdentityConfigCreateOrUpdateRequest {
 		return APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled:         cdb.GetBoolPtr(true),
+			Enabled:         cutil.GetPtr(true),
 			DefaultAudience: "openbao",
 			Issuer:          "https://issuer.example.com/",
 			TokenTtlSeconds: 600,
@@ -51,7 +51,7 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 		{name: "enabled false accepted",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.Enabled = cdb.GetBoolPtr(false)
+				req.Enabled = cutil.GetPtr(false)
 				return req
 			}()},
 		{name: "missing defaultAudience rejected",
@@ -104,43 +104,43 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 		{name: "rotateKey without signingKeyOverlapSeconds rejected",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.RotateKey = cdb.GetBoolPtr(true)
+				req.RotateKey = cutil.GetPtr(true)
 				return req
 			}(),
 			wantErr: true},
 		{name: "signingKeyOverlapSeconds without rotateKey rejected",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.SigningKeyOverlapSeconds = cdb.GetIntPtr(900)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(900)
 				return req
 			}(),
 			wantErr: true},
 		{name: "rotateKey + signingKeyOverlapSeconds below tokenTtlSeconds rejected",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.RotateKey = cdb.GetBoolPtr(true)
-				req.SigningKeyOverlapSeconds = cdb.GetIntPtr(300)
+				req.RotateKey = cutil.GetPtr(true)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(300)
 				return req
 			}(),
 			wantErr: true},
 		{name: "rotateKey + signingKeyOverlapSeconds equal to tokenTtlSeconds accepted",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.RotateKey = cdb.GetBoolPtr(true)
-				req.SigningKeyOverlapSeconds = cdb.GetIntPtr(600)
+				req.RotateKey = cutil.GetPtr(true)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(600)
 				return req
 			}()},
 		{name: "rotateKey + signingKeyOverlapSeconds above tokenTtlSeconds accepted",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.RotateKey = cdb.GetBoolPtr(true)
-				req.SigningKeyOverlapSeconds = cdb.GetIntPtr(3600)
+				req.RotateKey = cutil.GetPtr(true)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(3600)
 				return req
 			}()},
 		{name: "rotateKey explicit false without signingKeyOverlapSeconds accepted",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.RotateKey = cdb.GetBoolPtr(false)
+				req.RotateKey = cutil.GetPtr(false)
 				return req
 			}()},
 	}
@@ -160,11 +160,11 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 	t.Run("populates all fields", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled: cdb.GetBoolPtr(true),
+			Enabled: cutil.GetPtr(true),
 			Issuer:  "https://carbide.example.com/iss", DefaultAudience: "openbao",
 			AllowedAudiences: []string{"openbao", "vault"}, TokenTtlSeconds: 600,
-			SubjectPrefix: cdb.GetStrPtr("spiffe://carbide.nvidia.com"), RotateKey: cdb.GetBoolPtr(true),
-			SigningKeyOverlapSeconds: cdb.GetIntPtr(3600),
+			SubjectPrefix: cutil.GetPtr("spiffe://carbide.nvidia.com"), RotateKey: cutil.GetPtr(true),
+			SigningKeyOverlapSeconds: cutil.GetPtr(3600),
 		}.ToProto("acme-corp")
 		require.NotNil(t, protoReq)
 		assert.Equal(t, "acme-corp", protoReq.GetOrganizationId())
@@ -182,14 +182,14 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 
 	t.Run("enabled true maps to proto true", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled: cdb.GetBoolPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
+			Enabled: cutil.GetPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
 		}.ToProto("acme-corp")
 		assert.True(t, protoReq.GetConfig().GetEnabled())
 	})
 
 	t.Run("enabled false when explicitly false", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600, Enabled: cdb.GetBoolPtr(false),
+			Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600, Enabled: cutil.GetPtr(false),
 		}.ToProto("acme-corp")
 		assert.False(t, protoReq.GetConfig().GetEnabled())
 	})
@@ -203,21 +203,21 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 
 	t.Run("nil rotateKey leaves proto field false", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled: cdb.GetBoolPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
+			Enabled: cutil.GetPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
 		}.ToProto("acme-corp")
 		assert.False(t, protoReq.GetConfig().GetRotateKey())
 	})
 
 	t.Run("nil subjectPrefix leaves proto field unset", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled: cdb.GetBoolPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
+			Enabled: cutil.GetPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
 		}.ToProto("acme-corp")
 		assert.Nil(t, protoReq.GetConfig().SubjectPrefix)
 	})
 
 	t.Run("nil signingKeyOverlapSeconds leaves proto field unset", func(t *testing.T) {
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
-			Enabled: cdb.GetBoolPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
+			Enabled: cutil.GetPtr(true), Issuer: "https://carbide.example.com/iss", DefaultAudience: "openbao", TokenTtlSeconds: 600,
 		}.ToProto("acme-corp")
 		assert.Nil(t, protoReq.GetConfig().SigningKeyOverlapSec)
 	})

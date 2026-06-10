@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -109,9 +109,9 @@ func TestAPIAllocationConstraint_New(t *testing.T) {
 
 	dbinstp := &cdbm.InstanceType{
 		Name:                     "test-instancetype",
-		DisplayName:              cdb.GetStrPtr("instance type"),
+		DisplayName:              cutil.GetPtr("instance type"),
 		InfrastructureProviderID: uuid.New(),
-		SiteID:                   cdb.GetUUIDPtr(uuid.New()),
+		SiteID:                   cutil.GetPtr(uuid.New()),
 		Status:                   "Ready",
 	}
 	apiac := NewAPIAllocationConstraint(dbac, dbinstp, nil)

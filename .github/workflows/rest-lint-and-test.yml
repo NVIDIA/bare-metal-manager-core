@@ -17,7 +17,7 @@ env:
 jobs:
   style:
     name: Style Check
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -98,9 +98,25 @@ jobs:
       - name: Run OpenAPI lint
         run: redocly lint ./openapi/spec.yaml --format=github-actions
 
+  openapi-breaking-changes:
+    name: OpenAPI Breaking Changes Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check OpenAPI breaking changes
+        uses: oasdiff/oasdiff-action/breaking@a8c7f0e5649d20d623edb5b38446d3ab3d82d43c
+        with:
+          base: 'origin/main:rest-api/openapi/spec.yaml'
+          revision: ':rest-api/openapi/spec.yaml'
+          fail-on: ERR
+
   check-generated-files:
     name: Check Generated Files
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     defaults:
       run:
@@ -145,7 +161,7 @@ jobs:
 
   check-protobuf-generated:
     name: Check Protobuf Generated Code
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -195,7 +211,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.module }})
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     continue-on-error: false
     strategy:
       fail-fast: false

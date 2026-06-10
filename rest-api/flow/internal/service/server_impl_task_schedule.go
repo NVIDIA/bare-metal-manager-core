@@ -20,13 +20,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/converter/protobuf"
-	dbmodel "github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskschedule "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/taskschedule"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
+	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 // CreateTaskSchedule creates a new task schedule.

@@ -257,7 +257,7 @@ const file_dpa_rpc_nico_proto_rawDesc = "" +
 	"\vsubnet_mask\x18\x05 \x01(\x05R\n" +
 	"subnetMask\x12\x17\n" +
 	"\adhcp_ip\x18\x06 \x01(\tR\x06dhcpIp\x12\x17\n" +
-	"\ahost_ip\x18\a \x01(\tR\x06hostIpB?Z=github.com/NVIDIA/infra-controller-rest/workflow-schema/protob\x06proto3"
+	"\ahost_ip\x18\a \x01(\tR\x06hostIpBCZAgithub.com/NVIDIA/infra-controller/rest-api/workflow-schema/protob\x06proto3"
 
 var (
 	file_dpa_rpc_nico_proto_rawDescOnce sync.Once

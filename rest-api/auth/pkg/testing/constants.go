@@ -5,7 +5,7 @@
 package testing
 
 import (
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/Nerzal/gocloak/v13"
 )
 

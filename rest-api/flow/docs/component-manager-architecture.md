@@ -18,10 +18,10 @@ The Component Manager system uses two main patterns:
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      ProviderRegistry                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │   nico   │  │     psm     │  │   (new...)  │                 │
-│  │  Provider   │  │  Provider   │  │  Provider   │                 │
-│  └─────────────┘  └─────────────┘  └─────────────┘                 │
+│  ┌─────────────┐  ┌─────────────┐                                  │
+│  │    nico     │  │  (new...)   │                                  │
+│  │  Provider   │  │  Provider   │                                  │
+│  └─────────────┘  └─────────────┘                                  │
 └─────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -29,16 +29,17 @@ The Component Manager system uses two main patterns:
 │                    ComponentManager Registry                        │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ ComponentType: Compute                                       │   │
-│  │   ├── "nico" → Factory → Manager (uses nico.Provider)  │   │
-│  │   └── "mock"    → Factory → Manager (no provider needed)     │   │
+│  │   ├── "nico"       → Factory → Manager (uses nico.Provider)  │   │
+│  │   ├── "nicolegacy" → Factory → Manager (uses nico.Provider)  │   │
+│  │   └── "mock"       → Factory → Manager (no provider needed)  │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
-│  │ ComponentType: NVSwitch                                     │   │
-│  │   ├── "nico" → Factory → Manager                          │   │
-│  │   └── "mock"    → Factory → Manager                          │   │
+│  │ ComponentType: NVSwitch                                      │   │
+│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
+│  │   └── "mock" → Factory → Manager                             │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
 │  │ ComponentType: PowerShelf                                    │   │
-│  │   ├── "psm"     → Factory → Manager (uses psm.Provider)      │   │
-│  │   └── "mock"    → Factory → Manager                          │   │
+│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
+│  │   └── "mock" → Factory → Manager                             │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -101,7 +102,7 @@ type FirmwareStatusReader interface {
 
 type BringUpController interface {
     // CapabilityBringUpControl
-    BringUpControl(ctx, target) error
+    BringUpControl(ctx, target, info) error
 }
 
 type BringUpStatusReader interface {
@@ -159,19 +160,19 @@ internal/task/componentmanager/
 ├── mock/
 │   └── mock.go              # Generic mock implementation
 ├── providers/
-│   ├── nico/
-│   │   └── provider.go      # NICo API provider
-│   └── psm/
-│       └── provider.go      # PSM API provider
-├── compute/
 │   └── nico/
-│       └── nico.go       # NICo-based compute manager
+│       └── provider.go      # NICo API provider
+├── compute/
+│   ├── nico/
+│   │   └── nico.go          # Compute manager using Core's Component Manager dispatch
+│   └── nicolegacy/
+│       └── nicolegacy.go    # Legacy compute manager via machine-centric NICo RPCs
 ├── nvswitch/
 │   └── nico/
-│       └── nico.go       # NICo-based NVSwitch manager
+│       └── nico.go          # NICo-based NVSwitch manager
 └── powershelf/
-    └── psm/
-        └── psm.go           # PSM-based power shelf manager
+    └── nico/
+        └── nico.go          # NICo-based power shelf manager
 ```
 
 ---
@@ -190,7 +191,7 @@ package myapi
 import (
     "time"
     "github.com/rs/zerolog/log"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/myapi"  // Your API client
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/myapi"  // Your API client
 )
 
 const (
@@ -277,7 +278,6 @@ Update the service-supported provider catalog in
 func serviceProviderConfigDecoders() []providerapi.ProviderConfigDecoder {
     return []providerapi.ProviderConfigDecoder{
         nico.ConfigDecoder{},
-        psm.ConfigDecoder{},
         myapi.ConfigDecoder{},
     }
 }
@@ -305,14 +305,14 @@ import (
     "context"
     "fmt"
 
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
-    cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-    myapiprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/myapi"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-    "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
+    cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+    myapiprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/myapi"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 const ImplementationName = "myimpl"
@@ -389,10 +389,10 @@ Update the service-supported manager catalog in
 
 ```go
 import (
-    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-    cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-    cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-    myimpl "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/myimpl"
+    "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+    cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+    cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+    myimpl "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/myimpl"
 )
 
 func serviceDescriptors() []cmcatalog.Descriptor {
@@ -423,7 +423,7 @@ Now you can use the new implementation in YAML config:
 component_managers:
   compute: myimpl
   nvswitch: nico
-  powershelf: psm
+  powershelf: nico
 
 manager_configs:
   compute:
@@ -435,8 +435,6 @@ providers:
     timeout: "30s"
   nico:
     timeout: "1m"
-  psm:
-    timeout: "30s"
 ```
 
 ---

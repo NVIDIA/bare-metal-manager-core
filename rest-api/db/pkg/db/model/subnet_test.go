@@ -9,15 +9,243 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestSubnet_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerNetworkSegmentID is nil", func(t *testing.T) {
+		s := &Subnet{ID: id}
+		got := s.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerNetworkSegmentID when set", func(t *testing.T) {
+		s := &Subnet{ID: id, ControllerNetworkSegmentID: &ctrlID}
+		got := s.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestSubnet_ToProto(t *testing.T) {
+	subID := uuid.New()
+	vpcID := uuid.New()
+	domainID := uuid.New()
+	prefix := "10.0.0.0"
+	gateway := "10.0.0.1"
+	mtu := 9000
+
+	t.Run("emits id/vpcId/name/subdomain/mtu/prefixes from entity", func(t *testing.T) {
+		s := &Subnet{
+			ID:           subID,
+			VpcID:        vpcID,
+			Name:         "subnet-a",
+			DomainID:     &domainID,
+			IPv4Prefix:   &prefix,
+			IPv4Gateway:  &gateway,
+			PrefixLength: 16,
+			MTU:          &mtu,
+		}
+		proto := s.ToProto()
+		require.NotNil(t, proto)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, subID.String(), proto.Id.Value)
+		require.NotNil(t, proto.VpcId)
+		assert.Equal(t, vpcID.String(), proto.VpcId.Value)
+		assert.Equal(t, "subnet-a", proto.Name)
+		require.NotNil(t, proto.SubdomainId)
+		assert.Equal(t, domainID.String(), proto.SubdomainId.Value)
+		require.NotNil(t, proto.Mtu)
+		assert.Equal(t, int32(9000), *proto.Mtu)
+		require.Len(t, proto.Prefixes, 1)
+		assert.Equal(t, "10.0.0.0/16", proto.Prefixes[0].Prefix)
+		require.NotNil(t, proto.Prefixes[0].Gateway)
+		assert.Equal(t, gateway, *proto.Prefixes[0].Gateway)
+		// ReserveFirst is a deployment-policy value overlaid by the
+		// request-shape ToProto; the entity emits zero.
+		assert.Equal(t, int32(0), proto.Prefixes[0].ReserveFirst)
+	})
+
+	t.Run("prefers ControllerNetworkSegmentID for the Site-facing ID", func(t *testing.T) {
+		ctrlID := uuid.New()
+		s := &Subnet{ID: subID, ControllerNetworkSegmentID: &ctrlID, VpcID: vpcID, Name: "subnet-a"}
+		proto := s.ToProto()
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, ctrlID.String(), proto.Id.Value)
+	})
+
+	t.Run("omits optional fields when entity has none", func(t *testing.T) {
+		s := &Subnet{ID: subID, VpcID: vpcID, Name: "subnet-a"}
+		proto := s.ToProto()
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.SubdomainId)
+		assert.Nil(t, proto.Mtu)
+		assert.Nil(t, proto.Prefixes)
+	})
+}
+
+func TestSubnet_FromProto(t *testing.T) {
+	subID := uuid.New()
+	vpcID := uuid.New()
+	domainID := uuid.New()
+	gateway := "10.0.0.1"
+
+	t.Run("nil proto leaves the receiver untouched", func(t *testing.T) {
+		s := &Subnet{ID: subID, Name: "existing", VpcID: vpcID}
+		s.FromProto(nil)
+		assert.Equal(t, subID, s.ID)
+		assert.Equal(t, "existing", s.Name)
+		assert.Equal(t, vpcID, s.VpcID)
+	})
+
+	t.Run("populates fields from a full proto", func(t *testing.T) {
+		mtu := int32(9000)
+		proto := &cwssaws.NetworkSegment{
+			Id:          &cwssaws.NetworkSegmentId{Value: subID.String()},
+			VpcId:       &cwssaws.VpcId{Value: vpcID.String()},
+			Name:        "subnet-a",
+			SubdomainId: &cwssaws.DomainId{Value: domainID.String()},
+			Mtu:         &mtu,
+			Prefixes: []*cwssaws.NetworkPrefix{
+				{Prefix: "10.0.0.0/16", Gateway: &gateway},
+			},
+		}
+		s := &Subnet{}
+		s.FromProto(proto)
+		assert.Equal(t, subID, s.ID)
+		assert.Equal(t, vpcID, s.VpcID)
+		assert.Equal(t, "subnet-a", s.Name)
+		require.NotNil(t, s.DomainID)
+		assert.Equal(t, domainID, *s.DomainID)
+		require.NotNil(t, s.MTU)
+		assert.Equal(t, 9000, *s.MTU)
+		require.NotNil(t, s.IPv4Prefix)
+		assert.Equal(t, "10.0.0.0", *s.IPv4Prefix)
+		assert.Equal(t, 16, s.PrefixLength)
+		require.NotNil(t, s.IPv4Gateway)
+		assert.Equal(t, gateway, *s.IPv4Gateway)
+	})
+
+	t.Run("clears optional fields when proto omits them", func(t *testing.T) {
+		existing := "stale"
+		existingGW := "stale-gw"
+		mtu := 1500
+		s := &Subnet{
+			ID:           subID,
+			Name:         "stale-name",
+			DomainID:     &domainID,
+			MTU:          &mtu,
+			IPv4Prefix:   &existing,
+			IPv4Gateway:  &existingGW,
+			PrefixLength: 24,
+		}
+		proto := &cwssaws.NetworkSegment{
+			Id:    &cwssaws.NetworkSegmentId{Value: subID.String()},
+			VpcId: &cwssaws.VpcId{Value: vpcID.String()},
+			Name:  "fresh-name",
+		}
+		s.FromProto(proto)
+		assert.Equal(t, "fresh-name", s.Name)
+		assert.Nil(t, s.DomainID)
+		assert.Nil(t, s.MTU)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+	})
+
+	t.Run("preserves entity ID when proto Id is unparseable", func(t *testing.T) {
+		s := &Subnet{ID: subID, Name: "x"}
+		proto := &cwssaws.NetworkSegment{Id: &cwssaws.NetworkSegmentId{Value: "not-a-uuid"}, Name: "x"}
+		s.FromProto(proto)
+		assert.Equal(t, subID, s.ID)
+	})
+
+	t.Run("clears DomainID when proto subdomain is unparseable", func(t *testing.T) {
+		s := &Subnet{ID: subID, DomainID: &domainID, Name: "x"}
+		proto := &cwssaws.NetworkSegment{Name: "x", SubdomainId: &cwssaws.DomainId{Value: "not-a-uuid"}}
+		s.FromProto(proto)
+		assert.Nil(t, s.DomainID)
+	})
+
+	t.Run("clears IPv4Prefix when proto prefix is malformed", func(t *testing.T) {
+		existing := "10.0.0.0"
+		gw := "192.168.0.1"
+		s := &Subnet{ID: subID, IPv4Prefix: &existing, PrefixLength: 24, Name: "x"}
+		proto := &cwssaws.NetworkSegment{
+			Name:     "x",
+			Prefixes: []*cwssaws.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
+		}
+		s.FromProto(proto)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+	})
+}
+
+func TestSubnet_Validate(t *testing.T) {
+	prefix := "192.168.1.0"
+	valid := &Subnet{
+		Name:       "test-subnet",
+		Status:     SubnetStatusReady,
+		VpcID:      uuid.New(),
+		IPv4Prefix: &prefix,
+	}
+
+	t.Run("populated subnet is valid", func(t *testing.T) {
+		assert.NoError(t, valid.Validate())
+	})
+	t.Run("uuid.Nil VpcID errors", func(t *testing.T) {
+		s := *valid
+		s.VpcID = uuid.Nil
+		assert.Error(t, s.Validate())
+	})
+	t.Run("empty Status errors", func(t *testing.T) {
+		s := *valid
+		s.Status = ""
+		assert.Error(t, s.Validate())
+	})
+	t.Run("invalid Status errors", func(t *testing.T) {
+		s := *valid
+		s.Status = "Bogus"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("empty Name errors", func(t *testing.T) {
+		s := *valid
+		s.Name = ""
+		assert.Error(t, s.Validate())
+	})
+	t.Run("Name with leading whitespace errors", func(t *testing.T) {
+		s := *valid
+		s.Name = " test-subnet"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("Name with trailing whitespace errors", func(t *testing.T) {
+		s := *valid
+		s.Name = "test-subnet "
+		assert.Error(t, s.Validate())
+	})
+	t.Run("single-character Name errors (too short)", func(t *testing.T) {
+		s := *valid
+		s.Name = "x"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("nil IPv4Prefix errors (catches FromProto half-state from malformed prefix)", func(t *testing.T) {
+		s := *valid
+		s.IPv4Prefix = nil
+		assert.Error(t, s.Validate())
+	})
+}
 
 func testSubnetInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
@@ -65,7 +293,7 @@ func testSubnetBuildInfrastructureProvider(t *testing.T, dbSession *db.Session, 
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -77,13 +305,13 @@ func testSubnetBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastructure
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -137,10 +365,10 @@ func testSubnetBuildIPBlock(t *testing.T, dbSession *db.Session, siteID, infrast
 func testSubnetBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -181,7 +409,7 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create one",
 			ss: []Subnet{
 				{
-					Name: "test", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6Gateway: &ipv6Gateway, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: &mtu,
+					Name: "test", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6Gateway: &ipv6Gateway, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: &mtu,
 				},
 			},
 			expectError:        false,
@@ -191,13 +419,13 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create mulitiple, some with null values in nullable fields",
 			ss: []Subnet{
 				{
-					Name: "test1", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6Gateway: &ipv6Gateway, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
+					Name: "test1", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6Gateway: &ipv6Gateway, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
 				},
 				{
-					Name: "test2", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: nil, TenantID: tenant.ID, ControllerNetworkSegmentID: nil, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: nil, IPv6BlockID: nil, IPv6Gateway: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
+					Name: "test2", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: nil, TenantID: tenant.ID, ControllerNetworkSegmentID: nil, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: nil, IPv6BlockID: nil, IPv6Gateway: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
 				},
 				{
-					Name: "test3", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: nil, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: nil, IPv6Gateway: nil, IPv6BlockID: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
+					Name: "test3", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: nil, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4Gateway: &ipv4Gateway, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: nil, IPv6Gateway: nil, IPv6BlockID: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
 				},
 			},
 			expectError: false,
@@ -206,7 +434,7 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create fails, due to foreign key violation on vpcID",
 			ss: []Subnet{
 				{
-					Name: "test", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: uuid.New(), DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
+					Name: "test", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: uuid.New(), DomainID: &domain.ID, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4BlockID: &ipv4Block.ID, IPv6Prefix: &ipv6Prefix, IPv6BlockID: &ipv6Block.ID, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
 				},
 			},
 			expectError: true,
@@ -215,7 +443,7 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create will succeed when nullable foreign keys have null values",
 			ss: []Subnet{
 				{
-					Name: "test", Description: db.GetStrPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: nil, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: db.GetStrPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4BlockID: nil, IPv6Prefix: &ipv6Prefix, IPv6BlockID: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
+					Name: "test", Description: cutil.GetPtr("test"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, DomainID: nil, TenantID: tenant.ID, ControllerNetworkSegmentID: &dummyUUID, RoutingType: cutil.GetPtr(IPBlockRoutingTypeDatacenterOnly), IPv4Prefix: &ipv4Prefix, IPv4BlockID: nil, IPv6Prefix: &ipv6Prefix, IPv6BlockID: nil, PrefixLength: 8, Status: SubnetStatusPending, CreatedBy: user.ID,
 				},
 			},
 			expectError: false,
@@ -225,7 +453,7 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create with specific MTU value",
 			ss: []Subnet{
 				{
-					Name: "testWithMTU", Description: db.GetStrPtr("With specific MTU"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, PrefixLength: 24, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: &mtu,
+					Name: "testWithMTU", Description: cutil.GetPtr("With specific MTU"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, PrefixLength: 24, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: &mtu,
 				},
 			},
 			expectError: false,
@@ -235,7 +463,7 @@ func TestSubnetSQLDAO_Create(t *testing.T) {
 			desc: "create without specifying MTU",
 			ss: []Subnet{
 				{
-					Name: "testWithoutMTU", Description: db.GetStrPtr("Without MTU"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, PrefixLength: 24, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: nil,
+					Name: "testWithoutMTU", Description: cutil.GetPtr("Without MTU"), Org: "test", SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, PrefixLength: 24, Status: SubnetStatusPending, CreatedBy: user.ID, MTU: nil,
 				},
 			},
 			expectError: false,
@@ -309,7 +537,7 @@ func TestSubnetSQLDAO_GetByID(t *testing.T) {
 	subnet, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,
@@ -457,7 +685,7 @@ func TestSubnetSQLDAO_GetCountByStatus(t *testing.T) {
 	subnet, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,
@@ -515,7 +743,7 @@ func TestSubnetSQLDAO_GetCountByStatus(t *testing.T) {
 				SubnetStatusReady:        0,
 				"total":                  1,
 			},
-			reqTenant:          db.GetUUIDPtr(tenant.ID),
+			reqTenant:          cutil.GetPtr(tenant.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -528,7 +756,7 @@ func TestSubnetSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: true,
-			reqTenant: db.GetUUIDPtr(uuid.New()),
+			reqTenant: cutil.GetPtr(uuid.New()),
 		},
 		{
 			name: "get subnet status count with no filter subnet returns success",
@@ -614,7 +842,7 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 			subnet, err := ssd.Create(
 				ctx, nil, SubnetCreateInput{
 					Name:                       fmt.Sprintf("subnet-%v", i),
-					Description:                db.GetStrPtr("Test Description"),
+					Description:                cutil.GetPtr("Test Description"),
 					Org:                        "test",
 					SiteID:                     site.ID,
 					VpcID:                      vpc1.ID,
@@ -638,7 +866,7 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 			_, err := ssd.Create(
 				ctx, nil, SubnetCreateInput{
 					Name:                       fmt.Sprintf("subnet-%v", i),
-					Description:                db.GetStrPtr("Test Description"),
+					Description:                cutil.GetPtr("Test Description"),
 					Org:                        "test",
 					SiteID:                     site.ID,
 					VpcID:                      vpc2.ID,
@@ -760,17 +988,17 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:          "GetAll with limit returns objects",
 			filter:        SubnetFilterInput{DomainIDs: []uuid.UUID{domain1.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, VpcIDs: []uuid.UUID{vpc1.ID}},
-			page:          paginator.PageInput{Offset: db.GetIntPtr(0), Limit: db.GetIntPtr(5)},
+			page:          paginator.PageInput{Offset: cutil.GetPtr(0), Limit: cutil.GetPtr(5)},
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with offset returns objects",
 			filter:        SubnetFilterInput{DomainIDs: []uuid.UUID{domain1.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, VpcIDs: []uuid.UUID{vpc1.ID}},
-			page:          paginator.PageInput{Offset: db.GetIntPtr(5)},
+			page:          paginator.PageInput{Offset: cutil.GetPtr(5)},
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -782,12 +1010,12 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 			}},
 			firstEntry:    &ssTenant1[4], // 5th entry is "subnet-8" and would appear first on descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with name search query returns objects",
-			filter:        SubnetFilterInput{SearchQuery: db.GetStrPtr("subnet-")},
+			filter:        SubnetFilterInput{SearchQuery: cutil.GetPtr("subnet-")},
 			page:          paginator.PageInput{},
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
@@ -795,7 +1023,7 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with description search query returns objects",
-			filter:        SubnetFilterInput{SearchQuery: db.GetStrPtr("Test Description")},
+			filter:        SubnetFilterInput{SearchQuery: cutil.GetPtr("Test Description")},
 			page:          paginator.PageInput{},
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
@@ -803,7 +1031,7 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with status search query returns objects",
-			filter:        SubnetFilterInput{SearchQuery: db.GetStrPtr(SubnetStatusPending)},
+			filter:        SubnetFilterInput{SearchQuery: cutil.GetPtr(SubnetStatusPending)},
 			page:          paginator.PageInput{},
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
@@ -811,7 +1039,7 @@ func TestSubnetSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with empty search query returns objects",
-			filter:        SubnetFilterInput{SearchQuery: db.GetStrPtr("")},
+			filter:        SubnetFilterInput{SearchQuery: cutil.GetPtr("")},
 			page:          paginator.PageInput{},
 			expectedCount: paginator.DefaultLimit,
 			expectedTotal: &totalCount,
@@ -890,7 +1118,7 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 	subnet1, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test1",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,
@@ -944,43 +1172,43 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 			desc: "can update all fields",
 			input: SubnetUpdateInput{
 				SubnetId:                   subnet1.ID,
-				Name:                       db.GetStrPtr("updatedName"),
-				Description:                db.GetStrPtr("updatedDescription"),
-				Org:                        db.GetStrPtr("updatedOrg"),
+				Name:                       cutil.GetPtr("updatedName"),
+				Description:                cutil.GetPtr("updatedDescription"),
+				Org:                        cutil.GetPtr("updatedOrg"),
 				SiteID:                     &site.ID,
 				VpcID:                      &vpc2.ID,
 				DomainID:                   &domain2.ID,
 				TenantID:                   &tenant2.ID,
 				ControllerNetworkSegmentID: &dummyUUID2,
-				IPv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
-				IPv4Gateway:                db.GetStrPtr("172.0.0.1"),
+				IPv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
+				IPv4Gateway:                cutil.GetPtr("172.0.0.1"),
 				IPv4BlockID:                &ipv4Block2.ID,
-				IPv6Prefix:                 db.GetStrPtr("2001:db8:abcd:1212::0/24"),
-				IPv6Gateway:                db.GetStrPtr("2001:db8:abcd:1212::1"),
+				IPv6Prefix:                 cutil.GetPtr("2001:db8:abcd:1212::0/24"),
+				IPv6Gateway:                cutil.GetPtr("2001:db8:abcd:1212::1"),
 				IPv6BlockID:                &ipv6Block2.ID,
 				PrefixLength:               &newPrefixLength,
-				Status:                     db.GetStrPtr(SubnetStatusReady),
-				IsMissingOnSite:            db.GetBoolPtr(true),
+				Status:                     cutil.GetPtr(SubnetStatusReady),
+				IsMissingOnSite:            cutil.GetPtr(true),
 				Mtu:                        &newMTU,
 			},
 			expectedError:                      false,
-			expectedName:                       db.GetStrPtr("updatedName"),
-			expectedDescription:                db.GetStrPtr("updatedDescription"),
-			expectedOrg:                        db.GetStrPtr("updatedOrg"),
+			expectedName:                       cutil.GetPtr("updatedName"),
+			expectedDescription:                cutil.GetPtr("updatedDescription"),
+			expectedOrg:                        cutil.GetPtr("updatedOrg"),
 			expectedSiteID:                     &site.ID,
 			expectedVpcID:                      &vpc2.ID,
 			expectedDomainID:                   &domain2.ID,
 			expectedTenantID:                   &tenant2.ID,
 			expectedControllerNetworkSegmentID: &dummyUUID2,
-			expectedIpv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
-			expectedIpv4Gateway:                db.GetStrPtr("172.0.0.1"),
+			expectedIpv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
+			expectedIpv4Gateway:                cutil.GetPtr("172.0.0.1"),
 			expectedIpv4BlockID:                &ipv4Block2.ID,
-			expectedIpv6Prefix:                 db.GetStrPtr("2001:db8:abcd:1212::0/24"),
-			expectedIpv6Gateway:                db.GetStrPtr("2001:db8:abcd:1212::1"),
+			expectedIpv6Prefix:                 cutil.GetPtr("2001:db8:abcd:1212::0/24"),
+			expectedIpv6Gateway:                cutil.GetPtr("2001:db8:abcd:1212::1"),
 			expectedIPv6BlockID:                &ipv6Block2.ID,
 			expectedPrefixLength:               &newPrefixLength,
-			expectedStatus:                     db.GetStrPtr(SubnetStatusReady),
-			expectedIsMissingOnSite:            db.GetBoolPtr(true),
+			expectedStatus:                     cutil.GetPtr(SubnetStatusReady),
+			expectedIsMissingOnSite:            cutil.GetPtr(true),
 			expectedMTU:                        &newMTU,
 			verifyChildSpanner:                 true,
 		},
@@ -989,59 +1217,59 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 			input: SubnetUpdateInput{
 				SubnetId:                   subnet1.ID,
 				Name:                       nil,
-				Description:                db.GetStrPtr("otherDescription"),
+				Description:                cutil.GetPtr("otherDescription"),
 				Org:                        nil,
 				VpcID:                      &vpc.ID,
 				DomainID:                   &domain.ID,
 				TenantID:                   &tenant.ID,
 				ControllerNetworkSegmentID: &dummyUUID,
-				IPv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
-				IPv4Gateway:                db.GetStrPtr("172.0.0.1"),
+				IPv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
+				IPv4Gateway:                cutil.GetPtr("172.0.0.1"),
 				IPv4BlockID:                &ipv4Block.ID,
-				IPv6Prefix:                 db.GetStrPtr("2001:db8:abcd:0012::0/24"),
-				IPv6Gateway:                db.GetStrPtr("2001:db8:abcd:1212::1"),
+				IPv6Prefix:                 cutil.GetPtr("2001:db8:abcd:0012::0/24"),
+				IPv6Gateway:                cutil.GetPtr("2001:db8:abcd:1212::1"),
 				IPv6BlockID:                &ipv6Block.ID,
 				PrefixLength:               nil,
-				Status:                     db.GetStrPtr(SubnetStatusReady),
+				Status:                     cutil.GetPtr(SubnetStatusReady),
 				IsMissingOnSite:            nil,
 			},
 
 			expectedError:                      false,
-			expectedName:                       db.GetStrPtr("updatedName"),
-			expectedDescription:                db.GetStrPtr("otherDescription"),
-			expectedOrg:                        db.GetStrPtr("updatedOrg"),
+			expectedName:                       cutil.GetPtr("updatedName"),
+			expectedDescription:                cutil.GetPtr("otherDescription"),
+			expectedOrg:                        cutil.GetPtr("updatedOrg"),
 			expectedSiteID:                     &site.ID,
 			expectedVpcID:                      &vpc.ID,
 			expectedDomainID:                   &domain.ID,
 			expectedTenantID:                   &tenant.ID,
 			expectedControllerNetworkSegmentID: &dummyUUID,
-			expectedIpv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
-			expectedIpv4Gateway:                db.GetStrPtr("172.0.0.1"),
+			expectedIpv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
+			expectedIpv4Gateway:                cutil.GetPtr("172.0.0.1"),
 			expectedIpv4BlockID:                &ipv4Block.ID,
-			expectedIpv6Prefix:                 db.GetStrPtr("2001:db8:abcd:0012::0/24"),
-			expectedIpv6Gateway:                db.GetStrPtr("2001:db8:abcd:1212::1"),
+			expectedIpv6Prefix:                 cutil.GetPtr("2001:db8:abcd:0012::0/24"),
+			expectedIpv6Gateway:                cutil.GetPtr("2001:db8:abcd:1212::1"),
 			expectedIPv6BlockID:                &ipv6Block.ID,
 			expectedPrefixLength:               &newPrefixLength,
-			expectedStatus:                     db.GetStrPtr(SubnetStatusReady),
-			expectedIsMissingOnSite:            db.GetBoolPtr(true),
+			expectedStatus:                     cutil.GetPtr(SubnetStatusReady),
+			expectedIsMissingOnSite:            cutil.GetPtr(true),
 		},
 		{
 			desc: "error updating when Site foreign key violated",
 			input: SubnetUpdateInput{
 				SubnetId:                   subnet1.ID,
-				Name:                       db.GetStrPtr("updatedName"),
-				Description:                db.GetStrPtr("updatedDescription"),
+				Name:                       cutil.GetPtr("updatedName"),
+				Description:                cutil.GetPtr("updatedDescription"),
 				SiteID:                     &dummyUUID,
 				VpcID:                      nil,
 				DomainID:                   &domain2.ID,
 				TenantID:                   &tenant2.ID,
 				ControllerNetworkSegmentID: &dummyUUID2,
-				IPv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
+				IPv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
 				IPv4BlockID:                &ipv4Block2.ID,
-				IPv6Prefix:                 db.GetStrPtr("2001:db8:abcd:1212::0/24"),
+				IPv6Prefix:                 cutil.GetPtr("2001:db8:abcd:1212::0/24"),
 				IPv6BlockID:                &ipv6Block2.ID,
-				Status:                     db.GetStrPtr(SubnetStatusReady),
-				IsMissingOnSite:            db.GetBoolPtr(true),
+				Status:                     cutil.GetPtr(SubnetStatusReady),
+				IsMissingOnSite:            cutil.GetPtr(true),
 			},
 			expectedError: true,
 		},
@@ -1049,18 +1277,18 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 			desc: "error updating when VPC foreign key violated",
 			input: SubnetUpdateInput{
 				SubnetId:                   subnet1.ID,
-				Name:                       db.GetStrPtr("updatedName"),
-				Description:                db.GetStrPtr("updatedDescription"),
+				Name:                       cutil.GetPtr("updatedName"),
+				Description:                cutil.GetPtr("updatedDescription"),
 				VpcID:                      &dummyUUID,
 				DomainID:                   &domain2.ID,
 				TenantID:                   &tenant2.ID,
 				ControllerNetworkSegmentID: &dummyUUID2,
-				IPv4Prefix:                 db.GetStrPtr("172.0.0.1/24"),
+				IPv4Prefix:                 cutil.GetPtr("172.0.0.1/24"),
 				IPv4BlockID:                &ipv4Block2.ID,
-				IPv6Prefix:                 db.GetStrPtr("2001:db8:abcd:1212::0/24"),
+				IPv6Prefix:                 cutil.GetPtr("2001:db8:abcd:1212::0/24"),
 				IPv6BlockID:                &ipv6Block2.ID,
-				Status:                     db.GetStrPtr(SubnetStatusReady),
-				IsMissingOnSite:            db.GetBoolPtr(true),
+				Status:                     cutil.GetPtr(SubnetStatusReady),
+				IsMissingOnSite:            cutil.GetPtr(true),
 			},
 			expectedError: true,
 		},
@@ -1068,9 +1296,9 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 			desc: "update MTU to 2000",
 			input: SubnetUpdateInput{
 				SubnetId:                   subnet1.ID,
-				Name:                       db.GetStrPtr("test1"),
-				Description:                db.GetStrPtr("test"),
-				Org:                        db.GetStrPtr("test"),
+				Name:                       cutil.GetPtr("test1"),
+				Description:                cutil.GetPtr("test"),
+				Org:                        cutil.GetPtr("test"),
 				SiteID:                     &site.ID,
 				VpcID:                      &vpc.ID,
 				DomainID:                   &domain.ID,
@@ -1083,15 +1311,15 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 				IPv6Gateway:                &ipv6Gateway,
 				IPv6BlockID:                &ipv6Block.ID,
 				PrefixLength:               &newPrefixLength,
-				Status:                     db.GetStrPtr(SubnetStatusPending),
-				IsMissingOnSite:            db.GetBoolPtr(false),
-				Mtu:                        db.GetIntPtr(2000), // Explicitly setting MTU to 2000
+				Status:                     cutil.GetPtr(SubnetStatusPending),
+				IsMissingOnSite:            cutil.GetPtr(false),
+				Mtu:                        cutil.GetPtr(2000), // Explicitly setting MTU to 2000
 			},
 
 			// Expected fields to verify after the update
-			expectedName:                       db.GetStrPtr("test1"),
-			expectedDescription:                db.GetStrPtr("test"),
-			expectedOrg:                        db.GetStrPtr("test"),
+			expectedName:                       cutil.GetPtr("test1"),
+			expectedDescription:                cutil.GetPtr("test"),
+			expectedOrg:                        cutil.GetPtr("test"),
 			expectedSiteID:                     &site.ID,
 			expectedVpcID:                      &vpc.ID,
 			expectedDomainID:                   &domain.ID,
@@ -1104,9 +1332,9 @@ func TestSubnetSQLDAO_Update(t *testing.T) {
 			expectedIpv6Gateway:                &ipv6Gateway,
 			expectedIPv6BlockID:                &ipv6Block.ID,
 			expectedPrefixLength:               &newPrefixLength,
-			expectedStatus:                     db.GetStrPtr(SubnetStatusPending),
-			expectedIsMissingOnSite:            db.GetBoolPtr(false),
-			expectedMTU:                        db.GetIntPtr(2000), // Verifying the MTU is updated to 2000
+			expectedStatus:                     cutil.GetPtr(SubnetStatusPending),
+			expectedIsMissingOnSite:            cutil.GetPtr(false),
+			expectedMTU:                        cutil.GetPtr(2000), // Verifying the MTU is updated to 2000
 			expectedError:                      false,              // Expecting the operation to succeed without errors
 			verifyChildSpanner:                 true,               // Assuming spanner verification is part of your testing strategy
 		},
@@ -1232,7 +1460,7 @@ func TestSubnetSQLDAO_Clear(t *testing.T) {
 	subnet1, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test1",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,
@@ -1257,7 +1485,7 @@ func TestSubnetSQLDAO_Clear(t *testing.T) {
 	subnet2, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test1",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,
@@ -1495,7 +1723,7 @@ func TestSubnetSQLDAO_Delete(t *testing.T) {
 	subnet, err := ssd.Create(
 		ctx, nil, SubnetCreateInput{
 			Name:                       "test",
-			Description:                db.GetStrPtr("test"),
+			Description:                cutil.GetPtr("test"),
 			Org:                        "test",
 			SiteID:                     site.ID,
 			VpcID:                      vpc.ID,

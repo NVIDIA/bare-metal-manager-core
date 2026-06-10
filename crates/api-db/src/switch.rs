@@ -27,7 +27,8 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
 use model::switch::{
-    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
+    FabricManagerStatus, NewSwitch, Switch, SwitchControllerState, SwitchMaintenanceOperation,
+    SwitchMaintenanceRequest, SwitchReprovisionRequest,
 };
 use sqlx::PgConnection;
 
@@ -124,6 +125,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
             version: controller_state_version,
         },
         controller_state_outcome: None,
+        switch_maintenance_requested: None,
         switch_reprovisioning_requested: None,
         firmware_upgrade_status: None,
         nvos_update_status: None,
@@ -340,6 +342,41 @@ pub async fn clear_switch_reprovisioning_requested(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("clear_switch_reprovisioning_requested", e))?;
+    Ok(())
+}
+
+pub async fn set_switch_maintenance_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    initiator: &str,
+    operation: SwitchMaintenanceOperation,
+) -> DatabaseResult<()> {
+    let req = SwitchMaintenanceRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        operation,
+    };
+    let query = "UPDATE switches SET switch_maintenance_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_switch_maintenance_requested", e))?;
+    Ok(())
+}
+
+pub async fn clear_switch_maintenance_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET switch_maintenance_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_switch_maintenance_requested", e))?;
     Ok(())
 }
 

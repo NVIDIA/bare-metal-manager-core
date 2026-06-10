@@ -14,7 +14,7 @@ use crate::rack::{Racks, Tray};
 ///
 /// NVL domains and IB fabrics may span multiple racks, so partitions are
 /// indexed globally rather than per-rack. Each tray in `all` carries its
-/// `rack_id` for cases where the physical rack matters (e.g. NICC label
+/// `rack_id` for cases where the physical rack matters (e.g. NICo label
 /// writes).
 #[derive(Debug)]
 pub struct Partitions {
