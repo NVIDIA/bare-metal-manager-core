@@ -23,19 +23,6 @@ data:
     {{- if .Values.machineATron.mockBmcSshPort }}
     mock_bmc_ssh_port = {{ .Values.machineATron.mockBmcSshPort }}
     {{- end }}
-    {{- if .Values.machineATron.bmcMockHostTar }}
-    bmc_mock_host_tar = {{ .Values.machineATron.bmcMockHostTar | quote }}
-    {{- end }}
-    {{- if .Values.machineATron.bmcMockDpuTar }}
-    bmc_mock_dpu_tar = {{ .Values.machineATron.bmcMockDpuTar | quote }}
-    {{- end }}
-    use_pxe_api = {{ .Values.machineATron.usePxeApi }}
-    {{- if .Values.machineATron.pxeServerHost }}
-    pxe_server_host = {{ .Values.machineATron.pxeServerHost | quote }}
-    {{- end }}
-    {{- if .Values.machineATron.pxeServerPort }}
-    pxe_server_port = {{ .Values.machineATron.pxeServerPort | quote }}
-    {{- end }}
     {{- if .Values.machineATron.configureBmcProxyHost }}
     configure_carbide_bmc_proxy_host = {{ .Values.machineATron.configureBmcProxyHost | quote }}
     {{- end }}

@@ -37,12 +37,11 @@ helm install machine-a-tron ./helm/charts/nico-machine-a-tron -f my-values.yaml
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `machineATron.nicoApiUrl` | URL of the NICo API server | `https://nico-api:443` |
-| `machineATron.bmcMockPort` | Port for BMC mock service | `2000` |
+| `machineATron.nicoApiUrl` | URL of the NICo API server | `https://nico-api.nico-system.svc.cluster.local:1079` |
+| `machineATron.bmcMockPort` | Port for BMC mock service | `1266` |
 | `machineATron.useSingleBmcMock` | Use header-based BMC routing (required for k8s) | `true` |
-| `machineATron.usePxeApi` | Use PXE API instead of direct server | `true` |
-| `machines.config.hostCount` | Number of mock hosts to create | `3` |
-| `machines.config.dpuPerHostCount` | DPUs per host | `1` |
+| `machines.config.hostCount` | Number of mock hosts to create | `10` |
+| `machines.config.dpuPerHostCount` | DPUs per host | `2` |
 | `machines.config.vpcCount` | Number of VPCs to create | `0` |
 | `persistence.enabled` | Enable persistent storage for machine state | `false` |
 
@@ -57,15 +56,15 @@ machines:
   
   # Dell hosts with 2 DPUs each
   dell-hosts:
-    hwType: DellR760XA
+    hwType: dell_poweredge_r750
     hostCount: 10
     dpuPerHostCount: 2
     oobDhcpRelayAddress: "192.168.192.1"
     adminDhcpRelayAddress: "192.168.176.1"
   
-  # Gigabyte hosts with 1 DPU each  
-  gigabyte-hosts:
-    hwType: GigabyteG493
+  # NVIDIA DGX H100 hosts
+  dgx-hosts:
+    hwType: nvidia_dgx_h100
     hostCount: 5
     dpuPerHostCount: 1
     oobDhcpRelayAddress: "192.168.192.1"
@@ -73,7 +72,7 @@ machines:
   
   # Power shelves (no DPUs)
   power-shelves:
-    hwType: LiteOnPowerShelf
+    hwType: liteon_power_shelf
     hostCount: 2
     dpuPerHostCount: 0
     oobDhcpRelayAddress: "192.168.192.1"
@@ -82,12 +81,18 @@ machines:
 
 ### Hardware Types
 
-Supported `hwType` values:
-- `DellR760XA` (default)
-- `DellR760`
-- `GigabyteG493`
-- `LiteOnPowerShelf`
-- `NvidiaSwitchNd5200Ld`
+Supported `hwType` values (from `HostHardwareType` enum in `crates/bmc-mock/src/lib.rs`):
+
+- `dell_poweredge_r750` (default)
+- `wiwynn_gb200_nvl`
+- `lenovo_gb300_nvl`
+- `nvidia_dgx_gb300`
+- `supermicro_gb300_nvl`
+- `liteon_power_shelf`
+- `nvidia_switch_nd5200_ld`
+- `nvidia_dgx_h100`
+- `generic_ami`
+- `generic_supermicro`
 
 ### NICo Site Configuration
 
@@ -95,8 +100,8 @@ For Machine-A-Tron to work correctly, NICo must be configured to route Redfish c
 
 ```toml
 [site_explorer]
-override_target_port = 2000
-override_target_host = "nico-machine-a-tron"  # k8s service name
+override_target_port = 1266
+override_target_host = "nico-machine-a-tron-bmc-mock"  # k8s service name
 enabled = true
 create_machines = true
 ```

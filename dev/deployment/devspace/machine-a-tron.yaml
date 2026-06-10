@@ -12,9 +12,6 @@ data:
     carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
     interface = "NOTUSED"
     tui_enabled = false
-    use_pxe_api = true
-    bmc_mock_host_tar = "/opt/machine-a-tron/dell_poweredge_r750.tar.gz"
-    bmc_mock_dpu_tar = "/opt/machine-a-tron/nvidia_dpu.tar.gz"
     bmc_mock_port = 1266
     use_single_bmc_mock = true
     mock_bmc_ssh_server = true
