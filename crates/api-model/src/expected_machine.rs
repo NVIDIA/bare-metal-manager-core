@@ -96,7 +96,8 @@ pub struct ExpectedHostNic {
     pub nic_type: Option<String>,
     pub fixed_ip: Option<IpAddr>,
     pub fixed_mask: Option<String>,
-    pub fixed_gateway: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_ip_addr_lossy")]
+    pub fixed_gateway: Option<IpAddr>,
     /// When true, `primary` flags this NIC as the host's boot (primary)
     /// interface. At most one NIC per ExpectedMachine may be marked primary
     /// (which is enforced in the API). This ultimately propagates into the
@@ -106,6 +107,14 @@ pub struct ExpectedHostNic {
     /// interface accordingly).
     #[serde(default)]
     pub primary: Option<bool>,
+}
+
+fn deserialize_optional_ip_addr_lossy<'de, D>(deserializer: D) -> Result<Option<IpAddr>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?
+        .and_then(|address| address.parse::<IpAddr>().ok()))
 }
 
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
@@ -371,6 +380,28 @@ mod tests {
         }"#;
         let em: ExpectedMachine = serde_json::from_str(json).unwrap();
         assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, Some(true));
+    }
+
+    #[test]
+    fn expected_host_nic_deserializes_valid_fixed_gateway() {
+        let json = r#"{
+            "mac_address": "AA:BB:CC:DD:EE:FF",
+            "fixed_gateway": "2001:db8::1"
+        }"#;
+        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+
+        assert_eq!(nic.fixed_gateway, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn expected_host_nic_drops_invalid_fixed_gateway_on_deserialize() {
+        let json = r#"{
+            "mac_address": "AA:BB:CC:DD:EE:FF",
+            "fixed_gateway": "not-an-ip"
+        }"#;
+        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+
+        assert_eq!(nic.fixed_gateway, None);
     }
 
     #[test]

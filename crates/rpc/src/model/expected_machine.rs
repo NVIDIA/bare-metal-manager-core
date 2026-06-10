@@ -85,7 +85,7 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
             nic_type: expected_host_nic.nic_type,
             fixed_ip: expected_host_nic.fixed_ip.map(|ip| ip.to_string()),
             fixed_mask: expected_host_nic.fixed_mask,
-            fixed_gateway: expected_host_nic.fixed_gateway,
+            fixed_gateway: expected_host_nic.fixed_gateway.map(|ip| ip.to_string()),
             primary: expected_host_nic.primary,
         }
     }
@@ -109,7 +109,12 @@ impl TryFrom<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
                 })?),
             },
             fixed_mask: expected_host_nic.fixed_mask,
-            fixed_gateway: expected_host_nic.fixed_gateway,
+            fixed_gateway: match expected_host_nic.fixed_gateway.as_deref() {
+                None | Some("") => None,
+                Some(ip) => Some(ip.parse::<IpAddr>().map_err(|_| {
+                    RpcDataConversionError::InvalidArgument(format!("Invalid fixed gateway: {ip}"))
+                })?),
+            },
             primary: expected_host_nic.primary,
         })
     }
