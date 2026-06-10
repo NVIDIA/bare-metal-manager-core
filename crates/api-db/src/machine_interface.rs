@@ -1688,8 +1688,12 @@ pub async fn reconcile_admin_addresses_for_host(
                 addresses: &[],
                 current_hostname: Some(&interface.hostname),
                 machine_id: Some(*host_machine_id),
-                // Non-primary: never takes the machine's (shared) serial.
-                is_primary: false,
+                // Should be always false here -- the above loop filters to
+                // non-primary links, but this should still read from the row
+                // so the context stays accurate (e.g. if the filter changes).
+                // In other words, a non-primary never takes the machine's
+                // (shared) bare serial.
+                is_primary: interface.primary_interface,
                 // DPU-backed host links are data interfaces by definition.
                 interface_type: InterfaceType::Data,
                 interface_id: Some(interface.id),

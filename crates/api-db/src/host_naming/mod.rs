@@ -430,6 +430,12 @@ fn dormant_admin_hostname(mac_address: MacAddress) -> String {
 
 /// True if a hostname is a non-identifying placeholder (empty, or the `noip-...`
 /// dormant marker) and therefore eligible to be [re]named by a stable strategy.
+///
+/// Anything else -- an IP-derived name, a serial, a MAC -- is a real name,
+/// and the fun strategy keeps real names. So switching a site to `fun`
+/// renames nothing: fun names show up only on brand-new interfaces, or on
+/// ones that lose all their addresses and pass through the `noip-`
+/// placeholder first.
 fn is_placeholder(hostname: &str) -> bool {
     hostname.is_empty() || hostname.starts_with("noip-")
 }
@@ -544,11 +550,14 @@ async fn generate_unique_hostname(txn: &mut PgConnection) -> DatabaseResult<Stri
         }
     }
 
-    // The simple adjective-noun space is contended; resolve it deterministically by
-    // probing numeric suffixes on a new base.
+    // We had a collision, so make a new one, and if that doesn't work, then
+    // just start appending a number to the end (e.g. -1).
     let base = names::Generator::default()
         .next()
         .ok_or_else(|| DatabaseError::internal("names generator produced no name".to_string()))?;
+    if base.len() <= MAX_HOSTNAME_LEN && !hostname_taken(txn, &base).await? {
+        return Ok(base);
+    }
     for suffix in 1..=MAX_SUFFIX_PROBE {
         let candidate = format!("{base}-{suffix}");
         if candidate.len() <= MAX_HOSTNAME_LEN && !hostname_taken(txn, &candidate).await? {
