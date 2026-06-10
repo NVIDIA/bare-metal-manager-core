@@ -208,61 +208,54 @@ func (rp APITaskRuleRetryPolicy) toProto() protoRetryPolicy {
 
 // proto → API conversions.
 
-func (p protoRuleDefinition) toAPI() APITaskRuleDefinition {
-	out := APITaskRuleDefinition{Version: p.Version}
+func (d *APITaskRuleDefinition) FromProto(p protoRuleDefinition) {
+	d.Version = p.Version
 	if p.Steps != nil {
-		out.Steps = make([]APITaskRuleSequenceStep, len(p.Steps))
+		d.Steps = make([]APITaskRuleSequenceStep, len(p.Steps))
 		for i, s := range p.Steps {
-			out.Steps[i] = s.toAPI()
+			d.Steps[i].FromProto(s)
 		}
 	}
-	return out
 }
 
-func (p protoSequenceStep) toAPI() APITaskRuleSequenceStep {
-	out := APITaskRuleSequenceStep{
-		ComponentType: p.ComponentType,
-		Stage:         p.Stage,
-		MaxParallel:   p.MaxParallel,
-		Timeout:       p.Timeout,
-		MainOperation: p.MainOperation.toAPI(),
-		DelayAfter:    p.DelayAfter,
-	}
+func (s *APITaskRuleSequenceStep) FromProto(p protoSequenceStep) {
+	s.ComponentType = p.ComponentType
+	s.Stage = p.Stage
+	s.MaxParallel = p.MaxParallel
+	s.Timeout = p.Timeout
+	s.MainOperation.FromProto(p.MainOperation)
+	s.DelayAfter = p.DelayAfter
 	if p.Retry != nil {
-		a := p.Retry.toAPI()
-		out.Retry = &a
+		var rp APITaskRuleRetryPolicy
+		rp.FromProto(*p.Retry)
+		s.Retry = &rp
 	}
 	if p.PreOperation != nil {
-		out.PreOperation = make([]APITaskRuleActionConfig, len(p.PreOperation))
+		s.PreOperation = make([]APITaskRuleActionConfig, len(p.PreOperation))
 		for i, a := range p.PreOperation {
-			out.PreOperation[i] = a.toAPI()
+			s.PreOperation[i].FromProto(a)
 		}
 	}
 	if p.PostOperation != nil {
-		out.PostOperation = make([]APITaskRuleActionConfig, len(p.PostOperation))
+		s.PostOperation = make([]APITaskRuleActionConfig, len(p.PostOperation))
 		for i, a := range p.PostOperation {
-			out.PostOperation[i] = a.toAPI()
+			s.PostOperation[i].FromProto(a)
 		}
 	}
-	return out
 }
 
-func (p protoActionConfig) toAPI() APITaskRuleActionConfig {
-	return APITaskRuleActionConfig{
-		Name:         p.Name,
-		Timeout:      p.Timeout,
-		PollInterval: p.PollInterval,
-		Parameters:   p.Parameters,
-	}
+func (a *APITaskRuleActionConfig) FromProto(p protoActionConfig) {
+	a.Name = p.Name
+	a.Timeout = p.Timeout
+	a.PollInterval = p.PollInterval
+	a.Parameters = p.Parameters
 }
 
-func (p protoRetryPolicy) toAPI() APITaskRuleRetryPolicy {
-	return APITaskRuleRetryPolicy{
-		MaxAttempts:        p.MaxAttempts,
-		InitialInterval:    p.InitialInterval,
-		BackoffCoefficient: p.BackoffCoefficient,
-		MaxInterval:        p.MaxInterval,
-	}
+func (rp *APITaskRuleRetryPolicy) FromProto(p protoRetryPolicy) {
+	rp.MaxAttempts = p.MaxAttempts
+	rp.InitialInterval = p.InitialInterval
+	rp.BackoffCoefficient = p.BackoffCoefficient
+	rp.MaxInterval = p.MaxInterval
 }
 
 // toFlowJSON encodes the rule definition into Flow's rule_definition_json
@@ -282,7 +275,9 @@ func ruleDefinitionFromFlowJSON(raw string) (APITaskRuleDefinition, error) {
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return APITaskRuleDefinition{}, fmt.Errorf("invalid ruleDefinition from Flow: %w", err)
 	}
-	return p.toAPI(), nil
+	var d APITaskRuleDefinition
+	d.FromProto(p)
+	return d, nil
 }
 
 // FromProto populates an APITaskRule from a Flow protobuf OperationRule.
