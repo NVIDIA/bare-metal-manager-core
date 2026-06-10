@@ -250,8 +250,9 @@ type VpcPrefixDAO interface {
 	//
 	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 	//
-	// GetPrefixUsage returns IPv4 interface usage for this VPC prefix (in-memory IPAM simulation).
-	GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *VpcPrefix) (*cipam.Usage, error)
+	// GetPrefixUsage returns IPv4 interface usage per VPC prefix ID (in-memory IPAM simulation).
+	// VPC prefixes without a valid CIDR are omitted from the result map.
+	GetPrefixUsage(ctx context.Context, tx *db.Tx, vpcPrefixes ...*VpcPrefix) (map[uuid.UUID]*cipam.Usage, error)
 }
 
 // VpcPrefixSQLDAO is an implementation of the VpcPrefixDAO interface
@@ -524,39 +525,7 @@ func (vpsd VpcPrefixSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID)
 	return nil
 }
 
-// queryEthernetInterfaceIPsForVPCPrefix returns iface row count (all matching ethernet interfaces)
-// and, for each row with assigned IPs, a slice of that interface's IPv4 addresses.
-// One SELECT suffices: COUNT(*) equals the number of result rows given the same join/filter.
-func queryEthernetInterfaceIPsForVPCPrefix(ctx context.Context, idb bun.IDB, vpcPrefixID uuid.UUID) (ifaceRows int64, ipStrings [][]string, err error) {
-	type row struct {
-		IPAddresses []string `bun:"ip_addresses,array"`
-	}
-	var rows []row
-	err = idb.NewRaw(
-		`SELECT ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
-		 WHERE ifc.vpc_prefix_id = ? AND ifc.deleted IS NULL AND inst.deleted IS NULL
-		   AND inst.status NOT IN ('Terminating', 'Terminated')`,
-		vpcPrefixID,
-	).Scan(ctx, &rows)
-	if err != nil {
-		return 0, nil, err
-	}
-	count := int64(len(rows))
-	ips := make([][]string, 0, len(rows))
-	for _, r := range rows {
-		if len(r.IPAddresses) > 0 {
-			ips = append(ips, r.IPAddresses)
-		}
-	}
-	return count, ips, nil
-}
-
-// GetPrefixUsage derives IPv4 interface usage stats for this VpcPrefix via an in-memory IPAM simulation.
-func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *VpcPrefix) (*cipam.Usage, error) {
-	if vp == nil {
-		return nil, fmt.Errorf("Failed to calculate usage stats for VPC Prefix: nil argument")
-	}
-
+func vpcPrefixCIDR(vp *VpcPrefix) (string, bool) {
 	var cidr string
 	if strings.Contains(vp.Prefix, "/") {
 		cidr = vp.Prefix
@@ -564,17 +533,48 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *V
 		cidr = fmt.Sprintf("%s/%d", vp.Prefix, vp.PrefixLength)
 	}
 	if cidr == "" {
-		return nil, fmt.Errorf("Failed to calculate usage stats for VPC Prefix %q: CIDR could not be populated", vp.ID.String())
+		return "", false
+	}
+	return cidr, true
+}
+
+// queryEthernetInterfaceIPsForVPCPrefixes returns per-VPC-prefix iface row counts and assigned IP
+// address slices for all given VPC prefix IDs in a single query.
+func queryEthernetInterfaceIPsForVPCPrefixes(ctx context.Context, idb bun.IDB, vpcPrefixIDs []uuid.UUID) (ifaceCounts map[uuid.UUID]int64, ifaceIPs map[uuid.UUID][][]string, err error) {
+	ifaceCounts = make(map[uuid.UUID]int64, len(vpcPrefixIDs))
+	ifaceIPs = make(map[uuid.UUID][][]string, len(vpcPrefixIDs))
+	for _, id := range vpcPrefixIDs {
+		ifaceCounts[id] = 0
+		ifaceIPs[id] = nil
+	}
+	if len(vpcPrefixIDs) == 0 {
+		return ifaceCounts, ifaceIPs, nil
 	}
 
-	// Query the IP addresses for each Interface associated with this VPC Prefix
-	idb := db.GetIDB(tx, vpsd.dbSession)
-	ifcCount, ips, err := queryEthernetInterfaceIPsForVPCPrefix(ctx, idb, vp.ID)
+	type row struct {
+		VpcPrefixID uuid.UUID `bun:"vpc_prefix_id"`
+		IPAddresses []string  `bun:"ip_addresses,array"`
+	}
+	var rows []row
+	err = idb.NewRaw(
+		`SELECT ifc.vpc_prefix_id, ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
+		 WHERE ifc.vpc_prefix_id IN (?) AND ifc.deleted IS NULL AND inst.deleted IS NULL
+		   AND inst.status NOT IN ('Terminating', 'Terminated')`,
+		bun.In(vpcPrefixIDs),
+	).Scan(ctx, &rows)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	for _, r := range rows {
+		ifaceCounts[r.VpcPrefixID]++
+		if len(r.IPAddresses) > 0 {
+			ifaceIPs[r.VpcPrefixID] = append(ifaceIPs[r.VpcPrefixID], r.IPAddresses)
+		}
+	}
+	return ifaceCounts, ifaceIPs, nil
+}
 
-	// derive the usage stats via an in-memory IPAM simulation
+func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int64, ips [][]string) (*cipam.Usage, error) {
 	ipamer := cipam.New(ctx)
 	ipamPrefix, err := ipamer.NewPrefix(ctx, cidr)
 	if err != nil {
@@ -587,8 +587,6 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *V
 		return nil, err
 	}
 
-	// track acquired prefixes to avoid duplicates
-	// each interface IP address consumes 2 /31 prefixes
 	acquiredPrefixes := make(map[string]struct{})
 	for _, ipAddresses := range ips {
 		for _, ipStr := range ipAddresses {
@@ -599,7 +597,6 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *V
 			if !netIpPrefix.Contains(netIpAddr) {
 				continue
 			}
-			// derive the /31 prefix for the IP address
 			contained31Prefix, perr := netIpAddr.Prefix(31)
 			if perr != nil {
 				continue
@@ -634,6 +631,46 @@ func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vp *V
 		AvailablePrefixes:         usage.AvailablePrefixes,
 		AcquiredPrefixes:          usage.AcquiredPrefixes,
 	}, nil
+}
+
+// GetPrefixUsage derives IPv4 interface usage stats for each VpcPrefix via in-memory IPAM simulation.
+func (vpsd VpcPrefixSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, vpcPrefixes ...*VpcPrefix) (map[uuid.UUID]*cipam.Usage, error) {
+	if len(vpcPrefixes) == 0 {
+		return map[uuid.UUID]*cipam.Usage{}, nil
+	}
+
+	vpcPrefixCIDRs := make(map[uuid.UUID]string, len(vpcPrefixes))
+	vpcPrefixIDs := make([]uuid.UUID, 0, len(vpcPrefixes))
+	for _, vp := range vpcPrefixes {
+		if vp == nil {
+			return nil, fmt.Errorf("Failed to calculate usage stats for VPC Prefix: nil argument")
+		}
+		cidr, ok := vpcPrefixCIDR(vp)
+		if !ok {
+			continue
+		}
+		vpcPrefixCIDRs[vp.ID] = cidr
+		vpcPrefixIDs = append(vpcPrefixIDs, vp.ID)
+	}
+	if len(vpcPrefixIDs) == 0 {
+		return map[uuid.UUID]*cipam.Usage{}, nil
+	}
+
+	idb := db.GetIDB(tx, vpsd.dbSession)
+	ifcCounts, ifcIPs, err := queryEthernetInterfaceIPsForVPCPrefixes(ctx, idb, vpcPrefixIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	usageByID := make(map[uuid.UUID]*cipam.Usage, len(vpcPrefixIDs))
+	for _, vpcPrefixID := range vpcPrefixIDs {
+		usage, uerr := vpcPrefixUsageFromInterfaces(ctx, vpcPrefixCIDRs[vpcPrefixID], ifcCounts[vpcPrefixID], ifcIPs[vpcPrefixID])
+		if uerr != nil {
+			return nil, uerr
+		}
+		usageByID[vpcPrefixID] = usage
+	}
+	return usageByID, nil
 }
 
 // NewVpcPrefixDAO returns a new VpcPrefixDAO

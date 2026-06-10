@@ -483,6 +483,30 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Primary VPC ID: %s for Instance must not be listed in `secondaryVpcIds`", vpc.ID), nil)
 	}
 
+	subnetsForUsage := make([]*cdbm.Subnet, 0, len(subnetIfcMap))
+	for subnetID := range subnetIfcMap {
+		if sn, ok := subnetIDMap[subnetID]; ok {
+			subnetsForUsage = append(subnetsForUsage, sn)
+		}
+	}
+	subnetUsageMap, usageErr := sbDAO.GetPrefixUsage(ctx, nil, subnetsForUsage...)
+	if usageErr != nil {
+		logger.Error().Err(usageErr).Msg("error getting prefix usage for Subnets")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for Subnet", nil)
+	}
+
+	vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixIfcMap))
+	for vpcPrefixID := range vpcPrefixIfcMap {
+		if vp, ok := vpcPrefixIDMap[vpcPrefixID]; ok {
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+	}
+	vpcPrefixUsageMap, vpUsageErr := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
+	if vpUsageErr != nil {
+		logger.Error().Err(vpUsageErr).Msg("error getting prefix usage for VPC Prefixes")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for VPC Prefix", nil)
+	}
+
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
 			subnetID := uuid.MustParse(*ifc.SubnetID)
@@ -515,11 +539,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 			// Check if Subnet is exhausted
 			incomingInterfaceIPs := subnetIfcMap[subnetID]
-			subnetUsage, err := sbDAO.GetPrefixUsage(ctx, nil, subnet)
-			if err != nil || subnetUsage == nil {
-				// Just log the error and continue
-				logger.Error().Err(err).Msg("error getting prefix usage for Subnet")
-			}
+			subnetUsage := subnetUsageMap[subnetID]
 			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
 				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID), nil)
@@ -598,12 +618,8 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 			// Check if VPC Prefix is exhausted
 			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID]
-			vpUsage, err := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
-			if err != nil || vpUsage == nil {
-				// Just log the error and continue
-				logger.Error().Err(err).Msg("error getting prefix usage for VPC Prefix")
-			}
-			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > vpUsage.AvailableIPs {
+			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
+			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
 				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID), nil)
 			}
@@ -2389,6 +2405,30 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Primary VPC ID: %s for Instance must not be listed in `secondaryVpcIds`", vpc.ID), nil)
 	}
 
+	subnetsForUsage := make([]*cdbm.Subnet, 0, len(subnetIfcMap))
+	for subnetID := range subnetIfcMap {
+		if sn, ok := subnetIDMap[subnetID]; ok {
+			subnetsForUsage = append(subnetsForUsage, sn)
+		}
+	}
+	subnetUsageMap, usageErr := sbDAO.GetPrefixUsage(ctx, nil, subnetsForUsage...)
+	if usageErr != nil {
+		logger.Error().Err(usageErr).Msg("error getting prefix usage for Subnets")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for Subnet", nil)
+	}
+
+	vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixIfcMap))
+	for vpcPrefixID := range vpcPrefixIfcMap {
+		if vp, ok := vpcPrefixIDMap[vpcPrefixID]; ok {
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+	}
+	vpcPrefixUsageMap, vpUsageErr := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
+	if vpUsageErr != nil {
+		logger.Error().Err(vpUsageErr).Msg("error getting prefix usage for VPC Prefixes")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get prefix usage for VPC Prefix", nil)
+	}
+
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
 			subnetID := uuid.MustParse(*ifc.SubnetID)
@@ -2418,12 +2458,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have Ethernet network virtualization type in order to create Subnet based interfaces", instance.VpcID), nil)
 			}
 
+			// Check if Subnet is exhausted
 			incomingInterfaceIPs := subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
-			subnetUsage, err := sbDAO.GetPrefixUsage(ctx, nil, subnet)
-			if err != nil {
-				// Just log the error and continue
-				logger.Error().Err(err).Msg("error getting prefix usage for Subnet")
-			}
+			subnetUsage := subnetUsageMap[subnetID]
 			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
 				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID), nil)
@@ -2499,13 +2536,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC Prefix based interfaces", instance.VpcID), nil)
 			}
 
+			// Check if VPC Prefix is exhausted
 			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID] - existingVpcPrefixIfcMap[vpcPrefixID]
-
-			vpUsage, err := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
-			if err != nil || vpUsage == nil {
-				// Just log the error and continue
-				logger.Error().Err(err).Msg("error getting prefix usage for VPC Prefix")
-			}
+			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
 			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
 				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID))
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID), nil)
