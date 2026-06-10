@@ -160,8 +160,10 @@ machineATron:
 ##       dpuPerHostCount: 1
 ##       ...
 machines:
-  ## Default section - can be renamed or have additional sections added
-  config:
+  ## Machine group section. The name "dell-hosts" is arbitrary - you can rename it
+  ## or add more sections (e.g., "dgx-hosts", "power-shelves") to simulate different
+  ## hardware types. Each section creates a separate group of mock machines.
+  dell-hosts:
     ## Hardware type (serde names from HostHardwareType enum):
     ##   dell_poweredge_r750 (default), wiwynn_gb200_nvl, lenovo_gb300_nvl,
     ##   nvidia_dgx_gb300, supermicro_gb300_nvl, liteon_power_shelf,

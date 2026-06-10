@@ -51,9 +51,6 @@ The `machines` section supports **multiple named groups** with different hardwar
 
 ```yaml
 machines:
-  # Remove default section if not needed
-  config: null
-
   # Dell hosts with 2 DPUs each
   dell-hosts:
     hwType: dell_poweredge_r750
