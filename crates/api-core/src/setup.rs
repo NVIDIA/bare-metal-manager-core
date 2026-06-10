@@ -1491,10 +1491,12 @@ mod tests {
         prefix: &str,
         segment_type: NetworkDefinitionSegmentType,
     ) -> NetworkDefinition {
+        let prefix = prefix.parse::<ipnetwork::IpNetwork>().unwrap();
         NetworkDefinition {
             segment_type,
-            prefix: prefix.to_string(),
-            gateway: "".to_string(),
+            prefix,
+            // Test helper placeholder; callers under test do not use this as a routable gateway.
+            gateway: prefix.network(),
             mtu: 0,
             reserve_first: 0,
             allocation_strategy: Default::default(),

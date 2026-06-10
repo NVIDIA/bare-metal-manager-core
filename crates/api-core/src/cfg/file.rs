@@ -3731,8 +3731,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("admin").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".to_string(),
-                gateway: "172.20.0.1".to_string(),
+                prefix: "172.20.0.0/24".parse().unwrap(),
+                gateway: "172.20.0.1".parse().unwrap(),
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3743,8 +3743,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("DEV1-C09-IPMI-01").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".to_string(),
-                gateway: "172.99.0.1".to_string(),
+                prefix: "172.99.0.0/26".parse().unwrap(),
+                gateway: "172.99.0.1".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
