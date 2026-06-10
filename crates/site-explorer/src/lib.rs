@@ -1565,20 +1565,8 @@ impl SiteExplorer {
                 .await;
             }
             for nic in &expected_machine.data.host_nics {
-                let Some(ip_str) = nic.fixed_ip.as_deref() else {
+                let Some(ip) = nic.fixed_ip else {
                     continue;
-                };
-                let ip: IpAddr = match ip_str.parse() {
-                    Ok(ip) => ip,
-                    Err(error) => {
-                        tracing::warn!(
-                            %error,
-                            nic_mac = %nic.mac_address,
-                            fixed_ip = %ip_str,
-                            "Site-explorer preallocation: invalid fixed_ip on expected_machine host NIC"
-                        );
-                        continue;
-                    }
                 };
                 try_preallocate_one(
                     &self.database_connection,

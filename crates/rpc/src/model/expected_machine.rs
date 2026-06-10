@@ -83,7 +83,7 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
         rpc::forge::ExpectedHostNic {
             mac_address: expected_host_nic.mac_address.to_string(),
             nic_type: expected_host_nic.nic_type,
-            fixed_ip: expected_host_nic.fixed_ip,
+            fixed_ip: expected_host_nic.fixed_ip.map(|ip| ip.to_string()),
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
             primary: expected_host_nic.primary,
@@ -91,16 +91,27 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
     }
 }
 
-impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
-    fn from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Self {
-        ExpectedHostNic {
-            mac_address: expected_host_nic.mac_address.parse().unwrap_or_default(),
+impl TryFrom<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
+    type Error = RpcDataConversionError;
+
+    fn try_from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Result<Self, Self::Error> {
+        let mac_address = expected_host_nic.mac_address.parse().map_err(|_| {
+            RpcDataConversionError::InvalidMacAddress(expected_host_nic.mac_address.clone())
+        })?;
+
+        Ok(ExpectedHostNic {
+            mac_address,
             nic_type: expected_host_nic.nic_type,
-            fixed_ip: expected_host_nic.fixed_ip,
+            fixed_ip: match expected_host_nic.fixed_ip.as_deref() {
+                None | Some("") => None,
+                Some(ip) => Some(ip.parse::<IpAddr>().map_err(|_| {
+                    RpcDataConversionError::InvalidArgument(format!("Invalid fixed IP: {ip}"))
+                })?),
+            },
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
             primary: expected_host_nic.primary,
-        }
+        })
     }
 }
 
@@ -193,7 +204,11 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             fallback_dpu_serial_numbers: em.fallback_dpu_serial_numbers,
             sku_id: em.sku_id,
             metadata: metadata_from_request(em.metadata)?,
-            host_nics: em.host_nics.into_iter().map(|nic| nic.into()).collect(),
+            host_nics: em
+                .host_nics
+                .into_iter()
+                .map(ExpectedHostNic::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
             dpf_enabled: em.is_dpf_enabled,
