@@ -216,11 +216,9 @@ impl SvpcInterfaceHandler {
             ));
         }
 
-        if this_nic_observed_attachments.is_empty() {
+        let Some(observed_attachment) = this_nic_observed_attachments.first() else {
             return Ok(None);
-        }
-
-        let observed_attachment = &this_nic_observed_attachments[0];
+        };
 
         let need_deletion = (observed_attachment.partition_id != Some(NULL_SPX_PARTITION_ID))
             || (observed_attachment.config_version != Some(nic_version));
@@ -265,7 +263,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                "handle_provisioning idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
@@ -299,7 +297,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                "handle_ready idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
@@ -319,7 +317,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             });
         }
 
-        let dpa_info = monitor.dpa_info.clone().unwrap();
+        let dpa_info = monitor.dpa_info.clone();
         let hb_interval = monitor.config.hb_interval;
         let client = dpa_info
             .mqtt_client
@@ -353,7 +351,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                "handle_unlocking idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
@@ -456,7 +454,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                "handle_apply_profile idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
@@ -478,7 +476,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
+                "handle_locking idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
             );
             return Ok(HandlerResult {
@@ -520,7 +518,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        if idx >= mh.dpa_interface_snapshots.len() {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
                 "handle_assigned idx out of bounds: {idx}, len: {}",
                 mh.dpa_interface_snapshots.len()
@@ -529,9 +527,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
                 new_state: None,
                 txn: None,
             });
-        }
-
-        let dpa_interface = &mh.dpa_interface_snapshots[idx];
+        };
 
         let host_use_admin_network = dpa_interface.use_admin_network();
 
@@ -544,7 +540,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             });
         }
 
-        let dpa_info = monitor.dpa_info.clone().unwrap();
+        let dpa_info = monitor.dpa_info.clone();
         let client = dpa_info
             .mqtt_client
             .clone()

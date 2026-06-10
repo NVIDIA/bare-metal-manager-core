@@ -46,7 +46,7 @@ mod metrics;
 
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
-    pub(crate) dpa_info: Option<Arc<DpaInfo>>,
+    pub(crate) dpa_info: Arc<DpaInfo>,
     pub(crate) config: DpaConfig,
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -71,7 +71,7 @@ impl DpaMonitor {
     pub fn new(
         db_pool: PgPool,
         _db_reader: PgPoolReader,
-        dpa_info: Option<Arc<DpaInfo>>,
+        dpa_info: Arc<DpaInfo>,
         _meter: opentelemetry::metrics::Meter,
         config: DpaConfig,
         host_health: HostHealthConfig,
