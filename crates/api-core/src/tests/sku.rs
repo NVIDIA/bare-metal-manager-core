@@ -427,6 +427,24 @@ pub mod tests {
     }
 
     #[crate::sqlx_test]
+    pub async fn test_sku_create_rejects_empty_id(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
+        let mut txn = pool.begin().await?;
+        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let mut sku: Sku = rpc_sku.into();
+        sku.id = String::new();
+
+        let error = db::sku::create(&mut txn, &sku)
+            .await
+            .expect_err("Creating a SKU with an empty ID should have failed");
+
+        assert_eq!(
+            error.to_string(),
+            "Argument is invalid: SKU ID must not be empty"
+        );
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
     pub async fn test_sku_delete(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
         let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;

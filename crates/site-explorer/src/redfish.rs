@@ -216,6 +216,7 @@ impl RedfishClient {
             | RedfishVendor::NvidiaGBSwitch
             | RedfishVendor::P3809
             | RedfishVendor::LiteOnPowerShelf
+            | RedfishVendor::DeltaPowerShelf
             | RedfishVendor::NvidiaGBx00 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
@@ -721,10 +722,10 @@ async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
             return Ok(true);
         }
         if let Ok(chassis) = client.get_chassis(chassis_id).await
-            && chassis
-                .manufacturer
-                .as_ref()
-                .is_some_and(|m| m.to_lowercase().contains("lite-on"))
+            && chassis.manufacturer.as_ref().is_some_and(|m| {
+                let m = m.to_lowercase();
+                m.contains("lite-on") || m.contains("delta")
+            })
         {
             return Ok(true);
         }

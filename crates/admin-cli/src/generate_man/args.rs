@@ -20,6 +20,16 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Generate man pages into the default ./man directory:
+    $ carbide-admin-cli generate-man
+
+Generate man pages into a specific directory:
+    $ carbide-admin-cli generate-man --out-dir /usr/local/share/man/man1
+
+")]
 pub struct Cmd {
     /// Directory to write the generated man pages into. Created if it does
     /// not exist. `clap_mangen` writes one `<command>.1` file per command

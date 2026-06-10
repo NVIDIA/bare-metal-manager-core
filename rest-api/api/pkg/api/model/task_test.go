@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 )
 
-func TestNewAPIRackTask(t *testing.T) {
+func TestNewAPITask(t *testing.T) {
 	tests := []struct {
 		name     string
 		task     *flowv1.Task
@@ -197,6 +200,148 @@ func TestNewAPIRackTask_Timestamps(t *testing.T) {
 	assert.NotNil(t, result.Finished)
 	assert.True(t, result.Started.Equal(startTime))
 	assert.True(t, result.Finished.Equal(endTime))
+}
+
+func TestNewAPITask_Report(t *testing.T) {
+	t.Run("report omitted by default", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-1"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":1,"stages":[]}`,
+		}
+
+		result := NewAPITask(task)
+
+		assert.Nil(t, result.Report, "Report must default to nil so the JSON field is omitted")
+	})
+
+	t.Run("WithTaskReport decodes a v1 payload into the typed struct with camelCase keys", func(t *testing.T) {
+		body := `{
+			"version": 1,
+			"stages": [
+				{
+					"number": 1,
+					"status": "completed",
+					"started_at": "2026-06-08T18:00:00Z",
+					"finished_at": "2026-06-08T18:00:42Z",
+					"steps": [
+						{
+							"component_type": "Compute",
+							"status": "completed",
+							"total_components": 4,
+							"started_at": "2026-06-08T18:00:00Z",
+							"finished_at": "2026-06-08T18:00:42Z"
+						}
+					]
+				}
+			]
+		}`
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-2"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: body,
+		}
+
+		result := NewAPITask(task, WithTaskReport())
+
+		require.NotNil(t, result.Report)
+		assert.Equal(t, 1, result.Report.Version)
+		require.Len(t, result.Report.Stages, 1)
+		assert.Equal(t, 1, result.Report.Stages[0].Number)
+		assert.Equal(t, APITaskReportV1StatusCompleted, result.Report.Stages[0].Status)
+		require.Len(t, result.Report.Stages[0].Steps, 1)
+		assert.Equal(t, "Compute", result.Report.Stages[0].Steps[0].ComponentType)
+		assert.Equal(t, 4, result.Report.Stages[0].Steps[0].TotalComponents)
+		assert.Equal(t, "2026-06-08T18:00:00Z", result.Report.Stages[0].Steps[0].StartedAt)
+
+		// Round-trip through json.Marshal to verify camelCase keys land on the wire.
+		out, err := json.Marshal(result.Report)
+		require.NoError(t, err)
+		var wire map[string]any
+		require.NoError(t, json.Unmarshal(out, &wire))
+		stages := wire["stages"].([]any)
+		step := stages[0].(map[string]any)["steps"].([]any)[0].(map[string]any)
+		assert.Contains(t, step, "componentType", "must use camelCase on the wire, not component_type")
+		assert.Contains(t, step, "totalComponents")
+		assert.Contains(t, step, "startedAt")
+		assert.NotContains(t, step, "component_type")
+	})
+
+	t.Run("WithTaskReport on empty proto report yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-3"},
+			Status: flowv1.TaskStatus_TASK_STATUS_PENDING,
+		}
+
+		result := NewAPITask(task, WithTaskReport())
+
+		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
+	})
+
+	t.Run("WithTaskReport on malformed JSON yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-4"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{`,
+		}
+
+		result := NewAPITask(task, WithTaskReport())
+
+		assert.Nil(t, result.Report, "Malformed report must not surface as a partial struct")
+	})
+
+	t.Run("WithTaskReport on non-v1 payload yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-5"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":2,"stages":[]}`,
+		}
+
+		result := NewAPITask(task, WithTaskReport())
+
+		assert.Nil(t, result.Report, "v2+ payload must not be exposed behind the v1 contract")
+	})
+}
+
+func TestAPIGetTasksRequest_TaskOptions(t *testing.T) {
+	t.Run("default request yields no options", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "s"}
+		assert.Empty(t, req.TaskOptions())
+	})
+
+	t.Run("includeReport=true yields WithTaskReport()", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "s", IncludeReport: true}
+		opts := req.TaskOptions()
+		require.Len(t, opts, 1)
+
+		// The option must decode Task.report when the proto report is non-empty.
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-built"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":1,"stages":[]}`,
+		}
+		got := NewAPITask(task, opts...)
+		require.NotNil(t, got.Report)
+		assert.Equal(t, 1, got.Report.Version)
+	})
+}
+
+func TestAPIGetTasksRequest_QueryValues(t *testing.T) {
+	t.Run("includeReport=true surfaces in query values", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "site-x", IncludeReport: true}
+		v := req.QueryValues(pagination.PageRequest{})
+
+		assert.Equal(t, "true", v.Get("includeReport"))
+		assert.Equal(t, "site-x", v.Get("siteId"))
+	})
+
+	t.Run("includeReport=false is omitted from query values", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "site-y"}
+		v := req.QueryValues(pagination.PageRequest{})
+
+		assert.Empty(t, v.Get("includeReport"))
+		assert.False(t, v.Has("includeReport"), "Default-false includeReport must not affect deterministic workflow ID hashing")
+	})
 }
 
 func TestAPIGetTaskRequest_Validate(t *testing.T) {

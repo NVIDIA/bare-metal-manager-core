@@ -1744,7 +1744,9 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteVpcRequest := vpc.ToDeletionRequestProto()
+		deleteVpcRequest := &cwssaws.VpcDeletionRequest{
+			Id: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "vpc-delete-" + vpc.ID.String(),

@@ -131,11 +131,24 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 		proto.BmcPassword = *creds.Password
 	}
 
-	if em.Labels != nil {
-		proto.Metadata = &cwssaws.Metadata{
-			Labels: em.Labels.ToProto(),
-		}
+	metadata := &cwssaws.Metadata{
+		Labels: expectedComponentLabelsInput{
+			Manufacturer:    em.Manufacturer,
+			Model:           em.Model,
+			FirmwareVersion: em.FirmwareVersion,
+			SlotID:          em.SlotID,
+			TrayIdx:         em.TrayIdx,
+			HostID:          em.HostID,
+			Labels:          em.Labels,
+		}.ToProto(),
 	}
+	if em.Name != nil {
+		metadata.Name = *em.Name
+	}
+	if em.Description != nil {
+		metadata.Description = *em.Description
+	}
+	proto.Metadata = metadata
 
 	return proto
 }

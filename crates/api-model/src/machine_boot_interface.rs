@@ -41,19 +41,20 @@ pub struct MachineBootInterface {
 
 impl MachineBootInterface {
     /// Builds a `MachineBootInterface` from the optional `(mac, interface_id)`
-    /// parts of a record, returning `Some` only when *both* are present.
+    /// parts of a record, returning `Some` only when *both* are present and the
+    /// interface id is non-empty.
     ///
     /// This is the single place the "only retain a fully-populated boot
-    /// interface" rule is enforced: a partial pair (only one of the two
-    /// resolved) yields `None`, so callers keep the last-known-good record
-    /// rather than persisting a half-empty one.
+    /// interface" rule is enforced: a partial pair (a missing MAC, or a missing
+    /// or empty interface id) yields `None`, so callers keep the last-known-good
+    /// record rather than persisting a half-empty one.
     pub fn from_parts(
         mac_address: Option<MacAddress>,
         interface_id: Option<String>,
     ) -> Option<Self> {
         Some(Self {
             mac_address: mac_address?,
-            interface_id: interface_id?,
+            interface_id: interface_id.filter(|s| !s.is_empty())?,
         })
     }
 }
@@ -77,6 +78,11 @@ mod tests {
             MachineBootInterface::from_parts(Some(mac), None),
             None,
             "a present MAC with no interface id is not fully populated"
+        );
+        assert_eq!(
+            MachineBootInterface::from_parts(Some(mac), Some(String::new())),
+            None,
+            "a present MAC with an empty interface id is not fully populated"
         );
         assert_eq!(
             MachineBootInterface::from_parts(None, Some("NIC.Slot.7-1-1".to_string())),

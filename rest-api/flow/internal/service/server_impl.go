@@ -886,8 +886,25 @@ func (rs *FlowServerImpl) ListTasks(
 	for _, t := range tasks {
 		results = append(results, protobuf.TaskTo(t))
 	}
+	if !req.GetWithReport() {
+		stripTaskReports(results)
+	}
 
 	return &pb.ListTasksResponse{Tasks: results, Total: total}, nil
+}
+
+// stripTaskReports clears the report field on each task in place. Used by
+// list-style RPCs whose callers did not opt in to receiving execution
+// reports, so the multi-KB report blobs are dropped before they cross the
+// gRPC wire and get persisted in any caller-side Temporal payload store.
+// Single-task RPCs (GetTasksByIDs, CancelTask) intentionally do not call
+// this helper.
+func stripTaskReports(tasks []*pb.Task) {
+	for _, t := range tasks {
+		if t != nil {
+			t.Report = ""
+		}
+	}
 }
 
 func (rs *FlowServerImpl) GetTasksByIDs(

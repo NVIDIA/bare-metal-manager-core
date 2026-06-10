@@ -16,9 +16,7 @@
  */
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -97,7 +95,6 @@ use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::start_dpa_handler;
 use crate::dynamic_settings::DynamicSettings;
-use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::listener::{AdminUiRoutesBuilder, ApiListenMode};
 use crate::logging::log_limiter::LogLimiter;
@@ -559,14 +556,12 @@ pub async fn start_api(
         // buggy -- otherwise).
         //
         // These are of course set with RouteServerSourceType::ConfigFile.
-        let route_servers: Vec<IpAddr> = carbide_config
-            .route_servers
-            .iter()
-            .map(|rs| IpAddr::from_str(rs))
-            .collect::<Result<Vec<IpAddr>, _>>()
-            .map_err(CarbideError::AddressParseError)?;
-        db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
-            .await?;
+        db::route_servers::replace(
+            &mut txn,
+            &carbide_config.route_servers,
+            RouteServerSourceType::ConfigFile,
+        )
+        .await?;
 
         txn.commit().await?;
     };
@@ -605,7 +600,11 @@ pub async fn start_api(
 
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
-        dhcp_servers: carbide_config.dhcp_servers.clone(),
+        dhcp_servers: carbide_config
+            .dhcp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect(),
         deny_prefixes: carbide_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };

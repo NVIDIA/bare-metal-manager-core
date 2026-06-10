@@ -22,6 +22,19 @@ use uuid::Uuid;
 use crate::errors::CarbideCliError;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all expected power shelves:
+    $ carbide-admin-cli expected-power-shelf show
+
+Show one expected power shelf by BMC MAC address:
+    $ carbide-admin-cli expected-power-shelf show 00:11:22:33:44:55
+
+Show one expected power shelf by ID:
+    $ carbide-admin-cli expected-power-shelf show --id 12345678-1234-5678-90ab-cdef01234567
+
+")]
 pub struct Args {
     #[clap(
         default_value(None),

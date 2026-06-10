@@ -81,8 +81,8 @@ impl BmcVendor {
             BMCVendor::Hpe => BmcVendor::Ssh(SshBmcVendor::Hpe),
             BMCVendor::Nvidia => BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking),
             // Intentionally not doing a default `_` case so we get compiler errors (and can add more cases) later.
-            // TODO: figure out what kind of connection Liteon uses.
-            BMCVendor::Liteon | BMCVendor::Unknown => {
+            // TODO: figure out what kind of connection power shelves use.
+            BMCVendor::Liteon | BMCVendor::Delta | BMCVendor::Unknown => {
                 return Err(BmcVendorDetectionError::UnknownSysVendor {
                     sys_vendor: vendor_string.to_owned(),
                 });

@@ -929,14 +929,15 @@ func (a *RackAPIService) GetRackExecute(r ApiGetRackRequest) (*Rack, *http.Respo
 }
 
 type ApiGetRackTasksRequest struct {
-	ctx        context.Context
-	ApiService *RackAPIService
-	siteId     *string
-	org        string
-	id         string
-	activeOnly *bool
-	pageNumber *int32
-	pageSize   *int32
+	ctx           context.Context
+	ApiService    *RackAPIService
+	siteId        *string
+	org           string
+	id            string
+	activeOnly    *bool
+	includeReport *bool
+	pageNumber    *int32
+	pageSize      *int32
 }
 
 // ID of the Site that owns the Rack.
@@ -948,6 +949,12 @@ func (r ApiGetRackTasksRequest) SiteId(siteId string) ApiGetRackTasksRequest {
 // Restrict results to non-terminal Tasks.
 func (r ApiGetRackTasksRequest) ActiveOnly(activeOnly bool) ApiGetRackTasksRequest {
 	r.activeOnly = &activeOnly
+	return r
+}
+
+// Include the per-task execution report on each returned task.
+func (r ApiGetRackTasksRequest) IncludeReport(includeReport bool) ApiGetRackTasksRequest {
+	r.includeReport = &includeReport
 	return r
 }
 
@@ -975,6 +982,8 @@ List Tasks targeting the specified Rack.
 Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -1024,6 +1033,13 @@ func (a *RackAPIService) GetRackTasksExecute(r ApiGetRackTasksRequest) ([]Task, 
 		var defaultValue bool = false
 		parameterAddToHeaderOrQuery(localVarQueryParams, "activeOnly", defaultValue, "form", "")
 		r.activeOnly = &defaultValue
+	}
+	if r.includeReport != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeReport", r.includeReport, "form", "")
+	} else {
+		var defaultValue bool = false
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeReport", defaultValue, "form", "")
+		r.includeReport = &defaultValue
 	}
 	if r.pageNumber != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "pageNumber", r.pageNumber, "form", "")

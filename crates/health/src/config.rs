@@ -111,7 +111,9 @@ pub struct StaticBmcEndpoint {
 pub struct StaticMachineEndpoint {
     pub id: String,
     pub serial: Option<String>,
+    #[serde(alias = "physical_slot_number")]
     pub slot_number: Option<i32>,
+    #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
     pub nvlink_domain_uuid: Option<String>,
 }
@@ -139,7 +141,9 @@ fn default_static_switch_endpoint_role() -> StaticSwitchEndpointRole {
 pub struct StaticSwitchEndpoint {
     pub id: Option<String>,
     pub serial: Option<String>,
+    #[serde(alias = "physical_slot_number")]
     pub slot_number: Option<i32>,
+    #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
     #[serde(default = "default_static_switch_endpoint_role")]
     pub endpoint_role: StaticSwitchEndpointRole,
@@ -826,12 +830,64 @@ impl Default for NmxtCollectorConfig {
 #[serde(default)]
 pub struct NvueCollectorConfig {
     pub rest: Configurable<NvueRestConfig>,
+    pub gnmi: Configurable<NvueGnmiConfig>,
 }
 
 impl Default for NvueCollectorConfig {
     fn default() -> Self {
         Self {
             rest: Configurable::Enabled(NvueRestConfig::default()),
+            gnmi: Configurable::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueGnmiConfig {
+    /// gNMI server port on the switch.
+    pub gnmi_port: u16,
+
+    /// Interval between SAMPLE mode subscription updates.
+    #[serde(with = "humantime_serde")]
+    pub sample_interval: Duration,
+
+    /// Timeout for gRPC connection attempts.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+
+    /// Enable gNMI ON_CHANGE subscription for live system-event messages.
+    #[serde(alias = "system_events_subscription_enabled", alias = "events_enabled")]
+    pub system_events_enabled: bool,
+
+    /// gNMI SAMPLE subscription paths.
+    pub paths: NvueGnmiPaths,
+}
+
+impl Default for NvueGnmiConfig {
+    fn default() -> Self {
+        Self {
+            gnmi_port: 9339,
+            sample_interval: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(30),
+            system_events_enabled: true,
+            paths: NvueGnmiPaths::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueGnmiPaths {
+    pub components_enabled: bool,
+    pub interfaces_enabled: bool,
+}
+
+impl Default for NvueGnmiPaths {
+    fn default() -> Self {
+        Self {
+            components_enabled: true,
+            interfaces_enabled: true,
         }
     }
 }
@@ -1189,6 +1245,14 @@ mod tests {
                 assert_eq!(rest.request_timeout, Duration::from_secs(30));
             } else {
                 panic!("nvue rest config should be enabled in example config");
+            }
+            if let Configurable::Enabled(ref gnmi) = nvue.gnmi {
+                assert_eq!(gnmi.gnmi_port, 9339);
+                assert_eq!(gnmi.sample_interval, Duration::from_secs(300));
+                assert_eq!(gnmi.request_timeout, Duration::from_secs(30));
+                assert!(gnmi.system_events_enabled);
+            } else {
+                panic!("nvue gnmi config should be enabled in example config");
             }
         } else {
             panic!("nvue config should be enabled in example config");
@@ -1567,6 +1631,37 @@ interfaces_enabled = false
     }
 
     #[test]
+    fn test_nvue_gnmi_events_disabled() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+system_events_enabled = false
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse");
+
+        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
+            if let Configurable::Enabled(ref gnmi) = nvue.gnmi {
+                assert!(!gnmi.system_events_enabled);
+            } else {
+                panic!("gnmi config should be enabled");
+            }
+        } else {
+            panic!("nvue config should be enabled");
+        }
+    }
+
+    #[test]
     fn test_static_endpoint_with_switch_serial() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
@@ -1770,6 +1865,48 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    #[test]
+    fn test_static_endpoints_accept_position_field_aliases() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", physical_slot_number = 15, compute_tray_index = 5 }
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.1"
+mac = "11:22:33:44:55:66"
+username = "cumulus"
+password = "pass"
+switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 3 }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static endpoint config");
+
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata");
+        assert_eq!(machine.slot_number, Some(15));
+        assert_eq!(machine.tray_index, Some(5));
+
+        let switch = config.endpoint_sources.static_bmc_endpoints[1]
+            .switch
+            .as_ref()
+            .expect("switch metadata");
+        assert_eq!(switch.slot_number, Some(7));
+        assert_eq!(switch.tray_index, Some(3));
     }
 
     #[test]

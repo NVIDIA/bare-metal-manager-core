@@ -630,6 +630,7 @@ mod tests {
                     interface_type: InterfaceType::Data,
                     primary_interface: true,
                     mac_address: MacAddress::from_str("08:c0:eb:cb:0e:96").unwrap(),
+                    boot_interface_id: None,
                     attached_dpu_machine_id: Some(
                         MachineId::from_str(
                             "fm100dsbiu5ckus880v8407u0mkcensa39cule26im5gnpvmuufckacguc0",
@@ -654,6 +655,7 @@ mod tests {
                     interface_type: InterfaceType::Data,
                     primary_interface: true,
                     mac_address: MacAddress::from_str("08:c0:eb:cb:0e:97").unwrap(),
+                    boot_interface_id: None,
                     attached_dpu_machine_id: Some(
                         MachineId::from_str(
                             "fm100dsg23d2f4tq4tt5m2hgib5pcldrm3gvefbduau7gj3itgc3iqg3lpg",
@@ -756,6 +758,7 @@ mod tests {
                 interface_type: InterfaceType::Data,
                 primary_interface: true,
                 mac_address: MacAddress::from_str("00:00:00:00:00:00").unwrap(),
+                boot_interface_id: None,
                 attached_dpu_machine_id: None,
                 domain_id: None,
                 machine_id: None,

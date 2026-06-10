@@ -20,7 +20,6 @@ use std::path::Path;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
-use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
@@ -254,16 +253,6 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
     } else {
         Ok(true)
     }
-}
-
-pub fn create_random_self_signed_cert() -> Vec<u8> {
-    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
-
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names).expect(
-        "BUG: Keypair generation should not fail, subject alt names are static and must be valid",
-    );
-
-    cert.der().to_vec()
 }
 
 fn find_sudo_command() -> &'static str {

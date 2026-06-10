@@ -113,6 +113,7 @@ pub async fn run(
             carbide_machine_controller::extra_logfmt_logging_fields(),
             None::<NoSubscriber>,
             log_history_max_bytes,
+            &carbide_config.tracing,
         )
         .wrap_err("setup_telemetry")?
     };

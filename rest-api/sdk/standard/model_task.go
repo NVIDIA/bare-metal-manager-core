@@ -41,6 +41,8 @@ type Task struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Timestamp when the task was last updated.
 	Updated *time.Time `json:"updated,omitempty"`
+	// Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.  A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump.
+	Report *TaskReportV1 `json:"report,omitempty"`
 }
 
 // NewTask instantiates a new Task object
@@ -348,6 +350,38 @@ func (o *Task) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
+// GetReport returns the Report field value if set, zero value otherwise.
+func (o *Task) GetReport() TaskReportV1 {
+	if o == nil || IsNil(o.Report) {
+		var ret TaskReportV1
+		return ret
+	}
+	return *o.Report
+}
+
+// GetReportOk returns a tuple with the Report field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Task) GetReportOk() (*TaskReportV1, bool) {
+	if o == nil || IsNil(o.Report) {
+		return nil, false
+	}
+	return o.Report, true
+}
+
+// HasReport returns a boolean if a field has been set.
+func (o *Task) HasReport() bool {
+	if o != nil && !IsNil(o.Report) {
+		return true
+	}
+
+	return false
+}
+
+// SetReport gets a reference to the given TaskReportV1 and assigns it to the Report field.
+func (o *Task) SetReport(v TaskReportV1) {
+	o.Report = &v
+}
+
 func (o Task) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -384,6 +418,9 @@ func (o Task) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
+	}
+	if !IsNil(o.Report) {
+		toSerialize["report"] = o.Report
 	}
 	return toSerialize, nil
 }

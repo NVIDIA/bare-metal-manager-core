@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Ping the API server (default 1s interval):
+    $ carbide-admin-cli ping
+
+Ping twice a second:
+    $ carbide-admin-cli ping --interval 0.5
+
+")]
 pub struct Opts {
     #[clap(
         short,

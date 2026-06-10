@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Identify what owns an IPv4 address:
+    $ carbide-admin-cli ip find 192.0.2.10
+
+Identify what owns an IPv6 address:
+    $ carbide-admin-cli ip find 2001:db8::1
+
+")]
 pub struct Args {
     /// The IP address we are looking to identify
     pub ip: std::net::IpAddr,

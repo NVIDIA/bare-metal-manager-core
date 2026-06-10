@@ -21,11 +21,45 @@ use rpc::forge::{self as forgerpc, PowerOptionUpdateRequest};
 
 #[derive(Parser, Debug)]
 pub enum Args {
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Show power options for all hosts:
+    $ carbide-admin-cli managed-host power-options show
+
+Show power options for one host:
+    $ carbide-admin-cli managed-host power-options show 12345678-1234-5678-90ab-cdef01234567
+
+")]
     Show(ShowPowerOptions),
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Set a host's desired power state (on / off / power-manager-disabled):
+    $ carbide-admin-cli managed-host power-options update 12345678-1234-5678-90ab-cdef01234567 \
+    --desired-power-state off
+
+")]
     Update(UpdatePowerOptions),
     #[clap(about = "Get machine ingestion state")]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Get the ingestion state for a machine by its BMC MAC:
+    $ carbide-admin-cli managed-host power-options get-machine-ingestion-state \
+    --mac-address 00:11:22:33:44:55
+
+")]
     GetMachineIngestionState(BmcMacAddress),
     #[clap(about = "Allow a machine to power on")]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Allow a machine to be ingested and powered on:
+    $ carbide-admin-cli managed-host power-options allow-ingestion-and-power-on \
+    --mac-address 00:11:22:33:44:55
+
+")]
     AllowIngestionAndPowerOn(BmcMacAddress),
 }
 

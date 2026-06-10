@@ -23,7 +23,10 @@ use crate::auth_router::Authorizer;
 use crate::bmc_state::BmcState;
 use crate::injection::InjectionStore;
 use crate::redfish::manager::ManagerState;
-use crate::{Callbacks, MachineInfo, SystemPowerControl, auth_router, middleware_router, redfish};
+use crate::{
+    Callbacks, HostHardwareType, MachineInfo, SystemPowerControl, auth_router, middleware_router,
+    redfish,
+};
 
 #[derive(Debug)]
 pub enum BmcCommand {
@@ -121,14 +124,21 @@ pub fn machine_router(
     };
     let account_service_state = state.account_service_state.clone();
     let session_service_state = state.session_service_state.clone();
+    let permit_factory_default_password = matches!(
+        &machine_info,
+        MachineInfo::Host(h) if h.hw_type == HostHardwareType::LiteOnPowerShelf
+    );
     let router = ([
         Box::new(redfish::expander_router::append),
         Box::new(move |router| {
             if redfish_auth {
-                auth_router::append(
-                    router,
-                    Authorizer::new(account_service_state, session_service_state),
-                )
+                let authorizer = Authorizer::new(account_service_state, session_service_state);
+                let authorizer = if permit_factory_default_password {
+                    authorizer.permit_factory_default_password()
+                } else {
+                    authorizer
+                };
+                auth_router::append(router, authorizer)
             } else {
                 router
             }

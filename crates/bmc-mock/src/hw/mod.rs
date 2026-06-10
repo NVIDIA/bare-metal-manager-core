@@ -36,6 +36,12 @@ pub mod wiwynn_gb200_nvl;
 /// Support of Lenovo GB300 NVL servers.
 pub mod lenovo_gb300_nvl;
 
+/// Support of DGX GB300 NVL servers (NVIDIA "GB BMC" host).
+pub mod dgx_gb300_nvl;
+
+/// Support of Supermicro (SMC) GB300 NVL servers (Supermicro OpenBMC host).
+pub mod supermicro_gb300_nvl;
+
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 
@@ -77,6 +83,7 @@ pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {
         BMCVendor::Hpe => "HPE",
         BMCVendor::LenovoAMI => "Unknown",
         BMCVendor::Liteon => "Unknown",
+        BMCVendor::Delta => "Unknown",
         BMCVendor::Unknown => "Unknown",
     }
 }
