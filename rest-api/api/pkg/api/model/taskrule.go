@@ -265,6 +265,26 @@ func (p protoRetryPolicy) toAPI() APITaskRuleRetryPolicy {
 	}
 }
 
+// toFlowJSON encodes the rule definition into Flow's rule_definition_json
+// blob (snake_case JSON).
+func (d APITaskRuleDefinition) toFlowJSON() (string, error) {
+	raw, err := json.Marshal(d.toProto())
+	if err != nil {
+		return "", fmt.Errorf("failed to encode ruleDefinition: %w", err)
+	}
+	return string(raw), nil
+}
+
+// ruleDefinitionFromFlowJSON decodes Flow's rule_definition_json blob into
+// an APITaskRuleDefinition.
+func ruleDefinitionFromFlowJSON(raw string) (APITaskRuleDefinition, error) {
+	var p protoRuleDefinition
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return APITaskRuleDefinition{}, fmt.Errorf("invalid ruleDefinition from Flow: %w", err)
+	}
+	return p.toAPI(), nil
+}
+
 // FromProto populates an APITaskRule from a Flow protobuf OperationRule.
 // Returns an error if ruleDefinitionJson cannot be unmarshaled.
 func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
@@ -287,11 +307,11 @@ func (r *APITaskRule) FromProto(pbRule *flowv1.OperationRule) error {
 	}
 
 	if raw := pbRule.GetRuleDefinitionJson(); raw != "" {
-		var p protoRuleDefinition
-		if err := json.Unmarshal([]byte(raw), &p); err != nil {
-			return fmt.Errorf("invalid ruleDefinition from Flow: %w", err)
+		def, err := ruleDefinitionFromFlowJSON(raw)
+		if err != nil {
+			return err
 		}
-		r.RuleDefinition = p.toAPI()
+		r.RuleDefinition = def
 	}
 	return nil
 }
@@ -330,16 +350,16 @@ func (r *APITaskRuleCreateRequest) ToProto() (*flowv1.CreateOperationRuleRequest
 	if err != nil {
 		return nil, err
 	}
-	rdJSON, err := json.Marshal(r.RuleDefinition.toProto())
+	rdJSON, err := r.RuleDefinition.toFlowJSON()
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
+		return nil, err
 	}
 	return &flowv1.CreateOperationRuleRequest{
 		Name:               r.Name,
 		Description:        r.Description,
 		OperationType:      opType,
 		OperationCode:      r.OperationCode,
-		RuleDefinitionJson: string(rdJSON),
+		RuleDefinitionJson: rdJSON,
 	}, nil
 }
 
@@ -379,12 +399,11 @@ func (r *APITaskRuleUpdateRequest) ToProto(ruleID string) (*flowv1.UpdateOperati
 		Description: r.Description,
 	}
 	if r.RuleDefinition != nil {
-		rdJSON, err := json.Marshal(r.RuleDefinition.toProto())
+		rdJSON, err := r.RuleDefinition.toFlowJSON()
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode ruleDefinition: %w", err)
+			return nil, err
 		}
-		s := string(rdJSON)
-		req.RuleDefinitionJson = &s
+		req.RuleDefinitionJson = &rdJSON
 	}
 	return req, nil
 }
