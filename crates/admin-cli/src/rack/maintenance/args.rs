@@ -87,7 +87,7 @@ pub struct MaintenanceOptions {
     #[clap(
         long = "sot-json-file",
         value_name = "PATH",
-        help = "SOT JSON file for RMS ApplyFirmwareObjectFromJSON"
+        help = "SOT JSON file for RMS ApplyFirmwareObject"
     )]
     pub sot_json_file: Option<PathBuf>,
 

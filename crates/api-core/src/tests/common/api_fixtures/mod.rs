@@ -1287,6 +1287,7 @@ pub async fn create_test_env_with_overrides(
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
                     run_interval: config.machine_validation_config.run_interval,
+                    stale_run_timeout: config.machine_validation_config.stale_run_timeout,
                     tests: config.machine_validation_config.tests.clone(),
                     test_selection_mode: config.machine_validation_config.test_selection_mode,
                 })

@@ -181,13 +181,10 @@ async fn ready_state_does_not_invoke_power_control(
     let outcome = run_handler(&mut services, &mut switch).await;
     let _ = commit_and_extract_transition(outcome).await;
 
-    let calls = env
-        .rms_sim
-        .submitted_set_power_state_by_device_list_requests()
-        .await;
+    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
     assert!(
         calls.is_empty(),
-        "Ready state must not call set_power_state_by_device_list"
+        "Ready state must not call batch_set_power_state"
     );
 
     Ok(())

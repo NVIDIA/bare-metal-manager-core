@@ -410,6 +410,12 @@ pub enum PreingestionState {
     TimeSyncReset {
         phase: TimeSyncResetPhase,
         last_time: DateTime<Utc>,
+        /// How many full reset cycles have already been attempted for this
+        /// endpoint. Used to retry a transient clock failure a bounded number
+        /// of times before giving up. Defaults to 0 so states serialized
+        /// before this field existed still deserialize.
+        #[serde(default)]
+        attempt: u32,
     },
     UpgradeFirmwareWait {
         task_id: String,
