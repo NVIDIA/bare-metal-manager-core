@@ -229,18 +229,18 @@ impl StreamMetrics {
     }
 }
 
-/// RAII guard: increments `active_sse_connections` on construction, decrements on drop.
+/// RAII guard: increments the passed IntGauge on construction, decrements on drop.
 /// Ensures every exit path from a connected stream (cancel, error, end, reconnect) dec's.
-struct SseConnectionGuard(IntGauge);
+pub(crate) struct StreamingConnectionGuard(IntGauge);
 
-impl SseConnectionGuard {
-    fn inc(gauge: IntGauge) -> Self {
+impl StreamingConnectionGuard {
+    pub(crate) fn inc(gauge: IntGauge) -> Self {
         gauge.inc();
         Self(gauge)
     }
 }
 
-impl Drop for SseConnectionGuard {
+impl Drop for StreamingConnectionGuard {
     fn drop(&mut self) {
         self.0.dec();
     }
@@ -468,7 +468,9 @@ impl Collector {
                         }
                     }
                     Ok(mut stream) => {
-                        let _conn_guard = SseConnectionGuard::inc(metrics.connected.clone());
+                        // the guard lives exactly as long as we hold an open stream; Drop
+                        // handles dec for every exit path (shutdown, error, stream end).
+                        let _conn_guard = StreamingConnectionGuard::inc(metrics.connected.clone());
                         backoff.reset();
                         on_connect_result(Ok(()));
                         tracing::info!(
@@ -534,15 +536,9 @@ impl Collector {
         })
     }
 
-    pub async fn stop(self) {
-        self.cancel_token.cancel();
-        let _ = self.handle.await;
-    }
-
-    pub fn is_finished(&self) -> bool {
-        self.handle.is_finished()
-    }
-
+    /// spawn helper for streaming collectors that don't fit `StreamingCollector`
+    /// (e.g. gNMI bidi subscribe with in-loop multiplexing). The closure gets a
+    /// CancellationToken and should return once it's cancelled.
     pub fn spawn_task<F, Fut>(task_fn: F) -> Self
     where
         F: FnOnce(CancellationToken) -> Fut + Send + 'static,
@@ -555,5 +551,14 @@ impl Collector {
             handle,
             cancel_token,
         }
+    }
+
+    pub async fn stop(self) {
+        self.cancel_token.cancel();
+        let _ = self.handle.await;
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.handle.is_finished()
     }
 }

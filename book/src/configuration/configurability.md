@@ -187,7 +187,7 @@ explicitly enabled in the TOML.
 | `[dsx_exchange_event_bus]` | MQTT event bus for managed-host state and BMS metadata | Requires MQTT broker. Pairs with the `nico-dsx-exchange-consumer` subchart. |
 | `[fnn]` | L3 VPC overlay networking (VXLAN) | Requires `routing_profiles` and route targets. |
 | `[spdm]` | SPDM hardware attestation (NRAS-based secure boot) | |
-| `[machine_identity]` | SPIFFE JWT-SVID issuance for tenant DPU identity | Per-org JWT signing. |
+| `[machine_identity]` | SPIFFE JWT-SVID issuance for machine (host) identity | Per-org JWT signing. See [Day 0 Machine Identity](../../../docs/getting-started/installation-options/day0-machine-identity.md) and [Machine Identity (Day 1)](../../../docs/configuration/machine_identity.md). |
 | `[measured_boot_collector]` | TPM-based attestation metrics | |
 | `[machine_validation_config]` | Pre-ingestion validation tests | |
 | `[component_manager]` | NvLink switch and power shelf management | |
@@ -1054,7 +1054,7 @@ on or off.
 | FNN (L3 VPC overlay) | siteConfig | `[fnn]` present | off | Tenant VPC networking via VXLAN; needs `routing_profiles` and route targets. |
 | Attestation | siteConfig | `attestation_enabled = true` | off | TPM-based machine attestation; adds a `Measuring` state before `Ready`. |
 | Measured Boot Metrics | siteConfig | `[measured_boot_collector].enabled` | off | Exporter for TPM-based attestation metrics. |
-| Machine Identity (SPIFFE JWT-SVID) | siteConfig | `[machine_identity].enabled` | off | Per-org JWT signing for tenant DPU identity tokens. |
+| Machine Identity (SPIFFE JWT-SVID) | siteConfig | `[machine_identity].enabled` | off | Per-org JWT signing for machine identity tokens. See [Day 0](../../../docs/getting-started/installation-options/day0-machine-identity.md) and [Day 1](../../../docs/configuration/machine_identity.md) docs. |
 | Machine Validation | siteConfig | `[machine_validation_config].enabled` | off | Pre-ingestion validation tests. |
 | SPDM | siteConfig | `[spdm].enabled` | off | Hardware attestation via NRAS. |
 | Rack Management | siteConfig | `rack_management_enabled = true` | off | Standalone infrastructure manager mode (GB200/GB300/VR144). |

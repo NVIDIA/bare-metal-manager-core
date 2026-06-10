@@ -40,16 +40,18 @@ pub(super) enum CollectorKind {
     LeakDetector,
     Nmxt,
     NvueRest,
+    NvueGnmi,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 6] = [
+    pub(super) const ALL: [CollectorKind; 7] = [
         CollectorKind::Sensor,
         CollectorKind::Logs,
         CollectorKind::Firmware,
         CollectorKind::LeakDetector,
         CollectorKind::Nmxt,
         CollectorKind::NvueRest,
+        CollectorKind::NvueGnmi,
     ];
 
     pub(super) fn stop_message(self) -> &'static str {
@@ -62,6 +64,9 @@ impl CollectorKind {
             }
             CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
             CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
+            CollectorKind::NvueGnmi => {
+                "Stopping NVUE gNMI streaming collector for removed switch endpoint"
+            }
         }
     }
 }
@@ -73,6 +78,7 @@ pub(super) struct CollectorState {
     logs: HashMap<Cow<'static, str>, Collector>,
     nmxt: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
+    nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
 }
 
 impl CollectorState {
@@ -84,6 +90,7 @@ impl CollectorState {
             logs: HashMap::new(),
             nmxt: HashMap::new(),
             nvue_rest: HashMap::new(),
+            nvue_gnmi: HashMap::new(),
         }
     }
 
@@ -95,6 +102,7 @@ impl CollectorState {
             CollectorKind::LeakDetector => &self.leak_detector,
             CollectorKind::Nmxt => &self.nmxt,
             CollectorKind::NvueRest => &self.nvue_rest,
+            CollectorKind::NvueGnmi => &self.nvue_gnmi,
         }
     }
 
@@ -109,6 +117,7 @@ impl CollectorState {
             CollectorKind::LeakDetector => &mut self.leak_detector,
             CollectorKind::Nmxt => &mut self.nmxt,
             CollectorKind::NvueRest => &mut self.nvue_rest,
+            CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
         }
     }
 
@@ -140,6 +149,7 @@ impl CollectorState {
             .chain(self.leak_detector.keys())
             .chain(self.nmxt.keys())
             .chain(self.nvue_rest.keys())
+            .chain(self.nvue_gnmi.keys())
             .filter(|key| !active_keys.contains(*key))
             .cloned()
             .collect()
@@ -217,5 +227,39 @@ impl DiscoveryLoopContext {
             nvue_config: config.collectors.nvue.clone(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::collections::HashSet;
+
+    use super::*;
+    use crate::collectors::Collector;
+
+    fn noop_collector() -> Collector {
+        Collector::spawn_task(|_| async {})
+    }
+
+    #[tokio::test]
+    async fn removed_keys_includes_nvue_gnmi_collectors() {
+        let mut state = CollectorState::new();
+        state.insert(
+            CollectorKind::NvueGnmi,
+            Cow::Borrowed("removed-gNMI-endpoint"),
+            noop_collector(),
+        );
+        state.insert(
+            CollectorKind::NvueRest,
+            Cow::Borrowed("active-rest-endpoint"),
+            noop_collector(),
+        );
+
+        let active = HashSet::from([Cow::Borrowed("active-rest-endpoint")]);
+        let removed = state.removed_keys(&active);
+
+        assert!(removed.contains(&Cow::Borrowed("removed-gNMI-endpoint")));
+        assert!(!removed.contains(&Cow::Borrowed("active-rest-endpoint")));
     }
 }

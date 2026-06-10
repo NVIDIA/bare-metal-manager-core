@@ -549,9 +549,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
                     };
 
-                // Lite-On power shelf BMCs don't expose vendor details in the
-                // service root, so we fall back to checking the Manufacturer
-                // field across all Chassis entries.
+                // Lite-On and Delta power shelf BMCs don't expose vendor
+                // details in the service root, so we fall back to checking the
+                // Manufacturer field across all Chassis entries.
                 let vendor = match self
                     .redfish_client
                     .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
@@ -563,10 +563,14 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         return Err(e);
                     }
                 };
-                if !vendor.to_lowercase().contains("lite-on") {
+                let vendor_lc = vendor.to_lowercase();
+                if vendor_lc.contains("lite-on") {
+                    RedfishVendor::LiteOnPowerShelf
+                } else if vendor_lc.contains("delta") {
+                    RedfishVendor::DeltaPowerShelf
+                } else {
                     return Err(e);
                 }
-                RedfishVendor::LiteOnPowerShelf
             }
         };
 

@@ -1199,6 +1199,23 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager = ib_fabric_test_manager(&config, composite_manager.clone());
 
     let rms_sim = Arc::new(RmsSim::default());
+    let test_component_manager = component_manager::component_manager::build_component_manager(
+        &component_manager::config::ComponentManagerConfig {
+            nv_switch_backend: "rms".into(),
+            power_shelf_backend: "rms".into(),
+            compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
+            nv_switch_use_state_controller: true,
+            ..Default::default()
+        },
+        rms_sim.as_rms_client(),
+        None,
+        Some(db_pool.clone()),
+        None,
+    )
+    .await
+    .ok()
+    .map(Arc::new);
+
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
         common_pools.clone(),
@@ -1214,6 +1231,10 @@ pub async fn create_test_env_with_overrides(
 
     if let Some(rms_client) = rms_sim.as_rms_client() {
         api_builder = api_builder.with_rms_client(rms_client);
+    }
+
+    if let Some(component_manager) = test_component_manager.clone() {
+        api_builder = api_builder.with_component_manager(component_manager);
     }
 
     if let Some(dpf_sdk) = overrides.dpf_sdk.clone() {
@@ -1399,22 +1420,6 @@ pub async fn create_test_env_with_overrides(
         .state_handler(Arc::new(vpc_prefix_swap.clone()))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build VpcPrefixStateController");
-
-    let test_component_manager = component_manager::component_manager::build_component_manager(
-        &component_manager::config::ComponentManagerConfig {
-            nv_switch_backend: "rms".into(),
-            power_shelf_backend: "rms".into(),
-            compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
-            ..Default::default()
-        },
-        rms_sim.as_rms_client(),
-        None,
-        Some(db_pool.clone()),
-        None,
-    )
-    .await
-    .ok()
-    .map(Arc::new);
 
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())

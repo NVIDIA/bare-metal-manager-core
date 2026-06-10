@@ -31,6 +31,7 @@ pub use logs::{
     SseLogCollector, SseLogCollectorConfig,
 };
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
+pub use nvue::gnmi::subscriber::spawn_gnmi_collector;
 pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
 pub use runtime::{
     BackoffConfig, Collector, CollectorStartContext, EventStream, ExponentialBackoff,

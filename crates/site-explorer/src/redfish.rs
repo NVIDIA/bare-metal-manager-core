@@ -722,10 +722,10 @@ async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
             return Ok(true);
         }
         if let Ok(chassis) = client.get_chassis(chassis_id).await
-            && chassis
-                .manufacturer
-                .as_ref()
-                .is_some_and(|m| m.to_lowercase().contains("lite-on"))
+            && chassis.manufacturer.as_ref().is_some_and(|m| {
+                let m = m.to_lowercase();
+                m.contains("lite-on") || m.contains("delta")
+            })
         {
             return Ok(true);
         }

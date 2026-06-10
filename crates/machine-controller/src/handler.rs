@@ -9093,7 +9093,7 @@ async fn wait_for_boss_controller_job_to_scheduled(
                 cleanup_context,
             )
         }
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+        _ if job_state.is_error_state() => {
             return handle_boss_controller_job_error(
                 boss_controller_id,
                 iteration.unwrap_or_default(),
@@ -9219,18 +9219,16 @@ async fn wait_for_boss_controller_job_to_complete(
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
-            handle_boss_controller_job_error(
-                boss_controller_id,
-                iterations,
-                secure_erase_boss_controller,
-                cleanup_context,
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
-                )),
-                mh_snapshot.host_snapshot.state.version.since_state_change(),
-            )
-        }
+        _ if job_state.is_error_state() => handle_boss_controller_job_error(
+            boss_controller_id,
+            iterations,
+            secure_erase_boss_controller,
+            cleanup_context,
+            StateHandlerError::GenericError(eyre::eyre!(
+                "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
+            )),
+            mh_snapshot.host_snapshot.state.version.since_state_change(),
+        ),
         // The job is still running (hopefully...); wait for the job to complete
         _ => Ok(StateHandlerOutcome::wait(format!(
             "waiting for job {job_id} to complete; current state: {job_state:#?}"
@@ -10417,8 +10415,7 @@ async fn set_host_boot_order(
                     libredfish::JobState::Completed => {
                         // Job completed successfully, proceed to CheckBootOrder
                     }
-                    libredfish::JobState::ScheduledWithErrors
-                    | libredfish::JobState::CompletedWithErrors => {
+                    _ if job_state.is_error_state() => {
                         tracing::warn!(
                             "SetBootOrder: job {} failed for {} with state {job_state:#?}, transitioning to HandleJobFailure",
                             job_id,

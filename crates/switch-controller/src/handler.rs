@@ -31,6 +31,7 @@ use crate::created::handle_created;
 use crate::deleting::handle_deleting;
 use crate::error_state::handle_error;
 use crate::initializing::handle_initializing;
+use crate::maintenance::handle_maintenance;
 use crate::ready::handle_ready;
 use crate::reprovisioning::handle_reprovisioning;
 use crate::validating::handle_validating;
@@ -78,6 +79,9 @@ impl SwitchStateHandler {
             }
             SwitchControllerState::ReProvisioning { .. } => {
                 handle_reprovisioning(switch_id, state, ctx).await
+            }
+            SwitchControllerState::Maintenance { .. } => {
+                handle_maintenance(switch_id, state, ctx).await
             }
             SwitchControllerState::Ready => handle_ready(switch_id, state, ctx).await,
             SwitchControllerState::Deleting => handle_deleting(switch_id, state, ctx).await,
