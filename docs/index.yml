@@ -134,6 +134,8 @@ navigation:
               path: dpu-management/dpu-operations.md
         - page: Firmware Updates
           path: operations/firmware-updates.md
+        - page: Monitoring and Health
+          path: operations/monitoring-health.md
         - page: Tenant Lifecycle Cleanup
           path: operations/tenant-lifecycle-cleanup.md
         - page: Network Isolation
