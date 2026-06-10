@@ -263,7 +263,10 @@ navigation:
   - tab: api
     layout:
     - page: Getting Started
-      path: openapi/getting_started.md
-      icon: flower
+      path: ../rest-api/openapi/getting-started.md
+      icon: circle-play
+    - page: Deprecations
+      path: ../rest-api/openapi/deprecations.md
+      icon: bell
     - api: API Reference
       tag-description-pages: true

@@ -100,29 +100,16 @@ tags:
   - name: Infrastructure Provider
     description: |-
       Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
-
-      Deprecation history:
-
-      - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by the user.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
-
-      Deprecation history:
-
-      - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
-      - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by the user.
   - name: Tenant Account
     description: Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
 
-      Deprecation history:
+      Recent deprecations:
 
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
@@ -145,10 +132,6 @@ tags:
       Subnet is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use Subnets to enable network connectivity between their Instances.
 
       Subnets are used on Sites that do not support Native Networking (FNN).
-
-      Deprecation history:
-
-      - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: Expected Machine
     description: |-
       Expected Machine identifies a Machine that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Machines using BMC credentials
@@ -184,20 +167,9 @@ tags:
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
-
-      Deprecation history:
-
-      - `includeMachineAssociation` was deprecated in favor of `includeMachineAssignment` and was removed on July 26th, 2023 0:00 UTC. Please use `includeMachineAssignment` instead.
-      - `displayName` attribute was deprecated and removed on October 30, 2024 0:00 UTC. Please update your usage accordingly.
   - name: Instance
     description: |-
       Instance is a Machine provisioned with an Operating System by a Tenant and attached to one or more VPC Prefixes or Subnets.
-
-      Deprecation history:
-
-      - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
-      - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
-      - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
@@ -224,10 +196,6 @@ tags:
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
       It can be used by the Provider to describe the overlay network of a particular Site. Providers can also use Allocations to delegate portions of these IP Blocks to Tenants.
-
-      Deprecation history:
-
-      - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: DPU Extension Service
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
@@ -284,33 +252,11 @@ tags:
     description: |-
       NICo REST API maintains backward compatibility with the previous versions. Any breaking changes are announced using deprecation notices.
 
-      Endpoints that have deprecations will be grouped here. Following deprecations are in effect or slated to be effective in future:
+      Active Deprecations:
 
-      Infrastructure Provider:
-      - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by user.
+      - Currently there are no active deprecations
 
-      Tenant:
-      - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
-      - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by user.
-
-      Instance Type:
-      - `includeMachineAssociation` was deprecated in favor of `includeMachineAssignment` and was removed on July 26th, 2023 0:00 UTC. Please use `includeMachineAssignment` instead.
-      - `displayName` attribute was deprecated and removed on October 30, 2024 0:00 UTC. Please update your usage accordingly.
-
-      Instance:
-      - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
-      - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
-      - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
-
-      IP Block:
-      - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
-
-      Subnet:
-      - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
+      Recent Deprecations:
 
       Site:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
@@ -22289,29 +22235,42 @@ components:
         - attribute: blockSize
           replacedBy: prefixLength
           takeActionBy: '2023-04-15T00:00:00Z'
-          notice: blockSize' has been deprecated in favor of 'prefixLength'. Please take action as soon as possible
+          notice: "'blockSize' has been deprecated in favor of 'prefixLength'. Please take action by specified date."
+        - queryParam: includeMachineAssociation
+          replacedBy: includeMachineAssignment
+          takeActionBy: '2023-07-26T00:00:00Z'
+          notice: "'includeMachineAssociation' has been deprecated in favor of 'includeMachineAssignment'. Please take action prior to the specified date"
+        - endpoint: POST /org/:orgName/nico/infrastructure-provider
+          takeActionBy: '2026-06-08T00:00:00Z'
+          notice: "'POST /org/:orgName/nico/infrastructure-provider' has been deprecated. Please take action prior to the specified date"
       properties:
         attribute:
           type:
             - string
             - 'null'
+          description: Name of the attribute that is deprecated. Omitted if queryParam or endpoint is being deprecated.
         queryParam:
           type:
             - string
             - 'null'
+          description: Query parameter that is deprecated. Omitted if attribute or endpoint is being deprecated.
         endpoint:
           type:
             - string
             - 'null'
+          description: API endpoint that is deprecated. Omitted if attribute or queryParam is being deprecated.
         replacedBy:
           type:
             - string
             - 'null'
+          description: Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
         takeActionBy:
           type: string
           format: date-time
+          description: ISO datetime string for when the deprecated field will no longer be accepted or available in the API
         notice:
           type: string
+          description: Message describing the deprecation
     NICoAPIError:
       title: NICoAPIError
       type: object

@@ -25,3 +25,9 @@ If you have trouble getting `esbuild` approved to install dependencies, you can 
 ```bash
 PNPM_CONFIG_DANGEROUSLY_ALLOW_ALL_BUILDS=true fern docs dev
 ```
+
+If the command fails with `No such built-in module: node:sqlite`, set this env var before running `fern docs dev`:
+
+```bash
+export NODE_OPTIONS="--experimental-sqlite"
+```
