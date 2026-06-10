@@ -17924,9 +17924,10 @@ components:
           type: string
           description: Optional status or error message describing the current state or result.
         ruleId:
-          type: string
+          type:
+            - string
+            - 'null'
           format: uuid
-          nullable: true
           description: |-
             Operation Rule that Flow resolved for this task — either because
             the caller pinned one via `ruleId` on the originating request or
