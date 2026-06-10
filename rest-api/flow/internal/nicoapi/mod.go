@@ -118,6 +118,29 @@ type Client interface {
 	// created), and the expected power shelf UUID.
 	GetAllExpectedPowerShelvesLinked(ctx context.Context) ([]LinkedExpectedPowerShelf, error)
 
+	// GetAllExpectedRackDetails returns every expected rack registered with
+	// Core. The result is the canonical view: rack_id (operator-supplied
+	// stable identifier), rack_profile_id, and Metadata (name, description,
+	// labels including chassis.* / location.*).
+	GetAllExpectedRackDetails(ctx context.Context) ([]ExpectedRackDetail, error)
+
+	// GetAllExpectedMachineDetails returns every expected machine registered
+	// with Core, including bmc_mac, chassis_serial_number, rack_id, the
+	// expected_machine UUID and the full Metadata block. This is the source
+	// of truth for Flow's expected-inventory sync; do not confuse with
+	// GetMachines, which returns runtime (discovered) machine state.
+	GetAllExpectedMachineDetails(ctx context.Context) ([]ExpectedMachineDetail, error)
+
+	// GetAllExpectedSwitchDetails returns every expected switch registered
+	// with Core as a flat slice carrying the full proto contents. The
+	// existing GetAllExpectedSwitches (keyed by BMC MAC, thin info) is kept
+	// for its current callers and intentionally not replaced here.
+	GetAllExpectedSwitchDetails(ctx context.Context) ([]ExpectedSwitchDetail, error)
+
+	// GetAllExpectedPowerShelfDetails returns every expected power shelf
+	// registered with Core as a flat slice with the full proto contents.
+	GetAllExpectedPowerShelfDetails(ctx context.Context) ([]ExpectedPowerShelfDetail, error)
+
 	// GetDesiredFirmwareVersions returns a slice of desired firmware version
 	// entries configured in Core. Each entry carries vendor and model fields;
 	// iterate the slice to find matching entries.
@@ -144,4 +167,8 @@ type Client interface {
 	SetSwitchControllerState(switchID, state string)
 	SetPowerShelfControllerState(shelfID, state string)
 	SetRackHostMachineIDs(rackID string, machineIDs []string)
+	AddExpectedRackDetail(detail ExpectedRackDetail)
+	AddExpectedMachineDetail(detail ExpectedMachineDetail)
+	AddExpectedSwitchDetail(detail ExpectedSwitchDetail)
+	AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail)
 }
