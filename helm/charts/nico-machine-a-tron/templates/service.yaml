@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}-bmc-mock
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+    app: {{ include "nico-machine-a-tron.name" . }}
+spec:
+  selector:
+    {{- include "nico-machine-a-tron.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.bmcMock.port }}
+      name: redfish
+      targetPort: redfish
+      protocol: TCP
+    {{- if .Values.machineATron.mockBmcSshServer }}
+    - port: {{ .Values.service.ssh.port }}
+      name: ssh
+      targetPort: ssh
+      protocol: TCP
+    {{- end }}

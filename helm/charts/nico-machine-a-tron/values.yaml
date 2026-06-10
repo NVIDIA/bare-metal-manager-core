@@ -1,0 +1,227 @@
+## =============================================================================
+## nico-machine-a-tron - Mock machine simulator for NICo development/testing
+## =============================================================================
+
+global:
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+namespaceOverride: ""
+
+replicas: 1
+automountServiceAccountToken: true
+annotations:
+  configmap.reloader.stakater.com/reload: '{{ include "nico-machine-a-tron.name" . }}-config-files'
+
+resources:
+  limits:
+    cpu: 4
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+service:
+  bmcMock:
+    port: 1266
+  ssh:
+    port: 22
+    targetPort: 2222
+  metrics:
+    port: 9090
+
+certificate:
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  dnsNames: []
+  uris: []
+  ## Extra DNS name for the bmc-mock service is added automatically in _helpers.tpl
+  extraDnsNames: []
+  extraUris: []
+
+command:
+  - /bin/sh
+  - -c
+  - |
+    if [ -x /opt/machine-a-tron/bin/machine-a-tron ]; then
+      exec /opt/machine-a-tron/bin/machine-a-tron
+    elif [ -x /opt/nico/machine-a-tron ]; then
+      exec /opt/nico/machine-a-tron
+    else
+      exec /opt/carbide/machine-a-tron
+    fi
+
+env:
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+envFrom:
+  vaultApproleTokens:
+    secretName: nico-vault-approle-tokens
+  vaultToken:
+    secretName: nico-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+
+livenessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 5
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## Machine-a-tron specific configuration
+machineATron:
+  ## URL of the NICo API server
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+
+  ## Network interface for BMC mock IP binding (not used in k8s single-mock mode)
+  interface: "NOTUSED"
+
+  ## TUI is disabled in kubernetes - logs go to stdout
+  tuiEnabled: false
+
+  ## Log file path (empty = stdout)
+  logFile: ""
+
+  ## BMC mock port (1266 is the devspace default)
+  bmcMockPort: 1266
+
+  ## Use single BMC mock with header-based routing (required for k8s)
+  useSingleBmcMock: true
+
+  ## Enable mock BMC SSH server
+  mockBmcSshServer: true
+  mockBmcSshPort: 2222
+
+  ## BMC mock tar files (templates for Redfish responses)
+  bmcMockHostTar: "/opt/machine-a-tron/dell_poweredge_r750.tar.gz"
+  bmcMockDpuTar: "/opt/machine-a-tron/nvidia_dpu.tar.gz"
+
+  ## Use PXE API instead of direct PXE server
+  usePxeApi: true
+
+  ## PXE server settings (only needed if usePxeApi: false)
+  pxeServerHost: ""
+  pxeServerPort: ""
+
+  ## If set, machine-a-tron will configure NICo to use this as bmc_proxy host
+  ## Combined with bmcMockPort to form host:port
+  configureBmcProxyHost: ""
+
+  ## Directory for persisting machine state between restarts
+  persistDir: "/tmp/machine-a-tron-data"
+
+  ## Delete created machines from API on quit
+  cleanupOnQuit: false
+
+  ## Auto-register mock hosts as expected machines
+  registerExpectedMachines: true
+
+  ## Override BMC passwords (leave empty for factory defaults)
+  hostBmcPassword: ""
+  dpuBmcPassword: ""
+
+  ## API refresh interval
+  apiRefreshInterval: "2s"
+
+## Machine configuration sections
+## Each named section defines a group of mock machines with specific settings
+## You can define multiple sections with different hardware types
+## Example:
+##   machines:
+##     dell-hosts:
+##       hwType: DellR760XA
+##       hostCount: 10
+##       dpuPerHostCount: 2
+##       ...
+##     gigabyte-hosts:
+##       hwType: GigabyteG493
+##       hostCount: 5
+##       dpuPerHostCount: 1
+##       ...
+machines:
+  ## Default section - can be renamed or have additional sections added
+  config:
+    ## Hardware type: DellR760XA, DellR760, GigabyteG493, LiteOnPowerShelf, NvidiaSwitchNd5200Ld
+    hwType: DellR760XA
+    ## Number of host machines to create
+    hostCount: 10
+    ## Number of VPCs to create
+    vpcCount: 0
+    ## Number of subnets per VPC
+    subnetsPerVpc: 0
+    ## Number of DPUs per host
+    dpuPerHostCount: 2
+    ## Reboot delay in seconds (short for dev/test)
+    dpuRebootDelay: 1
+    hostRebootDelay: 1
+    ## State machine intervals (faster for dev)
+    scoutRunInterval: "60s"
+    runIntervalWorking: "1s"
+    runIntervalIdle: "10s"
+    networkStatusRunInterval: "20s"
+    ## Template directory for BMC mock data
+    templateDir: "/opt/machine-a-tron/templates"
+    ## DHCP relay addresses (must match site config)
+    oobDhcpRelayAddress: "192.168.192.1"
+    adminDhcpRelayAddress: "192.168.176.1"
+    ## Network virtualization type: etv, etv_nvue, or fnn
+    networkVirtualizationType: ""
+    ## DPUs run in NIC mode (no PXE boot)
+    dpusInNicMode: false
+
+## Persistence volume for machine state
+persistence:
+  enabled: false
+  storageClass: ""
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}
+
+configFiles:
+  ## Override the entire mat.toml config (leave empty to use generated config)
+  matConfig: ""
