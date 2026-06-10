@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+  annotations:
+    {{- tpl (toYaml .Values.annotations) . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nico-machine-a-tron.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-machine-a-tron.labels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: {{ include "nico-machine-a-tron.name" . }}
+    spec:
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      serviceAccountName: {{ include "nico-machine-a-tron.name" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "nico-machine-a-tron.name" . }}
+          image: "{{ include "nico-machine-a-tron.image" . }}"
+          imagePullPolicy: {{ (.Values.global.image).pullPolicy | default .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_ROLE_ID
+                  optional: true
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_SECRET_ID
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.envFrom.vaultToken.secretName }}
+                  key: token
+                  optional: true
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: VAULT_SERVICE
+                  optional: true
+            - name: MACHINE_A_TRON_CONFIG_PATH
+              value: "/etc/nico/machine-a-tron/mat.toml"
+            - name: FORGE_ROOT_CA_PATH
+              value: "/var/run/secrets/spiffe.io/ca.crt"
+            - name: CLIENT_CERT_PATH
+              value: "/var/run/secrets/spiffe.io/tls.crt"
+            - name: CLIENT_KEY_PATH
+              value: "/var/run/secrets/spiffe.io/tls.key"
+            - name: RUST_BACKTRACE
+              value: {{ .Values.env.RUST_BACKTRACE | quote }}
+            - name: RUST_LIB_BACKTRACE
+              value: {{ .Values.env.RUST_LIB_BACKTRACE | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: redfish
+              containerPort: {{ .Values.service.bmcMock.port }}
+            - name: ssh
+              containerPort: {{ .Values.machineATron.mockBmcSshPort }}
+            - name: metrics
+              containerPort: {{ .Values.service.metrics.port }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          volumeMounts:
+            - name: {{ include "nico-machine-a-tron.name" . }}-config-files
+              mountPath: /etc/forge/machine-a-tron
+            - name: {{ include "nico-machine-a-tron.name" . }}-config-files
+              mountPath: /etc/nico/machine-a-tron
+            - name: spiffe
+              mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
+            - name: nico-roots
+              mountPath: "/var/run/secrets/forge-roots"
+              readOnly: true
+            - name: nico-roots
+              mountPath: "/var/run/secrets/nico-roots"
+              readOnly: true
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.machineATron.persistDir }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: {{ include "nico-machine-a-tron.name" . }}-config-files
+          configMap:
+            name: {{ include "nico-machine-a-tron.name" . }}-config-files
+        - name: spiffe
+          secret:
+            secretName: {{ include "nico-machine-a-tron.name" . }}-certificate
+        - name: nico-roots
+          secret:
+            secretName: nico-roots
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "nico-machine-a-tron.name" . }}-data
+        {{- end }}

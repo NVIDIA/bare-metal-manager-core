@@ -1,0 +1,43 @@
+suite: configmap tests
+templates:
+  - configmap.yaml
+tests:
+  - it: should create configmap with default machine config
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: nico-machine-a-tron-config-files
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "host_count = 3"
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "use_single_bmc_mock = true"
+
+  - it: should configure custom host count
+    set:
+      machines:
+        config:
+          hostCount: 10
+          dpuPerHostCount: 2
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "host_count = 10"
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "dpu_per_host_count = 2"
+
+  - it: should allow config override
+    set:
+      configFiles:
+        matConfig: |
+          carbide_api_url = "https://custom-api:443"
+          [machines.custom]
+          host_count = 5
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "custom-api"

@@ -1,0 +1,22 @@
+{{- if .Values.externalService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nico-machine-a-tron.name" . }}-external
+  namespace: {{ include "nico-machine-a-tron.namespace" . }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+  {{- with .Values.externalService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.externalService.type }}
+  externalTrafficPolicy: {{ .Values.externalService.externalTrafficPolicy }}
+  selector:
+    {{- include "nico-machine-a-tron.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.bmcMock.port }}
+      name: bmc-mock
+      protocol: TCP
+{{- end }}
