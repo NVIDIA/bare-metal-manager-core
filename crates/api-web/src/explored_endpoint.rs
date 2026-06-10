@@ -1200,14 +1200,16 @@ pub async fn set_dpu_first_boot_order(
     Redirect::to(&redirect_url).into_response()
 }
 
-/// Re-applies the host's stored boot interface on demand.
+/// Re-applies the host's resolved boot interface on demand.
 ///
-/// Unlike `set_dpu_first_boot_order`, this takes no MAC from the operator: it
-/// reuses the same RPC with `boot_interface_mac: None`, which makes the backend
-/// resolve the stored `MachineBootInterface` (MAC + Redfish interface id) and
-/// set it boot-first via the same MAC-first / interface-id fallback as automated
-/// setup. It gives an operator a one-click way to restore boot setup to the last
-/// known/healthy boot interface.
+/// This takes no MAC from the operator: it reuses `set_dpu_first_boot_order`
+/// with `boot_interface_mac: None`, which makes the backend resolve the boot
+/// interface the same way every other flow does -- the owning machine's
+/// designated interface (`primary_interface` + its captured Redfish interface
+/// id) once a machine owns this endpoint, or site-explorer's automatic default
+/// for a not-yet-managed endpoint -- and set it boot-first via the usual
+/// MAC-first / interface-id fallback. One click to put the BMC's boot order
+/// back in line with what Carbide would target.
 pub async fn restore_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
@@ -1231,7 +1233,7 @@ pub async fn restore_boot_interface(
         Ok(_) => ActionStatus {
             action: action_status::Type::RestoreBootInterface,
             class: action_status::Class::Success,
-            message: "Boot interface restored from the last-known-good record".into(),
+            message: "Boot order re-applied from the resolved boot interface".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {

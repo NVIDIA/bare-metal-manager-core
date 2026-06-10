@@ -273,7 +273,12 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 ///    so it's on the caller to figure out. What this usually means is the
 ///    caller passes `boot_interface_mac: None` to machine_setup, and then
 ///    subsequent logic flows from there (e.g. ::NoDpu handling).
-fn pick_boot_interface(
+///
+/// Public because admin boot-interface resolution (api-core) applies the same
+/// selection to a machine's interface rows when targeting a host by BMC
+/// endpoint -- the designation must resolve identically no matter which door
+/// the Redfish action comes through.
+pub fn pick_boot_interface(
     interfaces: &[MachineInterfaceSnapshot],
 ) -> Option<&MachineInterfaceSnapshot> {
     // The primary wins!
