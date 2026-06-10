@@ -604,11 +604,7 @@ pub async fn start_api(
 
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
-        dhcp_servers: carbide_config
-            .dhcp_servers
-            .iter()
-            .map(|addr| addr.to_string())
-            .collect(),
+        dhcp_servers: carbide_config.dhcp_servers.clone(),
         deny_prefixes: carbide_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };

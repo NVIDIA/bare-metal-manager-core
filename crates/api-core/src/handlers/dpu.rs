@@ -588,7 +588,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
-        dhcp_servers: api.eth_data.dhcp_servers.clone(),
+        dhcp_servers: api
+            .eth_data
+            .dhcp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect(),
         route_servers,
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
