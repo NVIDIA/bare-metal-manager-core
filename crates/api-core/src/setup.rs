@@ -774,7 +774,7 @@ impl<'a> SeedData<'a> {
                         .map(|name| {
                             format!(
                                 "`{name}` (in initial_objects_file vs {})",
-                                T::source_description(carbide_config, *name),
+                                T::source_description(carbide_config, name),
                             )
                         })
                         .collect();

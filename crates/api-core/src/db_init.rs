@@ -151,7 +151,7 @@ pub async fn create_initial_vpcs(
     for (name, def) in vpcs {
         if db::vpc::find_by_name(&mut txn, name)
             .await
-            .is_ok_and(|v| v.len() > 0)
+            .is_ok_and(|v| !v.is_empty())
         {
             tracing::debug!("VPC {name} exists");
             continue;
