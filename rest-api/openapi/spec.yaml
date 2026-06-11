@@ -18322,6 +18322,7 @@ components:
               - nvos
               - pmc
               - psu
+              - dpu
           description: |-
             Optional subset of firmware targets to update within each matched tray.
             Names are lowercase and select sub-parts of the tray
@@ -18338,8 +18339,15 @@ components:
                 and the whole bundle is applied. Will be honored once
                 compute moves to UpdateComponentFirmware.)
             Omitted or empty means "update everything in the bundle"
-            (the historical default). Unknown names are rejected.
-            Requires `version` to be set.
+            (the historical default) for compute-tray-internal targets.
+            Unknown names are rejected. Requires `version` to be set.
+            The special target `dpu`, valid only on compute trays,
+            requests DPU reprovisioning on each matched host. Unlike
+            the other targets, `dpu` is NOT covered by the
+            "omitted/empty means everything" default — it must be
+            listed explicitly. `version` is ignored on the `dpu`
+            branch; the target firmware version comes from site
+            configuration.
         ruleId:
           type: string
           format: uuid
@@ -18435,6 +18443,7 @@ components:
               - nvos
               - pmc
               - psu
+              - dpu
           description: |-
             Optional subset of firmware targets to update within the targeted tray.
             Names are lowercase and select sub-parts of the tray
@@ -18451,8 +18460,15 @@ components:
                 and the whole bundle is applied. Will be honored once
                 compute moves to UpdateComponentFirmware.)
             Omitted or empty means "update everything in the bundle"
-            (the historical default). Unknown names are rejected.
-            Requires `version` to be set.
+            (the historical default) for compute-tray-internal targets.
+            Unknown names are rejected. Requires `version` to be set.
+            The special target `dpu`, valid only on compute trays,
+            requests DPU reprovisioning on the matched host. Unlike
+            the other targets, `dpu` is NOT covered by the
+            "omitted/empty means everything" default — it must be
+            listed explicitly. `version` is ignored on the `dpu`
+            branch; the target firmware version comes from site
+            configuration.
         ruleId:
           type: string
           format: uuid

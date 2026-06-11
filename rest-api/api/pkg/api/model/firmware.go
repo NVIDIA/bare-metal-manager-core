@@ -26,8 +26,15 @@ type APIUpdateFirmwareRequest struct {
 	// carbide-core/crates/rpc/proto/forge.proto); see
 	// flow/pkg/common/firmwarecomponents for the resolution logic and
 	// helpers like SupportedNICoNVSwitchNames.
-	// Empty/nil means "update everything in the bundle". When non-empty,
-	// requires Version.
+	// Empty/nil means "update everything in the bundle" for the
+	// compute-tray-internal targets. When non-empty, requires Version.
+	//
+	// On compute trays, the special target "dpu" requests DPU
+	// reprovisioning on each matched host. Unlike every other target,
+	// "dpu" is NOT covered by the "empty means everything" default;
+	// the caller has to list it explicitly. Version is ignored on the
+	// "dpu" branch; the target firmware version comes from site
+	// configuration.
 	//
 	// REST surface intentionally calls these "targets" to avoid confusion
 	// with carbide's tray-level "Component" vocabulary; the downstream

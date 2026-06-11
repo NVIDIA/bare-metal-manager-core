@@ -19,6 +19,22 @@
 // `*_name` reverse map and require every non-UNKNOWN value to appear in
 // our mapping. When Core adds a new value, regen + test failure tells the
 // developer to pick a lowercase name and add an entry here, on purpose.
+//
+// # The "dpu" special target on compute trays
+//
+// "dpu" is intentionally NOT a ComputeTrayComponent enum value: from
+// Core's perspective DPUs are independent host machines whose firmware is
+// rolled out through the DPU reprovisioning state machine, not through
+// the synchronous UpdateComponentFirmware RPC that handles a compute
+// tray's BMC / BIOS / NIC / etc. The compute manager treats "dpu" as an
+// opt-in side-channel target name (see SplitNICoComputeTraySubTargets)
+// that triggers a separate, much longer DPU reprovisioning sequence on
+// each targeted host.
+//
+// Unlike every other compute-tray sub-target, "dpu" is NOT covered by
+// the "empty `targets` means update everything" default: an empty or
+// missing `targets` list always means "no DPU reprov"; DPU reprov runs
+// only when "dpu" is explicitly listed.
 package firmwarecomponents
 
 import (
@@ -73,8 +89,45 @@ func ParseNICoPowerShelf(names []string) ([]nicopb.PowerShelfComponent, error) {
 }
 
 // ParseNICoComputeTray maps lowercase names to NICo ComputeTrayComponent values.
+//
+// The special "dpu" target name MUST be removed from `names` before this
+// function is called — see SplitNICoComputeTraySubTargets. Passing "dpu"
+// directly here is rejected as an unknown component, since "dpu" does
+// not correspond to any ComputeTrayComponent enum value.
 func ParseNICoComputeTray(names []string) ([]nicopb.ComputeTrayComponent, error) {
 	return lookup(names, nicoComputeTrayByName, nicoComputeTrayNames, "compute")
+}
+
+// DpuComponentName is the special target name that, when present in a
+// compute-tray firmware update request's `targets` list, opts the request
+// in to a DPU reprovisioning sequence on each targeted host in addition
+// to (or instead of) any compute-tray-internal firmware updates.
+//
+// See the package doc for why "dpu" is not a ComputeTrayComponent enum
+// value and why it is excluded from the "empty `targets` means everything"
+// default.
+const DpuComponentName = "dpu"
+
+// SplitNICoComputeTraySubTargets separates the special DpuComponentName
+// from the compute-tray-internal sub-target names. Only the returned
+// computeTraySubs slice should be forwarded to ParseNICoComputeTray;
+// hasDpu is the opt-in flag for the DPU reprovisioning side-channel that
+// the compute manager handles separately.
+//
+// Whitespace is trimmed and case is normalized for the "dpu" check; all
+// other entries are passed through verbatim so ParseNICoComputeTray can
+// produce its canonical "unknown component" error for them.
+//
+// Repeated "dpu" entries are folded into a single hasDpu=true.
+func SplitNICoComputeTraySubTargets(names []string) (computeTraySubs []string, hasDpu bool) {
+	for _, n := range names {
+		if strings.EqualFold(strings.TrimSpace(n), DpuComponentName) {
+			hasDpu = true
+			continue
+		}
+		computeTraySubs = append(computeTraySubs, n)
+	}
+	return computeTraySubs, hasDpu
 }
 
 // SupportedNICoNVSwitchNames returns the lowercase names accepted by
