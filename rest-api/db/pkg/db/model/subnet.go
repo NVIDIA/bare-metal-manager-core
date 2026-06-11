@@ -856,52 +856,19 @@ func (ssd SubnetSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) err
 	return nil
 }
 
-func subnetIPv4CIDR(sn *Subnet) (string, bool) {
-	if sn.IPv4Prefix == nil || *sn.IPv4Prefix == "" {
-		return "", false
+// GetIPv4CIDR returns the subnet's IPv4 CIDR string, or nil when IPv4Prefix is unset.
+func (s *Subnet) GetIPv4CIDR() *string {
+	if s.IPv4Prefix == nil || *s.IPv4Prefix == "" {
+		return nil
 	}
-	if strings.Contains(*sn.IPv4Prefix, "/") {
-		return *sn.IPv4Prefix, true
+	if strings.Contains(*s.IPv4Prefix, "/") {
+		return s.IPv4Prefix
 	}
-	return fmt.Sprintf("%s/%d", *sn.IPv4Prefix, sn.PrefixLength), true
+	cidr := fmt.Sprintf("%s/%d", *s.IPv4Prefix, s.PrefixLength)
+	return &cidr
 }
 
-// queryEthernetInterfaceIPsForSubnets returns per-subnet iface row counts and assigned IP address
-// slices for all given subnet IDs in a single query.
-func queryEthernetInterfaceIPsForSubnets(ctx context.Context, idb bun.IDB, subnetIDs []uuid.UUID) (ifaceCounts map[uuid.UUID]int64, ifaceIPs map[uuid.UUID][][]string, err error) {
-	ifaceCounts = make(map[uuid.UUID]int64, len(subnetIDs))
-	ifaceIPs = make(map[uuid.UUID][][]string, len(subnetIDs))
-	for _, id := range subnetIDs {
-		ifaceCounts[id] = 0
-		ifaceIPs[id] = nil
-	}
-	if len(subnetIDs) == 0 {
-		return ifaceCounts, ifaceIPs, nil
-	}
-
-	type row struct {
-		SubnetID    uuid.UUID `bun:"subnet_id"`
-		IPAddresses []string  `bun:"ip_addresses,array"`
-	}
-	var rows []row
-	err = idb.NewRaw(
-		`SELECT ifc.subnet_id, ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
-		 WHERE ifc.subnet_id IN (?) AND ifc.deleted IS NULL AND inst.deleted IS NULL`,
-		bun.In(subnetIDs),
-	).Scan(ctx, &rows)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, r := range rows {
-		ifaceCounts[r.SubnetID]++
-		if len(r.IPAddresses) > 0 {
-			ifaceIPs[r.SubnetID] = append(ifaceIPs[r.SubnetID], r.IPAddresses)
-		}
-	}
-	return ifaceCounts, ifaceIPs, nil
-}
-
-func subnetPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int64, ips [][]string) (*cipam.Usage, error) {
+func subnetPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount int64, ips []string) (*cipam.Usage, error) {
 	ipamer := cipam.New(ctx)
 	ipamPrefix, err := ipamer.NewPrefix(ctx, cidr)
 	if err != nil {
@@ -914,19 +881,17 @@ func subnetPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCount 
 		return nil, err
 	}
 
-	for _, ipAddresses := range ips {
-		for _, ipStr := range ipAddresses {
-			netIpAddr, ierr := netip.ParseAddr(strings.TrimSpace(ipStr))
-			if ierr != nil || !netIpAddr.Is4() {
-				continue
-			}
-			if !netIpPrefix.Contains(netIpAddr) {
-				continue
-			}
-			_, ierr = ipamer.AcquireSpecificIP(ctx, validatedCidr, netIpAddr.String())
-			if ierr != nil {
-				continue
-			}
+	for _, ipStr := range ips {
+		netIpAddr, ierr := netip.ParseAddr(strings.TrimSpace(ipStr))
+		if ierr != nil || !netIpAddr.Is4() {
+			continue
+		}
+		if !netIpPrefix.Contains(netIpAddr) {
+			continue
+		}
+		_, ierr = ipamer.AcquireSpecificIP(ctx, validatedCidr, netIpAddr.String())
+		if ierr != nil {
+			continue
 		}
 	}
 
@@ -962,11 +927,11 @@ func (ssd SubnetSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, subnets .
 		if sn == nil {
 			return nil, fmt.Errorf("Failed to calculate usage stats for Subnet: nil argument specified")
 		}
-		cidr, ok := subnetIPv4CIDR(sn)
-		if !ok {
+		cidr := sn.GetIPv4CIDR()
+		if cidr == nil {
 			continue
 		}
-		subnetCIDRs[sn.ID] = cidr
+		subnetCIDRs[sn.ID] = *cidr
 		subnetIDs = append(subnetIDs, sn.ID)
 	}
 	if len(subnetIDs) == 0 {
@@ -974,9 +939,32 @@ func (ssd SubnetSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, subnets .
 	}
 
 	idb := db.GetIDB(tx, ssd.dbSession)
-	ifcCounts, ifcIPs, err := queryEthernetInterfaceIPsForSubnets(ctx, idb, subnetIDs)
+
+	ifcCounts := make(map[uuid.UUID]int64, len(subnetIDs))
+	ifcIPs := make(map[uuid.UUID][]string, len(subnetIDs))
+	for _, id := range subnetIDs {
+		ifcCounts[id] = 0
+		ifcIPs[id] = nil
+	}
+
+	type row struct {
+		SubnetID    uuid.UUID `bun:"subnet_id"`
+		IPAddresses []string  `bun:"ip_addresses,array"`
+	}
+	var rows []row
+	err := idb.NewRaw(
+		`SELECT ifc.subnet_id, ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
+		 WHERE ifc.subnet_id IN (?) AND ifc.deleted IS NULL AND inst.deleted IS NULL`,
+		bun.In(subnetIDs),
+	).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
+	}
+	for _, r := range rows {
+		ifcCounts[r.SubnetID]++
+		if len(r.IPAddresses) > 0 {
+			ifcIPs[r.SubnetID] = append(ifcIPs[r.SubnetID], r.IPAddresses...)
+		}
 	}
 
 	usageByID := make(map[uuid.UUID]*cipam.Usage, len(subnetIDs))
