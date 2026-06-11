@@ -690,7 +690,7 @@ pub async fn start_api(
             flavor_name: carbide_config.dpf.flavor_name.clone(),
             deployment_name: carbide_config.dpf.deployment_name.clone(),
             services: dpf_mandatory_services,
-            proxy: carbide_config.dpf.proxy.clone().map(|x| x.into()),
+            proxy: carbide_config.dpf.proxy.clone(),
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)

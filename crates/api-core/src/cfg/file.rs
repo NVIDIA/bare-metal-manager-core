@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_dpf::types::DpfProxyDetails;
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -880,22 +881,6 @@ fn default_dpf_flavor_name() -> String {
 
 fn default_dpf_node_label_key() -> String {
     "carbide.nvidia.com/controlled.node.v2".to_string()
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DpfProxyDetails {
-    pub https_proxy: String,
-    #[serde(default)]
-    pub no_proxy: Vec<String>,
-}
-
-impl From<DpfProxyDetails> for carbide_dpf::types::DpfProxyDetails {
-    fn from(value: DpfProxyDetails) -> Self {
-        carbide_dpf::types::DpfProxyDetails {
-            https_proxy: value.https_proxy,
-            no_proxy: value.no_proxy,
-        }
-    }
 }
 
 /// Configuration for a mandatory Helm-based DPF service.

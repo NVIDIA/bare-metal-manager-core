@@ -159,7 +159,7 @@ impl DhcpServerControl for DhcpServerControlService {
             .await
             .map_err(|_| Status::internal("control channel closed"))?;
 
-        tracing::info!("UpdateAndReloadConfig accepted");
+        tracing::debug!("UpdateAndReloadConfig accepted");
         Ok(Response::new(UpdateAndReloadConfigResponse {}))
     }
 

@@ -455,7 +455,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     proxy: &Option<DpfProxyDetails>,
 ) -> Result<String, DpfError> {
     let mut flavor = crate::flavor::default_flavor(namespace, proxy);
-    let name = flavor.unique_name(default_flavor_name);
+    let name = flavor.unique_name(default_flavor_name)?;
     flavor.metadata.name = Some(name.clone());
 
     match DpuFlavorRepository::create(repo, &flavor).await {
@@ -2911,7 +2911,7 @@ mod tests {
         // Proxy flavor must get a different hash than the no-proxy flavor.
         let name_no_proxy = {
             let f = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
-            f.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
+            f.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME).unwrap()
         };
         assert_ne!(
             name_with_proxy, name_no_proxy,
@@ -2970,7 +2970,9 @@ mod tests {
         let mock = SdkMock::new();
         let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
         // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
-        let hash_name = flavor.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME);
+        let hash_name = flavor
+            .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
+            .unwrap();
         flavor.metadata.name = Some(hash_name);
         let mut terminating_flavor = flavor.clone();
         terminating_flavor.metadata.deletion_timestamp = Some(terminating_timestamp());
@@ -2998,7 +3000,11 @@ mod tests {
         let mock = SdkMock::new();
         let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
         // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
-        flavor.metadata.name = Some(flavor.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME));
+        flavor.metadata.name = Some(
+            flavor
+                .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
+                .unwrap(),
+        );
         mock.flavors
             .write()
             .unwrap()

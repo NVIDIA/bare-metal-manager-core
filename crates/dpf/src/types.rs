@@ -19,6 +19,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::crds::dpus_generated::DpuStatusPhase;
 
 /// Async provider for BMC passwords used to create and refresh the K8s BMC
@@ -74,9 +76,10 @@ impl Default for InitDpfResourcesConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DpfProxyDetails {
     pub https_proxy: String,
+    #[serde(default)]
     pub no_proxy: Vec<String>,
 }
 

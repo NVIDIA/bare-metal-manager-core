@@ -32,10 +32,10 @@ impl DPUFlavor {
     /// Returns `"{default_flavor_name}-{hash}"` where the hash is the first 8 bytes (16 hex chars)
     /// of a stable SHA-256 digest of the spec. The name changes whenever the spec changes, which
     /// causes outdated DPUs to be reprovisioned by MachineUpdateManager.
-    pub fn unique_name(&self, default_flavor_name: &str) -> String {
-        let json = serde_json::to_string(&self.spec).unwrap_or_default();
+    pub fn unique_name(&self, default_flavor_name: &str) -> Result<String, crate::error::DpfError> {
+        let json = serde_json::to_string(&self.spec)?;
         let short_hash = hex::encode(&Sha256::digest(json.as_bytes())[..8]);
-        format!("{default_flavor_name}-{short_hash}")
+        Ok(format!("{default_flavor_name}-{short_hash}"))
     }
 }
 
@@ -201,6 +201,21 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
     }
 }
 
+/// DHCP ACL rules: drop DHCP broadcasts from host-facing interfaces.
+fn dhcp_acl_rules() -> String {
+    let mut rules = String::from("[iptables]\n");
+    for iface in
+        std::iter::once("pf0hpf_if".to_string()).chain((0..=15).map(|i| format!("pf0vf{i}_if")))
+    {
+        rules.push_str(&format!(
+            "-t filter -A FORWARD -p udp -d 255.255.255.255 \
+             --dport 67 -m physdev --physdev-in {iface} \
+             -m comment --comment 'offload:0' -j DROP\n"
+        ));
+    }
+    rules
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,7 +233,7 @@ mod tests {
     #[test]
     fn unique_name_has_expected_format() {
         let flavor = default_flavor("ns", &None);
-        let name = flavor.unique_name("dpu-flavor");
+        let name = flavor.unique_name("dpu-flavor").unwrap();
         // "<prefix>-<16 lowercase hex chars>"
         let (prefix, hash) = name.rsplit_once('-').expect("name contains '-'");
         assert_eq!(prefix, "dpu-flavor");
@@ -230,7 +245,10 @@ mod tests {
     fn unique_name_is_deterministic() {
         let f1 = default_flavor("ns", &None);
         let f2 = default_flavor("ns", &None);
-        assert_eq!(f1.unique_name("dpu-flavor"), f2.unique_name("dpu-flavor"));
+        assert_eq!(
+            f1.unique_name("dpu-flavor").unwrap(),
+            f2.unique_name("dpu-flavor").unwrap()
+        );
     }
 
     #[test]
@@ -238,8 +256,8 @@ mod tests {
         let no_proxy = default_flavor("ns", &None);
         let with_proxy = default_flavor("ns", &proxy("http://proxy:3128", &[]));
         assert_ne!(
-            no_proxy.unique_name("dpu-flavor"),
-            with_proxy.unique_name("dpu-flavor")
+            no_proxy.unique_name("dpu-flavor").unwrap(),
+            with_proxy.unique_name("dpu-flavor").unwrap()
         );
     }
 
@@ -250,7 +268,10 @@ mod tests {
             "ns",
             &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
         );
-        assert_ne!(p1.unique_name("dpu-flavor"), p2.unique_name("dpu-flavor"));
+        assert_ne!(
+            p1.unique_name("dpu-flavor").unwrap(),
+            p2.unique_name("dpu-flavor").unwrap()
+        );
     }
 
     // ── default_flavor ─────────────────────────────────────────────────────
@@ -338,19 +359,4 @@ mod tests {
         ));
         assert_eq!(proxy_file.permissions.as_deref(), Some("0644"));
     }
-}
-
-/// DHCP ACL rules: drop DHCP broadcasts from host-facing interfaces.
-fn dhcp_acl_rules() -> String {
-    let mut rules = String::from("[iptables]\n");
-    for iface in
-        std::iter::once("pf0hpf_if".to_string()).chain((0..=15).map(|i| format!("pf0vf{i}_if")))
-    {
-        rules.push_str(&format!(
-            "-t filter -A FORWARD -p udp -d 255.255.255.255 \
-             --dport 67 -m physdev --physdev-in {iface} \
-             -m comment --comment 'offload:0' -j DROP\n"
-        ));
-    }
-    rules
 }

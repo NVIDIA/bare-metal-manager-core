@@ -7,7 +7,7 @@ NICo supports two ways of provisioning DPUs:
 1. iPXE based
 2. DPF based
 
-This manual covers deployment of **DPF based** provisioning as it is used by NICo. 
+This manual covers deployment of **DPF based** provisioning as it is used by NICo.
 It assumes that a working Kubernetes cluster is already available, and is intentionally
 agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clouds, etc.)—any
 conformant cluster that satisfies the DPF prerequisites is acceptable.
@@ -15,7 +15,7 @@ conformant cluster that satisfies the DPF prerequisites is acceptable.
 This guide is **not a replacement** for the official DPF documentation. The
 authoritative source for installing and configuring DPF is the upstream guide:
 
-- https://docs.nvidia.com/networking/display/dpf25101
+- <https://docs.nvidia.com/networking/display/dpf25101>
 
 NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
 
@@ -56,7 +56,7 @@ kubectl get namespace dpf-operator-system &>/dev/null \
 
 ### 1.2. Image pull and helm repository credentials
 
-Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. For detailed instructions, see: https://docs.nvidia.com/networking/display/dpf25101/using-private-registries.
+Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. For detailed instructions, see: <https://docs.nvidia.com/networking/display/dpf25101/using-private-registries>.
 
 #### 1.2.a. `hbn-user-password` Secret
 
@@ -96,8 +96,8 @@ kubectl -n dpf-operator-system label secret dpf-pull-secret \
 
 #### 1.2.c. Secret to pull NICo docker service images
 
-Credentials for `nvcr.io`, used by the DPF operator to download NICo 
-service images. 
+Credentials for `nvcr.io`, used by the DPF operator to download NICo
+service images.
 
 ```bash
 kubectl -n dpf-operator-system create secret docker-registry nico-pull-secret \
@@ -109,6 +109,7 @@ kubectl -n dpf-operator-system create secret docker-registry nico-pull-secret \
 kubectl -n dpf-operator-system label secret nico-pull-secret \
   dpu.nvidia.com/image-pull-secret=""
 ```
+
 #### 1.2.d. Argo CD repository Secrets for Helm charts
 
 DPF pulls several Helm charts via Argo CD. Apply the following Secrets so that
@@ -176,7 +177,22 @@ Important: the `url` field must not end with a `/`, as any difference in the `ur
 | `ngc-doca-https-helm` | `https://helm.ngc.nvidia.com/nvstaging/doca` | HTTPS helm | Some DPUService charts |
 | `ngc-carbide-https-helm` | `https://helm.ngc.nvidia.com/0837451325059433/carbide-dev` | HTTPS helm | Carbide-private DPUService charts |
 
-### 1.3. Cert-manager policy and RBAC for DPF
+### 1.3. Internet access for DPUs
+
+After a DPU joins the DPU cluster, containerd on the DPU must be able to pull
+container images from external registries (e.g. `nvcr.io`). Two approaches exist:
+
+**Option A — ACL softening for DPU egress.** Open the required egress paths in your
+network ACLs so DPUs can reach the container registries directly. Consult your
+network team for the specific rules required.
+
+**Option B — HTTPS proxy in the host cluster.** Deploy an HTTPS-capable forward
+proxy (e.g. a SOCKS5 proxy exposed via a Kubernetes Service) that DPUs can reach and
+that can forward requests onward to the internet. NICo can configure containerd on
+each DPU to route image-pull traffic through the proxy at provisioning time; see
+section 3.5 for the TOML configuration.
+
+### 1.4. Cert-manager policy and RBAC for DPF
 
 DPF relies on cert-manager to mint short-lived certificates. If the cluster
 runs `approver-policy` (CRD `policy.cert-manager.io/CertificateRequestPolicy`),
@@ -272,7 +288,7 @@ Without this binding cert-manager's controller cannot reference the policy and
 
 Follow the upstream DPF installation guide for the actual install procedure:
 
-- https://docs.nvidia.com/networking/display/dpf25101
+- <https://docs.nvidia.com/networking/display/dpf25101>
 
 When installing the DPF operator chart, two parameter overrides are required
 for a NICo-integrated deployment. The example command below illustrates how to
@@ -539,12 +555,30 @@ docker_image_tag        = "<image tag>"            # empty → CI default
 docker_image_pull_secret = "dpf-pull-secret"
 ```
 
+If your environment routes DPU image pulls through an HTTPS forward proxy (Option B
+from section 1.3), add a `[dpf.proxy]` table:
+
+```toml
+[dpf.proxy]
+https_proxy = "socks5://<proxy-host>:<port>"
+no_proxy = ["10.0.0.0/8", "192.168.0.0/16", "localhost", ".cluster.local"]
+```
+
+When set, NICo embeds a systemd drop-in
+(`/etc/systemd/system/containerd.service.d/socks-proxy.conf`) into the `DPUFlavor`
+spec so that containerd on every DPU routes outbound HTTPS traffic through the proxy.
+The proxy is part of the flavor spec — changing or adding `[dpf.proxy]` produces a
+new flavor name (hash-derived) and triggers a full DPU reprovisioning. Set it before
+the first NICo startup with DPF enabled if possible.
+
 Field reference (all under `[dpf]`):
 
 | TOML key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
+| `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
+| `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
 
 Notes:
 
@@ -684,7 +718,7 @@ objects in the `dpf-operator-system` namespace:
 
 - a `Secret` (`bmc-shared-password`) holding the shared BMC password,
 - a `BFB` CR named `bf-bundle-<sha256([dpf].bfb_url)>`,
-- a `DPUFlavor` CR named after `[dpf].flavor_name`,
+- a `DPUFlavor` CR named `[dpf].flavor_name-<spec-hash>` (the 16-character hex suffix is a SHA-256 digest of the spec, so any change to the flavor — including adding or changing `[dpf.proxy]` — produces a new name and triggers reprovisioning of all DPUs),
 - a set of `DPUServiceInterface`, `DPUServiceTemplate`,
   `DPUServiceConfiguration`, and `DPUServiceNAD` CRs — one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
@@ -696,9 +730,9 @@ objects in the `dpf-operator-system` namespace:
 
 Because this path runs only at process start, **any change to `[dpf]`** —
 enabling DPF for the first time, changing the BFB URL, renaming the
-`DPUDeployment`/`DPUFlavor`, or pinning a different chart/image version under
-`[dpf.services.*]` — **requires a carbide-api restart** for the new
-configuration to take effect.
+`DPUDeployment`/`DPUFlavor`, pinning a different chart/image version under
+`[dpf.services.*]`, or adding/changing `[dpf.proxy]` — **requires a carbide-api
+restart** for the new configuration to take effect.
 
 ---
 
@@ -726,7 +760,7 @@ carbide-admin-cli dpf enable <host-machine-id>
 | `<host-machine-id>` | yes | Must be a **host** machine id; DPU ids are rejected. |
 
 Sets `machines.dpf.enabled = true` on the given host's runtime row by calling
-the `ModifyDPFState` RPC. 
+the `ModifyDPFState` RPC.
 
 ### `dpf show` — inspect DPF state for one or all hosts
 
@@ -769,7 +803,7 @@ carbide-admin-cli dpf sv
 ```
 
 No arguments. Prints a table comparing each configured DPF service
-(`[dpf.services.*]` from the site config if given or read it from 
+(`[dpf.services.*]` from the site config if given or read it from
 the compile time version) against what is actually deployed
 in the cluster:
 
