@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -43,7 +43,7 @@ type NetworkSecurityGroup struct {
 	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
 	// Number of rules in the Network Security Group
 	RuleCount *int32 `json:"ruleCount,omitempty"`
-	// Attachment statistics for the Network Security Group. Returned when `includeAttachmentStats` query param is set to true in retrieval endpoints.
+	// Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
 	AttachmentStats *NetworkSecurityGroupStats `json:"attachmentStats,omitempty"`
 	// Set of labels/tags for the Network Security Group
 	Labels map[string]string `json:"labels,omitempty"`

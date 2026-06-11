@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -55,9 +55,9 @@ type Machine struct {
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
 	// Health information about the machine
 	Health *MachineHealth `json:"health,omitempty"`
-	// Only available to Providers. Returned if includeMetadata query param is specified. Otherwise attribute is omitted from response.
+	// Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
 	Metadata *MachineMetadata `json:"metadata,omitempty"`
-	// Labels is VPC labels specified by user
+	// User-specified Machine labels
 	Labels map[string]string `json:"labels,omitempty"`
 	// Status represents the status of the machine
 	Status *MachineStatus `json:"status,omitempty"`

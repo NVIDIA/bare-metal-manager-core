@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -47,7 +47,7 @@ type InfiniBandPartition struct {
 	Mtu NullableInt32 `json:"mtu,omitempty"`
 	// Whether SHARP is enabled for the InfiniBand Partition
 	EnableSharp *bool `json:"enableSharp,omitempty"`
-	// String key value pairs describing InfiniBand Partition labels. Up to 10 key value pairs can be specified
+	// String key-value pairs describing InfiniBand Partition labels. Up to 10 key-value pairs can be specified
 	Labels map[string]string `json:"labels,omitempty"`
 	// Status of the InfiniBand Partition
 	Status *InfiniBandPartitionStatus `json:"status,omitempty"`

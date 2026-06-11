@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -57,11 +57,11 @@ type Instance struct {
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// Indicates whether the Instance should always execute custom iPXE script when rebooting
 	AlwaysBootWithCustomIpxe *bool `json:"alwaysBootWithCustomIpxe,omitempty"`
-	// Indicates whether the Phone Home service should be enabled or disabled for Instance
+	// Indicates whether the Phone Home service should be enabled or disabled for the Instance
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`
 	// UserData is inherited from Operating System or specified by user if allowed
 	UserData NullableString `json:"userData,omitempty"`
-	// Labels is Instance labels specified by user
+	// User-specified Instance labels
 	Labels map[string]string `json:"labels,omitempty"`
 	// Indicates whether an update is available for the Instance. Updates can be applied on reboot
 	IsUpdatePending *bool `json:"isUpdatePending,omitempty"`

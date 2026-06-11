@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -178,7 +178,7 @@ DeleteIpblock Delete IP Block
 
 # Delete an IP block
 
-Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with it.
+Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with them.
 
 Tenant IP Blocks are managed via Allocation.
 
@@ -302,7 +302,7 @@ func (r ApiGetAllDerivedIpblockRequest) Status(status string) ApiGetAllDerivedIp
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description and status fields
+// Search for matches across all derived IP Blocks. Input will be matched against name, description, and status fields
 func (r ApiGetAllDerivedIpblockRequest) Query(query string) ApiGetAllDerivedIpblockRequest {
 	r.query = &query
 	return r
@@ -515,7 +515,7 @@ func (r ApiGetAllIpblockRequest) IncludeUsageStats(includeUsageStats bool) ApiGe
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description and status fields
+// Search for matches across all IP Blocks. Input will be matched against name, description, and status fields
 func (r ApiGetAllIpblockRequest) Query(query string) ApiGetAllIpblockRequest {
 	r.query = &query
 	return r
@@ -554,7 +554,7 @@ GetAllIpblock Retrieve all IP Blocks
 
 Retrieve all IP blocks for the org.
 
-User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

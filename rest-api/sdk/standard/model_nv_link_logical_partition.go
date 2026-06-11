@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -37,7 +37,7 @@ type NVLinkLogicalPartition struct {
 	Status *NVLinkLogicalPartitionStatus `json:"status,omitempty"`
 	// Details of status changes for the NVLink Logical Partition over time
 	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
-	// GPU and Instance usage counts for the NVLink Logical Partition. Returned if `includeStats` query param is set to true in retrieval endpoints
+	// GPU and Instance usage counts for the NVLink Logical Partition. Returned if the `includeStats` query parameter is set to true in retrieval endpoints
 	NvLinkLogicalPartitionStats *NVLinkLogicalPartitionStats `json:"nvLinkLogicalPartitionStats,omitempty"`
 	// Date and time the NVLink Logical Partition was created
 	Created *time.Time `json:"created,omitempty"`
