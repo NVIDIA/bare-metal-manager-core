@@ -1190,6 +1190,7 @@ dependencies = [
  "carbide-sqlx-testing",
  "carbide-state-controller-common",
  "carbide-switch-controller",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -1227,7 +1228,6 @@ dependencies = [
  "mac_address",
  "mockito",
  "mqttea",
- "nico-test-support",
  "nras",
  "num_cpus",
  "nv-redfish",
@@ -1297,6 +1297,7 @@ dependencies = [
  "carbide-network",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -1314,7 +1315,6 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "names",
- "nico-test-support",
  "octseq",
  "regex",
  "rustc-hash",
@@ -1370,6 +1370,7 @@ dependencies = [
  "carbide-network",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -1384,7 +1385,6 @@ dependencies = [
  "lazy_static",
  "libnmxm",
  "mac_address",
- "nico-test-support",
  "nras",
  "once_cell",
  "p256 0.14.0-rc.9",
@@ -2157,13 +2157,13 @@ dependencies = [
  "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-ssh",
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "clap",
  "hex",
  "hostname",
  "mac_address",
- "nico-test-support",
  "once_cell",
  "prettytable-rs",
  "prost-types",
@@ -2814,6 +2814,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-secrets",
  "carbide-test-harness",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2825,7 +2826,6 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
- "nico-test-support",
  "opentelemetry",
  "rand 0.10.1",
  "regex",
@@ -3023,6 +3023,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-test-support"
+version = "0.0.0"
+
+[[package]]
 name = "carbide-tls"
 version = "0.0.0"
 dependencies = [
@@ -3039,6 +3043,7 @@ version = "0.0.0"
 dependencies = [
  "byte-unit",
  "carbide-network",
+ "carbide-test-support",
  "chrono",
  "clap",
  "ipnetwork",
@@ -7201,10 +7206,6 @@ dependencies = [
  "x509-parser",
  "zip",
 ]
-
-[[package]]
-name = "nico-test-support"
-version = "0.0.0"
 
 [[package]]
 name = "nix"

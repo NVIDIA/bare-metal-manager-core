@@ -28,29 +28,61 @@ use crate::errors::RpcDataConversionError;
 /// instance would otherwise be tenant-ready (`InstanceState::Ready` with synced configs
 /// and extension services ready). It does not override Failed, Updating, Configuring,
 /// Provisioning, or Terminating.
+///
+/// When `operator_managed_networking` is true, NICo has no data-plane readiness
+/// signal to wait for. Allocation and network-wait states are therefore projected
+/// as tenant-ready while terminal and update states retain precedence.
 pub fn instance_status_tenant_state(
     machine_state: ManagedHostState,
     configs_synced: SyncState,
     phone_home_enrolled: bool,
     phone_home_last_contact: Option<chrono::DateTime<chrono::Utc>>,
     extension_services_ready: bool,
+    operator_managed_networking: bool,
     repair_active: bool,
 ) -> Result<TenantState, RpcDataConversionError> {
     // At this point, we are sure that instance is created.
     // If machine state is still ready, means state machine has not processed this instance
     // yet.
 
+    let tenant_ready_state = || {
+        if repair_active {
+            TenantState::Repairing
+        } else {
+            TenantState::Ready
+        }
+    };
+
     let tenant_state = match machine_state {
-        ManagedHostState::Ready => TenantState::Provisioning,
+        ManagedHostState::Ready => {
+            if operator_managed_networking {
+                tenant_ready_state()
+            } else {
+                TenantState::Provisioning
+            }
+        }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Init
             | InstanceState::WaitingForNetworkSegmentToBeReady
             | InstanceState::WaitingForNetworkConfig
             | InstanceState::WaitingForStorageConfig
             | InstanceState::WaitingForExtensionServicesConfig
-            | InstanceState::WaitingForRebootToReady => TenantState::Provisioning,
-            InstanceState::NetworkConfigUpdate { .. } => TenantState::Configuring,
+            | InstanceState::WaitingForRebootToReady => {
+                if operator_managed_networking {
+                    tenant_ready_state()
+                } else {
+                    TenantState::Provisioning
+                }
+            }
+            InstanceState::NetworkConfigUpdate { .. } => {
+                if operator_managed_networking {
+                    tenant_ready_state()
+                } else {
+                    TenantState::Configuring
+                }
+            }
 
+            InstanceState::Ready if operator_managed_networking => tenant_ready_state(),
             InstanceState::Ready => {
                 let phone_home_pending = phone_home_enrolled && phone_home_last_contact.is_none();
 
@@ -249,7 +281,65 @@ mod tests {
                 false,
                 None,
                 true,
+                false,
                 case.repair_active,
+            )
+            .unwrap_or_else(|_| panic!("case {:?} failed conversion", case.name));
+            assert_eq!(state, case.expected, "case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn operator_managed_allocations_project_as_tenant_ready() {
+        struct Case {
+            name: &'static str,
+            machine_state: ManagedHostState,
+            expected: TenantState,
+        }
+
+        // Cover allocated/network-wait states where Flat has no NICo readiness signal.
+        let cases = [
+            Case {
+                name: "allocated before state controller pickup",
+                machine_state: ManagedHostState::Ready,
+                expected: TenantState::Ready,
+            },
+            Case {
+                name: "assigned init",
+                machine_state: ManagedHostState::Assigned {
+                    instance_state: InstanceState::Init,
+                },
+                expected: TenantState::Ready,
+            },
+            Case {
+                name: "waiting for network config",
+                machine_state: ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForNetworkConfig,
+                },
+                expected: TenantState::Ready,
+            },
+            Case {
+                name: "network config update",
+                machine_state: ManagedHostState::Assigned {
+                    instance_state: InstanceState::NetworkConfigUpdate {
+                        network_config_update_state:
+                            model::machine::NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
+                    },
+                },
+                expected: TenantState::Ready,
+            },
+        ];
+
+        // Flat/operator-managed states should not wait on network observations.
+        for case in cases {
+            let state = instance_status_tenant_state(
+                case.machine_state,
+                SyncState::Pending,
+                true,
+                None,
+                false,
+                true,
+                false,
             )
             .unwrap_or_else(|_| panic!("case {:?} failed conversion", case.name));
             assert_eq!(state, case.expected, "case: {}", case.name);

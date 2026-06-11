@@ -13,7 +13,7 @@ export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # unless using --skip-rest
 
 ## Documentation
 
-For complete step-by-step deployment instructions, see the **[Quick Start Guide](https://nvidia.github.io/ncx-infra-controller-core/documentation/getting-started/quick-start-guide)** in the NICo documentation site. The Quick Start Guide covers:
+For complete step-by-step deployment instructions, see the **[Quick Start Guide](https://docs.nvidia.com/infra-controller/documentation/getting-started/quick-start-guide)** in the NICo documentation site. The Quick Start Guide covers:
 
 1. Building NICo containers
 2. Preparing the Kubernetes cluster
@@ -23,7 +23,7 @@ For complete step-by-step deployment instructions, see the **[Quick Start Guide]
 6. Discovering your first host
 7. Verifying the deployment
 
-For manual phase-by-phase installation (re-running individual phases, debugging failures), see the **[Reference Installation](https://nvidia.github.io/ncx-infra-controller-core/documentation/getting-started/installation-options/reference-installation)** guide.
+For manual phase-by-phase installation (re-running individual phases, debugging failures), see the **[Reference Installation](https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/reference-installation)** guide.
 
 ## Directory structure
 
@@ -88,7 +88,7 @@ Once the above is done, run `./setup.sh -y`.
 ## Configuration reference
 
 Detailed field-by-field instructions for each values file live in the
-[Quick Start Guide — Step 3](https://nvidia.github.io/ncx-infra-controller-core/documentation/getting-started/quick-start-guide#step-3--configure-the-site).
+[Quick Start Guide — Step 3](https://docs.nvidia.com/infra-controller/documentation/getting-started/quick-start-guide#step-3--configure-the-site).
 The tables below summarize the keys that must be set per site.
 
 ### Environment variables
@@ -212,7 +212,7 @@ NICo Core      (../helm - nico-core.yaml values)
   ├── nico-pxe              (Deployment - HTTP PXE boot)
   ├── nico-ssh-console-rs   (Deployment - SSH console proxy)
   └── unbound               (Deployment - .forge zone DNS, opt-in)
-NICo REST      (infra-controller-rest/helm/charts/nico-rest)
+NICo REST      (rest-api/helm/charts/nico-rest)
   ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
