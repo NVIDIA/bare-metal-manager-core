@@ -515,49 +515,44 @@ func (c *errExpectedPowerShelvesClient) GetAllExpectedPowerShelfDetails(_ contex
 func TestPullExpectedMachines(t *testing.T) {
 	ctx := context.Background()
 	t.Run("rpc error -> rpcOK=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedMachines(ctx, &errExpectedMachinesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
+		_, ok := pullExpectedMachines(ctx, &errExpectedMachinesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
 		assert.False(t, ok)
-		assert.False(t, hasRows)
 	})
-	t.Run("empty -> rpcOK=true, hasRows=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedMachines(ctx, &errExpectedMachinesClient{Client: nicoapi.NewMockClient()})
+	t.Run("empty success -> rpcOK=true (authoritative, caller deletes all)", func(t *testing.T) {
+		rows, ok := pullExpectedMachines(ctx, &errExpectedMachinesClient{Client: nicoapi.NewMockClient()})
 		assert.True(t, ok)
-		assert.False(t, hasRows)
+		assert.Empty(t, rows)
 	})
-	t.Run("populated -> both true", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedMachines(ctx, &errExpectedMachinesClient{
+	t.Run("populated -> rpcOK=true", func(t *testing.T) {
+		rows, ok := pullExpectedMachines(ctx, &errExpectedMachinesClient{
 			Client: nicoapi.NewMockClient(),
 			rows:   []nicoapi.ExpectedMachineDetail{{ExpectedMachineID: "x"}},
 		})
 		assert.True(t, ok)
-		assert.True(t, hasRows)
+		assert.Len(t, rows, 1)
 	})
 }
 
 func TestPullExpectedSwitches(t *testing.T) {
 	ctx := context.Background()
 	t.Run("rpc error -> rpcOK=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedSwitches(ctx, &errExpectedSwitchesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
+		_, ok := pullExpectedSwitches(ctx, &errExpectedSwitchesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
 		assert.False(t, ok)
-		assert.False(t, hasRows)
 	})
-	t.Run("empty -> rpcOK=true, hasRows=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedSwitches(ctx, &errExpectedSwitchesClient{Client: nicoapi.NewMockClient()})
+	t.Run("empty success -> rpcOK=true", func(t *testing.T) {
+		_, ok := pullExpectedSwitches(ctx, &errExpectedSwitchesClient{Client: nicoapi.NewMockClient()})
 		assert.True(t, ok)
-		assert.False(t, hasRows)
 	})
 }
 
 func TestPullExpectedPowerShelves(t *testing.T) {
 	ctx := context.Background()
 	t.Run("rpc error -> rpcOK=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedPowerShelves(ctx, &errExpectedPowerShelvesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
+		_, ok := pullExpectedPowerShelves(ctx, &errExpectedPowerShelvesClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")})
 		assert.False(t, ok)
-		assert.False(t, hasRows)
 	})
-	t.Run("empty -> rpcOK=true, hasRows=false", func(t *testing.T) {
-		_, ok, hasRows := pullExpectedPowerShelves(ctx, &errExpectedPowerShelvesClient{Client: nicoapi.NewMockClient()})
+	t.Run("empty success -> rpcOK=true", func(t *testing.T) {
+		_, ok := pullExpectedPowerShelves(ctx, &errExpectedPowerShelvesClient{Client: nicoapi.NewMockClient()})
 		assert.True(t, ok)
-		assert.False(t, hasRows)
 	})
 }

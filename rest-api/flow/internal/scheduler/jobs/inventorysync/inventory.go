@@ -25,7 +25,11 @@ import (
 //     view and returns one combined drift set (the "actual" half — see
 //     actual_sync*.go).
 //  3. The drift set replaces the whole component_drift table atomically so
-//     stale rows from previous runs can't linger.
+//     stale rows from previous runs can't linger. The replace is skipped
+//     when any actual-sync RPC failed: component_drift is a full-table
+//     replace with no per-type discriminator, so writing a partial view
+//     would wipe the drifts of the types whose RPC failed. The existing
+//     table is left intact until a fully successful cycle refreshes it.
 //
 // Errors are handled inside each step: any per-type RPC failure is logged
 // and that type's drifts are skipped, but the rest of the cycle continues.
@@ -43,7 +47,12 @@ func runInventoryOne(
 		log.Debug().Msgf("Expected-inventory mirror: skipped this cycle (gate %s is off)", envExpectedSyncEnabled)
 	}
 
-	drifts := runActualSync(ctx, pool, nicoClient)
+	drifts, allRPCOK := runActualSync(ctx, pool, nicoClient)
+	if !allRPCOK {
+		log.Warn().Int("drifts_this_cycle", len(drifts)).
+			Msg("Drift detection: one or more actual-sync RPCs failed; preserving existing component_drift table this cycle instead of overwriting it with a partial view")
+		return
+	}
 
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		return model.ReplaceAllDrifts(ctx, tx, drifts)

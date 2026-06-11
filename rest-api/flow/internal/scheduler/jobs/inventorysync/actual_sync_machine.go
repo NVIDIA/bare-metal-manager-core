@@ -46,14 +46,14 @@ func syncMachines(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) (received int, drifts []model.ComponentDrift) {
+) (received int, drifts []model.ComponentDrift, rpcOK bool) {
 	log.Debug().Msg("Syncing machines...")
 
 	// Step 1: Get all machine components from DB
 	allComponents, err := model.GetAllComponents(ctx, pool.DB)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve components from db: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 
 	var components []model.Component
@@ -64,14 +64,14 @@ func syncMachines(
 	}
 
 	if len(components) == 0 {
-		return 0, nil
+		return 0, nil, true
 	}
 
 	// Step 2: Fetch all machine details from NICo
 	allMachineDetails, err := nicoClient.GetMachines(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine details from NICo: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 	received = len(allMachineDetails)
 
@@ -87,7 +87,7 @@ func syncMachines(
 	allComponents, err = model.GetAllComponents(ctx, pool.DB)
 	if err != nil {
 		log.Error().Msgf("Unable to re-read components from db after machine ID update: %v", err)
-		return received, nil
+		return received, nil, false
 	}
 	components = components[:0]
 	for _, c := range allComponents {
@@ -108,7 +108,7 @@ func syncMachines(
 	}
 
 	if len(machineIDs) == 0 {
-		return received, buildDriftsForUnmatchedComponents(components, allMachineDetails)
+		return received, buildDriftsForUnmatchedComponents(components, allMachineDetails), true
 	}
 
 	// Step 4: Direct-write power_state (requires separate NICo API)
@@ -124,7 +124,7 @@ func syncMachines(
 	machinePositions, err := nicoClient.GetMachinePositionInfo(ctx, machineIDs)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine positions from NICo: %v", err)
-		return received, nil
+		return received, nil, false
 	}
 
 	positionByID := make(map[string]nicoapi.MachinePosition)
@@ -197,7 +197,7 @@ func syncMachines(
 	}
 
 	log.Info().Msgf("Machine sync: %d drift(s) out of %d component(s)", len(drifts), len(components))
-	return received, drifts
+	return received, drifts, true
 }
 
 // buildDriftsForUnmatchedComponents returns missing_in_actual drifts for all

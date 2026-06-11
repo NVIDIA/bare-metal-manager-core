@@ -26,32 +26,42 @@ const driftFieldSerialNumber = "serial_number"
 // concatenates their drifts, and logs a per-type "received from Core"
 // summary. Each type-specific function handles its own errors internally
 // and falls back to nil drifts; one type's RPC failure doesn't suppress the
-// others. The returned drifts are not yet persisted — runInventoryOne owns
-// the table-replacement transaction.
+// others.
+//
+// allRPCOK is true only when every type's drift-affecting RPCs succeeded. The
+// drift table is a full-table replace with no per-type discriminator, so the
+// caller must not overwrite it from a partial view: if any type's RPC failed,
+// the previously persisted drifts are kept rather than being wiped. The
+// returned drifts are not yet persisted — runInventoryOne owns the
+// table-replacement transaction.
 func runActualSync(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) []model.ComponentDrift {
-	var allDrifts []model.ComponentDrift
+) (drifts []model.ComponentDrift, allRPCOK bool) {
+	allRPCOK = true
 
-	computeReceived, machineDrifts := syncMachines(ctx, pool, nicoClient)
-	allDrifts = append(allDrifts, machineDrifts...)
+	computeReceived, machineDrifts, machineOK := syncMachines(ctx, pool, nicoClient)
+	drifts = append(drifts, machineDrifts...)
+	allRPCOK = allRPCOK && machineOK
 
-	switchesReceived, nvSwitchDrifts := syncNVSwitchesNICo(ctx, pool, nicoClient)
-	allDrifts = append(allDrifts, nvSwitchDrifts...)
+	switchesReceived, nvSwitchDrifts, switchOK := syncNVSwitchesNICo(ctx, pool, nicoClient)
+	drifts = append(drifts, nvSwitchDrifts...)
+	allRPCOK = allRPCOK && switchOK
 
-	powershelvesReceived, powershelfDrifts := syncPowershelvesNICo(ctx, pool, nicoClient)
-	allDrifts = append(allDrifts, powershelfDrifts...)
+	powershelvesReceived, powershelfDrifts, powershelfOK := syncPowershelvesNICo(ctx, pool, nicoClient)
+	drifts = append(drifts, powershelfDrifts...)
+	allRPCOK = allRPCOK && powershelfOK
 
 	log.Info().
 		Int("compute", computeReceived).
 		Int("nvswitches", switchesReceived).
 		Int("powershelves", powershelvesReceived).
+		Bool("all_rpc_ok", allRPCOK).
 		Msgf("Inventory received from Core: compute=%d nvswitches=%d powershelves=%d",
 			computeReceived, switchesReceived, powershelvesReceived)
 
-	return allDrifts
+	return drifts, allRPCOK
 }
 
 // mapKeys returns the keys of a string-keyed component map in arbitrary

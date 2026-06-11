@@ -30,6 +30,7 @@ type mirrorResult struct {
 	softDeleted      int
 	legacyExempt     int
 	skippedNoIDOrKey int
+	skippedNameTaken int
 }
 
 func (r mirrorResult) log() {
@@ -43,6 +44,7 @@ func (r mirrorResult) log() {
 		Int("soft_deleted", r.softDeleted).
 		Int("legacy_exempt", r.legacyExempt).
 		Int("skipped_invalid", r.skippedNoIDOrKey).
+		Int("skipped_name_taken", r.skippedNameTaken).
 		Msgf("Expected-inventory mirror: %s", r.resource)
 }
 
@@ -60,9 +62,9 @@ func syncExpectedFromCore(
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
 ) {
-	racks, rackOK, rackHasRows := pullExpectedRacks(ctx, nicoClient)
+	racks, rackOK := pullExpectedRacks(ctx, nicoClient)
 	if rackOK {
-		result := mirrorExpectedRacks(ctx, pool, racks, !rackHasRows)
+		result := mirrorExpectedRacks(ctx, pool, racks)
 		result.log()
 	}
 
@@ -78,36 +80,36 @@ func syncExpectedFromCore(
 		return
 	}
 
-	if machines, ok, hasRows := pullExpectedMachines(ctx, nicoClient); ok {
+	if machines, ok := pullExpectedMachines(ctx, nicoClient); ok {
 		specs := make([]expectedComponentSpec, 0, len(machines))
 		for _, m := range machines {
 			specs = append(specs, machineDetailToSpec(m))
 		}
 		result := mirrorExpectedComponents(ctx, pool,
 			devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
-			specs, rackIDByExtID, !hasRows)
+			specs, rackIDByExtID)
 		result.log()
 	}
 
-	if switches, ok, hasRows := pullExpectedSwitches(ctx, nicoClient); ok {
+	if switches, ok := pullExpectedSwitches(ctx, nicoClient); ok {
 		specs := make([]expectedComponentSpec, 0, len(switches))
 		for _, s := range switches {
 			specs = append(specs, switchDetailToSpec(s))
 		}
 		result := mirrorExpectedComponents(ctx, pool,
 			devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch),
-			specs, rackIDByExtID, !hasRows)
+			specs, rackIDByExtID)
 		result.log()
 	}
 
-	if shelves, ok, hasRows := pullExpectedPowerShelves(ctx, nicoClient); ok {
+	if shelves, ok := pullExpectedPowerShelves(ctx, nicoClient); ok {
 		specs := make([]expectedComponentSpec, 0, len(shelves))
 		for _, ps := range shelves {
 			specs = append(specs, powerShelfDetailToSpec(ps))
 		}
 		result := mirrorExpectedComponents(ctx, pool,
 			devicetypes.ComponentTypeToString(devicetypes.ComponentTypePowerShelf),
-			specs, rackIDByExtID, !hasRows)
+			specs, rackIDByExtID)
 		result.log()
 	}
 }

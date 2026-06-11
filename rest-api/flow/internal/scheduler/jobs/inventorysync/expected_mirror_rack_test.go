@@ -276,32 +276,29 @@ func (c *errExpectedRacksClient) GetAllExpectedRackDetails(_ context.Context) ([
 func TestPullExpectedRacks(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("rpc error returns rpcOK=false so caller skips the type", func(t *testing.T) {
+	t.Run("rpc error returns rpcOK=false so caller leaves Flow untouched", func(t *testing.T) {
 		c := &errExpectedRacksClient{Client: nicoapi.NewMockClient(), err: errors.New("boom")}
-		rows, rpcOK, hasRows := pullExpectedRacks(ctx, c)
+		rows, rpcOK := pullExpectedRacks(ctx, c)
 		assert.Nil(t, rows)
 		assert.False(t, rpcOK)
-		assert.False(t, hasRows)
 	})
 
-	t.Run("empty response returns rpcOK=true, hasRows=false so caller skips delete only", func(t *testing.T) {
+	t.Run("empty response is an authoritative rpcOK=true so caller soft-deletes all", func(t *testing.T) {
 		c := &errExpectedRacksClient{Client: nicoapi.NewMockClient()}
-		rows, rpcOK, hasRows := pullExpectedRacks(ctx, c)
-		assert.Nil(t, rows)
+		rows, rpcOK := pullExpectedRacks(ctx, c)
+		assert.Empty(t, rows)
 		assert.True(t, rpcOK)
-		assert.False(t, hasRows)
 	})
 
-	t.Run("populated response returns both flags true", func(t *testing.T) {
+	t.Run("populated response returns rpcOK=true", func(t *testing.T) {
 		c := &errExpectedRacksClient{
 			Client: nicoapi.NewMockClient(),
 			rows: []nicoapi.ExpectedRackDetail{
 				{RackID: "a12"},
 			},
 		}
-		rows, rpcOK, hasRows := pullExpectedRacks(ctx, c)
+		rows, rpcOK := pullExpectedRacks(ctx, c)
 		assert.Len(t, rows, 1)
 		assert.True(t, rpcOK)
-		assert.True(t, hasRows)
 	})
 }

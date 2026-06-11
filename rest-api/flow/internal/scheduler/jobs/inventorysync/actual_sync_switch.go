@@ -41,17 +41,17 @@ func syncNVSwitchesNICo(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) (received int, drifts []model.ComponentDrift) {
+) (received int, drifts []model.ComponentDrift, rpcOK bool) {
 	log.Debug().Msg("Syncing NV switches via NICo...")
 
 	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve NVSwitch components from db: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 
 	if len(expectedSwitches) == 0 {
-		return 0, nil
+		return 0, nil, true
 	}
 
 	expectedByBmcMac := make(map[string]*model.Component)
@@ -73,7 +73,7 @@ func syncNVSwitchesNICo(
 	linked, err := nicoClient.GetAllExpectedSwitchesLinked(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve linked expected switches from NICo: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 	received = len(linked)
 
@@ -108,8 +108,12 @@ func syncNVSwitchesNICo(
 		componentsBySwitchID[les.SwitchID] = sw
 	}
 
-	// Fetch inventory from Core for all matched switches
+	// Fetch inventory from Core for all matched switches. A failure here
+	// leaves the serial-mismatch drifts incomplete, so flag the type
+	// not-OK: the caller then preserves the existing drift table this cycle
+	// rather than overwriting it with a partial view.
 	now := time.Now()
+	inventoryOK := true
 	if len(switchIDs) > 0 {
 		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
 			Target: &pb.GetComponentInventoryRequest_SwitchIds{
@@ -118,6 +122,7 @@ func syncNVSwitchesNICo(
 		})
 		if err != nil {
 			log.Error().Msgf("Unable to retrieve switch inventory from NICo: %v", err)
+			inventoryOK = false
 		} else {
 			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsBySwitchID)...)
 		}
@@ -140,7 +145,7 @@ func syncNVSwitchesNICo(
 	}
 
 	log.Info().Msgf("NVSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
-	return received, drifts
+	return received, drifts, inventoryOK
 }
 
 // syncSwitchStatuses fetches controller_state for the matched switches and

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -187,48 +188,46 @@ func parseLabelInt(raw string) (int, bool) {
 	return n, true
 }
 
-// pullExpectedMachines / Switches / PowerShelves apply the same two-step
-// guard as pullExpectedRacks (see expected_mirror.go for the rationale):
-// (1) RPC error short-circuits the type, (2) empty success suppresses the
-// delete phase to survive Core blips.
+// pullExpectedMachines / Switches / PowerShelves apply the same single guard
+// as pullExpectedRacks: an RPC error returns rpcOK=false so the caller leaves
+// Flow untouched. A successful but empty result is authoritative and the
+// caller soft-deletes every Flow row of that type (Core saying "none" is a
+// real state, not a blip).
 
-func pullExpectedMachines(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedMachineDetail, rpcOK, hasRows bool) {
+func pullExpectedMachines(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedMachineDetail, rpcOK bool) {
 	rows, err := c.GetAllExpectedMachineDetails(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: pulling expected machines from Core failed; skipping machine mirror this cycle")
-		return nil, false, false
+		return nil, false
 	}
 	if len(rows) == 0 {
-		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected machines; skipping machine delete phase this cycle")
-		return nil, true, false
+		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected machines; mirror will soft-delete all Flow compute components this cycle")
 	}
-	return rows, true, true
+	return rows, true
 }
 
-func pullExpectedSwitches(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedSwitchDetail, rpcOK, hasRows bool) {
+func pullExpectedSwitches(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedSwitchDetail, rpcOK bool) {
 	rows, err := c.GetAllExpectedSwitchDetails(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: pulling expected switches from Core failed; skipping switch mirror this cycle")
-		return nil, false, false
+		return nil, false
 	}
 	if len(rows) == 0 {
-		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected switches; skipping switch delete phase this cycle")
-		return nil, true, false
+		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected switches; mirror will soft-delete all Flow NVSwitch components this cycle")
 	}
-	return rows, true, true
+	return rows, true
 }
 
-func pullExpectedPowerShelves(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedPowerShelfDetail, rpcOK, hasRows bool) {
+func pullExpectedPowerShelves(ctx context.Context, c nicoapi.Client) (rows []nicoapi.ExpectedPowerShelfDetail, rpcOK bool) {
 	rows, err := c.GetAllExpectedPowerShelfDetails(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: pulling expected power shelves from Core failed; skipping power-shelf mirror this cycle")
-		return nil, false, false
+		return nil, false
 	}
 	if len(rows) == 0 {
-		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected power shelves; skipping power-shelf delete phase this cycle")
-		return nil, true, false
+		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected power shelves; mirror will soft-delete all Flow power-shelf components this cycle")
 	}
-	return rows, true, true
+	return rows, true
 }
 
 // mirrorExpectedComponents reconciles Flow's component table for a single
@@ -238,13 +237,19 @@ func pullExpectedPowerShelves(ctx context.Context, c nicoapi.Client) (rows []nic
 // transient Core absence doesn't cause UUID churn.
 //
 // rackIDByExtID resolves a Core rack_id string (e.g. "a12") to the Flow rack
-// UUID. A spec whose RackExternalID can't be resolved is skipped with a warn
-// — usually because the rack mirror earlier in the same cycle dropped that
-// rack for missing labels.
+// UUID. A spec whose RackExternalID can't be resolved is mirrored with a NULL
+// rack_id (the documented "ingested but not yet assigned to a rack" state) so
+// the component isn't lost while the rack association heals on a later cycle.
 //
 // componentType is the model.Component.Type value the caller is mirroring
 // ("Compute" / "NVSwitch" / "PowerShelf"); it gates the per-type DB load and
 // the delete scope so machines and switches never interfere with each other.
+//
+// The caller only invokes this after a successful Core RPC, so an empty specs
+// slice is authoritative: it means Core genuinely has no components of this
+// type and every live Flow row of the type is soft-deleted. (Transient Core
+// unavailability must surface as an RPC error, which short-circuits before
+// this function is reached.)
 //
 // All writes for one type's reconciliation land in a single transaction.
 func mirrorExpectedComponents(
@@ -253,7 +258,6 @@ func mirrorExpectedComponents(
 	componentType string,
 	specs []expectedComponentSpec,
 	rackIDByExtID map[string]uuid.UUID,
-	skipDelete bool,
 ) mirrorResult {
 	result := mirrorResult{resource: componentType, pulled: len(specs)}
 
@@ -278,35 +282,50 @@ func mirrorExpectedComponents(
 	}
 	var p plan
 
+	// seenKeys: every (manufacturer, serial) Core is still reporting this
+	// cycle, recorded BEFORE any validity / dedup skip. The delete phase
+	// treats a row whose key is absent from this set as "Core dropped it".
+	// plannedKeys: keys we've already queued an insert/update for, used to
+	// drop Core duplicates before they hit the (manufacturer, serial)
+	// unique index and roll back the whole type's transaction.
 	seenKeys := make(map[string]struct{}, len(specs))
+	plannedKeys := make(map[string]struct{}, len(specs))
 
 	for _, s := range specs {
+		// Record the natural key as "still reported by Core" as early as
+		// possible. The key needs only (manufacturer, serial); a missing
+		// BMC MAC is a partial-row blip, not an absence, so it must not
+		// let the delete phase soft-delete a row Core is still listing.
+		keyDerivable := s.Manufacturer != "" && s.SerialNumber != ""
+		var key string
+		if keyDerivable {
+			key = rackNaturalKey(s.Manufacturer, s.SerialNumber)
+			seenKeys[key] = struct{}{}
+		}
+
 		if !specValid(s) {
 			log.Warn().
 				Str("type", componentType).
 				Str("serial", s.SerialNumber).
 				Str("manufacturer", s.Manufacturer).
 				Str("bmc_mac", s.BMC.MACAddress).
-				Msg("Expected-inventory mirror: skipping Core expected component missing required identity (manufacturer / serial / BMC MAC)")
+				Msg("Expected-inventory mirror: skipping Core expected component missing required identity (manufacturer / serial / BMC MAC); row preserved if its key is still reported")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		// Track this key as "Core is still reporting it" before we get to
-		// any of the conditional skips below. The delete phase consults
-		// seenKeys to decide what to soft-delete; if we forgot to track a
-		// row whose Core spec we couldn't fully apply (e.g. rack
-		// resolution failed), the delete phase would wipe the Flow row
-		// even though Core hadn't dropped it.
-		key := rackNaturalKey(s.Manufacturer, s.SerialNumber)
-		if _, dup := seenKeys[key]; dup {
+		// specValid guarantees manufacturer and serial are set, so key is
+		// populated here. Drop Core duplicates: planning the same key twice
+		// would queue two INSERTs that collide on the unique index.
+		if _, planned := plannedKeys[key]; planned {
 			log.Warn().
 				Str("type", componentType).
 				Str("manufacturer", s.Manufacturer).
 				Str("serial", s.SerialNumber).
-				Msg("Expected-inventory mirror: Core returned duplicate spec for this component; later occurrence overwrites earlier in this cycle's mirror plan (Cloud REST is producing duplicates)")
+				Msg("Expected-inventory mirror: Core returned duplicate spec for this component; skipping the later occurrence to avoid a unique-constraint abort (Cloud REST is producing duplicates)")
+			continue
 		}
-		seenKeys[key] = struct{}{}
+		plannedKeys[key] = struct{}{}
 
 		rackID, ok := resolveRackID(s, rackIDByExtID)
 		if !ok {
@@ -378,9 +397,6 @@ func mirrorExpectedComponents(
 		if _, seen := seenKeys[rackNaturalKey(c.Manufacturer, c.SerialNumber)]; seen {
 			continue
 		}
-		if skipDelete {
-			continue
-		}
 		p.toDelete = append(p.toDelete, *c)
 		log.Info().
 			Str("type", componentType).
@@ -393,21 +409,38 @@ func mirrorExpectedComponents(
 		return result
 	}
 
+	now := time.Now()
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
 			if _, err := tx.NewInsert().Model(&p.toInsert[i]).Exec(ctx); err != nil {
 				return fmt.Errorf("insert component %q: %w", p.toInsert[i].SerialNumber, err)
 			}
 			p.toInsertBMCs[i].ComponentID = p.toInsert[i].ID
-			if err := evictOrphanBMC(ctx, tx, p.toInsertBMCs[i].MacAddress, p.toInsert[i].ID); err != nil {
+			proceed, err := evictHostBMCOrphanForInsert(ctx, tx, p.toInsertBMCs[i].MacAddress, p.toInsert[i].ID)
+			if err != nil {
 				return err
 			}
-			if _, err := tx.NewInsert().Model(&p.toInsertBMCs[i]).Exec(ctx); err != nil {
-				return fmt.Errorf("insert BMC for component %q: %w", p.toInsert[i].SerialNumber, err)
+			if proceed {
+				if _, err := tx.NewInsert().Model(&p.toInsertBMCs[i]).Exec(ctx); err != nil {
+					return fmt.Errorf("insert BMC for component %q: %w", p.toInsert[i].SerialNumber, err)
+				}
 			}
 		}
 		for i := range p.toUpdate {
-			if _, err := tx.NewUpdate().Model(&p.toUpdate[i]).Where("id = ?", p.toUpdate[i].ID).Exec(ctx); err != nil {
+			// Mirror-managed columns only. external_id / power_state /
+			// firmware_version / status are owned by the actual-sync loop;
+			// a full-model UPDATE would clobber them with the snapshot read
+			// at the top of this pass. WhereAllWithDeleted is required so a
+			// resurrection (deleted_at cleared in Go) actually matches the
+			// tombstone row — bun otherwise appends "deleted_at IS NULL" to
+			// the UPDATE and the resurrect would silently match zero rows.
+			p.toUpdate[i].UpdatedAt = now
+			if _, err := tx.NewUpdate().
+				Model(&p.toUpdate[i]).
+				Column("name", "model", "slot_id", "tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
+				WhereAllWithDeleted().
+				Where("id = ?", p.toUpdate[i].ID).
+				Exec(ctx); err != nil {
 				return fmt.Errorf("update component %q: %w", p.toUpdate[i].SerialNumber, err)
 			}
 			ops := p.toUpdateBMCs[i]
@@ -418,15 +451,18 @@ func mirrorExpectedComponents(
 			}
 			if ops.insert != nil {
 				ops.insert.ComponentID = p.toUpdate[i].ID
-				if err := evictOrphanBMC(ctx, tx, ops.insert.MacAddress, p.toUpdate[i].ID); err != nil {
+				proceed, err := evictHostBMCOrphanForInsert(ctx, tx, ops.insert.MacAddress, p.toUpdate[i].ID)
+				if err != nil {
 					return err
 				}
-				if _, err := tx.NewInsert().Model(ops.insert).Exec(ctx); err != nil {
-					return fmt.Errorf("insert BMC for component %q: %w", p.toUpdate[i].SerialNumber, err)
+				if proceed {
+					if _, err := tx.NewInsert().Model(ops.insert).Exec(ctx); err != nil {
+						return fmt.Errorf("insert BMC for component %q: %w", p.toUpdate[i].SerialNumber, err)
+					}
 				}
 			}
 			if ops.update != nil {
-				if _, err := tx.NewUpdate().Model(ops.update).Where("mac_address = ?", ops.update.MacAddress).Exec(ctx); err != nil {
+				if _, err := tx.NewUpdate().Model(ops.update).Column("ip_address").Where("mac_address = ?", ops.update.MacAddress).Exec(ctx); err != nil {
 					return fmt.Errorf("update BMC %q: %w", ops.update.MacAddress, err)
 				}
 			}
@@ -657,42 +693,64 @@ func planBMCReconciliation(component *model.Component, spec expectedBMCSpec) (op
 	return ops
 }
 
-// evictOrphanBMC hard-deletes any BMC row whose mac_address collides with
-// the one about to be inserted under newOwnerID. The bmc table's PK is the
-// MAC alone, so two components claiming the same host MAC would fail the
-// INSERT and roll back the whole component-mirror tx. The collision is
-// rare — typically a physical BMC card moved to a new chassis without the
-// old row being cleaned up — but the failure mode is severe (entire type's
-// mirror frozen until manual cleanup), so the mirror clears the orphan and
-// logs loudly so operators see the data-corruption signal.
-func evictOrphanBMC(ctx context.Context, tx bun.Tx, mac string, newOwnerID uuid.UUID) error {
+// evictHostBMCOrphanForInsert clears the way to INSERT a host BMC whose
+// mac_address may already be taken. The bmc table's PK is the MAC alone, so a
+// collision would fail the INSERT and roll back the whole component-mirror tx.
+// It returns whether the caller should proceed with the INSERT:
+//
+//   - No existing row with that MAC: proceed (nothing in the way).
+//   - Existing row is type='Host' on a different component: hard-delete it
+//     (Core's claim wins; a host BMC card physically moved chassis) and
+//     proceed. Logged loudly as a data-corruption signal.
+//   - Existing row is type='Host' on the same component: don't re-insert
+//     (it's already there); proceed=false.
+//   - Existing row is NOT type='Host' (e.g. a DPU BMC): refuse. The mirror
+//     never owns non-host BMCs, and the bmc table has no soft-delete, so
+//     hard-deleting another component's DPU row would be unrecoverable data
+//     loss. Skip this one host-BMC insert and log an error instead of
+//     aborting the whole type's mirror.
+func evictHostBMCOrphanForInsert(ctx context.Context, tx bun.Tx, mac string, newOwnerID uuid.UUID) (proceed bool, err error) {
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+
 	var orphan model.BMC
-	err := tx.NewSelect().
+	err = tx.NewSelect().
 		Model(&orphan).
 		Where("mac_address = ?", mac).
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return true, nil
 	}
 	if err != nil {
-		return fmt.Errorf("look up potential BMC orphan %q: %w", mac, err)
+		return false, fmt.Errorf("look up potential BMC orphan %q: %w", mac, err)
 	}
+
+	if orphan.Type != hostType {
+		log.Error().
+			Str("bmc_mac", mac).
+			Str("existing_type", orphan.Type).
+			Str("existing_owner_component_id", orphan.ComponentID.String()).
+			Str("new_owner_component_id", newOwnerID.String()).
+			Msg("Expected-inventory mirror: Core's host BMC MAC collides with an existing non-host BMC; refusing to evict it, skipping this host BMC insert (manual data cleanup required)")
+		return false, nil
+	}
+
 	if orphan.ComponentID == newOwnerID {
-		return nil
+		return false, nil
 	}
+
 	if _, err := tx.NewDelete().
 		Model(&orphan).
 		Where("mac_address = ?", mac).
 		ForceDelete().
 		Exec(ctx); err != nil {
-		return fmt.Errorf("evict orphan BMC %q from component %s: %w", mac, orphan.ComponentID, err)
+		return false, fmt.Errorf("evict orphan host BMC %q from component %s: %w", mac, orphan.ComponentID, err)
 	}
 	log.Warn().
 		Str("bmc_mac", mac).
 		Str("orphan_owner_component_id", orphan.ComponentID.String()).
 		Str("new_owner_component_id", newOwnerID.String()).
-		Msg("Expected-inventory mirror: BMC MAC already owned by a different component; evicted to honour Core's claim")
-	return nil
+		Msg("Expected-inventory mirror: host BMC MAC already owned by a different component; evicted to honour Core's claim")
+	return true, nil
 }
 
 func optionalString(s string) *string {

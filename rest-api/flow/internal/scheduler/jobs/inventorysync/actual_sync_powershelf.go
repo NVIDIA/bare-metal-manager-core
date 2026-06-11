@@ -41,17 +41,17 @@ func syncPowershelvesNICo(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) (received int, drifts []model.ComponentDrift) {
+) (received int, drifts []model.ComponentDrift, rpcOK bool) {
 	log.Debug().Msg("Syncing powershelves via NICo...")
 
 	expectedPowershelves, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypePowerShelf)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve powershelf components from db: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 
 	if len(expectedPowershelves) == 0 {
-		return 0, nil
+		return 0, nil, true
 	}
 
 	expectedByPmcMac := make(map[string]*model.Component)
@@ -73,7 +73,7 @@ func syncPowershelvesNICo(
 	linked, err := nicoClient.GetAllExpectedPowerShelvesLinked(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve linked expected power shelves from NICo: %v", err)
-		return 0, nil
+		return 0, nil, false
 	}
 	received = len(linked)
 
@@ -108,8 +108,12 @@ func syncPowershelvesNICo(
 		componentsByShelfID[leps.PowerShelfID] = ps
 	}
 
-	// Fetch inventory from Core for all matched power shelves
+	// Fetch inventory from Core for all matched power shelves. A failure here
+	// leaves the serial-mismatch drifts incomplete, so flag the type
+	// not-OK: the caller then preserves the existing drift table this cycle
+	// rather than overwriting it with a partial view.
 	now := time.Now()
+	inventoryOK := true
 	if len(shelfIDs) > 0 {
 		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
 			Target: &pb.GetComponentInventoryRequest_PowerShelfIds{
@@ -118,6 +122,7 @@ func syncPowershelvesNICo(
 		})
 		if err != nil {
 			log.Error().Msgf("Unable to retrieve powershelf inventory from NICo: %v", err)
+			inventoryOK = false
 		} else {
 			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsByShelfID)...)
 		}
@@ -140,7 +145,7 @@ func syncPowershelvesNICo(
 	}
 
 	log.Info().Msgf("Powershelf NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedPowershelves))
-	return received, drifts
+	return received, drifts, inventoryOK
 }
 
 // syncPowershelfStatuses is the power-shelf equivalent of syncSwitchStatuses.

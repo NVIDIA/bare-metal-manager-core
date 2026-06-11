@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -30,34 +31,26 @@ const (
 	labelLocationPosition    = "location.position"
 )
 
-// pullExpectedRacks wraps the nicoapi RPC with the two safety guards the
-// mirror needs:
-//
-//  1. RPC-failure guard. If GetAllExpectedRackDetails errors, return rpcOK
-//     false so the caller skips reconciliation entirely. Treating an RPC
-//     error as "Core has no racks" would soft-delete every Flow rack on the
-//     next pass.
-//
-//  2. Empty-response guard. If the RPC succeeds but returns zero rows, return
-//     hasRows false so the caller can apply inserts/updates (no-ops in this
-//     case) but skip the delete phase. Core sometimes briefly serves an empty
-//     expected_* table during restarts and schema upgrades; leaving deletes
-//     to a subsequent run that still sees the table empty makes the mirror
-//     tolerant of those transients.
+// pullExpectedRacks wraps the nicoapi RPC with the single safety guard the
+// mirror needs: an RPC failure returns rpcOK=false so the caller skips
+// reconciliation entirely and leaves Flow untouched. A *successful* RPC is
+// authoritative even when it returns zero rows — the caller then soft-deletes
+// every mirror-adopted Flow rack, because Core saying "no racks" is a real
+// state, not a blip. This relies on Core surfacing transient unavailability
+// (restarts, mid-migration) as an RPC error rather than an empty result.
 func pullExpectedRacks(
 	ctx context.Context,
 	nicoClient nicoapi.Client,
-) (rows []nicoapi.ExpectedRackDetail, rpcOK bool, hasRows bool) {
+) (rows []nicoapi.ExpectedRackDetail, rpcOK bool) {
 	rows, err := nicoClient.GetAllExpectedRackDetails(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: pulling expected racks from Core failed; skipping rack mirror this cycle")
-		return nil, false, false
+		return nil, false
 	}
 	if len(rows) == 0 {
-		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected racks; skipping rack delete phase this cycle")
-		return nil, true, false
+		log.Warn().Msg("Expected-inventory mirror: Core returned zero expected racks; mirror will soft-delete all mirror-adopted Flow racks this cycle")
 	}
-	return rows, true, true
+	return rows, true
 }
 
 // mirrorExpectedRacks reconciles Flow's rack table against Core's
@@ -77,12 +70,13 @@ func pullExpectedRacks(
 //     currently soft-deleted is resurrected by clearing deleted_at;
 //     mirror-managed fields are updated alongside on real deltas.
 //
-//  3. If skipDelete is false, live Flow rows whose external_id is set but no
-//     longer appear in Core are soft-deleted. Soft-deleted rows that Core
-//     doesn't report either are left alone (already gone). Rows with a NULL
-//     external_id (legacy ingestion-gRPC rows the mirror has never adopted)
-//     are exempted and warn-logged so the operator has a visible signal of
-//     pending cleanup.
+//  3. Live Flow rows whose external_id is set but no longer appear in Core
+//     are soft-deleted (including the case where Core returned zero racks —
+//     the caller only invokes this after a successful RPC, so empty is
+//     authoritative). Soft-deleted rows Core doesn't report either are left
+//     alone (already gone). Rows with a NULL external_id (legacy
+//     ingestion-gRPC rows the mirror has never adopted) are exempted and
+//     warn-logged so the operator has a visible signal of pending cleanup.
 //
 // All writes for one pass happen in a single transaction so partial failures
 // can't leave the table half-mirrored.
@@ -90,7 +84,6 @@ func mirrorExpectedRacks(
 	ctx context.Context,
 	pool *cdb.Session,
 	coreRacks []nicoapi.ExpectedRackDetail,
-	skipDelete bool,
 ) mirrorResult {
 	result := mirrorResult{resource: "rack", pulled: len(coreRacks)}
 
@@ -123,36 +116,56 @@ func mirrorExpectedRacks(
 	// most once: gcTombstoneForNameReuse deletes the entry after firing so
 	// we don't attempt to GC the same tombstone twice in the same cycle.
 	tombstonesByName := make(map[string]*model.Rack)
+	// liveByName: name -> id of every live (non-deleted) rack. rack_name_idx
+	// is a full unique index, so an INSERT or UPDATE that writes a name a
+	// different live rack already holds would roll back the whole cycle.
+	// The mirror skips the colliding write and logs instead. A soft-deleted
+	// row holding the name is handled separately by gcTombstoneForNameReuse.
+	liveByName := make(map[string]uuid.UUID)
 	for i := range flowRacks {
 		r := &flowRacks[i]
 		if r.DeletedAt != nil {
 			tombstonesByName[r.Name] = r
+			continue
 		}
+		liveByName[r.Name] = r.ID
 	}
 
+	// seenExtID: every Core rack_id still reported this cycle, recorded
+	// BEFORE any skip so the delete phase never drops a Flow rack Core is
+	// still listing (even one whose labels are momentarily incomplete).
+	// touchedIDs: Flow rack UUIDs the match path adopted / updated this
+	// cycle; the delete phase skips them so a rack_id rename (update to the
+	// new external_id) isn't immediately undone by a soft-delete keyed off
+	// the stale in-memory external_id. plannedSerial: natural keys already
+	// queued, to drop Core duplicates before they collide on the
+	// (manufacturer, serial) unique index.
 	seenExtID := make(map[string]struct{}, len(coreRacks))
+	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
+	plannedSerial := make(map[string]struct{}, len(coreRacks))
 
 	for _, cr := range coreRacks {
+		// Record the rack_id as "still reported" before any skip below.
+		if cr.RackID != "" {
+			seenExtID[cr.RackID] = struct{}{}
+		}
+
 		built, ok := buildRackFromCore(cr)
 		if !ok {
 			// Required fields (manufacturer / serial) missing in Core's labels;
 			// inserting would violate NOT NULL or the (manufacturer, serial)
-			// unique constraint. Skip and let the operator fix the Core data.
+			// unique constraint. Skip the write, but the rack_id is already in
+			// seenExtID so we don't soft-delete an existing Flow rack over a
+			// transient label gap.
 			log.Warn().
 				Str("rack_id", cr.RackID).
 				Str("name", cr.Name).
-				Msg("Expected-inventory mirror: skipping Core expected rack missing chassis manufacturer or serial-number labels")
+				Msg("Expected-inventory mirror: skipping Core expected rack missing chassis manufacturer or serial-number labels; existing Flow rack preserved")
 			result.skippedNoIDOrKey++
 			continue
 		}
 
-		// Track which Core rack_ids are present so the delete phase can spot
-		// Flow rows whose external_id is no longer covered. Empty rack_ids
-		// can't be tracked (would collide on the partial unique index too);
-		// the warn below makes the operator gap visible.
-		if cr.RackID != "" {
-			seenExtID[cr.RackID] = struct{}{}
-		} else {
+		if cr.RackID == "" {
 			log.Warn().
 				Str("rack_profile_id", cr.RackProfileID).
 				Str("name", cr.Name).
@@ -160,6 +173,20 @@ func mirrorExpectedRacks(
 				Str("serial", built.SerialNumber).
 				Msg("Expected-inventory mirror: Core expected rack has no rack_id; rack will be mirrored but components can't reference it")
 		}
+
+		// Drop Core duplicates: planning the same chassis twice would queue a
+		// second INSERT that collides on the (manufacturer, serial) unique
+		// index and roll back the whole rack mirror.
+		natKey := rackNaturalKey(built.Manufacturer, built.SerialNumber)
+		if _, planned := plannedSerial[natKey]; planned {
+			log.Warn().
+				Str("rack_id", cr.RackID).
+				Str("manufacturer", built.Manufacturer).
+				Str("serial", built.SerialNumber).
+				Msg("Expected-inventory mirror: Core returned duplicate expected racks for the same chassis; skipping the later occurrence")
+			continue
+		}
+		plannedSerial[natKey] = struct{}{}
 
 		// Prefer external_id match (already adopted on a previous cycle).
 		// Empty rack_ids never hit flowByExtID by construction.
@@ -175,9 +202,20 @@ func mirrorExpectedRacks(
 				candidate = *patched
 				needUpdate = true
 			}
+			if needUpdate && nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+				log.Warn().
+					Str("rack_id", cr.RackID).
+					Str("name", candidate.Name).
+					Str("rack_serial", candidate.SerialNumber).
+					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this update to avoid a unique-name abort (operator must resolve the duplicate name)")
+				result.skippedNameTaken++
+				touchedIDs[existing.ID] = struct{}{}
+				continue
+			}
 			if needUpdate {
 				p.toUpdate = append(p.toUpdate, candidate)
 			}
+			touchedIDs[existing.ID] = struct{}{}
 			continue
 		}
 
@@ -185,7 +223,7 @@ func mirrorExpectedRacks(
 		// never adopted; adopt by writing external_id alongside any deltas).
 		// A serial match that's also soft-deleted gets resurrected at the
 		// same time — see the function-level comment for why this matters.
-		if existing, ok := flowBySerial[rackNaturalKey(built.Manufacturer, built.SerialNumber)]; ok {
+		if existing, ok := flowBySerial[natKey]; ok {
 			candidate := *existing
 			candidate.ExternalID = built.ExternalID
 			if candidate.DeletedAt != nil {
@@ -195,8 +233,29 @@ func mirrorExpectedRacks(
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 			}
+			if nameTakenByOtherLiveRack(liveByName, candidate.Name, existing.ID) {
+				log.Warn().
+					Str("rack_id", cr.RackID).
+					Str("name", candidate.Name).
+					Str("rack_serial", candidate.SerialNumber).
+					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this adoption to avoid a unique-name abort (operator must resolve the duplicate name)")
+				result.skippedNameTaken++
+				touchedIDs[existing.ID] = struct{}{}
+				continue
+			}
 			p.toUpdate = append(p.toUpdate, candidate)
+			touchedIDs[existing.ID] = struct{}{}
 			result.adopted++
+			continue
+		}
+
+		if nameTakenByOtherLiveRack(liveByName, built.Name, uuid.Nil) {
+			log.Warn().
+				Str("rack_id", cr.RackID).
+				Str("name", built.Name).
+				Str("rack_serial", built.SerialNumber).
+				Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this insert to avoid a unique-name abort (operator must resolve the duplicate name)")
+			result.skippedNameTaken++
 			continue
 		}
 
@@ -213,12 +272,16 @@ func mirrorExpectedRacks(
 		if r.DeletedAt != nil {
 			continue
 		}
+		// Skip rows the match path already adopted / updated this cycle. A
+		// rack_id rename updates the row to the new external_id; without this
+		// guard the delete phase would see the stale in-memory external_id
+		// (not in seenExtID) and soft-delete the row we just renamed.
+		if _, touched := touchedIDs[r.ID]; touched {
+			continue
+		}
 		hasExt := r.ExternalID != nil && *r.ExternalID != ""
 		if hasExt {
 			if _, present := seenExtID[*r.ExternalID]; present {
-				continue
-			}
-			if skipDelete {
 				continue
 			}
 			p.toDelete = append(p.toDelete, *r)
@@ -242,6 +305,7 @@ func mirrorExpectedRacks(
 		return result
 	}
 
+	now := time.Now()
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
 			if err := gcTombstoneForNameReuse(ctx, tx, tombstonesByName, p.toInsert[i].Name, uuid.Nil); err != nil {
@@ -255,7 +319,18 @@ func mirrorExpectedRacks(
 			if err := gcTombstoneForNameReuse(ctx, tx, tombstonesByName, p.toUpdate[i].Name, p.toUpdate[i].ID); err != nil {
 				return err
 			}
-			if _, err := tx.NewUpdate().Model(&p.toUpdate[i]).Where("id = ?", p.toUpdate[i].ID).Exec(ctx); err != nil {
+			// Mirror-managed columns only; status / ingested_at / nvldomain_id
+			// belong to other paths. WhereAllWithDeleted is required so a
+			// resurrection (deleted_at cleared in Go) matches the tombstone —
+			// bun otherwise appends "deleted_at IS NULL" to the UPDATE and the
+			// resurrect silently matches zero rows.
+			p.toUpdate[i].UpdatedAt = now
+			if _, err := tx.NewUpdate().
+				Model(&p.toUpdate[i]).
+				Column("name", "description", "location", "external_id", "deleted_at", "updated_at").
+				WhereAllWithDeleted().
+				Where("id = ?", p.toUpdate[i].ID).
+				Exec(ctx); err != nil {
 				return fmt.Errorf("update rack %q: %w", p.toUpdate[i].Name, err)
 			}
 		}
@@ -281,6 +356,13 @@ func mirrorExpectedRacks(
 	result.updated = len(p.toUpdate)
 	result.softDeleted = len(p.toDelete)
 	return result
+}
+
+// nameTakenByOtherLiveRack reports whether a live (non-deleted) Flow rack
+// other than selfID already holds name. selfID is uuid.Nil for an INSERT.
+func nameTakenByOtherLiveRack(liveByName map[string]uuid.UUID, name string, selfID uuid.UUID) bool {
+	id, ok := liveByName[name]
+	return ok && id != selfID
 }
 
 // gcTombstoneForNameReuse hard-deletes a soft-deleted rack that's occupying
@@ -446,11 +528,15 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		patched.Name = fromCore.Name
 		changed = true
 	}
-	if !reflect.DeepEqual(existing.Description, fromCore.Description) {
+	// Only overwrite Description / Location when Core actually carries a
+	// value. buildRackFromCore leaves these nil when the labels are absent;
+	// overwriting with an empty/nil map would wipe operator-set rack metadata
+	// every cycle (and DeepEqual(nil, map{}) would also churn a no-op UPDATE).
+	if len(fromCore.Description) > 0 && !reflect.DeepEqual(existing.Description, fromCore.Description) {
 		patched.Description = fromCore.Description
 		changed = true
 	}
-	if !reflect.DeepEqual(existing.Location, fromCore.Location) {
+	if len(fromCore.Location) > 0 && !reflect.DeepEqual(existing.Location, fromCore.Location) {
 		patched.Location = fromCore.Location
 		changed = true
 	}
