@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -195,13 +196,12 @@ var config *Config
 // Config represents configurations for the service
 type Config struct {
 	sync.RWMutex
-	v                *viper.Viper
-	db               *cconfig.DBConfig
-	temporal         *cconfig.TemporalConfig
-	JwtOriginConfig  *cauth.JWTOriginConfig
-	SiteConfig       *SiteConfig
-	KeycloakConfig   *cauth.KeycloakConfig
-	sitePhoneHomeUrl string
+	v               *viper.Viper
+	db              *cconfig.DBConfig
+	temporal        *cconfig.TemporalConfig
+	JwtOriginConfig *cauth.JWTOriginConfig
+	SiteConfig      *SiteConfig
+	KeycloakConfig  *cauth.KeycloakConfig
 }
 
 // NewConfig creates a new config object
@@ -211,7 +211,7 @@ func NewConfig() *Config {
 	}
 
 	c := Config{
-		v: viper.New(),
+		v: newViper(),
 	}
 
 	// Set defaults
@@ -860,21 +860,17 @@ func (c *Config) GetSiteManagerEndpoint() string {
 
 // SetSitePhoneHomeUrl sets the url for PhoneHome
 func (c *Config) SetSitePhoneHomeUrl(value string) {
+	// Lock the mutex to prevent race conditions
 	c.Lock()
 	defer c.Unlock()
-	c.sitePhoneHomeUrl = value
+	c.v.Set(ConfigSitePhoneHomeUrl, value)
 }
 
 // GetSitePhoneHomeUrl gets the url for PhoneHome
 func (c *Config) GetSitePhoneHomeUrl() string {
+	// Lock the mutex to prevent race conditions
 	c.RLock()
 	defer c.RUnlock()
-	if c.sitePhoneHomeUrl != "" {
-		return c.sitePhoneHomeUrl
-	}
-	if c.v == nil {
-		return ""
-	}
 	return c.v.GetString(ConfigSitePhoneHomeUrl)
 }
 
@@ -1125,35 +1121,26 @@ func (c *Config) WatchConfigFile() {
 		configPath = absPath
 	}
 
-	watch := viper.New()
-	watch.SetConfigFile(configPath)
-	watch.OnConfigChange(func(e fsnotify.Event) {
+	watchv := newViper()
+	watchv.SetConfigFile(configPath)
+	watchv.OnConfigChange(func(e fsnotify.Event) {
 		if !e.Has(fsnotify.Write) {
 			return
 		}
+
 		log.Info().Str("config.file", configPath).Str("event.file", e.Name).Msg("config file changed")
-		if err := c.reloadSitePhoneHomeUrl(configPath); err != nil {
-			log.Warn().Err(err).Str("config.file", configPath).Str("event.file", e.Name).Msg("failed to reload site phone home URL")
+
+		// Dynamically reload config changes here
+		// NOTE: Each attribute we decide to reload must support read/write locking in get/set methods
+		// 1. Site PhoneHome URL
+		newSitePhoneHomeUrl := watchv.GetString(ConfigSitePhoneHomeUrl)
+		currentSitePhoneHomeUrl := c.GetSitePhoneHomeUrl()
+		if newSitePhoneHomeUrl != "" && newSitePhoneHomeUrl != currentSitePhoneHomeUrl {
+			c.SetSitePhoneHomeUrl(newSitePhoneHomeUrl)
+			log.Info().Str("config.file", configPath).Str("event.file", e.Name).Msg("Successfully loaded new Site phone home URL")
 		}
 	})
-	watch.WatchConfig()
-}
-
-func (c *Config) reloadSitePhoneHomeUrl(path string) error {
-	v := viper.New()
-	v.SetDefault(ConfigSitePhoneHomeUrl, defaultSitePhoneHomeUrl)
-	v.SetConfigFile(path)
-	if err := v.ReadInConfig(); err != nil {
-		return err
-	}
-
-	phoneHomeUrl := v.GetString(ConfigSitePhoneHomeUrl)
-	if phoneHomeUrl == "" {
-		return fmt.Errorf("invalid Site PhoneHome url")
-	}
-
-	c.SetSitePhoneHomeUrl(phoneHomeUrl)
-	return nil
+	watchv.WatchConfig()
 }
 
 // Close stops background tasks
@@ -1203,4 +1190,10 @@ func (c *Config) GetRateLimiterExpiresIn() int {
 // SetRateLimiterExpiresIn sets the expiration time in seconds
 func (c *Config) SetRateLimiterExpiresIn(value int) {
 	c.v.Set(ConfigRateLimiterExpiresIn, value)
+}
+
+func newViper() *viper.Viper {
+	return viper.NewWithOptions(viper.WithLogger(slog.New(zerologSlogHandler{
+		logger: log.Logger.With().Str("component", "viper").Logger(),
+	})))
 }

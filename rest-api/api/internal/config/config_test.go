@@ -6,13 +6,39 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type logContainsWriter struct {
+	needle string
+	seen   chan struct{}
+}
+
+func (w logContainsWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.needle) {
+		select {
+		case w.seen <- struct{}{}:
+		default:
+		}
+	}
+	return len(p), nil
+}
+
+func writeConfigForTest(t *testing.T, content string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
 
 func TestNewConfig(t *testing.T) {
 	tests := []struct {
@@ -35,62 +61,71 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
-func TestReloadSitePhoneHomeUrl(t *testing.T) {
-	configPath := writeConfigForTest(t, `
-site:
-  phoneHomeUrl: http://initial.example/phone_home
-`)
-	cfg := &Config{}
-	cfg.SetSitePhoneHomeUrl(defaultSitePhoneHomeUrl)
+func TestConfig_WatchConfigFile(t *testing.T) {
+	const initialSitePhoneHomeURL = "http://initial.example/phone_home"
 
-	require.NoError(t, cfg.reloadSitePhoneHomeUrl(configPath))
-	assert.Equal(t, "http://initial.example/phone_home", cfg.GetSitePhoneHomeUrl())
+	tests := []struct {
+		name string // description of this test case
+		run  func(t *testing.T, c *Config, configPath string)
+	}{
+		{
+			name: "keeps current site phone home URL when changed config cannot be read",
+			run: func(t *testing.T, c *Config, configPath string) {
+				seenConfigChange := make(chan struct{}, 1)
+				previousLogger := log.Logger
+				log.Logger = zerolog.New(logContainsWriter{
+					needle: "config file changed",
+					seen:   seenConfigChange,
+				})
+				t.Cleanup(func() {
+					log.Logger = previousLogger
+				})
 
-	require.NoError(t, os.WriteFile(configPath, []byte(`
+				require.NoError(t, os.WriteFile(configPath, []byte("site:\n  phoneHomeUrl: [\n"), 0o600))
+
+				require.Eventually(t, func() bool {
+					select {
+					case <-seenConfigChange:
+						return true
+					default:
+						return false
+					}
+				}, 3*time.Second, 100*time.Millisecond)
+				assert.Equal(t, initialSitePhoneHomeURL, c.GetSitePhoneHomeUrl())
+			},
+		},
+		{
+			name: "reloads site phone home URL from changed config",
+			run: func(t *testing.T, c *Config, configPath string) {
+				const updatedSitePhoneHomeURL = "http://updated.example/phone_home"
+
+				require.NoError(t, os.WriteFile(configPath, []byte(`
+log:
+  level: debug
 site:
   phoneHomeUrl: http://updated.example/phone_home
 `), 0o600))
 
-	require.NoError(t, cfg.reloadSitePhoneHomeUrl(configPath))
-	assert.Equal(t, "http://updated.example/phone_home", cfg.GetSitePhoneHomeUrl())
-}
-
-func TestWatchConfigFileReloadsSitePhoneHomeUrl(t *testing.T) {
-	configPath := writeConfigForTest(t, `
+				require.Eventually(t, func() bool {
+					return c.GetSitePhoneHomeUrl() == updatedSitePhoneHomeURL
+				}, 3*time.Second, 100*time.Millisecond)
+				assert.Equal(t, "info", c.v.GetString(ConfigLogLevel))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := writeConfigForTest(t, `
 site:
   phoneHomeUrl: http://initial.example/phone_home
 `)
-	cfg := &Config{v: viper.New()}
-	cfg.v.SetDefault(ConfigFilePath, configPath)
-	cfg.SetSitePhoneHomeUrl("http://initial.example/phone_home")
-	cfg.WatchConfigFile()
-
-	require.NoError(t, os.WriteFile(configPath, []byte(`
-site:
-  phoneHomeUrl: http://watched.example/phone_home
-`), 0o600))
-
-	require.Eventually(t, func() bool {
-		return cfg.GetSitePhoneHomeUrl() == "http://watched.example/phone_home"
-	}, 3*time.Second, 100*time.Millisecond)
-}
-
-func TestReloadSitePhoneHomeUrlKeepsPreviousValueOnInvalidReload(t *testing.T) {
-	configPath := writeConfigForTest(t, `
-site:
-  phoneHomeUrl: ""
-`)
-	cfg := &Config{}
-	cfg.SetSitePhoneHomeUrl("http://previous.example/phone_home")
-
-	require.Error(t, cfg.reloadSitePhoneHomeUrl(configPath))
-	assert.Equal(t, "http://previous.example/phone_home", cfg.GetSitePhoneHomeUrl())
-}
-
-func writeConfigForTest(t *testing.T, content string) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	return path
+			c := &Config{v: viper.New()}
+			c.v.SetDefault(ConfigFilePath, configPath)
+			c.v.SetConfigFile(configPath)
+			c.v.SetDefault(ConfigLogLevel, "info")
+			c.SetSitePhoneHomeUrl(initialSitePhoneHomeURL)
+			c.WatchConfigFile()
+			tt.run(t, c, configPath)
+		})
+	}
 }
