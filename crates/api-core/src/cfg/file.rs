@@ -826,9 +826,13 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
-    /// Additional Helm services to deploy alongside DPF.
+    /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
+    /// configured to route outbound HTTPS traffic through the specified proxy.
+    #[serde(default)]
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for DpfConfig {
@@ -841,6 +845,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             docker_image_pull_secret: None,
             services: Box::default(),
+            proxy: None,
         }
     }
 }
@@ -875,6 +880,22 @@ fn default_dpf_flavor_name() -> String {
 
 fn default_dpf_node_label_key() -> String {
     "carbide.nvidia.com/controlled.node.v2".to_string()
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfProxyDetails {
+    pub https_proxy: String,
+    #[serde(default)]
+    pub no_proxy: Vec<String>,
+}
+
+impl From<DpfProxyDetails> for carbide_dpf::types::DpfProxyDetails {
+    fn from(value: DpfProxyDetails) -> Self {
+        carbide_dpf::types::DpfProxyDetails {
+            https_proxy: value.https_proxy,
+            no_proxy: value.no_proxy,
+        }
+    }
 }
 
 /// Configuration for a mandatory Helm-based DPF service.

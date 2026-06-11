@@ -297,7 +297,9 @@ async fn test_create_initialization_objects() {
     let bfbs = BfbRepository::list(&mock, TEST_NS).await.unwrap();
     assert_eq!(bfbs.len(), 1);
 
-    let flavor = DpuFlavorRepository::get(&mock, crate::flavor::DEFAULT_FLAVOR_NAME, TEST_NS)
+    let expected_flavor_name = crate::flavor::default_flavor(TEST_NS, &config.proxy)
+        .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME);
+    let flavor = DpuFlavorRepository::get(&mock, &expected_flavor_name, TEST_NS)
         .await
         .unwrap();
     assert!(flavor.is_some());

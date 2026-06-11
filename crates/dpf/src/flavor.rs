@@ -18,13 +18,26 @@
 //! DPUFlavor configuration for HBN.
 
 use kube::core::ObjectMeta;
+use sha2::{Digest, Sha256};
 
 use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode,
     DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
 };
+use crate::types::DpfProxyDetails;
 
 pub const DEFAULT_FLAVOR_NAME: &str = "dpu-flavor";
+
+impl DPUFlavor {
+    /// Returns `"{default_flavor_name}-{hash}"` where the hash is the first 8 bytes (16 hex chars)
+    /// of a stable SHA-256 digest of the spec. The name changes whenever the spec changes, which
+    /// causes outdated DPUs to be reprovisioned by MachineUpdateManager.
+    pub fn unique_name(&self, default_flavor_name: &str) -> String {
+        let json = serde_json::to_string(&self.spec).unwrap_or_default();
+        let short_hash = hex::encode(&Sha256::digest(json.as_bytes())[..8]);
+        format!("{default_flavor_name}-{short_hash}")
+    }
+}
 
 fn get_default_ovs_defaults() -> String {
     concat!(
@@ -51,8 +64,12 @@ fn get_default_ovs_defaults() -> String {
     .to_string()
 }
 
-/// Build the default DPUFlavor CR.
-pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
+/// Build the default DPUFlavor spec. If `proxy` is set, a containerd proxy drop-in config file
+/// is appended so the DPU can pull images through the proxy.
+///
+/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
+/// before creating the resource in the cluster.
+pub fn default_flavor(namespace: &str, proxy: &Option<DpfProxyDetails>) -> DPUFlavor {
     let bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
@@ -60,7 +77,7 @@ pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
     ];
     DPUFlavor {
         metadata: ObjectMeta {
-            name: Some(name.to_string()),
+            name: None,
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
@@ -68,57 +85,7 @@ pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
             dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
             dpu_resources: None,
             bfcfg_parameters: Some(bfcfg_parameters),
-            config_files: Some(vec![
-                DpuFlavorConfigFiles {
-                    path: Some("/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string()),
-                    operation: Some(DpuFlavorConfigFilesOperation::Override),
-                    permissions: Some("0644".to_string()),
-                    raw: Some(
-                        concat!(
-                            "[program: cl-acltool]\n",
-                            "command = bash -c \"sleep 5 && ",
-                            "/usr/cumulus/bin/cl-acltool -i\"\n",
-                            "startsecs = 0\n",
-                            "autorestart = false\n",
-                            "priority = 200\n",
-                        )
-                        .to_string(),
-                    ),
-                },
-                DpuFlavorConfigFiles {
-                    path: Some("/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string()),
-                    operation: Some(DpuFlavorConfigFilesOperation::Override),
-                    permissions: Some("0644".to_string()),
-                    raw: Some(dhcp_acl_rules()),
-                },
-                DpuFlavorConfigFiles {
-                    path: Some("/etc/mellanox/mlnx-bf.conf".to_string()),
-                    operation: Some(DpuFlavorConfigFilesOperation::Override),
-                    permissions: Some("0644".to_string()),
-                    raw: Some(
-                        concat!(
-                            "ALLOW_SHARED_RQ=\"no\"\n",
-                            "IPSEC_FULL_OFFLOAD=\"no\"\n",
-                            "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
-                        )
-                        .to_string(),
-                    ),
-                },
-                DpuFlavorConfigFiles {
-                    path: Some("/etc/mellanox/mlnx-ovs.conf".to_string()),
-                    operation: Some(DpuFlavorConfigFilesOperation::Override),
-                    permissions: Some("0644".to_string()),
-                    raw: Some(
-                        concat!("CREATE_OVS_BRIDGES=\"no\"\n", "OVS_DOCA=\"yes\"\n").to_string(),
-                    ),
-                },
-                DpuFlavorConfigFiles {
-                    path: Some("/etc/mellanox/mlnx-sf.conf".to_string()),
-                    operation: Some(DpuFlavorConfigFilesOperation::Override),
-                    permissions: Some("0644".to_string()),
-                    raw: Some("".to_string()),
-                },
-            ]),
+            config_files: Some(get_config_files(proxy)),
             containerd_config: None,
             grub: None,
             host_network_interface_configs: None,
@@ -130,6 +97,81 @@ pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
             system_reserved_resources: None,
         },
     }
+}
+
+/// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
+fn get_config_files(proxy: &Option<DpfProxyDetails>) -> Vec<DpuFlavorConfigFiles> {
+    let mut config_files = vec![
+        DpuFlavorConfigFiles {
+            path: Some("/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(
+                concat!(
+                    "[program: cl-acltool]\n",
+                    "command = bash -c \"sleep 5 && ",
+                    "/usr/cumulus/bin/cl-acltool -i\"\n",
+                    "startsecs = 0\n",
+                    "autorestart = false\n",
+                    "priority = 200\n",
+                )
+                .to_string(),
+            ),
+        },
+        DpuFlavorConfigFiles {
+            path: Some("/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(dhcp_acl_rules()),
+        },
+        DpuFlavorConfigFiles {
+            path: Some("/etc/mellanox/mlnx-bf.conf".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(
+                concat!(
+                    "ALLOW_SHARED_RQ=\"no\"\n",
+                    "IPSEC_FULL_OFFLOAD=\"no\"\n",
+                    "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
+                )
+                .to_string(),
+            ),
+        },
+        DpuFlavorConfigFiles {
+            path: Some("/etc/mellanox/mlnx-ovs.conf".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(concat!("CREATE_OVS_BRIDGES=\"no\"\n", "OVS_DOCA=\"yes\"\n").to_string()),
+        },
+        DpuFlavorConfigFiles {
+            path: Some("/etc/mellanox/mlnx-sf.conf".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("".to_string()),
+        },
+    ];
+
+    if let Some(proxy) = proxy {
+        let mut raw = format!(
+            "[Service]\nEnvironment=\"HTTPS_PROXY={0}\"\nEnvironment=\"https_proxy={0}\"\n",
+            proxy.https_proxy
+        );
+        if !proxy.no_proxy.is_empty() {
+            let no_proxy = proxy.no_proxy.join(",");
+            raw.push_str(&format!(
+                "Environment=\"NO_PROXY={0}\"\nEnvironment=\"no_proxy={0}\"\n",
+                no_proxy
+            ));
+        }
+        config_files.push(DpuFlavorConfigFiles {
+            path: Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf".to_string()),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(raw),
+        });
+    }
+
+    config_files
 }
 
 fn get_default_nvconfig() -> DpuFlavorNvconfig {
@@ -156,6 +198,145 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
         // DPF does not allow anyother wild card. It takes only '*'
         device: Some(DpuFlavorNvconfigDevice::KopiumVariant0), //"*"
         parameters: Some(parameters),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::DpfProxyDetails;
+
+    fn proxy(https_proxy: &str, no_proxy: &[&str]) -> Option<DpfProxyDetails> {
+        Some(DpfProxyDetails {
+            https_proxy: https_proxy.to_string(),
+            no_proxy: no_proxy.iter().map(|s| s.to_string()).collect(),
+        })
+    }
+
+    // ── unique_name ────────────────────────────────────────────────────────
+
+    #[test]
+    fn unique_name_has_expected_format() {
+        let flavor = default_flavor("ns", &None);
+        let name = flavor.unique_name("dpu-flavor");
+        // "<prefix>-<16 lowercase hex chars>"
+        let (prefix, hash) = name.rsplit_once('-').expect("name contains '-'");
+        assert_eq!(prefix, "dpu-flavor");
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn unique_name_is_deterministic() {
+        let f1 = default_flavor("ns", &None);
+        let f2 = default_flavor("ns", &None);
+        assert_eq!(f1.unique_name("dpu-flavor"), f2.unique_name("dpu-flavor"));
+    }
+
+    #[test]
+    fn unique_name_changes_when_proxy_added() {
+        let no_proxy = default_flavor("ns", &None);
+        let with_proxy = default_flavor("ns", &proxy("http://proxy:3128", &[]));
+        assert_ne!(
+            no_proxy.unique_name("dpu-flavor"),
+            with_proxy.unique_name("dpu-flavor")
+        );
+    }
+
+    #[test]
+    fn unique_name_changes_when_no_proxy_list_changes() {
+        let p1 = default_flavor("ns", &proxy("http://proxy:3128", &["10.0.0.0/8"]));
+        let p2 = default_flavor(
+            "ns",
+            &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
+        );
+        assert_ne!(p1.unique_name("dpu-flavor"), p2.unique_name("dpu-flavor"));
+    }
+
+    // ── default_flavor ─────────────────────────────────────────────────────
+
+    #[test]
+    fn default_flavor_metadata_name_is_none() {
+        let flavor = default_flavor("test-ns", &None);
+        assert!(
+            flavor.metadata.name.is_none(),
+            "name must be set by the caller via unique_name()"
+        );
+    }
+
+    #[test]
+    fn default_flavor_namespace_is_set() {
+        let flavor = default_flavor("my-ns", &None);
+        assert_eq!(flavor.metadata.namespace.as_deref(), Some("my-ns"));
+    }
+
+    // ── get_config_files ───────────────────────────────────────────────────
+
+    #[test]
+    fn no_proxy_yields_five_config_files() {
+        let flavor = default_flavor("ns", &None);
+        let files = flavor.spec.config_files.unwrap();
+        assert_eq!(files.len(), 5);
+    }
+
+    #[test]
+    fn proxy_appends_sixth_config_file() {
+        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[]));
+        let files = flavor.spec.config_files.unwrap();
+        assert_eq!(files.len(), 6);
+    }
+
+    #[test]
+    fn proxy_config_file_has_correct_path() {
+        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[]));
+        let files = flavor.spec.config_files.unwrap();
+        let proxy_file = files.last().unwrap();
+        assert_eq!(
+            proxy_file.path.as_deref(),
+            Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf")
+        );
+    }
+
+    #[test]
+    fn proxy_config_file_contains_https_proxy_env() {
+        let flavor = default_flavor("ns", &proxy("http://proxy.example.com:3128", &[]));
+        let files = flavor.spec.config_files.unwrap();
+        let raw = files.last().unwrap().raw.as_deref().unwrap();
+        assert!(raw.contains("HTTPS_PROXY=http://proxy.example.com:3128"));
+        assert!(raw.contains("https_proxy=http://proxy.example.com:3128"));
+    }
+
+    #[test]
+    fn proxy_config_file_omits_no_proxy_when_empty() {
+        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[]));
+        let files = flavor.spec.config_files.unwrap();
+        let raw = files.last().unwrap().raw.as_deref().unwrap();
+        assert!(!raw.contains("NO_PROXY"));
+        assert!(!raw.contains("no_proxy"));
+    }
+
+    #[test]
+    fn proxy_config_file_includes_no_proxy_when_set() {
+        let flavor = default_flavor(
+            "ns",
+            &proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]),
+        );
+        let files = flavor.spec.config_files.unwrap();
+        let raw = files.last().unwrap().raw.as_deref().unwrap();
+        assert!(raw.contains("NO_PROXY=10.0.0.0/8,localhost"));
+        assert!(raw.contains("no_proxy=10.0.0.0/8,localhost"));
+    }
+
+    #[test]
+    fn proxy_config_file_has_override_operation() {
+        let flavor = default_flavor("ns", &proxy("http://proxy:3128", &[]));
+        let files = flavor.spec.config_files.unwrap();
+        let proxy_file = files.last().unwrap();
+        assert!(matches!(
+            proxy_file.operation,
+            Some(DpuFlavorConfigFilesOperation::Override)
+        ));
+        assert_eq!(proxy_file.permissions.as_deref(), Some("0644"));
     }
 }
 
