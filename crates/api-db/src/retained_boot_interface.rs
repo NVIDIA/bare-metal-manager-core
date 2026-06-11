@@ -123,3 +123,98 @@ pub async fn delete_expired(
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(result.rows_affected())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The expiry sweep removes only records older than the configured window
+    /// -- and removes nothing when no window is set (records wait forever for
+    /// their machine to come back).
+    #[crate::sqlx_test]
+    async fn test_retained_boot_interface_sweep_removes_only_expired_records(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let old_mac: MacAddress = "aa:bb:cc:00:00:01".parse()?;
+        let recent_mac: MacAddress = "aa:bb:cc:00:00:02".parse()?;
+
+        let mut txn = pool.begin().await?;
+        upsert(txn.as_mut(), old_mac, "NIC.Old.1-1-1").await?;
+        upsert(txn.as_mut(), recent_mac, "NIC.Recent.1-1-1").await?;
+        // Age one record past the window.
+        sqlx::query(
+            "UPDATE retained_boot_interfaces SET recorded_at = NOW() - INTERVAL '2 hours' \
+         WHERE mac_address = $1",
+        )
+        .bind(old_mac)
+        .execute(txn.as_mut())
+        .await?;
+        txn.commit().await?;
+
+        // No window -> nothing is swept.
+        let mut txn = pool.begin().await?;
+        assert_eq!(
+            delete_expired(txn.as_mut(), None).await?,
+            0,
+            "without a window the sweep must leave every record in place"
+        );
+        let swept = delete_expired(txn.as_mut(), Some(chrono::Duration::hours(1))).await?;
+        assert_eq!(swept, 1, "only the aged-out record is swept");
+        assert!(
+            find_by_mac(txn.as_mut(), old_mac, None).await?.is_none(),
+            "the aged-out record is gone"
+        );
+        assert_eq!(
+            find_by_mac(txn.as_mut(), recent_mac, None)
+                .await?
+                .as_deref(),
+            Some("NIC.Recent.1-1-1"),
+            "the in-window record survives the sweep"
+        );
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    /// Retention recovery is centralized at row creation, so even a static
+    /// preallocation (a declared `fixed_ip` reservation) recovers a retained
+    /// boot interface id -- the pair must not depend on WHICH path recreates
+    /// the row after a force-delete.
+    #[crate::sqlx_test]
+    async fn test_preallocated_interface_recovers_retained_boot_interface_id(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mac: MacAddress = "aa:55:66:77:88:99".parse()?;
+        // An external static IP: preallocation homes it on the
+        // static-assignments anchor segment, no fixture segment needed.
+        let static_ip: std::net::IpAddr = "203.0.113.7".parse()?;
+
+        // A prior row for this MAC was deleted with its boot pair retained.
+        let mut txn = pool.begin().await?;
+        upsert(txn.as_mut(), mac, "NIC.Static.1-1-1").await?;
+        txn.commit().await?;
+
+        // The static reservation recreates the row (the path a declared
+        // fixed_ip takes via DHCP discover or site-explorer reconciliation).
+        let mut txn = pool.begin().await?;
+        crate::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, static_ip, None)
+            .await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let interfaces = crate::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(
+            interfaces[0].boot_interface_id.as_deref(),
+            Some("NIC.Static.1-1-1"),
+            "a preallocation-created row recovers the retained boot interface id"
+        );
+        assert!(
+            find_by_mac(txn.as_mut(), mac, None).await?.is_none(),
+            "the retention record is consumed once applied"
+        );
+        txn.rollback().await?;
+
+        Ok(())
+    }
+}
