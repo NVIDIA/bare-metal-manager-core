@@ -17,12 +17,12 @@
 
 //! Handler for SwitchControllerState::Maintenance.
 
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::switch::SwitchId;
 use component_manager::nv_switch_manager::{SwitchComponentResult, SwitchEndpoint};
 use db::switch as db_switch;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use mac_address::MacAddress;
 use model::component_manager::PowerAction;
 use model::switch::{Switch, SwitchControllerState, SwitchMaintenanceOperation};

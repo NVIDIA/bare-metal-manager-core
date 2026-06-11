@@ -18,8 +18,8 @@
 use std::net::IpAddr;
 
 use async_trait::async_trait;
+use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::CredentialKey;
 
 use crate::IPMITool;
 

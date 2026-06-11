@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use db::{ObjectColumnFilter, Transaction};
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_uuid::machine::MachineId;
+use db::{ObjectColumnFilter, Transaction};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;

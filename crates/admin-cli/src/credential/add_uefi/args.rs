@@ -45,7 +45,8 @@ impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let mut password = password_validator(args.password)?;
         if password.is_empty() {
-            password = forge_secrets::credentials::Credentials::generate_password_no_special_char();
+            password =
+                carbide_secrets::credentials::Credentials::generate_password_no_special_char();
         }
         Ok(Self {
             credential_type: CredentialType::from(args.kind).into(),

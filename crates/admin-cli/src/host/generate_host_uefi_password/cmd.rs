@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 
 use crate::errors::CarbideCliResult;
 

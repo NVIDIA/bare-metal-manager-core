@@ -17,8 +17,8 @@
 
 //! Handler for SwitchControllerState::Configuring.
 
+use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
-use forge_secrets::credentials::{CredentialKey, Credentials};
 use model::switch::{ConfiguringState, Switch, SwitchControllerState, ValidatingState};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,

@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use carbide_secrets::credentials::CredentialReader;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use chrono::Utc;
-use forge_secrets::credentials::CredentialReader;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use libredfish::model::certificate::Certificate;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
 use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
