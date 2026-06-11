@@ -1608,7 +1608,7 @@ pub async fn create_test_env_with_overrides(
         site_explorer_enabled: config.site_explorer.enabled.clone(),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
-        tracing_enabled: Arc::new(false.into()),
+        tracing_enabled: Arc::new(config.tracing.enabled.into()),
     };
 
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
