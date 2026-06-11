@@ -13,9 +13,7 @@ agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clo
 conformant cluster that satisfies the DPF prerequisites is acceptable.
 
 This guide is **not a replacement** for the official DPF documentation. The
-authoritative source for installing and configuring DPF is the upstream guide:
-
-- <https://docs.nvidia.com/networking/display/dpf25101>
+authoritative source for installing and configuring DPF is the [upstream guide](https://docs.nvidia.com/networking/display/dpf25101).
 
 NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
 
@@ -56,7 +54,7 @@ kubectl get namespace dpf-operator-system &>/dev/null \
 
 ### 1.2. Image pull and helm repository credentials
 
-Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. For detailed instructions, see: <https://docs.nvidia.com/networking/display/dpf25101/using-private-registries>.
+Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. Refer to the [Using Private Registries](https://docs.nvidia.com/networking/display/dpf25101/using-private-registries) section of the DPF documentation for detailed instructions.
 
 #### 1.2.a. `hbn-user-password` Secret
 
@@ -286,9 +284,7 @@ Without this binding cert-manager's controller cannot reference the policy and
 
 ## 2. DPF Installation
 
-Follow the upstream DPF installation guide for the actual install procedure:
-
-- <https://docs.nvidia.com/networking/display/dpf25101>
+Follow the [upstream DPF installation guide](https://docs.nvidia.com/networking/display/dpf25101) for the actual install procedure.
 
 When installing the DPF operator chart, two parameter overrides are required
 for a NICo-integrated deployment. The example command below illustrates how to
