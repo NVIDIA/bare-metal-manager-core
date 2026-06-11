@@ -1,6 +1,21 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Package inventorysync reconciles Flow's rack / component / BMC / drift
+// tables against Core every cycle: syncExpectedFromCore mirrors Core's
+// expected inventory, runActualSync detects drift against Core's runtime view.
+//
+// TODO: this job writes the DB directly via bun model.* and pool.RunInTx,
+// bypassing the service -> inventorymanager -> store layering the rest of Flow
+// uses, so the same tables now have two writers with different invariants
+// (and the BMC reconciliation here duplicates store.PatchComponent). The
+// store/manager API can't yet express what the mirror needs — per-type
+// transactional batch reconcile, resurrection of soft-deleted rows,
+// column-whitelist updates, tombstone GC, and a drift-table replace. Follow-up:
+// add those as transactional batch methods on the store (e.g.
+// ReconcileExpectedRacks / ReconcileExpectedComponents / ReplaceAllDrifts) and
+// route both halves of this job through the manager so there's a single
+// writer. Tracked separately from the correctness fixes.
 package inventorysync
 
 import (
