@@ -68,8 +68,7 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::{
     TestEnv, TestManagedHost, forge_agent_control, get_machine_validation_runs,
-    machine_validation_completed, persist_machine_validation_result, reboot_completed,
-    update_machine_validation_run,
+    machine_validation_completed, persist_machine_validation_result, update_machine_validation_run,
 };
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
@@ -913,6 +912,10 @@ impl<'a> MockExploredHost<'a> {
                                         machine_validation:
                                             MachineValidatingState::MachineValidating { .. },
                                     },
+                                } | ManagedHostState::HostInit {
+                                    machine_state: MachineState::Discovered {
+                                        skip_reboot_wait: true,
+                                    },
                                 }
                             )
                     },
@@ -923,30 +926,43 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        if self.test_env.config.machine_validation_config.enabled {
-            machine_validation_completed(self.test_env, &host_machine_id, None).await;
-        } else {
-            // need to mark as reboot completed to move it to the next state
-            // even if machine validation is disabled
-            reboot_completed(self.test_env, host_machine_id).await;
-        }
-
-        let stop_state = self
-            .test_env
-            .run_machine_state_controller_iteration_until_state_condition(
-                &host_machine_id,
-                10,
-                |machine| {
-                    machine.current_state() == &expected_state
-                        || matches!(
-                            *machine.current_state(),
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::Discovered { .. },
-                            }
-                        )
+        let stop_state = if matches!(
+            stop_state,
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::MachineValidating { .. },
                 },
-            )
-            .await;
+            }
+        ) {
+            machine_validation_completed(self.test_env, &host_machine_id, None).await;
+
+            self.test_env
+                .run_machine_state_controller_iteration_until_state_condition(
+                    &host_machine_id,
+                    10,
+                    |machine| {
+                        machine.current_state() == &expected_state
+                            || matches!(
+                                *machine.current_state(),
+                                ManagedHostState::HostInit {
+                                    machine_state: MachineState::Discovered { .. },
+                                }
+                            )
+                    },
+                )
+                .await
+        } else if matches!(
+            stop_state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
+            }
+        ) {
+            stop_state
+        } else {
+            panic!("Unexpected state while handling machine validation: {stop_state}");
+        };
 
         if stop_state == expected_state {
             return self;
@@ -1046,26 +1062,48 @@ impl<'a> MockExploredHost<'a> {
         )
         .await;
 
-        self.test_env
-            .run_machine_state_controller_iteration_until_state_matches(
+        let expected_machine_validating_state = ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: MachineValidationId::new(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        };
+        let stop_state = self
+            .test_env
+            .run_machine_state_controller_iteration_until_state_condition(
                 &host_machine_id,
                 10,
-                ManagedHostState::Validation {
-                    validation_state: ValidationState::MachineValidation {
-                        machine_validation: MachineValidatingState::MachineValidating {
-                            context: "Discovery".to_string(),
-                            id: MachineValidationId::new(),
-                            completed: 1,
-                            total: 1,
-                            is_enabled: self.test_env.config.machine_validation_config.enabled,
-                        },
-                    },
+                |machine| {
+                    let expected_machine_validating_state = self
+                        .test_env
+                        .fill_machine_information(&expected_machine_validating_state, machine);
+                    machine.current_state() == &expected_machine_validating_state
+                        || matches!(
+                            *machine.current_state(),
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::Discovered {
+                                    skip_reboot_wait: true,
+                                },
+                            }
+                        )
                 },
             )
             .await;
 
-        let response = forge_agent_control(self.test_env, host_machine_id).await;
-        if self.test_env.config.machine_validation_config.enabled {
+        if matches!(
+            stop_state,
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::MachineValidating { .. },
+                },
+            }
+        ) {
+            let response = forge_agent_control(self.test_env, host_machine_id).await;
             let uuid = &response.data.unwrap().pair[1].value;
             let validation_id: MachineValidationId = uuid.parse().unwrap();
             let success = update_machine_validation_run(
@@ -1178,22 +1216,14 @@ impl<'a> MockExploredHost<'a> {
                     )
                     .await;
             }
-        } else {
-            self.test_env
-                .run_machine_state_controller_iteration_until_state_matches(
-                    &host_machine_id,
-                    10,
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::Discovered {
-                            skip_reboot_wait: true,
-                        },
-                    },
-                )
-                .await;
-
-            // Note: no forge_agent_control/reboot_completed call happens here, since we're skipping
-            // machine validation and thus not doing an extra reboot.
-
+        } else if matches!(
+            stop_state,
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Discovered {
+                    skip_reboot_wait: true,
+                },
+            }
+        ) {
             self.test_env
                 .run_machine_state_controller_iteration_until_state_matches(
                     &host_machine_id,
@@ -1201,6 +1231,8 @@ impl<'a> MockExploredHost<'a> {
                     ManagedHostState::Ready,
                 )
                 .await;
+        } else {
+            panic!("Unexpected state while handling machine validation: {stop_state}");
         }
 
         self
