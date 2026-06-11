@@ -31,6 +31,12 @@ func runInventoryOne(
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
 ) {
+	// Mirror Core's expected inventory into Flow's tables before drift
+	// detection runs. This way the drift loop sees a Flow inventory aligned
+	// with Core's expected view and surfaces only genuine runtime vs.
+	// expected mismatches.
+	syncExpectedFromCore(ctx, pool, nicoClient)
+
 	var allDrifts []model.ComponentDrift
 
 	computeReceived, machineDrifts := syncMachines(ctx, pool, nicoClient)
