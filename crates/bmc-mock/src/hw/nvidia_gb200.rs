@@ -97,15 +97,14 @@ impl BiancaBoard<'_> {
 
     pub fn hgx_gpu_processors(&self, system_id: &str) -> [redfish::processor::Processor; 2] {
         self.gpu_chassis_ids().map(|ids| {
+            let voltage_sensor_id =
+                redfish::sensor::sensor_id(redfish::sensor::SensorKind::Voltage, 1);
             redfish::processor::gpu(
                 system_id,
                 &ids.pcie_device_id,
-                redfish::sensor::chassis_resource(
-                    &ids.chassis_id,
-                    redfish::processor::VOLTAGE_SENSOR_NAME,
-                )
-                .odata_id
-                .as_ref(),
+                redfish::sensor::chassis_resource(&ids.chassis_id, &voltage_sensor_id)
+                    .odata_id
+                    .as_ref(),
             )
         })
     }
