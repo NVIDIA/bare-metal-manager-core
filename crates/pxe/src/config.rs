@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::env;
+use std::net::IpAddr;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeConfig {
@@ -25,7 +26,7 @@ pub(crate) struct RuntimeConfig {
     pub forge_root_ca_path: String,
     pub server_cert_path: String,
     pub server_key_path: String,
-    pub bind_address: String,
+    pub bind_address: IpAddr,
     pub bind_port: u16,
     pub template_directory: String,
 }
@@ -51,7 +52,10 @@ impl RuntimeConfig {
             server_key_path: env::var("FORGE_CLIENT_KEY_PATH").map_err(|_| {
                 "Could not extract FORGE_CLIENT_KEY_PATH from environment".to_string()
             })?,
-            bind_address: env::var("PXE_BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0".to_string()),
+            bind_address: env::var("PXE_BIND_ADDRESS")
+                .unwrap_or_else(|_| "0.0.0.0".to_string())
+                .parse()
+                .map_err(|_| "not a parsable bind address for runtime config?".to_string())?,
             bind_port: env::var("PXE_BIND_PORT")
                 .unwrap_or_else(|_| "8080".to_string())
                 .parse::<u16>()

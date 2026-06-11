@@ -15,7 +15,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Remove the mapping for a chassis serial:
-    $ carbide-admin-cli nvlink-nmxc-endpoints delete --chassis-serial 1234567890123
+    $ nico-admin-cli nvlink-nmxc-endpoints delete --chassis-serial 1234567890123
 
 ")]
 pub struct Args {

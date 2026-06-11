@@ -13,6 +13,21 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
+var (
+	// Time when nvLinklogicalPartitionId attribute will be deprecated
+	nvLinkLogicalPartitionIDDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	// Deprecations for the NVLinkInterface model
+	nvLinkLogicalPartitionIDDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "nvLinklogicalPartitionId",
+			NewValue:     cutil.GetPtr("nvLinkLogicalPartitionId"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: nvLinkLogicalPartitionIDDeprecationTime,
+		},
+	}
+)
+
 // APINVLinkInterfaceCreateRequest is the data structure to capture user request to create a new NVLinkInterface
 type APINVLinkInterfaceCreateOrUpdateRequest struct {
 	// NVLinkLogicalPartitionID is the ID of the NVLinkLogicalPartition
@@ -47,8 +62,10 @@ type APINVLinkInterface struct {
 	InstanceID string `json:"instanceId"`
 	// Instance is the summary of the Instance
 	Instance *APIInstanceSummary `json:"instance,omitempty"`
+	// NVLinkLogicalPartitionIDDeprecated is the ID of the associated NVLinkLogicalPartition (deprecated)
+	NVLinkLogicalPartitionIDDeprecated *string `json:"nvLinklogicalPartitionId,omitempty"`
 	// NVLinkLogicalPartitionID is the ID of the associated NVLinkLogicalPartition
-	NVLinkLogicalPartitionID string `json:"nvLinklogicalPartitionId"`
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionId"`
 	// NVLinkLogicalPartition is the summary of the NVLinkLogicalPartition
 	NVLinkLogicalPartition *APINVLinkLogicalPartitionSummary `json:"nvLinkLogicalPartition,omitempty"`
 	// NVLinkDomainID is the id of the physical NVLink domain that the interface is attached to
@@ -63,6 +80,8 @@ type APINVLinkInterface struct {
 	Created time.Time `json:"created"`
 	// Updated is the date and time the entity was last updated
 	Updated time.Time `json:"updated"`
+	// Deprecations is the list of deprecations for the NVLinkInterface
+	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 }
 
 // NewAPINVLinkInterface creates a new APINVLinkInterface
@@ -91,6 +110,14 @@ func NewAPINVLinkInterface(dbnvli *cdbm.NVLinkInterface) *APINVLinkInterface {
 
 	if dbnvli.NVLinkLogicalPartition != nil {
 		apiNVLinkInterface.NVLinkLogicalPartition = NewAPINVLinkLogicalPartitionSummary(dbnvli.NVLinkLogicalPartition)
+	}
+
+	if time.Now().Before(nvLinkLogicalPartitionIDDeprecationTime) {
+		apiNVLinkInterface.NVLinkLogicalPartitionIDDeprecated = cutil.GetPtr(dbnvli.NVLinkLogicalPartitionID.String())
+	}
+
+	for _, deprecation := range nvLinkLogicalPartitionIDDeprecations {
+		apiNVLinkInterface.Deprecations = append(apiNVLinkInterface.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return apiNVLinkInterface

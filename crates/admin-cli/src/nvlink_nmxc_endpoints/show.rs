@@ -17,10 +17,10 @@ use crate::rpc::ApiClient;
 EXAMPLES:
 
 List all chassis serial to NMX-C endpoint mappings:
-    $ carbide-admin-cli nvlink-nmxc-endpoints show
+    $ nico-admin-cli nvlink-nmxc-endpoints show
 
 Show the mapping for one chassis serial:
-    $ carbide-admin-cli nvlink-nmxc-endpoints show --chassis-serial 1234567890123
+    $ nico-admin-cli nvlink-nmxc-endpoints show --chassis-serial 1234567890123
 
 ")]
 pub struct Args {

@@ -23,10 +23,10 @@ use rpc::forge as forgerpc;
 EXAMPLES:
 
 Reset the BMC of a machine via Redfish:
-    $ carbide-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567
 
 Reset the BMC using ipmitool instead of Redfish:
-    $ carbide-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567 \
     --use-ipmitool
 
 ")]

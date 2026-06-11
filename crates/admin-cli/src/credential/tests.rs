@@ -158,6 +158,53 @@ fn parse_add_uefi() {
     }
 }
 
+// parse_add_nic_lockdown_ikm ensures add-nic-lockdown-ikm parses with the
+// required password.
+#[test]
+fn parse_add_nic_lockdown_ikm() {
+    let cmd = Cmd::try_parse_from([
+        "credential",
+        "add-nic-lockdown-ikm",
+        "--password",
+        "ikm-secret",
+    ])
+    .expect("should parse add-nic-lockdown-ikm");
+
+    match cmd {
+        Cmd::AddNicLockdownIkm(args) => {
+            assert_eq!(args.password, "ikm-secret");
+        }
+        _ => panic!("expected AddNicLockdownIkm variant"),
+    }
+}
+
+// parse_add_nic_lockdown_ikm_missing_password_fails ensures the password is
+// required.
+#[test]
+fn parse_add_nic_lockdown_ikm_missing_password_fails() {
+    let result = Cmd::try_parse_from(["credential", "add-nic-lockdown-ikm"]);
+    assert!(result.is_err(), "should fail without required --password");
+}
+
+// add_nic_lockdown_ikm_maps_to_proto ensures the parsed args convert into a
+// CredentialCreationRequest carrying the SiteWideNicLockdownIkm type.
+#[test]
+fn add_nic_lockdown_ikm_maps_to_proto() {
+    use rpc::forge::{self as forgerpc, CredentialType};
+
+    let args = add_nic_lockdown_ikm::Args {
+        password: "ikm-secret".to_string(),
+    };
+    let req = forgerpc::CredentialCreationRequest::try_from(args).expect("convert");
+    assert_eq!(
+        req.credential_type,
+        CredentialType::SiteWideNicLockdownIkm as i32
+    );
+    assert_eq!(req.password, "ikm-secret");
+    assert!(req.username.is_none());
+    assert!(req.mac_address.is_none());
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Enum Conversions
 //

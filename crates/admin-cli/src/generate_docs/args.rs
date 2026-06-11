@@ -23,11 +23,11 @@ use clap::Parser;
 #[command(after_long_help = "\
 EXAMPLES:
 
-Regenerate the CLI reference in place (the default docs/cli):
-    $ carbide-admin-cli generate-cli-docs
+Regenerate the CLI reference in place (the default docs/manuals/nico-admin-cli):
+    $ nico-admin-cli generate-cli-docs
 
 Write the generated pages to a different directory:
-    $ carbide-admin-cli generate-cli-docs --out-dir /tmp/cli-docs
+    $ nico-admin-cli generate-cli-docs --out-dir /tmp/cli-docs
 
 ")]
 pub struct Cmd {
@@ -36,6 +36,6 @@ pub struct Cmd {
     /// command, plus the four domain index pages
     /// (`hardware.md`/`network.md`/`tenant.md`/`admin.md`). Hand-authored
     /// pages (`README.md`, `workflows.md`, `setup.md`, …) are left untouched.
-    #[clap(long, default_value = "docs/cli")]
+    #[clap(long, default_value = "docs/manuals/nico-admin-cli")]
     pub out_dir: PathBuf,
 }

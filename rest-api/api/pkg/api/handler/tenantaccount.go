@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalClient "go.temporal.io/sdk/client"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -105,6 +106,11 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for current org", nil)
+	}
+
+	// Deprecated: infrastructureProviderId in request body. Infer from org when not provided.
+	if apiRequest.InfrastructureProviderID == "" {
+		apiRequest.InfrastructureProviderID = ip.ID.String()
 	}
 
 	if ip.ID.String() != apiRequest.InfrastructureProviderID {
@@ -242,9 +248,10 @@ func NewGetAllTenantAccountHandler(dbSession *cdb.Session, tc temporalClient.Cli
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param infrastructureProviderId query string true "ID of InfrastructureProvider"
-// @Param tenantId query string true "ID of Tenant"
+// @Param infrastructureProviderId query string false "Deprecated: ID of Infrastructure Provider"
+// @Param tenantId query string false "Filter TenantAccounts by Tenant ID (Provider role only; for Tenant role the tenant is inferred from org membership and this param is ignored)"
 // @Param status query string false "Query input for status"
+// @Param query query string false "Search query string"
 // @Param includeRelation query string false "Related entities to include in response e.g. 'InfrastructureProvider', 'Tenant'"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
@@ -260,20 +267,9 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Validate org
-	ok, err := auth.ValidateOrgMembership(dbUser, org)
-	if !ok {
-		if err != nil {
-			logger.Error().Err(err).Msg("error validating org membership for User in request")
-		} else {
-			logger.Warn().Msg("could not validate org membership for user, access denied")
-		}
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
-	}
-
 	// Validate paginantion request
 	pageRequest := pagination.PageRequest{}
-	err = c.Bind(&pageRequest)
+	err := c.Bind(&pageRequest)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
@@ -286,15 +282,6 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
 	}
 
-	// Get and validate query params
-	qInfrastructureProviderID := c.QueryParam("infrastructureProviderId")
-	qTenantID := c.QueryParam("tenantId")
-	if qInfrastructureProviderID == "" && qTenantID == "" {
-		errStr := "Either infrastructureProviderId or tenantId query param must be specified."
-		logger.Warn().Msg(errStr)
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errStr, nil)
-	}
-
 	// Get and validate includeRelation params
 	qParams := c.QueryParams()
 	qIncludeRelations, errMsg := common.GetAndValidateQueryRelations(qParams, cdbm.TenantAccountRelatedEntities)
@@ -304,7 +291,7 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 	}
 
 	// Get status from query param
-	var status *string
+	var statuses []string
 
 	statusQuery := c.QueryParam("status")
 	if statusQuery != "" {
@@ -314,7 +301,7 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 			logger.Warn().Msg(fmt.Sprintf("invalid value in status query: %v", statusQuery))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Status value in query", nil)
 		}
-		status = &statusQuery
+		statuses = []string{statusQuery}
 	}
 
 	searchQuery := common.GetSearchQuery(c)
@@ -322,104 +309,67 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		gatah.tracerSpan.SetAttribute(handlerSpan, attribute.String("query", *searchQuery), logger)
 	}
 
-	var infrastructureProviderID *uuid.UUID
-
-	// Validate infrastructure provider id if provided
-	if qInfrastructureProviderID != "" {
-		id, serr := uuid.Parse(qInfrastructureProviderID)
-		if serr != nil {
-			logger.Warn().Err(serr).Msg("error parsing infrastructureProviderId in query into uuid")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Infrastructure Provider ID in query", nil)
-		}
-
-		infrastructureProviderID = &id
-	}
-
-	// Validate tenant id if provided
-	var tenantID *uuid.UUID
-	if qTenantID != "" {
-		id, serr := uuid.Parse(qTenantID)
+	// Optional Provider-side tenantId narrowing filter. The Tenant branch
+	// ignores this and always pins to the caller's own tenant.
+	var filterTenantIDs []uuid.UUID
+	tenantIdQuery := c.QueryParam("tenantId")
+	if tenantIdQuery != "" {
+		gatah.tracerSpan.SetAttribute(handlerSpan, attribute.String("tenantId", tenantIdQuery), logger)
+		id, serr := uuid.Parse(tenantIdQuery)
 		if serr != nil {
 			logger.Warn().Err(serr).Msg("error parsing tenantId in query into uuid")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Tenant ID in query", nil)
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid Tenant ID: %s in query", tenantIdQuery), nil)
 		}
-
-		tenantID = &id
+		filterTenantIDs = []uuid.UUID{id}
 	}
 
-	// The query params must match _either_ the org's Infrastructure Provider _or_ the org's Tenant
-	// This allows the cases where:
-	// - A Tenant associated with the org could be filtering on Infrastructure Provider by providing both param
-	// - An Infrastructure Provider associated with the org could be filtering on Tenant by providing both param
-	isAssociated := false
-	orgInfrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, gatah.dbSession, org)
-	if err != nil {
-		if err != common.ErrOrgInstrastructureProviderNotFound {
-			logger.Error().Err(err).Msg("error getting infrastructure provider for org")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider for org, DB error", nil)
-		}
-	} else if infrastructureProviderID != nil && orgInfrastructureProvider.ID == *infrastructureProviderID {
-		// Validate role, only Provider Admins are allowed to proceed from here
-		ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole, auth.ProviderViewerRole)
-		if !ok {
-			logger.Warn().Msg("user does not have Provider Admin role with org, access denied")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
-		}
-
-		isAssociated = true
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gatah.dbSession, org, dbUser, true, false)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	// If the Infrastructure Provider in query does not belong to the org, then check if the Tenant in query belongs to the org
-	if !isAssociated {
-		orgTenant, err1 := common.GetTenantForOrg(ctx, nil, gatah.dbSession, org)
-		if err1 != nil {
-			if err1 != common.ErrOrgTenantNotFound {
-				logger.Error().Err(err1).Msg("error getting tenant for org")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant for org", nil)
-			}
-		} else if tenantID != nil && orgTenant.ID == *tenantID {
-			// Validate role, only Tenant Admins are allowed to proceed from here
-			ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-			if !ok {
-				logger.Warn().Msg("user does not have Tenant Admin role with org, access denied")
-				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
-			}
-
-			isAssociated = true
-		}
-	}
-
-	if !isAssociated {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Either Infrastructure Provider or Tenant in query param must be associated with org", nil)
-	}
-
-	// Get Tenant Accounts
 	taDAO := cdbm.NewTenantAccountDAO(gatah.dbSession)
 
 	// default append `TenantContact`
 	qIncludeRelations = append(qIncludeRelations, "TenantContact")
 
-	var tenantIDs []uuid.UUID
-	if tenantID != nil {
-		tenantIDs = []uuid.UUID{*tenantID}
+	sharedFilter := cdbm.TenantAccountFilterInput{
+		Statuses:    statuses,
+		SearchQuery: searchQuery,
 	}
-	var statuses []string
-	if status != nil {
-		statuses = []string{*status}
+	mergedTenantAccountIDs := mapset.NewSet[uuid.UUID]()
+	totalLimitPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
+
+	if provider != nil {
+		providerFilter := sharedFilter
+		providerFilter.InfrastructureProviderID = &provider.ID
+		providerFilter.TenantIDs = filterTenantIDs
+		tenantAccountsFromProviderPerspective, _, err := taDAO.GetAll(ctx, nil, providerFilter, totalLimitPage, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error getting TenantAccounts from Provider perspective")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve TenantAccounts, DB error", nil)
+		}
+		for _, tenantAccount := range tenantAccountsFromProviderPerspective {
+			mergedTenantAccountIDs.Add(tenantAccount.ID)
+		}
 	}
 
-	filter := cdbm.TenantAccountFilterInput{
-		InfrastructureProviderID: infrastructureProviderID,
-		TenantIDs:                tenantIDs,
-		Statuses:                 statuses,
-		SearchQuery:              searchQuery,
+	if tenant != nil {
+		tenantFilter := sharedFilter
+		tenantFilter.TenantIDs = []uuid.UUID{tenant.ID}
+		tenantAccountsFromTenantPerspective, _, err := taDAO.GetAll(ctx, nil, tenantFilter, totalLimitPage, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error getting TenantAccounts from Tenant perspective")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve TenantAccounts, DB error", nil)
+		}
+		for _, tenantAccount := range tenantAccountsFromTenantPerspective {
+			mergedTenantAccountIDs.Add(tenantAccount.ID)
+		}
 	}
 
-	tas, total, err := taDAO.GetAll(ctx, nil, filter, cdbp.PageInput{
-		Offset:  pageRequest.Offset,
-		Limit:   pageRequest.Limit,
-		OrderBy: pageRequest.OrderBy,
-	}, qIncludeRelations)
+	tas, total, err := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+		TenantAccountIDs: mergedTenantAccountIDs.ToSlice(),
+	}, pageRequest.ConvertToDB(), qIncludeRelations)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting TenantAccounts from db")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve TenantAccounts", nil)
@@ -443,38 +393,57 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		ssdMap[ssd.EntityID] = append(ssdMap[ssd.EntityID], cssd)
 	}
 
-	// Create response
 	apiTas := []*model.APITenantAccount{}
 	aDAO := cdbm.NewAllocationDAO(gatah.dbSession)
 
-	// Get Allocation count by InfrastructureProvider/Tenant
-	var allocationCountByTenantIDMap map[uuid.UUID]int
-	if len(tas) > 0 {
-		allocationCountByTenantIDMap = make(map[uuid.UUID]int)
-		allocationFilter := cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID}
-		if tenantID != nil {
-			allocationFilter.TenantIDs = append(allocationFilter.TenantIDs, *tenantID)
+	tenantIDsByProvider := map[uuid.UUID]mapset.Set[uuid.UUID]{}
+	for _, ta := range tas {
+		if ta.TenantID == nil {
+			continue
 		}
-		allocationPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
-		als, _, serr := aDAO.GetAll(ctx, nil, allocationFilter, allocationPage, nil)
-		if serr != nil {
-			logger.Error().Err(serr).Msg("error retrieving allocation for Tenant from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations to determine total Allocation count for Tenants", nil)
+		providerTenantIDs, ok := tenantIDsByProvider[ta.InfrastructureProviderID]
+		if !ok {
+			providerTenantIDs = mapset.NewSet[uuid.UUID]()
+			tenantIDsByProvider[ta.InfrastructureProviderID] = providerTenantIDs
+		}
+		providerTenantIDs.Add(*ta.TenantID)
+	}
+
+	allocationCountByProviderAndTenant := map[uuid.UUID]map[uuid.UUID]int{}
+	if len(tenantIDsByProvider) > 0 {
+		allProviderIDs := make([]uuid.UUID, 0, len(tenantIDsByProvider))
+		allTenantIDs := mapset.NewSet[uuid.UUID]()
+		for providerID, providerTenantIDs := range tenantIDsByProvider {
+			allProviderIDs = append(allProviderIDs, providerID)
+			allTenantIDs = allTenantIDs.Union(providerTenantIDs)
 		}
 
-		for _, al := range als {
-			allocationCountByTenantIDMap[al.TenantID]++
+		allocationPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
+		allocations, _, aerr := aDAO.GetAll(ctx, nil, cdbm.AllocationFilterInput{
+			InfrastructureProviderIDs: allProviderIDs,
+			TenantIDs:                 allTenantIDs.ToSlice(),
+		}, allocationPage, nil)
+		if aerr != nil {
+			logger.Error().Err(aerr).Msg("error retrieving allocations for Tenant Accounts from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations to determine total Allocation count for Tenants", nil)
+		}
+		for _, allocation := range allocations {
+			tenantAllocationCounts, ok := allocationCountByProviderAndTenant[allocation.InfrastructureProviderID]
+			if !ok {
+				tenantAllocationCounts = map[uuid.UUID]int{}
+				allocationCountByProviderAndTenant[allocation.InfrastructureProviderID] = tenantAllocationCounts
+			}
+			tenantAllocationCounts[allocation.TenantID]++
 		}
 	}
 
 	for _, ta := range tas {
 		tmpTa := ta
-		// Check for Allocation for Tenant
-		total := 0
+		allocationCount := 0
 		if tmpTa.TenantID != nil {
-			total = allocationCountByTenantIDMap[*tmpTa.TenantID]
+			allocationCount = allocationCountByProviderAndTenant[tmpTa.InfrastructureProviderID][*tmpTa.TenantID]
 		}
-		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], total)
+		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], allocationCount)
 		apiTas = append(apiTas, apiTa)
 	}
 
@@ -522,8 +491,8 @@ func NewGetTenantAccountHandler(dbSession *cdb.Session, tc temporalClient.Client
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of Tenant Account"
-// @Param infrastructureProviderId query string true "ID of InfrastructureProvider"
-// @Param tenantId query string true "ID of Tenant"
+// @Param infrastructureProviderId query string false "Deprecated: ID of Infrastructure Provider"
+// @Param tenantId query string false "Deprecated: ID of Tenant"
 // @Param includeRelation query string false "Related entities to include in response e.g. 'InfrastructureProvider', 'Tenant'"
 // @Success 200 {object} model.APITenantAccount
 // @Router /v2/org/{org}/nico/tenant/account/{id} [get]
@@ -534,17 +503,6 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 	}
 	if dbUser == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
-	}
-
-	// Validate org
-	ok, err := auth.ValidateOrgMembership(dbUser, org)
-	if !ok {
-		if err != nil {
-			logger.Error().Err(err).Msg("error validating org membership for User in request")
-		} else {
-			logger.Warn().Msg("could not validate org membership for user, access denied")
-		}
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
 	// Get tenant account ID from URL param
@@ -578,106 +536,29 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve Tenant Account to update", nil)
 	}
 
-	// Get and validate query params
-	qInfrastructureProviderID := c.QueryParam("infrastructureProviderId")
-	qTenantID := c.QueryParam("tenantId")
-
-	if qInfrastructureProviderID == "" && qTenantID == "" {
-		// Logging common user request data error can add a lot to system logs
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Either Infrastructure Provider ID or Tenant ID query param must be specified.", nil)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gtah.dbSession, org, dbUser, true, false)
+	if apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	var infrastructureProviderID *uuid.UUID
-	var tenantID *uuid.UUID
-
-	// Validate infrastructure provider id if provided
-	if qInfrastructureProviderID != "" {
-		id, err1 := uuid.Parse(qInfrastructureProviderID)
-		if err1 != nil {
-			logger.Warn().Err(err1).Msg("error parsing infrastructureProviderId in query into uuid")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Infrastructure Provider ID in query", nil)
-		}
-
-		// If the Infrastructure Provider ID in query is not the same as the one in the Tenant Account, return an error
-		if id != ta.InfrastructureProviderID {
-			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Tenant Account matching Infrastructure Provider in query", nil)
-		}
-
-		infrastructureProviderID = &id
+	authorized := (provider != nil && ta.InfrastructureProviderID == provider.ID) ||
+		(tenant != nil && ta.TenantID != nil && *ta.TenantID == tenant.ID)
+	if !authorized {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant Account is not associated with org", nil)
 	}
 
-	// Validate tenant id if provided
-	if qTenantID != "" {
-		id, err1 := uuid.Parse(qTenantID)
-		if err1 != nil {
-			logger.Warn().Err(err1).Msg("error parsing tenantId in query into uuid")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Tenant ID in query", nil)
-		}
-
-		// If the Tenant in query is not the same as the one in the Tenant Account, return an error
-		if ta.TenantID == nil || *ta.TenantID != id {
-			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Tenant Account matching Tenant in query", nil)
-		}
-
-		tenantID = &id
-	}
-
-	// The query params must match _either_ the org's Infrastructure Provider _or_ the org's Tenant
-	// This allows the cases where:
-	// - A Tenant associated with the org could be filtering on Infrastructure Provider by providing both param
-	// - An Infrastructure Provider associated with the org could be filtering on Tenant by providing both param
-	isAssociated := false
-	orgInfrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, gtah.dbSession, org)
-	if err != nil {
-		if err != common.ErrOrgInstrastructureProviderNotFound {
-			logger.Error().Err(err).Msg("error getting infrastructure provider for org")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve infrastructure provider for org, DB error", nil)
-		}
-	} else if infrastructureProviderID != nil && orgInfrastructureProvider.ID == *infrastructureProviderID {
-		// Validate role, only Provider Admins are allowed to proceed from here
-		ok = auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole, auth.ProviderViewerRole)
-		if !ok {
-			logger.Warn().Msg("user does not have Provider Admin role with org, access denied")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
-		}
-
-		isAssociated = true
-	}
-
-	// If the Infrastructure Provider in query does not belong to the org, then check if the Tenant in query belongs to the org
-	if !isAssociated {
-		orgTenant, err1 := common.GetTenantForOrg(ctx, nil, gtah.dbSession, org)
-		if err1 != nil {
-			if err1 != common.ErrOrgTenantNotFound {
-				logger.Error().Err(err1).Msg("error getting tenant for org")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant for org", nil)
-			}
-		} else if tenantID != nil && orgTenant.ID == *tenantID {
-			// Validate role, only Tenant Admins are allowed to proceed from here
-			ok = auth.ValidateUserRoles(dbUser, org, nil, auth.TenantAdminRole)
-			if !ok {
-				logger.Warn().Msg("user does not have Tenant Admin role with org, access denied")
-				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Tenant Admin role with org", nil)
-			}
-
-			isAssociated = true
-		}
-	}
-
-	if !isAssociated {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Either Infrastructure Provider or Tenant in query param must be associated with org", nil)
-	}
-
-	// Check for Allocation
 	aDAO := cdbm.NewAllocationDAO(gtah.dbSession)
-	allocationFilter := cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID}
-	if tenantID != nil {
-		allocationFilter.TenantIDs = append(allocationFilter.TenantIDs, *tenantID)
-	}
-	total, serr := aDAO.GetCount(ctx, nil, allocationFilter)
-	if serr != nil {
-		logger.Error().Err(serr).Msg("error retrieving allocation for Tenant from DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations to determine total allocation for tenant account", nil)
+	total := 0
+	if ta.TenantID != nil {
+		cnt, cerr := aDAO.GetCount(ctx, nil, cdbm.AllocationFilterInput{
+			InfrastructureProviderIDs: []uuid.UUID{ta.InfrastructureProviderID},
+			TenantIDs:                 []uuid.UUID{*ta.TenantID},
+		})
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("error retrieving allocation count for Tenant Account from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations to determine total allocation for tenant account", nil)
+		}
+		total = cnt
 	}
 
 	sdDAO := cdbm.NewStatusDetailDAO(gtah.dbSession)
@@ -959,7 +840,7 @@ func (dtah DeleteTenantAccountHandler) Handle(c echo.Context) error {
 	if ta.TenantID != nil {
 		// Verify that Tenant does not have any Allocations with the Provider
 		allocationDAO := cdbm.NewAllocationDAO(dtah.dbSession)
-		allocationFilter := cdbm.AllocationFilterInput{InfrastructureProviderID: &ip.ID}
+		allocationFilter := cdbm.AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}}
 		if ta.TenantID != nil {
 			allocationFilter.TenantIDs = append(allocationFilter.TenantIDs, *ta.TenantID)
 		}

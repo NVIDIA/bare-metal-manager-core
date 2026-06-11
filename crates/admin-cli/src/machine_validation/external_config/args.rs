@@ -22,14 +22,14 @@ use clap::Parser;
 EXAMPLES:
 
 Show external config entries by name:
-    $ carbide-admin-cli machine-validation external-config show --name my-config
+    $ nico-admin-cli machine-validation external-config show --name my-config
 
 Add or update an external config from a file:
-    $ carbide-admin-cli machine-validation external-config add-update --name my-config \
+    $ nico-admin-cli machine-validation external-config add-update --name my-config \
     --file-name ./config.toml --description \"validation overrides\"
 
 Remove an external config:
-    $ carbide-admin-cli machine-validation external-config remove --name my-config
+    $ nico-admin-cli machine-validation external-config remove --name my-config
 
 ")]
 pub enum Args {

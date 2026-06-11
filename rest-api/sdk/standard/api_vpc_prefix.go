@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -283,7 +283,7 @@ type ApiGetAllVpcPrefixRequest struct {
 	orderBy           *string
 }
 
-// Filter VPC Prefixes by Site, required if vpcId query param is not specified
+// Filter VPC Prefixes by Site, required if the vpcId query parameter is not specified
 func (r ApiGetAllVpcPrefixRequest) SiteId(siteId string) ApiGetAllVpcPrefixRequest {
 	r.siteId = &siteId
 	return r
@@ -301,7 +301,7 @@ func (r ApiGetAllVpcPrefixRequest) Status(status string) ApiGetAllVpcPrefixReque
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name and status fields
+// Search for matches across all VPC Prefixes. Input will be matched against name and status fields
 func (r ApiGetAllVpcPrefixRequest) Query(query string) ApiGetAllVpcPrefixRequest {
 	r.query = &query
 	return r
@@ -313,7 +313,7 @@ func (r ApiGetAllVpcPrefixRequest) IncludeRelation(includeRelation string) ApiGe
 	return r
 }
 
-// When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a &#x60;/31&#x60; prefix.
+// When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a &#x60;/31&#x60; prefix.
 func (r ApiGetAllVpcPrefixRequest) IncludeUsageStats(includeUsageStats bool) ApiGetAllVpcPrefixRequest {
 	r.includeUsageStats = &includeUsageStats
 	return r
@@ -493,7 +493,7 @@ func (r ApiGetVpcPrefixRequest) IncludeRelation(includeRelation string) ApiGetVp
 	return r
 }
 
-// When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a &#x60;/31&#x60; prefix.
+// When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a &#x60;/31&#x60; prefix.
 func (r ApiGetVpcPrefixRequest) IncludeUsageStats(includeUsageStats bool) ApiGetVpcPrefixRequest {
 	r.includeUsageStats = &includeUsageStats
 	return r

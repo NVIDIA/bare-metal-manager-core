@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 List all logical partitions:
-    $ carbide-admin-cli logical-partition show
+    $ nico-admin-cli logical-partition show
 
 Show one logical partition by ID:
-    $ carbide-admin-cli logical-partition show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli logical-partition show 12345678-1234-5678-90ab-cdef01234567
 
 Filter by name:
-    $ carbide-admin-cli logical-partition show --name my-partition
+    $ nico-admin-cli logical-partition show --name my-partition
 
 ")]
 pub struct Args {

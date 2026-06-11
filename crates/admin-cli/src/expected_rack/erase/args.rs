@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Erase all expected rack records (requires explicit confirmation):
-    $ carbide-admin-cli expected-rack erase --confirm
+    $ nico-admin-cli expected-rack erase --confirm
 
 ")]
 pub struct Args {

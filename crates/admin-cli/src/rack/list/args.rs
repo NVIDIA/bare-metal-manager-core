@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 List all racks:
-    $ carbide-admin-cli rack list
+    $ nico-admin-cli rack list
 
 ")]
 pub struct Args;

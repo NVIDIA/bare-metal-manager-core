@@ -160,6 +160,7 @@ type TenantAccountFilterInput struct {
 	Statuses                 []string
 	TenantIDs                []uuid.UUID
 	TenantOrgs               []string
+	TenantAccountIDs         []uuid.UUID
 	SearchQuery              *string
 }
 
@@ -341,6 +342,15 @@ func (tasd TenantAccountSQLDAO) setQueryWithFilter(filter TenantAccountFilterInp
 			query = query.Where("ta.status IN (?)", bun.In(filter.Statuses))
 		}
 		tasd.tracerSpan.SetAttribute(tnaDAOSpan, "status", filter.Statuses)
+	}
+
+	if filter.TenantAccountIDs != nil {
+		if len(filter.TenantAccountIDs) == 1 {
+			query = query.Where("ta.id = ?", filter.TenantAccountIDs[0])
+		} else {
+			query = query.Where("ta.id IN (?)", bun.In(filter.TenantAccountIDs))
+		}
+		tasd.tracerSpan.SetAttribute(tnaDAOSpan, "id", filter.TenantAccountIDs)
 	}
 
 	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)

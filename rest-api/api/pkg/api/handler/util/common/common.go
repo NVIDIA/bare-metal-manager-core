@@ -243,9 +243,9 @@ func GetInstanceTypeIDsFromAllocationConstraints(ctx context.Context, acs []cdbm
 func GetAllocationIDsForTenantAtSite(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ipID uuid.UUID, tenantID uuid.UUID, siteID uuid.UUID) ([]uuid.UUID, error) {
 	aDAO := cdbm.NewAllocationDAO(dbSession)
 	filter := cdbm.AllocationFilterInput{
-		InfrastructureProviderID: &ipID,
-		TenantIDs:                []uuid.UUID{tenantID},
-		SiteIDs:                  []uuid.UUID{siteID},
+		InfrastructureProviderIDs: []uuid.UUID{ipID},
+		TenantIDs:                 []uuid.UUID{tenantID},
+		SiteIDs:                   []uuid.UUID{siteID},
 	}
 	as, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -443,8 +443,12 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 		siteIDs = []uuid.UUID{*siteID}
 	}
 
+	var providerIDs []uuid.UUID
+	if infrastructureProviderID != nil {
+		providerIDs = []uuid.UUID{*infrastructureProviderID}
+	}
 	aDAO := cdbm.NewAllocationDAO(dbSession)
-	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderIDs: providerIDs, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -532,9 +536,9 @@ func CheckMachinesForInstanceTypeAllocation(ctx context.Context, tx *cdb.Tx, dbS
 func GetAllAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, site *cdbm.Site, tenant *cdbm.Tenant, resourceTypeID *uuid.UUID) ([]cdbm.AllocationConstraint, int, error) {
 	aDAO := cdbm.NewAllocationDAO(dbSession)
 	filter := cdbm.AllocationFilterInput{
-		InfrastructureProviderID: &ip.ID,
-		TenantIDs:                []uuid.UUID{tenant.ID},
-		SiteIDs:                  []uuid.UUID{site.ID},
+		InfrastructureProviderIDs: []uuid.UUID{ip.ID},
+		TenantIDs:                 []uuid.UUID{tenant.ID},
+		SiteIDs:                   []uuid.UUID{site.ID},
 	}
 	allocs, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -607,7 +611,7 @@ func GetAndValidateQueryRelations(qParams url.Values, relatedEntities map[string
 }
 
 // GetAllInstanceTypeAllocationStats is a utility function to get all instance type allocation stats
-func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, siteID *uuid.UUID, instanceTypeIDs []uuid.UUID, logger zerolog.Logger, tenantID *uuid.UUID) (map[uuid.UUID]*cam.APIAllocationStats, *cutil.APIError) {
+func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, siteID *uuid.UUID, instanceTypeIDs []uuid.UUID, logger zerolog.Logger, tenantID *uuid.UUID) (map[uuid.UUID]*cam.APIInstanceTypeAllocationStats, *cutil.APIError) {
 	var instances []cdbm.Instance
 	var serr error
 
@@ -704,10 +708,10 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 	}
 
 	// Build allocation stats map for each instance type ID with total, used, max allocatable
-	allocAPIStatsMap := make(map[uuid.UUID]*cam.APIAllocationStats)
+	allocAPIStatsMap := make(map[uuid.UUID]*cam.APIInstanceTypeAllocationStats)
 
 	for _, instanceTypeID := range instanceTypeIDs {
-		aas := &cam.APIAllocationStats{}
+		aas := &cam.APIInstanceTypeAllocationStats{}
 
 		aas.Assigned = instanceTypeIDToMachinesMap[instanceTypeID]
 		aas.Total = instanceTypeToSumConstraintValue[instanceTypeID]
@@ -739,7 +743,7 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 }
 
 // GetInstanceTypeAllocationStats is a utility function to get the allocation stats from allocation constraints and instances based on instancetype
-func GetInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, it cdbm.InstanceType, tenantID *uuid.UUID) (*cam.APIAllocationStats, *cutil.APIError) {
+func GetInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, it cdbm.InstanceType, tenantID *uuid.UUID) (*cam.APIInstanceTypeAllocationStats, *cutil.APIError) {
 	mstats, err := GetAllInstanceTypeAllocationStats(ctx, dbSession, it.SiteID, []uuid.UUID{it.ID}, logger, tenantID)
 	if err != nil {
 		return nil, err

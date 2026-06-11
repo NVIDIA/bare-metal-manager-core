@@ -2,7 +2,7 @@ This section provides a quick overview of the API and how to get started.
 
 ### Authentication
 The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
-NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller-rest/tree/main/auth).
+NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
 
 ### API Version
 The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](/infra-controller/rest-api-reference/api-reference/metadata/get-metadata). In general, the API maintains backward

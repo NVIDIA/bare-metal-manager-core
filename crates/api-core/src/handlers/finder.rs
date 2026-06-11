@@ -226,11 +226,11 @@ async fn search(
             api.eth_data
                 .dhcp_servers
                 .iter()
-                .find(|&dhcp| ip == *dhcp)
-                .map(|ip| rpc::IpAddressMatch {
+                .find(|&&dhcp| addr == IpAddr::V4(dhcp))
+                .map(|dhcp| rpc::IpAddressMatch {
                     ip_type: rpc::IpType::StaticDataDhcpServer as i32,
                     owner_id: None,
-                    message: format!("{ip} is a static DHCP server"),
+                    message: format!("{dhcp} is a static DHCP server"),
                 })
         }),
 

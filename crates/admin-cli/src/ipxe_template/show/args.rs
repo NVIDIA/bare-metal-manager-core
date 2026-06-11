@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all iPXE templates:
-    $ carbide-admin-cli ipxe-template show
+    $ nico-admin-cli ipxe-template show
 
 Show one iPXE template by ID:
-    $ carbide-admin-cli ipxe-template show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli ipxe-template show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

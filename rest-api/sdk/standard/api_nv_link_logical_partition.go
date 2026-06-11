@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -506,7 +506,7 @@ func (r ApiGetAllNvlinkLogicalPartitionRequest) Status(status string) ApiGetAllN
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description and status fields
+// Search for matches across all NVLink Logical Partitions. Input will be matched against name, description, and status fields
 func (r ApiGetAllNvlinkLogicalPartitionRequest) Query(query string) ApiGetAllNvlinkLogicalPartitionRequest {
 	r.query = &query
 	return r

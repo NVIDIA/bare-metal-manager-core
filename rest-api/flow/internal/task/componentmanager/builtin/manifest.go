@@ -14,6 +14,7 @@ import (
 	powershelfnico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/powershelf/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
@@ -70,9 +71,12 @@ func serviceDescriptors() []cmcatalog.Descriptor {
 // compiled into the Flow service. Factory specs pair descriptors with factories
 // after service config has been decoded, so this manifest is intentionally
 // separate from serviceDescriptors for managers whose factories need
-// config-derived values.
+// config-derived values. gate is the shared readiness gate every NICo-backed
+// manager consults before disruptive operations; a nil gate is permissive
+// (used by tests that do not exercise readiness behaviour).
 func serviceFactorySpecs(
 	config cmconfig.Config,
+	gate readiness.Gate,
 ) ([]componentmanager.FactorySpec, error) {
 	computePowerDelay, err := legacyComputePowerDelay(config)
 	if err != nil {
@@ -80,10 +84,10 @@ func serviceFactorySpecs(
 	}
 
 	factorySpecs := []componentmanager.FactorySpec{
-		computenico.FactorySpec(),
-		computenicolegacy.FactorySpec(computePowerDelay),
-		nvswitchnico.FactorySpec(),
-		powershelfnico.FactorySpec(),
+		computenico.FactorySpec(gate),
+		computenicolegacy.FactorySpec(computePowerDelay, gate),
+		nvswitchnico.FactorySpec(gate),
+		powershelfnico.FactorySpec(gate),
 	}
 
 	factorySpecs = append(factorySpecs, mock.FactorySpecs()...)

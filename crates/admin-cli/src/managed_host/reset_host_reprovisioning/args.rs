@@ -24,7 +24,7 @@ use clap::Parser;
 EXAMPLES:
 
 Reset a host's reprovisioning back to CheckingFirmware:
-    $ carbide-admin-cli managed-host reset-host-reprovisioning --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-host reset-host-reprovisioning --machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

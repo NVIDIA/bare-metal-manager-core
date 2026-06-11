@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -49,7 +49,7 @@ Create an Allocation for the org.
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 To successfully create a compute Allocation, there must be enough unallocated Machines associated with the Instance Type to satisfy the constraint value.
-For network Allocation, the source site-level IP Block must have an available prefix with length equal to constraint value.
+For network Allocation, the source site-level IP Block must have an available prefix with length equal to the constraint value.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -179,7 +179,7 @@ DeleteAllocation Delete Allocation
 
 Delete an Allocation by ID.
 
-Org must have an Infrastructure Provider entity, specified Allocation must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+Org must have an Infrastructure Provider entity, and the specified Allocation must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
 Tenant management of Allocation is not supported in MVP.
 
@@ -306,49 +306,49 @@ func (r ApiGetAllAllocationRequest) TenantId(tenantId string) ApiGetAllAllocatio
 	return r
 }
 
-// Filter Allocations by Site ID.  Can be specified multiple times to filter on more than one Site ID.
+// Filter Allocations by Site ID. Can be specified multiple times to filter on more than one Site ID.
 func (r ApiGetAllAllocationRequest) SiteId(siteId string) ApiGetAllAllocationRequest {
 	r.siteId = &siteId
 	return r
 }
 
-// Filter Allocations by ID.  Can be specified multiple times to filter on more than one ID.
+// Filter Allocations by ID. Can be specified multiple times to filter on more than one ID.
 func (r ApiGetAllAllocationRequest) Id(id string) ApiGetAllAllocationRequest {
 	r.id = &id
 	return r
 }
 
-// Filter Allocations by Constraint Resource Type.  Can be specified multiple times to filter on more than one Constraint Resource Type.
+// Filter Allocations by Constraint Resource Type. Can be specified multiple times to filter on more than one Constraint Resource Type.
 func (r ApiGetAllAllocationRequest) ResourceType(resourceType string) ApiGetAllAllocationRequest {
 	r.resourceType = &resourceType
 	return r
 }
 
-// Filter Allocations by Status.  Can be specified multiple times to filter on more than one Status.
+// Filter Allocations by Status. Can be specified multiple times to filter on more than one Status.
 func (r ApiGetAllAllocationRequest) Status(status string) ApiGetAllAllocationRequest {
 	r.status = &status
 	return r
 }
 
-// Filter Allocations by Constraint Resource Type ID.  Can be specified multiple times to filter on more than one Constraint Resource Type ID.
+// Filter Allocations by Constraint Resource Type ID. Can be specified multiple times to filter on more than one Constraint Resource Type ID.
 func (r ApiGetAllAllocationRequest) ResourceTypeId(resourceTypeId string) ApiGetAllAllocationRequest {
 	r.resourceTypeId = &resourceTypeId
 	return r
 }
 
-// Filter Allocations by Constraint Type.  Can be specified multiple times to filter on more than one Constraint Type.
+// Filter Allocations by Constraint Type. Can be specified multiple times to filter on more than one Constraint Type.
 func (r ApiGetAllAllocationRequest) ConstraintType(constraintType string) ApiGetAllAllocationRequest {
 	r.constraintType = &constraintType
 	return r
 }
 
-// Filter Allocations by Constraint Value.  Can be specified multiple times to filter on more than one Constraint Value.
+// Filter Allocations by Constraint Value. Can be specified multiple times to filter on more than one Constraint Value.
 func (r ApiGetAllAllocationRequest) ConstraintValue(constraintValue int32) ApiGetAllAllocationRequest {
 	r.constraintValue = &constraintValue
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description and status fields
+// Search for matches across all Allocations. Input will be matched against name, description, and status fields
 func (r ApiGetAllAllocationRequest) Query(query string) ApiGetAllAllocationRequest {
 	r.query = &query
 	return r
@@ -387,7 +387,7 @@ GetAllAllocation Retrieve all Allocations
 
 Retrieve all Allocations for the org.
 
-Provider and Tenant roles are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
 Results are returned from both Provider and Tenant perspectives when the org has both roles.
 
@@ -575,7 +575,7 @@ GetAllocation Retrieve Allocation
 
 # Retrieve Allocation by ID
 
-Provider and Tenant roles are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
+The Infrastructure Provider and Tenant are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
 
 User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
@@ -858,9 +858,9 @@ Org must have an Infrastructure Provider. Specified Allocation must have been cr
 
 Modifying allocations may not be possible if Tenant has started utilizing resources from this allocation.
 
-In case of InstanceType resource, `constraintValue` can be incremented anytime, but not decremented if it requires decommissioning Tenant resources.
+For an InstanceType resource, `constraintValue` can be incremented at any time, but not decremented if doing so requires decommissioning Tenant resources.
 
-In case of IPBlock resource, `constraintValue` can not be modified if Tenant resources are using IPs from the block.
+For an IPBlock resource, `constraintValue` cannot be modified if Tenant resources, e.g., Subnets or VPC Prefixes, reference the block.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

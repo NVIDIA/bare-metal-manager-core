@@ -27,13 +27,13 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Release an instance by id:
-    $ carbide-admin-cli instance release --instance 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli instance release --instance 12345678-1234-5678-90ab-cdef01234567
 
 Release the instance on a machine:
-    $ carbide-admin-cli instance release --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli instance release --machine 12345678-1234-5678-90ab-cdef01234567
 
 Release every instance matching a label:
-    $ carbide-admin-cli instance release --label-key role --label-value training
+    $ nico-admin-cli instance release --label-key role --label-value training
 
 ")]
 pub struct Args {

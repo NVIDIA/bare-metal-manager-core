@@ -17,14 +17,14 @@
 
 //! Handler for PowerShelfControllerState::Maintenance.
 
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::power_shelf::PowerShelfId;
 use component_manager::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfVendor,
 };
 use db::power_shelf as db_power_shelf;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use mac_address::MacAddress;
 use model::component_manager::PowerAction;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};

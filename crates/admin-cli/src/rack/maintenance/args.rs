@@ -31,14 +31,14 @@ pub enum Args {
 EXAMPLES:
 
 Start maintenance on a full rack (all activities, all components):
-    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567
 
 Run only a firmware upgrade on specific machines:
-    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
     --machine-ids m1,m2 --activities firmware-upgrade
 
 Firmware upgrade from a SOT JSON file, forcing the update:
-    $ carbide-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef01234567 \
     --activities firmware-upgrade --sot-json-file ./sot.json --access-token \"$TOKEN\" --force-update
 
 ")]

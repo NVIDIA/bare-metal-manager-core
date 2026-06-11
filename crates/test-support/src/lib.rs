@@ -25,8 +25,8 @@
 //! # A table of cases
 //!
 //! ```
-//! use nico_test_support::Outcome::*;
-//! use nico_test_support::{Case, check_cases};
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases};
 //!
 //! check_cases(
 //!     [
@@ -57,8 +57,8 @@
 //! counterpart to [`check_cases`]:
 //!
 //! ```
-//! use nico_test_support::Case;
-//! use nico_test_support::Outcome::*;
+//! use carbide_test_support::Case;
+//! use carbide_test_support::Outcome::*;
 //!
 //! Case {
 //!     scenario: "in range",
@@ -66,6 +66,35 @@
 //!     expect: Yields(42),
 //! }
 //! .check(|s| s.parse::<u8>().map_err(|_| ()));
+//! ```
+//!
+//! # Async
+//!
+//! For an `async` operation, use [`check_cases_async`] (or [`Case::check_async`])
+//! and `.await` it — [`Outcome`], [`Case`], and the asserting are unchanged:
+//!
+//! ```
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases_async};
+//!
+//! # async fn example() {
+//! check_cases_async(
+//!     [
+//!         Case {
+//!             scenario: "doubles",
+//!             input: 2u8,
+//!             expect: Yields(4),
+//!         },
+//!         Case {
+//!             scenario: "overflows",
+//!             input: 200u8,
+//!             expect: Fails,
+//!         },
+//!     ],
+//!     |n| async move { n.checked_mul(2).ok_or(()) },
+//! )
+//! .await;
+//! # }
 //! ```
 //!
 //! # What's shared, and what stays a convention
@@ -79,6 +108,7 @@
 //! not a type.
 
 use std::fmt::Debug;
+use std::future::Future;
 
 /// The expected result of a fallible operation under test.
 ///
@@ -122,6 +152,17 @@ impl<I, T, E> Case<I, T, E> {
     {
         assert_outcome(run(self.input), self.expect, self.scenario);
     }
+
+    /// Async counterpart to [`check`](Case::check): runs an `async` operation and
+    /// awaits its result before asserting.
+    pub async fn check_async<Fut>(self, run: impl FnOnce(I) -> Fut)
+    where
+        Fut: Future<Output = Result<T, E>>,
+        T: PartialEq + Debug,
+        E: PartialEq + Debug,
+    {
+        assert_outcome(run(self.input).await, self.expect, self.scenario);
+    }
 }
 
 /// Run each case's `input` through `run` and assert its [`Outcome`]. `run` is the
@@ -135,6 +176,22 @@ pub fn check_cases<I, T, E>(
 {
     for case in cases {
         case.check(&run);
+    }
+}
+
+/// Async counterpart to [`check_cases`]: each case's `input` is run through the
+/// `async` operation `run` and its result awaited. Call it from an async test
+/// (e.g. `#[tokio::test]`) and `.await` it.
+pub async fn check_cases_async<I, T, E, Fut>(
+    cases: impl IntoIterator<Item = Case<I, T, E>>,
+    run: impl Fn(I) -> Fut,
+) where
+    Fut: Future<Output = Result<T, E>>,
+    T: PartialEq + Debug,
+    E: PartialEq + Debug,
+{
+    for case in cases {
+        case.check_async(&run).await;
     }
 }
 

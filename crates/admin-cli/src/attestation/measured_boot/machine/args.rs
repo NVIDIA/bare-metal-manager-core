@@ -59,7 +59,7 @@ pub enum CmdMachine {
 EXAMPLES:
 
 Send a measurement report (two PCR values) for a mock machine:
-    $ carbide-admin-cli attestation measured-boot machine attest \
+    $ nico-admin-cli attestation measured-boot machine attest \
     12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
 
 ")]
@@ -83,7 +83,7 @@ pub struct Attest {
 EXAMPLES:
 
 List all mock machines:
-    $ carbide-admin-cli attestation measured-boot machine list
+    $ nico-admin-cli attestation measured-boot machine list
 
 ")]
 pub struct List {}
@@ -95,10 +95,10 @@ pub struct List {}
 EXAMPLES:
 
 Show all mock machines:
-    $ carbide-admin-cli attestation measured-boot machine show
+    $ nico-admin-cli attestation measured-boot machine show
 
 Show one mock machine by ID:
-    $ carbide-admin-cli attestation measured-boot machine show \
+    $ nico-admin-cli attestation measured-boot machine show \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]

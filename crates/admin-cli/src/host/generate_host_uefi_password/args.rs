@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Generate a site-default host UEFI password to store in Vault:
-    $ carbide-admin-cli host generate-host-uefi-password
+    $ nico-admin-cli host generate-host-uefi-password
 
 ")]
 pub struct Args {}

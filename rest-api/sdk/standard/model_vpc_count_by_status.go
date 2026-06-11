@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,12 +22,18 @@ var _ MappedNullable = &VpcCountByStatus{}
 
 // VpcCountByStatus Describes counts of VPCs in various statuses
 type VpcCountByStatus struct {
-	Total        *int32 `json:"total,omitempty"`
-	Pending      *int32 `json:"pending,omitempty"`
+	// Total number of VPCs
+	Total *int32 `json:"total,omitempty"`
+	// Number of VPCs in Pending status
+	Pending *int32 `json:"pending,omitempty"`
+	// Number of VPCs in Provisioning status
 	Provisioning *int32 `json:"provisioning,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	Deleting     *int32 `json:"deleting,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
+	// Number of VPCs in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of VPCs in Deleting status
+	Deleting *int32 `json:"deleting,omitempty"`
+	// Number of VPCs in Error status
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewVpcCountByStatus instantiates a new VpcCountByStatus object

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,7 +23,9 @@ var _ MappedNullable = &NVLinkInterface{}
 
 // NVLinkInterface Defines an interface created by associating a GPU of an Instance with an NVLink Logical Partition
 type NVLinkInterface struct {
-	Id         *string `json:"id,omitempty"`
+	// Unique UUID v4 identifier for the NVLinkInterface
+	Id *string `json:"id,omitempty"`
+	// ID of the associated Instance
 	InstanceId *string `json:"instanceId,omitempty"`
 	// ID of the NVLink Logical Partition associated with this interface
 	NvLinkLogicalPartitionId *string `json:"nvLinkLogicalPartitionId,omitempty"`
@@ -32,10 +34,15 @@ type NVLinkInterface struct {
 	// Index of the device, used to identify the GPU associated with this Interface
 	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 	// Unique ID of the GPU
-	GpuGuid NullableString         `json:"gpuGuid,omitempty"`
-	Status  *NVLinkInterfaceStatus `json:"status,omitempty"`
-	Created *time.Time             `json:"created,omitempty"`
-	Updated *time.Time             `json:"updated,omitempty"`
+	GpuGuid NullableString `json:"gpuGuid,omitempty"`
+	// Status of the NVLinkInterface
+	Status *NVLinkInterfaceStatus `json:"status,omitempty"`
+	// Date/time when the NVLinkInterface was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the NVLinkInterface was last updated
+	Updated *time.Time `json:"updated,omitempty"`
+	// List of deprecations for NVLinkInterface API object
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
 }
 
 // NewNVLinkInterface instantiates a new NVLinkInterface object
@@ -365,6 +372,38 @@ func (o *NVLinkInterface) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
+// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
+func (o *NVLinkInterface) GetDeprecations() []Deprecation {
+	if o == nil || IsNil(o.Deprecations) {
+		var ret []Deprecation
+		return ret
+	}
+	return o.Deprecations
+}
+
+// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NVLinkInterface) GetDeprecationsOk() ([]Deprecation, bool) {
+	if o == nil || IsNil(o.Deprecations) {
+		return nil, false
+	}
+	return o.Deprecations, true
+}
+
+// HasDeprecations returns a boolean if a field has been set.
+func (o *NVLinkInterface) HasDeprecations() bool {
+	if o != nil && !IsNil(o.Deprecations) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
+func (o *NVLinkInterface) SetDeprecations(v []Deprecation) {
+	o.Deprecations = v
+}
+
 func (o NVLinkInterface) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -401,6 +440,9 @@ func (o NVLinkInterface) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
+	}
+	if !IsNil(o.Deprecations) {
+		toSerialize["deprecations"] = o.Deprecations
 	}
 	return toSerialize, nil
 }

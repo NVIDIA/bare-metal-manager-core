@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -35,25 +35,25 @@ type OperatingSystem struct {
 	TenantId NullableString `json:"tenantId,omitempty"`
 	// Type of the Operating System
 	Type NullableString `json:"type,omitempty"`
-	// Original URL from where the Operating System image can be retrieved
+	// Original URL from which the Operating System image can be retrieved
 	ImageUrl NullableString `json:"imageUrl,omitempty"`
-	// SHA hash of the image file, only present for image based OS
+	// SHA hash of the image file, only present for image-based OS
 	ImageSha NullableString `json:"imageSha,omitempty"`
-	// Authentication type for image URL e.g. 'Basic' or 'Bearer'
+	// Authentication type for image URL, e.g., 'Basic' or 'Bearer'
 	ImageAuthType NullableString `json:"imageAuthType,omitempty"`
 	// Auth token to retrieve the image from image URL
 	ImageAuthToken NullableString `json:"imageAuthToken,omitempty"`
-	// Disk path where the image should be monuted
+	// Disk path where the image should be mounted
 	ImageDisk NullableString `json:"imageDisk,omitempty"`
-	// Root filesystem UUID, only applicable for image based Operating System
+	// Root filesystem UUID, only applicable for image-based Operating System
 	RootFsId NullableString `json:"rootFsId,omitempty"`
-	// Root filesystem label, only applicable for image based Operating System
+	// Root filesystem label, only applicable for image-based Operating System
 	RootFsLabel NullableString `json:"rootFsLabel,omitempty"`
-	// iPXE script or URL, only applicable for iPXE based Operating System
+	// iPXE script or URL, only applicable for iPXE-based Operating System
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// User data for the Operating System
 	UserData NullableString `json:"userData,omitempty"`
-	// Specified when the Operating System is Cloud Init based
+	// Specified when the Operating System is cloud-init based
 	IsCloudInit *bool `json:"isCloudInit,omitempty"`
 	// Indicates whether the Phone Home service should be enabled or disabled for Operating System
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`

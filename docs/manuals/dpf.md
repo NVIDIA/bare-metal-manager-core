@@ -7,15 +7,13 @@ NICo supports two ways of provisioning DPUs:
 1. iPXE based
 2. DPF based
 
-This manual covers deployment of **DPF based** provisioning as it is used by NICo. 
+This manual covers deployment of **DPF based** provisioning as it is used by NICo.
 It assumes that a working Kubernetes cluster is already available, and is intentionally
 agnostic to the specific cluster implementation (kubeadm, k3s, RKE2, managed clouds, etc.)—any
 conformant cluster that satisfies the DPF prerequisites is acceptable.
 
 This guide is **not a replacement** for the official DPF documentation. The
-authoritative source for installing and configuring DPF is the upstream guide:
-
-- https://docs.nvidia.com/networking/display/dpf25101
+authoritative source for installing and configuring DPF is the [upstream guide](https://docs.nvidia.com/networking/display/dpf25101).
 
 NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
 
@@ -56,7 +54,7 @@ kubectl get namespace dpf-operator-system &>/dev/null \
 
 ### 1.2. Image pull and helm repository credentials
 
-Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. For detailed instructions, see: https://docs.nvidia.com/networking/display/dpf25101/using-private-registries.
+Access to the DPF staging Helm chart and related container images requires authentication through NVIDIA NGC. Both the DPF operator and the workloads it deploys will need credentials for pulling Helm charts and container images from private registries. Refer to the [Using Private Registries](https://docs.nvidia.com/networking/display/dpf25101/using-private-registries) section of the DPF documentation for detailed instructions.
 
 #### 1.2.a. `hbn-user-password` Secret
 
@@ -96,8 +94,8 @@ kubectl -n dpf-operator-system label secret dpf-pull-secret \
 
 #### 1.2.c. Secret to pull NICo docker service images
 
-Credentials for `nvcr.io`, used by the DPF operator to download NICo 
-service images. 
+Credentials for `nvcr.io`, used by the DPF operator to download NICo
+service images.
 
 ```bash
 kubectl -n dpf-operator-system create secret docker-registry nico-pull-secret \
@@ -109,6 +107,7 @@ kubectl -n dpf-operator-system create secret docker-registry nico-pull-secret \
 kubectl -n dpf-operator-system label secret nico-pull-secret \
   dpu.nvidia.com/image-pull-secret=""
 ```
+
 #### 1.2.d. Argo CD repository Secrets for Helm charts
 
 DPF pulls several Helm charts via Argo CD. Apply the following Secrets so that
@@ -176,7 +175,22 @@ Important: the `url` field must not end with a `/`, as any difference in the `ur
 | `ngc-doca-https-helm` | `https://helm.ngc.nvidia.com/nvstaging/doca` | HTTPS helm | Some DPUService charts |
 | `ngc-carbide-https-helm` | `https://helm.ngc.nvidia.com/0837451325059433/carbide-dev` | HTTPS helm | Carbide-private DPUService charts |
 
-### 1.3. Cert-manager policy and RBAC for DPF
+### 1.3. Internet access for DPUs
+
+After a DPU joins the DPU cluster, containerd on the DPU must be able to pull
+container images from external registries (e.g. `nvcr.io`). Two approaches exist:
+
+**Option A — ACL softening for DPU egress.** Open the required egress paths in your
+network ACLs so DPUs can reach the container registries directly. Consult your
+network team for the specific rules required.
+
+**Option B — HTTPS proxy in the host cluster.** Deploy an HTTPS-capable forward
+proxy (e.g. a SOCKS5 proxy exposed via a Kubernetes Service) that DPUs can reach and
+that can forward requests onward to the internet. NICo can configure containerd on
+each DPU to route image-pull traffic through the proxy at provisioning time; see
+section 3.5 for the TOML configuration.
+
+### 1.4. Cert-manager policy and RBAC for DPF
 
 DPF relies on cert-manager to mint short-lived certificates. If the cluster
 runs `approver-policy` (CRD `policy.cert-manager.io/CertificateRequestPolicy`),
@@ -270,9 +284,7 @@ Without this binding cert-manager's controller cannot reference the policy and
 
 ## 2. DPF Installation
 
-Follow the upstream DPF installation guide for the actual install procedure:
-
-- https://docs.nvidia.com/networking/display/dpf25101
+Follow the [upstream DPF installation guide](https://docs.nvidia.com/networking/display/dpf25101) for the actual install procedure.
 
 When installing the DPF operator chart, two parameter overrides are required
 for a NICo-integrated deployment. The example command below illustrates how to
@@ -539,12 +551,30 @@ docker_image_tag        = "<image tag>"            # empty → CI default
 docker_image_pull_secret = "dpf-pull-secret"
 ```
 
+If your environment routes DPU image pulls through an HTTPS forward proxy (Option B
+from section 1.3), add a `[dpf.proxy]` table:
+
+```toml
+[dpf.proxy]
+https_proxy = "socks5://<proxy-host>:<port>"
+no_proxy = ["10.0.0.0/8", "192.168.0.0/16", "localhost", ".cluster.local"]
+```
+
+When set, NICo embeds a systemd drop-in
+(`/etc/systemd/system/containerd.service.d/socks-proxy.conf`) into the `DPUFlavor`
+spec so that containerd on every DPU routes outbound HTTPS traffic through the proxy.
+The proxy is part of the flavor spec — changing or adding `[dpf.proxy]` produces a
+new flavor name (hash-derived) and triggers a full DPU reprovisioning. Set it before
+the first NICo startup with DPF enabled if possible.
+
 Field reference (all under `[dpf]`):
 
 | TOML key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
+| `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
+| `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
 
 Notes:
 
@@ -565,13 +595,13 @@ provisioned via DPF only when **both** of the following are true:
 There are several operator paths that can set this field. They are described
 below in the order an operator typically uses them.
 
-#### 3.6.a. `carbide-admin-cli expected-machine add` — create a new entry
+#### 3.6.a. `nico-admin-cli expected-machine add` — create a new entry
 
 Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
 stores `false`**.
 
 ```bash
-carbide-admin-cli expected-machine add \
+nico-admin-cli expected-machine add \
   --bmc-mac-address 1a:1b:1c:1d:1e:1f \
   --bmc-username admin \
   --bmc-password secret \
@@ -579,20 +609,20 @@ carbide-admin-cli expected-machine add \
   --dpf-enabled true
 ```
 
-#### 3.6.b. `carbide-admin-cli expected-machine patch` — partial update via flags
+#### 3.6.b. `nico-admin-cli expected-machine patch` — partial update via flags
 
 Updates an existing entry in place. The lookup key is `--bmc-mac-address`
 (or `--id <UUID>`). Omitting `--dpf-enabled` **preserves** the existing
 value.
 
 ```bash
-carbide-admin-cli expected-machine patch \
+nico-admin-cli expected-machine patch \
   --bmc-mac-address 1a:1b:1c:1d:1e:1f \
   --chassis-serial-number CHASSIS-SN-001 \
   --dpf-enabled true
 ```
 
-#### 3.6.c. `carbide-admin-cli expected-machine update --filename` — single-host update from JSON
+#### 3.6.c. `nico-admin-cli expected-machine update --filename` — single-host update from JSON
 
 Updates one entry from a JSON file. The JSON shape uses
 `chassis_serial_number` (not `serial_number`) and any field omitted from the
@@ -611,13 +641,13 @@ file is **preserved** server-side.
 ```
 
 ```bash
-carbide-admin-cli expected-machine update --filename em.json
+nico-admin-cli expected-machine update --filename em.json
 ```
 
 This is the most ergonomic path for "toggle DPF on one already-existing
 expected machine without touching anything else."
 
-#### 3.6.d. `carbide-admin-cli expected-machine replace-all --filename` — destructive full reload
+#### 3.6.d. `nico-admin-cli expected-machine replace-all --filename` — destructive full reload
 
 Wipes the entire `expected_machines` table and re-creates it from the file.
 The file shape is a wrapper object whose `expected_machines` array uses the
@@ -640,7 +670,7 @@ same per-entry shape as `update`:
 ```
 
 ```bash
-carbide-admin-cli expected-machine replace-all --filename em-all.json
+nico-admin-cli expected-machine replace-all --filename em-all.json
 ```
 
 > **Important**: this is **not a merge**. Any expected-machine row that is
@@ -652,23 +682,23 @@ carbide-admin-cli expected-machine replace-all --filename em-all.json
 
 | Goal | Path |
 |---|---|
-| Add a new host with DPF enabled | `carbide-admin-cli expected-machine add … --dpf-enabled true` |
-| Flip DPF on an existing entry, preserving everything else | `carbide-admin-cli expected-machine update --filename em.json` |
-| Flip DPF inline with one or more other fields | `carbide-admin-cli expected-machine patch … --dpf-enabled true` |
-| Replace the entire inventory | `carbide-admin-cli expected-machine replace-all --filename em-all.json` |
-| Inspect current value | `carbide-admin-cli expected-machine show <bmc-mac>` |
+| Add a new host with DPF enabled | `nico-admin-cli expected-machine add … --dpf-enabled true` |
+| Flip DPF on an existing entry, preserving everything else | `nico-admin-cli expected-machine update --filename em.json` |
+| Flip DPF inline with one or more other fields | `nico-admin-cli expected-machine patch … --dpf-enabled true` |
+| Replace the entire inventory | `nico-admin-cli expected-machine replace-all --filename em-all.json` |
+| Inspect current value | `nico-admin-cli expected-machine show <bmc-mac>` |
 
 ### 3.7 Enabling DPF for Existing (Ingested) Nodes
 
 You can enable the DPF flag on an already discovered host without force-deleting or recreating it by using:
 
 ```bash
-carbide-admin-cli dpf enable <host-id>
+nico-admin-cli dpf enable <host-id>
 ```
 
 After changing the DPF status for a host in this way, you should trigger a reprovisioning for all the DPUs under a host (using its host ID). For environments where a host has multiple DPUs, make sure to trigger reprovisioning for all DPUs under the host; otherwise, NICo will not transition the node to DPF-managed status.
 
-**Note:** The `carbide-admin-cli dpf enable` command updates the DPF flag only for the currently ingested machine. If you later force-delete the host, this change is lost—on rediscovery, the DPF setting will revert to whatever is present in your `expected_machines` database.
+**Note:** The `nico-admin-cli dpf enable` command updates the DPF flag only for the currently ingested machine. If you later force-delete the host, this change is lost—on rediscovery, the DPF setting will revert to whatever is present in your `expected_machines` database.
 
 ---
 
@@ -684,7 +714,7 @@ objects in the `dpf-operator-system` namespace:
 
 - a `Secret` (`bmc-shared-password`) holding the shared BMC password,
 - a `BFB` CR named `bf-bundle-<sha256([dpf].bfb_url)>`,
-- a `DPUFlavor` CR named after `[dpf].flavor_name`,
+- a `DPUFlavor` CR named `[dpf].flavor_name-<spec-hash>` (the 16-character hex suffix is a SHA-256 digest of the spec, so any change to the flavor — including adding or changing `[dpf.proxy]` — produces a new name and triggers reprovisioning of all DPUs),
 - a set of `DPUServiceInterface`, `DPUServiceTemplate`,
   `DPUServiceConfiguration`, and `DPUServiceNAD` CRs — one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
@@ -696,15 +726,15 @@ objects in the `dpf-operator-system` namespace:
 
 Because this path runs only at process start, **any change to `[dpf]`** —
 enabling DPF for the first time, changing the BFB URL, renaming the
-`DPUDeployment`/`DPUFlavor`, or pinning a different chart/image version under
-`[dpf.services.*]` — **requires a carbide-api restart** for the new
-configuration to take effect.
+`DPUDeployment`/`DPUFlavor`, pinning a different chart/image version under
+`[dpf.services.*]`, or adding/changing `[dpf.proxy]` — **requires a carbide-api
+restart** for the new configuration to take effect.
 
 ---
 
-## Appendix: `carbide-admin-cli dpf` command reference
+## Appendix: `nico-admin-cli dpf` command reference
 
-`carbide-admin-cli` ships a top-level `dpf` subcommand group for inspecting and
+`nico-admin-cli` ships a top-level `dpf` subcommand group for inspecting and
 toggling DPF state on already-ingested hosts and for diffing the running DPF
 service stack against the configured one. The full set is listed below.
 
@@ -718,7 +748,7 @@ service stack against the configured one. The full set is listed below.
 ### `dpf enable` — turn DPF on for a host
 
 ```bash
-carbide-admin-cli dpf enable <host-machine-id>
+nico-admin-cli dpf enable <host-machine-id>
 ```
 
 | Argument | Required | Notes |
@@ -726,16 +756,16 @@ carbide-admin-cli dpf enable <host-machine-id>
 | `<host-machine-id>` | yes | Must be a **host** machine id; DPU ids are rejected. |
 
 Sets `machines.dpf.enabled = true` on the given host's runtime row by calling
-the `ModifyDPFState` RPC. 
+the `ModifyDPFState` RPC.
 
 ### `dpf show` — inspect DPF state for one or all hosts
 
 ```bash
 # One host
-carbide-admin-cli dpf show <host-machine-id>
+nico-admin-cli dpf show <host-machine-id>
 
 # All hosts (paginated by --page-size)
-carbide-admin-cli dpf show
+nico-admin-cli dpf show
 ```
 
 | Argument | Required | Notes |
@@ -749,7 +779,7 @@ from the all-hosts list.
 ### `dpf snapshot` — dump DPF CRs for a host
 
 ```bash
-carbide-admin-cli dpf snapshot <host-machine-id>
+nico-admin-cli dpf snapshot <host-machine-id>
 ```
 
 | Argument | Required | Notes |
@@ -763,13 +793,13 @@ why a host is stuck during DPF-based provisioning.
 ### `dpf service-version` (alias: `sv`) — diff configured vs. deployed services
 
 ```bash
-carbide-admin-cli dpf service-version
+nico-admin-cli dpf service-version
 # or
-carbide-admin-cli dpf sv
+nico-admin-cli dpf sv
 ```
 
 No arguments. Prints a table comparing each configured DPF service
-(`[dpf.services.*]` from the site config if given or read it from 
+(`[dpf.services.*]` from the site config if given or read it from
 the compile time version) against what is actually deployed
 in the cluster:
 
@@ -789,8 +819,8 @@ configured versions onto the cluster.
 
 | Goal | Command |
 |---|---|
-| Turn DPF on for an already-discovered host (transient) | `carbide-admin-cli dpf enable <host-id>` |
-| Show DPF state for one host | `carbide-admin-cli dpf show <host-id>` |
-| List DPF state for all hosts | `carbide-admin-cli dpf show` |
-| Snapshot DPF CRs for a host | `carbide-admin-cli dpf snapshot <host-id>` |
-| Diff configured vs. deployed DPF service versions | `carbide-admin-cli dpf service-version` |
+| Turn DPF on for an already-discovered host (transient) | `nico-admin-cli dpf enable <host-id>` |
+| Show DPF state for one host | `nico-admin-cli dpf show <host-id>` |
+| List DPF state for all hosts | `nico-admin-cli dpf show` |
+| Snapshot DPF CRs for a host | `nico-admin-cli dpf snapshot <host-id>` |
+| Diff configured vs. deployed DPF service versions | `nico-admin-cli dpf service-version` |

@@ -50,6 +50,8 @@ use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_secrets::certificates::CertificateProvider;
+use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::SiteExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
@@ -67,8 +69,6 @@ use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -568,6 +568,12 @@ pub async fn start_api(
         .await?;
 
         txn.commit().await?;
+
+        // Idempotently seed the dedicated site-wide lockdown IKM (v0) from the
+        // site-wide BMC root, so existing sites converge onto the decoupled
+        // lockdown key without operator action. No-op once seeded or if the BMC
+        // root is not yet configured.
+        crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
     };
     let common_pools =
         db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
@@ -604,11 +610,7 @@ pub async fn start_api(
 
     let eth_data = ethernet_virtualization::EthVirtData {
         asn: carbide_config.asn,
-        dhcp_servers: carbide_config
-            .dhcp_servers
-            .iter()
-            .map(|addr| addr.to_string())
-            .collect(),
+        dhcp_servers: carbide_config.dhcp_servers.clone(),
         deny_prefixes: carbide_config.deny_prefixes.clone(),
         site_fabric_prefixes,
     };
@@ -690,6 +692,7 @@ pub async fn start_api(
             flavor_name: carbide_config.dpf.flavor_name.clone(),
             deployment_name: carbide_config.dpf.deployment_name.clone(),
             services: dpf_mandatory_services,
+            proxy: carbide_config.dpf.proxy.clone(),
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
@@ -986,9 +989,9 @@ pub async fn initialize_and_start_controllers<'a>(
 
                 if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                     &config.auth,
-                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                    carbide_secrets::credentials::CredentialKey::MqttAuth {
                         credential_type:
-                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                            carbide_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
                     },
                     api_service.credential_manager.clone(),
                 )
@@ -1357,9 +1360,27 @@ pub async fn initialize_and_start_controllers<'a>(
         .start(join_set, cancel_token.clone())?;
     }
 
+    let site_explorer_config = {
+        let mut config = carbide_config.site_explorer.clone();
+        // `retained_boot_interface_window` is a single top-level knob
+        // (retention spans DHCP, deletion, and ingestion -- it isn't a
+        // site-explorer feature). Site-explorer's copy is `#[serde(skip)]`,
+        // so it can't be set under `[site_explorer]`; this hand-off is the
+        // only way the value gets in, sparing a constructor parameter
+        // through `SiteExplorer::new` and every test fixture.
+        config.retained_boot_interface_window = carbide_config.retained_boot_interface_window;
+        if let Some(window) = config.retained_boot_interface_window {
+            tracing::info!(
+                window_seconds = window.num_seconds(),
+                "retained_boot_interface_window configured; retained boot interface \
+                 records expire instead of waiting forever"
+            );
+        }
+        config
+    };
     SiteExplorer::new(
         db_pool.clone(),
-        carbide_config.site_explorer.clone(),
+        site_explorer_config,
         meter.clone(),
         bmc_explorer.clone(),
         Arc::new(carbide_config.get_firmware_config()),

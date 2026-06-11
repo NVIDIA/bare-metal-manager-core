@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show rack positions for all machines:
-    $ carbide-admin-cli machine positions
+    $ nico-admin-cli machine positions
 
 Show positions for specific machines:
-    $ carbide-admin-cli machine positions --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine positions --machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

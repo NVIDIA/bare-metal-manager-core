@@ -26,7 +26,7 @@ use crate::errors::CarbideCliError;
 EXAMPLES:
 
 Delete a logical partition by name:
-    $ carbide-admin-cli logical-partition delete --name my-partition
+    $ nico-admin-cli logical-partition delete --name my-partition
 
 ")]
 pub struct Args {

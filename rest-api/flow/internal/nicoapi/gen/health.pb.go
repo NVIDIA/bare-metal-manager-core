@@ -10,15 +10,14 @@
 package nicoapigrpc
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	_ "google.golang.org/protobuf/types/known/durationpb"
 	_ "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -324,9 +323,9 @@ const file_health_proto_rawDesc = "" +
 	"\x12HealthProbeSuccess\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\x06target\x18\x02 \x01(\tH\x00R\x06target\x88\x01\x01B\t\n" +
-	"\a_targetB\x94\x01\n" +
+	"\a_targetB\x98\x01\n" +
 	"\n" +
-	"com.healthB\vHealthProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03HXX\xaa\x02\x06Health\xca\x02\x06Health\xe2\x02\x12Health\\GPBMetadata\xea\x02\x06Healthb\x06proto3"
+	"com.healthB\vHealthProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03HXX\xaa\x02\x06Health\xca\x02\x06Health\xe2\x02\x12Health\\GPBMetadata\xea\x02\x06Healthb\x06proto3"
 
 var (
 	file_health_proto_rawDescOnce sync.Once

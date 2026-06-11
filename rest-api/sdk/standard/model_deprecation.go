@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -31,7 +31,7 @@ type Deprecation struct {
 	Endpoint NullableString `json:"endpoint,omitempty"`
 	// Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
 	ReplacedBy NullableString `json:"replacedBy,omitempty"`
-	// ISO datetime string for when the deprecated field will no longer be accepted or available in the API
+	// Date/time by which clients should migrate away from the deprecated API surface
 	TakeActionBy *time.Time `json:"takeActionBy,omitempty"`
 	// Message describing the deprecation
 	Notice *string `json:"notice,omitempty"`

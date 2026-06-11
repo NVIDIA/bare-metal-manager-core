@@ -27,7 +27,7 @@ use super::super::common::ExploreOptions;
 EXAMPLES:
 
 Check whether carbide has working credentials for a BMC:
-    $ carbide-admin-cli site-explorer have-credentials 192.0.2.10
+    $ nico-admin-cli site-explorer have-credentials 192.0.2.10
 
 ")]
 pub struct Args {

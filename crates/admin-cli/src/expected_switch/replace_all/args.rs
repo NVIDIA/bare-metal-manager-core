@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Replace all expected switches with the contents of a JSON file:
-    $ carbide-admin-cli expected-switch replace-all --filename ./switches.json
+    $ nico-admin-cli expected-switch replace-all --filename ./switches.json
 
 ")]
 pub struct Args {

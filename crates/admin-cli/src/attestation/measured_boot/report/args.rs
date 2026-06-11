@@ -98,7 +98,7 @@ pub enum CmdReport {
 EXAMPLES:
 
 Create a measurement report for a machine with two PCR values:
-    $ carbide-admin-cli attestation measured-boot report create \
+    $ nico-admin-cli attestation measured-boot report create \
     12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
 
 ")]
@@ -122,7 +122,7 @@ pub struct Create {
 EXAMPLES:
 
 Delete a report by ID:
-    $ carbide-admin-cli attestation measured-boot report delete \
+    $ nico-admin-cli attestation measured-boot report delete \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -139,11 +139,11 @@ pub struct Delete {
 EXAMPLES:
 
 Promote a report into an active bundle:
-    $ carbide-admin-cli attestation measured-boot report promote \
+    $ nico-admin-cli attestation measured-boot report promote \
     12345678-1234-5678-90ab-cdef01234567
 
 Promote a report using only specific PCR registers:
-    $ carbide-admin-cli attestation measured-boot report promote \
+    $ nico-admin-cli attestation measured-boot report promote \
     12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
 
 ")]
@@ -167,11 +167,11 @@ pub struct Promote {
 EXAMPLES:
 
 Create a revoked bundle from a report:
-    $ carbide-admin-cli attestation measured-boot report revoke \
+    $ nico-admin-cli attestation measured-boot report revoke \
     12345678-1234-5678-90ab-cdef01234567
 
 Revoke using only specific PCR registers:
-    $ carbide-admin-cli attestation measured-boot report revoke \
+    $ nico-admin-cli attestation measured-boot report revoke \
     12345678-1234-5678-90ab-cdef01234567 --pcr-registers 0,7,11-14
 
 ")]
@@ -193,14 +193,14 @@ pub struct Revoke {
 EXAMPLES:
 
 Show all reports:
-    $ carbide-admin-cli attestation measured-boot report show all
+    $ nico-admin-cli attestation measured-boot report show all
 
 Show one report by ID:
-    $ carbide-admin-cli attestation measured-boot report show id \
+    $ nico-admin-cli attestation measured-boot report show id \
     12345678-1234-5678-90ab-cdef01234567
 
 Show all reports for a machine:
-    $ carbide-admin-cli attestation measured-boot report show machine \
+    $ nico-admin-cli attestation measured-boot report show machine \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -221,7 +221,7 @@ pub enum ShowFor {
 EXAMPLES:
 
 Show one report by ID:
-    $ carbide-admin-cli attestation measured-boot report show id \
+    $ nico-admin-cli attestation measured-boot report show id \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -236,7 +236,7 @@ pub struct ShowForId {
 EXAMPLES:
 
 Show all reports for a machine:
-    $ carbide-admin-cli attestation measured-boot report show machine \
+    $ nico-admin-cli attestation measured-boot report show machine \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -251,10 +251,10 @@ pub struct ShowForMachine {
 EXAMPLES:
 
 List all reports:
-    $ carbide-admin-cli attestation measured-boot report list all
+    $ nico-admin-cli attestation measured-boot report list all
 
 List all reports for a machine:
-    $ carbide-admin-cli attestation measured-boot report list machines \
+    $ nico-admin-cli attestation measured-boot report list machines \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -275,7 +275,7 @@ pub enum List {
 EXAMPLES:
 
 List all reports:
-    $ carbide-admin-cli attestation measured-boot report list all
+    $ nico-admin-cli attestation measured-boot report list all
 
 ")]
 pub struct ListAll {}
@@ -286,7 +286,7 @@ pub struct ListAll {}
 EXAMPLES:
 
 List all reports for a machine:
-    $ carbide-admin-cli attestation measured-boot report list machines \
+    $ nico-admin-cli attestation measured-boot report list machines \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -301,7 +301,7 @@ pub struct ListMachines {
 EXAMPLES:
 
 Find reports matching a set of PCR register values:
-    $ carbide-admin-cli attestation measured-boot report match 0:abc123,7:def456
+    $ nico-admin-cli attestation measured-boot report match 0:abc123,7:def456
 
 ")]
 pub struct Match {

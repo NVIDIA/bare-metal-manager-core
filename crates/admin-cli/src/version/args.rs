@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show client and server versions:
-    $ carbide-admin-cli version
+    $ nico-admin-cli version
 
 Also display the runtime config:
-    $ carbide-admin-cli version --show-runtime-config
+    $ nico-admin-cli version --show-runtime-config
 
 ")]
 pub struct Opts {

@@ -17,8 +17,8 @@
 
 use ::rpc::forge::MachineCredentialsUpdateResponse;
 use ::rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use mac_address::MacAddress;
 
 pub mod bmc_session_manager;
@@ -64,7 +64,7 @@ impl UpdateCredentials {
             credential_writer
                 .set_credentials(
                     &key,
-                    &forge_secrets::credentials::Credentials::UsernamePassword {
+                    &carbide_secrets::credentials::Credentials::UsernamePassword {
                         username: credential.user.clone(),
                         password: credential.password.clone(),
                     },

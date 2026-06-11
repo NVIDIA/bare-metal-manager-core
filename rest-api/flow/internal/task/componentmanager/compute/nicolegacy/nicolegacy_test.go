@@ -17,10 +17,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
-	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 func TestConfigDecoderDecodeYAML(t *testing.T) {
@@ -87,7 +88,7 @@ func TestInjectExpectation(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			m := New(tc.client, 0)
+			m := New(tc.client, 0, nil)
 
 			target := common.Target{
 				Type:         devicetypes.ComponentTypeCompute,
@@ -152,7 +153,7 @@ func TestFirmwareControl_SubTargetsAccepted(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			m := New(nicoapi.NewMockClient(), 0)
+			m := New(nicoapi.NewMockClient(), 0, nil)
 			target := common.Target{
 				Type:         devicetypes.ComponentTypeCompute,
 				ComponentIDs: []string{"machine-1"},
@@ -525,22 +526,34 @@ func TestAllFirmwareUpToDate(t *testing.T) {
 	}
 }
 
-// newManagerForSafetyTest swaps the long default 30-minute assignment
-// timeout for a tight one so the wait loop actually times out within the
-// test budget. Tests in this file use the same package, so they can reach
-// the unexported assignment field directly.
-func newManagerForSafetyTest(t *testing.T, client nicoapi.Client) *Manager {
+// newManagerForReadinessTest builds a Manager with a tight-timeout
+// readiness gate backed by the supplied MemReader so the wait loop
+// actually times out within the test budget. The caller seeds the
+// reader with the ComponentStatus rows the test expects.
+func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *readiness.MemReader) *Manager {
 	t.Helper()
-	m := New(client, 0)
-	m.assignment = nicoprovider.NewAssignmentChecker(client, 50*time.Millisecond, 10*time.Millisecond)
-	return m
+	gate := readiness.NewDBGate(reader, 50*time.Millisecond, 10*time.Millisecond)
+	return New(client, 0, gate)
 }
 
-func TestPowerControl_RefusesAssignedMachine(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+// inUseStatus returns a status that blocks every disruptive operation,
+// mirroring what inventorysync would persist for a tenant-attached host.
+func inUseStatus() *types.ComponentStatus {
+	return &types.ComponentStatus{
+		Phase:  types.PhaseInUse,
+		Reason: "tenant attached",
+		BlockedOperations: []types.OperationType{
+			types.OperationTypePowerControl,
+			types.OperationTypeFirmwareControl,
+		},
+	}
+}
 
-	m := newManagerForSafetyTest(t, client)
+func TestPowerControl_RefusesInUseMachine(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", inUseStatus())
+
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
@@ -551,15 +564,15 @@ func TestPowerControl_RefusesAssignedMachine(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "timed out")
 	assert.Contains(t, err.Error(), "machine-1")
 }
 
-func TestPowerControl_AllowsUnassignedMachine(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Ready"})
+func TestPowerControl_AllowsReadyMachine(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", &types.ComponentStatus{Phase: types.PhaseReady})
 
-	m := newManagerForSafetyTest(t, client)
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
@@ -571,11 +584,11 @@ func TestPowerControl_AllowsUnassignedMachine(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBringUpControl_RefusesAssignedMachine(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+func TestBringUpControl_RefusesInUseMachine(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", inUseStatus())
 
-	m := newManagerForSafetyTest(t, client)
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
@@ -584,14 +597,14 @@ func TestBringUpControl_RefusesAssignedMachine(t *testing.T) {
 	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "timed out")
 }
 
-func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+func TestFirmwareControl_RefusesInUseMachine(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", inUseStatus())
 
-	m := newManagerForSafetyTest(t, client)
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
@@ -603,46 +616,45 @@ func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "timed out")
 }
 
-// TestPowerControl_OverrideBypassesAssignmentCheck verifies that the
-// operator-controlled OverrideAssignmentCheck flag short-circuits the
-// assignment-state gate on PowerControl. The target host is in
-// Assigned/* — which would otherwise block the call — yet the operation
-// is expected to proceed past the gate. PowerOperationPowerOn is chosen
-// because the mock client accepts it without additional fixture setup.
-func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+// TestPowerControl_OverrideBypassesReadinessCheck verifies that the
+// operator-controlled OverrideReadinessCheck flag short-circuits the
+// readiness gate on PowerControl. The target host is reported as in-use
+// — which would otherwise block the call — yet the operation is
+// expected to proceed past the gate.
+func TestPowerControl_OverrideBypassesReadinessCheck(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", inUseStatus())
 
-	m := newManagerForSafetyTest(t, client)
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
-		Operation:               operations.PowerOperationPowerOn,
-		OverrideAssignmentCheck: true,
+		Operation:              operations.PowerOperationPowerOn,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }
 
-// TestBringUpControl_OverrideBypassesAssignmentCheck is the BringUp
-// counterpart of TestPowerControl_OverrideBypassesAssignmentCheck.
-func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+// TestBringUpControl_OverrideBypassesReadinessCheck is the BringUp
+// counterpart of TestPowerControl_OverrideBypassesReadinessCheck.
+func TestBringUpControl_OverrideBypassesReadinessCheck(t *testing.T) {
+	reader := readiness.NewMemReader()
+	reader.SetStatus("machine-1", inUseStatus())
 
-	m := newManagerForSafetyTest(t, client)
+	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
 		ComponentIDs: []string{"machine-1"},
 	}
 
 	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{
-		OverrideAssignmentCheck: true,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }

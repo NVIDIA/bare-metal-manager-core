@@ -26,7 +26,7 @@ use crate::os_image::common::str_to_rpc_uuid;
 EXAMPLES:
 
 Delete an OS image (must be unused by any instance):
-    $ carbide-admin-cli os-image delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli os-image delete --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-org-id fds34511233a
 
 ")]

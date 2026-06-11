@@ -30,7 +30,7 @@ RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
   export CARGO_PROFILE_RELEASE_DEBUG=true && \
-  cargo build --release -p carbide-admin-cli
+  cargo build --release -p nico-admin-cli
 
 FROM debian:12-slim
 ARG CI_COMMIT_SHORT_SHA
@@ -42,8 +42,9 @@ RUN apt update && \
     libtss2-dev
 
 WORKDIR /app
-COPY --from=builder /carbide/target/release/carbide-admin-cli ./
-# Cert paths read by carbide-admin-cli via carbide_api_cli.json.
+COPY --from=builder /carbide/target/release/nico-admin-cli ./
+RUN ln -s /app/nico-admin-cli /app/carbide-admin-cli
+# Cert paths read by nico-admin-cli via carbide_api_cli.json.
 # Internal deployments: mount provisioned client certs into /root/.config/carbide/certs/.
 RUN mkdir -p /root/.config/carbide/certs && \
 mkdir -p /opt/forge
@@ -51,4 +52,4 @@ COPY ./dev/certs/forge_root.pem /opt/forge
 RUN echo '{"forge_root_ca_path": "/opt/forge/forge_root.pem","client_key_path": "/root/.config/carbide/certs/client","client_cert_path": "/root/.config/carbide/certs/client.crt"}' > /root/.config/carbide_api_cli.json
 ENV PATH="$PATH:/app"
 
-ENTRYPOINT ["/app/carbide-admin-cli"]
+ENTRYPOINT ["/app/nico-admin-cli"]

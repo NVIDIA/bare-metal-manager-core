@@ -15,11 +15,19 @@
  * limitations under the License.
  */
 
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, Credentials,
+    NicLockdownIkm,
+};
 use carbide_uuid::dpa_interface::DpaInterfaceId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use sqlx::PgPool;
+
+// CURRENT_LOCKDOWN_IKM_VERSION is the site-wide lockdown IKM version the
+// lock/unlock flow currently derives keys from. We will leave it hardcoded to 0 until
+// we introduce rotation logic.
+pub const CURRENT_LOCKDOWN_IKM_VERSION: u32 = 0;
 
 // LOCKDOWN_KEY_LENGTH is the max length of the supported
 // key by a Mellanox device. As of now it's a 64-bit key,
@@ -128,21 +136,93 @@ async fn build_kdf_context(
     })
 }
 
-// fetch_kdf_secret fetches the site-wide root secret from Vault,
-// which is the IKM (Input Key Material) for the KDF.
+// lockdown_ikm_key returns the CredentialKey for the dedicated, versioned
+// site-wide lockdown IKM.
+fn lockdown_ikm_key(version: u32) -> CredentialKey {
+    CredentialKey::NicLockdownIkm {
+        credential_type: NicLockdownIkm::SiteWide { version },
+    }
+}
+
+// fetch_kdf_secret fetches the IKM for the KDF from the
+// dedicated site-wide lockdown credential, decoupled from the BMC root so the
+// two can be rotated independently.
 async fn fetch_kdf_secret(
     credential_reader: &dyn CredentialReader,
 ) -> Result<String, eyre::Report> {
-    let credential_key = CredentialKey::BmcCredentials {
-        credential_type: BmcCredentialType::SiteWideRoot,
-    };
+    let ikm_key = lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION);
     let credentials = credential_reader
-        .get_credentials(&credential_key)
+        .get_credentials(&ikm_key)
         .await?
-        .ok_or_else(|| eyre::eyre!("SiteWideRoot credentials not found"))?;
+        .ok_or_else(|| {
+            eyre::eyre!("lockdown IKM v{CURRENT_LOCKDOWN_IKM_VERSION} not found; site not seeded")
+        })?;
     let Credentials::UsernamePassword { password, .. } = credentials;
 
     Ok(password)
+}
+
+// ensure_lockdown_ikm_seeded idempotently seeds the dedicated site-wide
+// lockdown IKM (v0) by copying the current site-wide BMC root. This lets
+// existing sites converge onto the decoupled lockdown key without operator
+// action; going forward the two credentials start identical but rotate
+// independently.
+//
+// Best-effort: if the BMC root is not yet configured (e.g. a brand-new site),
+// this is a no-op and the IKM is seeded on a later boot once the root exists.
+// Safe to run on every startup and concurrently across replicas (a lost
+// create race is treated as success).
+pub async fn ensure_lockdown_ikm_seeded(
+    credential_manager: &dyn CredentialManager,
+) -> Result<(), eyre::Report> {
+    let ikm_key = lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION);
+    if credential_manager
+        .get_credentials(&ikm_key)
+        .await?
+        .is_some()
+    {
+        tracing::debug!(
+            version = CURRENT_LOCKDOWN_IKM_VERSION,
+            "lockdown IKM already seeded"
+        );
+        return Ok(());
+    }
+
+    let bmc_root_key = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::SiteWideRoot,
+    };
+    let Some(bmc_root) = credential_manager.get_credentials(&bmc_root_key).await? else {
+        tracing::warn!(
+            "site-wide BMC root not set; deferring lockdown IKM seed until it is configured"
+        );
+        return Ok(());
+    };
+
+    match credential_manager
+        .create_credentials(&ikm_key, &bmc_root)
+        .await
+    {
+        Ok(()) => {
+            tracing::info!(
+                version = CURRENT_LOCKDOWN_IKM_VERSION,
+                "seeded dedicated lockdown IKM from site-wide BMC root"
+            );
+            Ok(())
+        }
+        Err(e) => {
+            // Another replica may have seeded concurrently between our read and
+            // create; treat an already-present IKM as success.
+            if credential_manager
+                .get_credentials(&ikm_key)
+                .await?
+                .is_some()
+            {
+                Ok(())
+            } else {
+                Err(eyre::eyre!("failed to seed lockdown IKM: {e}"))
+            }
+        }
+    }
 }
 
 // build_supernic_lockdown_key builds a single lockdown key using
@@ -248,5 +328,131 @@ mod tests {
         let keys = derive_candidate_keys(root, &ctx).unwrap();
         assert_eq!(keys.len(), 1); // Only test against v1 for now.
         assert_eq!(keys[0].len(), 16);
+    }
+
+    use carbide_secrets::MemoryCredentialStore;
+    use carbide_secrets::credentials::CredentialWriter;
+
+    fn user_pass(password: &str) -> Credentials {
+        Credentials::UsernamePassword {
+            username: String::new(),
+            password: password.to_string(),
+        }
+    }
+
+    fn bmc_root_key() -> CredentialKey {
+        CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        }
+    }
+
+    #[tokio::test]
+    async fn seed_copies_bmc_root_to_v0() {
+        let store = MemoryCredentialStore::default();
+        store
+            .set_credentials(&bmc_root_key(), &user_pass("root-pass"))
+            .await
+            .unwrap();
+
+        ensure_lockdown_ikm_seeded(&store).await.unwrap();
+
+        let seeded = store
+            .get_credentials(&lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION))
+            .await
+            .unwrap();
+        assert_eq!(seeded, Some(user_pass("root-pass")));
+    }
+
+    #[tokio::test]
+    async fn seed_is_idempotent() {
+        let store = MemoryCredentialStore::default();
+        store
+            .set_credentials(&bmc_root_key(), &user_pass("root-pass"))
+            .await
+            .unwrap();
+
+        ensure_lockdown_ikm_seeded(&store).await.unwrap();
+        // A second run must not error (the IKM already exists) and must not
+        // change the value.
+        ensure_lockdown_ikm_seeded(&store).await.unwrap();
+
+        let seeded = store
+            .get_credentials(&lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION))
+            .await
+            .unwrap();
+        assert_eq!(seeded, Some(user_pass("root-pass")));
+    }
+
+    #[tokio::test]
+    async fn seed_preserves_existing_lockdown_ikm() {
+        let store = MemoryCredentialStore::default();
+        // Both the BMC root and a (diverged) lockdown IKM already exist, e.g.
+        // the IKM was rotated independently after the initial seed.
+        store
+            .set_credentials(&bmc_root_key(), &user_pass("root-pass"))
+            .await
+            .unwrap();
+        store
+            .set_credentials(
+                &lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION),
+                &user_pass("rotated-ikm"),
+            )
+            .await
+            .unwrap();
+
+        ensure_lockdown_ikm_seeded(&store).await.unwrap();
+
+        // Seeding must not clobber the existing IKM with the BMC root.
+        let seeded = store
+            .get_credentials(&lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION))
+            .await
+            .unwrap();
+        assert_eq!(seeded, Some(user_pass("rotated-ikm")));
+    }
+
+    #[tokio::test]
+    async fn seed_defers_when_no_bmc_root() {
+        let store = MemoryCredentialStore::default();
+
+        // No BMC root configured yet: seeding is a no-op, not an error.
+        ensure_lockdown_ikm_seeded(&store).await.unwrap();
+
+        let seeded = store
+            .get_credentials(&lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION))
+            .await
+            .unwrap();
+        assert!(seeded.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_prefers_lockdown_ikm_over_bmc_root() {
+        let store = MemoryCredentialStore::default();
+        store
+            .set_credentials(&bmc_root_key(), &user_pass("root-pass"))
+            .await
+            .unwrap();
+        store
+            .set_credentials(
+                &lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION),
+                &user_pass("ikm-pass"),
+            )
+            .await
+            .unwrap();
+
+        let secret = fetch_kdf_secret(&store).await.unwrap();
+        assert_eq!(secret, "ikm-pass");
+    }
+
+    #[tokio::test]
+    async fn fetch_errors_when_ikm_unseeded() {
+        let store = MemoryCredentialStore::default();
+        // The BMC root being present is not enough: without the seeded IKM the
+        // lock flow must error rather than derive from another secret.
+        store
+            .set_credentials(&bmc_root_key(), &user_pass("root-pass"))
+            .await
+            .unwrap();
+
+        assert!(fetch_kdf_secret(&store).await.is_err());
     }
 }

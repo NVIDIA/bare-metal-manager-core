@@ -301,6 +301,7 @@ pub(crate) async fn discover_machine(
                 &mut txn,
                 Some(&hardware_info),
                 &machine_id,
+                api.runtime_config.retained_boot_interface_window,
             )
             .await?;
 

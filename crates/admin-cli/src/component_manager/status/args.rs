@@ -24,15 +24,15 @@ use crate::component_manager::common::DeviceTargetArgs;
 EXAMPLES:
 
 Get firmware update status for switches:
-    $ carbide-admin-cli component-manager get-firmware-update-status switch \
+    $ nico-admin-cli component-manager get-firmware-update-status switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567
 
 Get status for several compute trays at once:
-    $ carbide-admin-cli component-manager get-firmware-update-status compute-tray \
+    $ nico-admin-cli component-manager get-firmware-update-status compute-tray \
     --machine-id 12345678-1234-5678-90ab-cdef01234567,abcdef01-2345-6789-abcd-ef0123456789
 
 Get status for an entire rack:
-    $ carbide-admin-cli component-manager get-firmware-update-status rack \
+    $ nico-admin-cli component-manager get-firmware-update-status rack \
     --rack-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]

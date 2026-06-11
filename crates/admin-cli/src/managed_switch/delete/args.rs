@@ -25,7 +25,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a managed switch by ID:
-    $ carbide-admin-cli managed-switch delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-switch delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

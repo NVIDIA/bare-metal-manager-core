@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Queue a host for re-exploration in the next cycle (result is stored):
-    $ carbide-admin-cli site-explorer re-explore 192.0.2.10
+    $ nico-admin-cli site-explorer re-explore 192.0.2.10
 
 ")]
 pub struct Args {

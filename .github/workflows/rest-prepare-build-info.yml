@@ -13,7 +13,7 @@ on:
         type: string
     outputs:
       semantic_version:
-        description: "Semantic version derived from `git describe` (leading `v` stripped)"
+        description: "Build version derived from `git describe` (leading `v` kept)"
         value: ${{ jobs.prepare.outputs.semantic_version }}
       short_sha:
         description: "Short SHA (7 characters) of the current commit"
@@ -40,7 +40,7 @@ on:
         description: "Whether a push request was made using commit message"
         value: ${{ jobs.prepare.outputs.push_requested }}
       helm_version:
-        description: "Helm chart version (SemVer-strict, derived from semantic_version; last `-` -> `.`)"
+        description: "Helm chart version (SemVer-strict, leading `v` stripped; last `-` -> `.`)"
         value: ${{ jobs.prepare.outputs.helm_version }}
 
 jobs:
@@ -72,7 +72,7 @@ jobs:
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
-          SEMANTIC_VERSION="${RAW_VERSION#v}"
+          SEMANTIC_VERSION="${RAW_VERSION}"
 
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
@@ -113,8 +113,10 @@ jobs:
           echo "push_requested=$PUSH_REQUESTED" >> $GITHUB_OUTPUT
 
           # Strict SemVer for Helm chart version, aligned with core's helm_version derivation.
-          # `git describe` output `1.6.0-3-gabc1234` becomes `1.6.0-3.gabc1234` (last `-` -> `.`).
-          HELM_VERSION=$(echo "$SEMANTIC_VERSION" | sed 's/\(.*\)-/\1./')
+          # `git describe` output `v1.6.0-3-gabc1234` becomes `1.6.0-3.gabc1234`
+          # (leading `v` stripped, last `-` -> `.`).
+          HELM_VERSION_BASE="${RAW_VERSION#v}"
+          HELM_VERSION=$(echo "$HELM_VERSION_BASE" | sed 's/\(.*\)-/\1./')
           echo "helm_version=$HELM_VERSION" >> $GITHUB_OUTPUT
 
           echo "Generated build information:"

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,13 +22,24 @@ var _ MappedNullable = &MachineDMIData{}
 
 // MachineDMIData Describes DMI data of a Machine
 type MachineDMIData struct {
-	BoardName     NullableString `json:"boardName,omitempty"`
-	BoardSerial   NullableString `json:"boardSerial,omitempty"`
-	BoardVersion  NullableString `json:"boardVersion,omitempty"`
-	BiosDate      NullableString `json:"biosDate,omitempty"`
-	BiosVersion   NullableString `json:"biosVersion,omitempty"`
+	// DMI board name reported by the Machine
+	BoardName NullableString `json:"boardName,omitempty"`
+	// DMI board serial number reported by the Machine
+	BoardSerial NullableString `json:"boardSerial,omitempty"`
+	// DMI board version reported by the Machine
+	BoardVersion NullableString `json:"boardVersion,omitempty"`
+	// DMI BIOS release date reported by the Machine
+	BiosDate NullableString `json:"biosDate,omitempty"`
+	// DMI BIOS version reported by the Machine
+	BiosVersion NullableString `json:"biosVersion,omitempty"`
+	// DMI product name reported by the Machine
+	ProductName NullableString `json:"productName,omitempty"`
+	// DMI product serial number reported by the Machine
 	ProductSerial NullableString `json:"productSerial,omitempty"`
+	// DMI chassis serial number reported by the Machine
 	ChassisSerial NullableString `json:"chassisSerial,omitempty"`
+	// DMI system vendor reported by the Machine
+	SysVendor NullableString `json:"sysVendor,omitempty"`
 }
 
 // NewMachineDMIData instantiates a new MachineDMIData object
@@ -263,6 +274,49 @@ func (o *MachineDMIData) UnsetBiosVersion() {
 	o.BiosVersion.Unset()
 }
 
+// GetProductName returns the ProductName field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MachineDMIData) GetProductName() string {
+	if o == nil || IsNil(o.ProductName.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.ProductName.Get()
+}
+
+// GetProductNameOk returns a tuple with the ProductName field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *MachineDMIData) GetProductNameOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.ProductName.Get(), o.ProductName.IsSet()
+}
+
+// HasProductName returns a boolean if a field has been set.
+func (o *MachineDMIData) HasProductName() bool {
+	if o != nil && o.ProductName.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetProductName gets a reference to the given NullableString and assigns it to the ProductName field.
+func (o *MachineDMIData) SetProductName(v string) {
+	o.ProductName.Set(&v)
+}
+
+// SetProductNameNil sets the value for ProductName to be an explicit nil
+func (o *MachineDMIData) SetProductNameNil() {
+	o.ProductName.Set(nil)
+}
+
+// UnsetProductName ensures that no value is present for ProductName, not even an explicit nil
+func (o *MachineDMIData) UnsetProductName() {
+	o.ProductName.Unset()
+}
+
 // GetProductSerial returns the ProductSerial field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *MachineDMIData) GetProductSerial() string {
 	if o == nil || IsNil(o.ProductSerial.Get()) {
@@ -349,6 +403,49 @@ func (o *MachineDMIData) UnsetChassisSerial() {
 	o.ChassisSerial.Unset()
 }
 
+// GetSysVendor returns the SysVendor field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MachineDMIData) GetSysVendor() string {
+	if o == nil || IsNil(o.SysVendor.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.SysVendor.Get()
+}
+
+// GetSysVendorOk returns a tuple with the SysVendor field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *MachineDMIData) GetSysVendorOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.SysVendor.Get(), o.SysVendor.IsSet()
+}
+
+// HasSysVendor returns a boolean if a field has been set.
+func (o *MachineDMIData) HasSysVendor() bool {
+	if o != nil && o.SysVendor.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetSysVendor gets a reference to the given NullableString and assigns it to the SysVendor field.
+func (o *MachineDMIData) SetSysVendor(v string) {
+	o.SysVendor.Set(&v)
+}
+
+// SetSysVendorNil sets the value for SysVendor to be an explicit nil
+func (o *MachineDMIData) SetSysVendorNil() {
+	o.SysVendor.Set(nil)
+}
+
+// UnsetSysVendor ensures that no value is present for SysVendor, not even an explicit nil
+func (o *MachineDMIData) UnsetSysVendor() {
+	o.SysVendor.Unset()
+}
+
 func (o MachineDMIData) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -374,11 +471,17 @@ func (o MachineDMIData) ToMap() (map[string]interface{}, error) {
 	if o.BiosVersion.IsSet() {
 		toSerialize["biosVersion"] = o.BiosVersion.Get()
 	}
+	if o.ProductName.IsSet() {
+		toSerialize["productName"] = o.ProductName.Get()
+	}
 	if o.ProductSerial.IsSet() {
 		toSerialize["productSerial"] = o.ProductSerial.Get()
 	}
 	if o.ChassisSerial.IsSet() {
 		toSerialize["chassisSerial"] = o.ChassisSerial.Get()
+	}
+	if o.SysVendor.IsSet() {
+		toSerialize["sysVendor"] = o.SysVendor.Get()
 	}
 	return toSerialize, nil
 }

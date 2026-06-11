@@ -688,7 +688,7 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 			}
 		}
 		providerFilter := sharedFilter
-		providerFilter.InfrastructureProviderID = &provider.ID
+		providerFilter.InfrastructureProviderIDs = []uuid.UUID{provider.ID}
 		providerFilter.TenantIDs = filterTenantIDs
 		providerAllocations, _, err := aDAO.GetAll(ctx, nil, providerFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {

@@ -66,6 +66,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
     let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).copied();

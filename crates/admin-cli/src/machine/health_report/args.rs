@@ -23,18 +23,18 @@ use clap::{ArgGroup, Parser, ValueEnum};
 EXAMPLES:
 
 List a machine's health report entries:
-    $ carbide-admin-cli machine health-report show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine health-report show 12345678-1234-5678-90ab-cdef01234567
 
 Add a health report entry from a template:
-    $ carbide-admin-cli machine health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance --message \"Firmware upgrade in progress\"
 
 Remove a health report entry by its source:
-    $ carbide-admin-cli machine health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine health-report remove 12345678-1234-5678-90ab-cdef01234567 \
     internal-maintenance
 
 Print an empty health report template:
-    $ carbide-admin-cli machine health-report print-empty-template
+    $ nico-admin-cli machine health-report print-empty-template
 
 ")]
 pub enum Args {

@@ -7,7 +7,7 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 ### Highlights
 
 - **Documentation refresh + unified REST API docs**: Updated the docs look and feel at [https://docs.nvidia.com/infra-controller/documentation/introduction](https://docs.nvidia.com/infra-controller/documentation/introduction), and consolidated REST API information into the same documentation set.
-- **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
+- **Simplified deployment**: Added NICo deployment [prerequisite tool](https://github.com/NVIDIA/infra-controller/tree/main/helm-prereqs) `helm-prereqs` to install required dependencies and enable easy NICo deployment.
 - **Rack Level Administration (RLA)**: Significantly expanded rack/tray operations via REST APIs (validation, power, firmware, bring-up).
 
 ### Compatibility Matrix
@@ -35,7 +35,7 @@ The following dependencies have been validated for this release:
   - Helm/Helmfile-driven installation of NICo prerequisites--including MetalLB, Zalando PostgreSQL Operator, cert-manager, HashiCorp Vault, and external-secrets--along with the main NICo components--NICo Core and NICo REST.
   - Includes orchestration and automation scripts such as `helmfile.yaml`, `setup.sh`, `preflight.sh`, and `clean.sh`.
   - This tool significantly reduces installation time compared to manual installation.
-  - Location: [https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/helm-prereqs)
+  - Location: [https://github.com/NVIDIA/infra-controller/tree/main/helm-prereqs](https://github.com/NVIDIA/infra-controller/tree/main/helm-prereqs)
 
 #### Rack Level Administration (RLA)
 

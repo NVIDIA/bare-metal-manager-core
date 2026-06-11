@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Print the Ansible inventory to stdout:
-    $ carbide-admin-cli inventory
+    $ nico-admin-cli inventory
 
 Write the Ansible inventory to a file:
-    $ carbide-admin-cli inventory --filename ./inventory.ini
+    $ nico-admin-cli inventory --filename ./inventory.ini
 
 ")]
 pub struct Cmd {

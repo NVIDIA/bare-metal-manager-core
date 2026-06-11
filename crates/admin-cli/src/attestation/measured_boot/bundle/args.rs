@@ -96,11 +96,11 @@ pub enum CmdBundle {
 EXAMPLES:
 
 Create an active bundle for a profile with two PCR values:
-    $ carbide-admin-cli attestation measured-boot bundle create my-bundle \
+    $ nico-admin-cli attestation measured-boot bundle create my-bundle \
     12345678-1234-5678-90ab-cdef01234567 0:abc123,7:def456
 
 Create a bundle in the pending state (awaiting approval):
-    $ carbide-admin-cli attestation measured-boot bundle create my-bundle \
+    $ nico-admin-cli attestation measured-boot bundle create my-bundle \
     12345678-1234-5678-90ab-cdef01234567 0:abc123 --state pending
 
 ")]
@@ -136,11 +136,11 @@ pub struct Create {
 EXAMPLES:
 
 Delete a bundle by ID:
-    $ carbide-admin-cli attestation measured-boot bundle delete \
+    $ nico-admin-cli attestation measured-boot bundle delete \
     12345678-1234-5678-90ab-cdef01234567
 
 Delete a bundle and purge its journal records:
-    $ carbide-admin-cli attestation measured-boot bundle delete \
+    $ nico-admin-cli attestation measured-boot bundle delete \
     12345678-1234-5678-90ab-cdef01234567 --purge-journals
 
 ")]
@@ -160,10 +160,10 @@ pub struct Delete {
 EXAMPLES:
 
 Rename a bundle, letting the CLI detect whether the identifier is an ID or name:
-    $ carbide-admin-cli attestation measured-boot bundle rename old-name new-name
+    $ nico-admin-cli attestation measured-boot bundle rename old-name new-name
 
 Rename a bundle selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot bundle rename \
+    $ nico-admin-cli attestation measured-boot bundle rename \
     12345678-1234-5678-90ab-cdef01234567 new-name --is-id
 
 ")]
@@ -198,14 +198,14 @@ impl IdNameIdentifier for Rename {
 EXAMPLES:
 
 Show all bundles:
-    $ carbide-admin-cli attestation measured-boot bundle show
+    $ nico-admin-cli attestation measured-boot bundle show
 
 Show one bundle by ID:
-    $ carbide-admin-cli attestation measured-boot bundle show \
+    $ nico-admin-cli attestation measured-boot bundle show \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 Show one bundle by name:
-    $ carbide-admin-cli attestation measured-boot bundle show my-bundle --is-name
+    $ nico-admin-cli attestation measured-boot bundle show my-bundle --is-name
 
 ")]
 pub struct Show {
@@ -236,10 +236,10 @@ impl IdNameIdentifier for Show {
 EXAMPLES:
 
 Mark a bundle obsolete (selected by name):
-    $ carbide-admin-cli attestation measured-boot bundle set-state my-bundle obsolete
+    $ nico-admin-cli attestation measured-boot bundle set-state my-bundle obsolete
 
 Revoke a known-bad bundle by ID:
-    $ carbide-admin-cli attestation measured-boot bundle set-state \
+    $ nico-admin-cli attestation measured-boot bundle set-state \
     12345678-1234-5678-90ab-cdef01234567 revoked --is-id
 
 ")]
@@ -277,10 +277,10 @@ impl IdNameIdentifier for SetState {
 EXAMPLES:
 
 List metadata for all bundles:
-    $ carbide-admin-cli attestation measured-boot bundle list all
+    $ nico-admin-cli attestation measured-boot bundle list all
 
 List all machines matching a bundle:
-    $ carbide-admin-cli attestation measured-boot bundle list machines my-bundle
+    $ nico-admin-cli attestation measured-boot bundle list machines my-bundle
 
 ")]
 pub enum List {
@@ -300,7 +300,7 @@ pub enum List {
 EXAMPLES:
 
 List metadata for all bundles:
-    $ carbide-admin-cli attestation measured-boot bundle list all
+    $ nico-admin-cli attestation measured-boot bundle list all
 
 ")]
 pub struct ListAll {}
@@ -311,10 +311,10 @@ pub struct ListAll {}
 EXAMPLES:
 
 List all machines matching a bundle by name:
-    $ carbide-admin-cli attestation measured-boot bundle list machines my-bundle
+    $ nico-admin-cli attestation measured-boot bundle list machines my-bundle
 
 List all machines matching a bundle selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot bundle list machines \
+    $ nico-admin-cli attestation measured-boot bundle list machines \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 ")]
@@ -344,7 +344,7 @@ impl IdNameIdentifier for ListMachines {
 EXAMPLES:
 
 Find the closest matching bundle for a report:
-    $ carbide-admin-cli attestation measured-boot bundle find-closest-match report \
+    $ nico-admin-cli attestation measured-boot bundle find-closest-match report \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -358,7 +358,7 @@ pub enum FindClosestMatch {
 EXAMPLES:
 
 Find the closest matching bundle for a report:
-    $ carbide-admin-cli attestation measured-boot bundle find-closest-match report \
+    $ nico-admin-cli attestation measured-boot bundle find-closest-match report \
     12345678-1234-5678-90ab-cdef01234567
 
 ")]

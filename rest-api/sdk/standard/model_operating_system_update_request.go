@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -20,33 +20,33 @@ import (
 // checks if the OperatingSystemUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &OperatingSystemUpdateRequest{}
 
-// OperatingSystemUpdateRequest Request data to update an OperatingSystem. Only image related attributes can be updated for image based OS and only iPXE attributes can be updated for iPXE based OS
+// OperatingSystemUpdateRequest Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
 type OperatingSystemUpdateRequest struct {
 	// Name of the Operating System
 	Name NullableString `json:"name,omitempty"`
 	// Optional description of the Operating System
 	Description NullableString `json:"description,omitempty"`
-	// iPXE script or URL, only applicable for iPXE based OS. Cannot be specified if imageUrl is specified
+	// iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
-	// Original URL from where the Operating System image can be retreived from, required for image based OS
+	// Original URL from which the Operating System image can be retrieved; required for image-based OS
 	ImageUrl NullableString `json:"imageUrl,omitempty"`
-	// SHA hash of the image file, required for image based OS
+	// SHA hash of the image file, required for image-based OS
 	ImageSha NullableString `json:"imageSha,omitempty"`
-	// Authentication type for image URL if needed e.g. basic/bearer/token, required is imageAuthToken is specified
+	// Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified
 	ImageAuthType NullableString `json:"imageAuthType,omitempty"`
 	// Auth token to retrieve the image from image URL, required if imageAuthType is specified
 	ImageAuthToken NullableString `json:"imageAuthToken,omitempty"`
 	// Disk path where the image should be mounted, optional
 	ImageDisk NullableString `json:"imageDisk,omitempty"`
-	// Root filesystem UUID, this or `rootFsLabel` required for image based OS
+	// Root filesystem UUID; this or `rootFsLabel` is required for image-based OS
 	RootFsId NullableString `json:"rootFsId,omitempty"`
-	// Root filesystem label, this or `rootFsId` required for image based OS
+	// Root filesystem label; this or `rootFsId` is required for image-based OS
 	RootFsLabel NullableString `json:"rootFsLabel,omitempty"`
 	// Indicates whether the Phone Home service should be enabled or disabled for Operating System
 	PhoneHomeEnabled NullableBool `json:"phoneHomeEnabled,omitempty"`
 	// User data for the Operating System
 	UserData NullableString `json:"userData,omitempty"`
-	// Specified when the Operating System is Cloud Init based
+	// Specified when the Operating System is cloud-init based
 	IsCloudInit NullableBool `json:"isCloudInit,omitempty"`
 	// Indicates if the user data can be overridden at Instance creation time
 	AllowOverride NullableBool `json:"allowOverride,omitempty"`

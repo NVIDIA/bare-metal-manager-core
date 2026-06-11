@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_dpf::types::DpfProxyDetails;
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -38,7 +39,7 @@ use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
-use carbide_utils::config::{as_duration, as_std_duration};
+use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -63,6 +64,20 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+/// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
+/// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
+/// its own Option variant -- we do NOT use the deprecated function.
+fn deserialize_option_duration_chrono<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::Duration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| duration_str::parse_chrono(&value).map_err(serde::de::Error::custom))
+        .transpose()
+}
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -245,6 +260,19 @@ pub struct CarbideConfig {
 
     /// The interval at which the machine update manager checks for machine updates in seconds.
     pub machine_update_run_interval: Option<u64>,
+
+    /// How long a retained boot interface pair (see the
+    /// `retained_boot_interfaces` table) stays applicable after its
+    /// `machine_interfaces` row was deleted. The default (`None`) retains
+    /// forever: if the machine eventually comes back, the pair is waiting.
+    /// Set a window (e.g. "30d") to keep a MAC that reappears on different
+    /// hardware from inheriting an obsolete Redfish interface id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_option_duration_chrono",
+        serialize_with = "as_option_duration"
+    )]
+    pub retained_boot_interface_window: Option<chrono::Duration>,
 
     /// SiteExplorer related configuration
     #[serde(default)]
@@ -826,9 +854,13 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
-    /// Additional Helm services to deploy alongside DPF.
+    /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
+    /// configured to route outbound HTTPS traffic through the specified proxy.
+    #[serde(default)]
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for DpfConfig {
@@ -841,6 +873,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             docker_image_pull_secret: None,
             services: Box::default(),
+            proxy: None,
         }
     }
 }
@@ -2690,6 +2723,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
@@ -2881,6 +2915,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(true.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
@@ -3207,6 +3242,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
