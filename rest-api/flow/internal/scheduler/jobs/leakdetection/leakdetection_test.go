@@ -97,7 +97,7 @@ func TestRunLeakDetectionOne_NoLeaks(t *testing.T) {
 	nicoClient := nicoapi.NewMockClient()
 	mgr := &mockManager{}
 
-	runLeakDetectionOne(ctx, nicoClient, mgr)
+	runLeakDetectionOne(ctx, nicoClient, mgr, nil)
 
 	assert.Empty(t, mgr.requests)
 }
@@ -110,7 +110,7 @@ func TestRunLeakDetectionOne_SubmitsTaskPerMachine(t *testing.T) {
 	nicoClient := nicoapi.NewMockClient()
 	nicoClient.SetLeakingMachineIds(machines)
 
-	runLeakDetectionOne(ctx, nicoClient, mgr)
+	runLeakDetectionOne(ctx, nicoClient, mgr, nil)
 
 	require.Len(t, mgr.requests, 3)
 	for i, m := range machines {
@@ -124,7 +124,7 @@ func TestRunLeakDetectionOne_ContinuesOnSubmitError(t *testing.T) {
 	nicoClient.SetLeakingMachineIds([]string{"machine-a", "machine-b"})
 	mgr := &mockManager{submitErr: errors.New("always fails")}
 
-	runLeakDetectionOne(ctx, nicoClient, mgr)
+	runLeakDetectionOne(ctx, nicoClient, mgr, nil)
 
 	// Verify all machines were attempted despite errors
 	require.Len(t, mgr.requests, 2)
@@ -138,7 +138,7 @@ func TestRunLeakDetectionOne_SubmitsTaskPerSwitch(t *testing.T) {
 	nicoClient := nicoapi.NewMockClient()
 	nicoClient.SetLeakingSwitchIds(switches)
 
-	runLeakDetectionOne(ctx, nicoClient, mgr)
+	runLeakDetectionOne(ctx, nicoClient, mgr, nil)
 
 	require.Len(t, mgr.requests, 3)
 	for i, s := range switches {
