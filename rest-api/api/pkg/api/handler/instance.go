@@ -541,8 +541,12 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			incomingInterfaceIPs := subnetIfcMap[subnetID]
 			subnetUsage := subnetUsageMap[subnetID]
 			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
-				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID), nil)
+				msg := fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP address(es)",
+					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -620,8 +624,12 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID]
 			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
 			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
-				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID), nil)
+				msg := fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP addresses",
+					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -2462,8 +2470,12 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			incomingInterfaceIPs := subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
 			subnetUsage := subnetUsageMap[subnetID]
 			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
-				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetID), nil)
+				msg := fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP address(es)",
+					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
@@ -2540,8 +2552,12 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			incomingInterfaceIPs := vpcPrefixIfcMap[vpcPrefixID] - existingVpcPrefixIfcMap[vpcPrefixID]
 			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
 			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
-				logger.Warn().Msg(fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixID), nil)
+				msg := fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP addresses",
+					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
+				)
+				logger.Warn().Msg(msg)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, msg, nil)
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{

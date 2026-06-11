@@ -1185,6 +1185,15 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 		exhaustInst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("exhaust-vpcprefix-inst-%d", i), tn1.ID, ip.ID, st1.ID, &istExhaustFixture.ID, vpc9.ID, nil, &os1.ID, nil, cdbm.InstanceStatusReady)
 		testInstanceBuildInstanceInterface(t, dbSession, exhaustInst.ID, nil, &vpcPrefixExhausted.ID, nil, cdbm.InterfaceStatusPending)
 	}
+
+	subnetExhaustedUsageMap, err := cdbm.NewSubnetDAO(dbSession).GetPrefixUsage(context.Background(), nil, subnetExhausted)
+	assert.Nil(t, err)
+	subnetExhaustedUsage := subnetExhaustedUsageMap[subnetExhausted.ID]
+
+	vpcPrefixExhaustedUsageMap, err := cdbm.NewVpcPrefixDAO(dbSession).GetPrefixUsage(context.Background(), nil, vpcPrefixExhausted)
+	assert.Nil(t, err)
+	vpcPrefixExhaustedUsage := vpcPrefixExhaustedUsageMap[vpcPrefixExhausted.ID]
+
 	// NvLink Logical Partition
 	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
@@ -3486,7 +3495,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: fmt.Sprintf("Ip Addresses for Subnet ID: %v specified in interfaces data in request are exhausted", subnetExhausted.ID),
+				respMessage: fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP address(es)",
+					subnetExhausted.ID, subnetExhaustedUsage.AvailableIPs-subnetExhaustedUsage.AcquiredIPs, subnetExhaustedUsage.AvailableIPs, 1, 1,
+				),
 			},
 			wantErr: false,
 		},
@@ -3516,7 +3528,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusBadRequest,
-				respMessage: fmt.Sprintf("Ip Addresses for VPC Prefix ID: %v specified in interfaces data in request are exhausted", vpcPrefixExhausted.ID),
+				respMessage: fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP addresses",
+					vpcPrefixExhausted.ID, vpcPrefixExhaustedUsage.AvailableIPs-vpcPrefixExhaustedUsage.AcquiredIPs, vpcPrefixExhaustedUsage.AvailableIPs, 1, 2,
+				),
 			},
 			wantErr: false,
 		},
