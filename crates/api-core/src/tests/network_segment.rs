@@ -600,8 +600,8 @@ pub async fn test_create_initial_vpc_and_attached_network(
         "ZERO-DPU-HOST-01-SWP7".to_string(),
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::HostInband,
-            prefix: "10.217.18.192/30".to_string(),
-            gateway: "10.217.18.193".to_string(),
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            gateway: "10.217.18.193".parse().unwrap(),
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
@@ -665,8 +665,8 @@ pub async fn test_create_initial_network_fails_for_missing_vpc_name(
         "ZERO-DPU-HOST-01-SWP7".to_string(),
         NetworkDefinition {
             segment_type: NetworkDefinitionSegmentType::HostInband,
-            prefix: "10.217.18.192/30".to_string(),
-            gateway: "10.217.18.193".to_string(),
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            gateway: "10.217.18.193".parse().unwrap(),
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),

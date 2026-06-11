@@ -3767,8 +3767,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("ZERO-DPU-HOST-01-SWP7").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
-                prefix: "10.217.18.192/30".to_string(),
-                gateway: "10.217.18.193".to_string(),
+                prefix: "10.217.18.192/30".parse().unwrap(),
+                gateway: "10.217.18.193".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
