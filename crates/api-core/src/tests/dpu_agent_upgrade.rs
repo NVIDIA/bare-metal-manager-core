@@ -18,6 +18,7 @@ use std::time::SystemTime;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
+use carbide_uuid::machine::MachineId;
 use chrono::{Duration, Utc};
 use common::api_fixtures::create_test_env;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
@@ -26,6 +27,124 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env_with_overrides,
 };
+
+// ── DPF + agent upgrade interaction ──────────────────────────────────────────
+
+/// Helper: call record_dpu_network_status with an old agent version.
+async fn report_old_agent_version(env: &TestEnv, dpu_machine_id: MachineId) {
+    env.api
+        .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
+            dpu_machine_id: dpu_machine_id.into(),
+            dpu_agent_version: Some("v2023.06-rc2-1-gc5c05de3".to_string()),
+            observed_at: None,
+            dpu_health: Some(::rpc::health::HealthReport {
+                source: "forge-dpu-agent".to_string(),
+                triggered_by: None,
+                observed_at: None,
+                successes: vec![],
+                alerts: vec![],
+            }),
+            network_config_version: None,
+            instance_id: None,
+            instance_config_version: None,
+            instance_network_config_version: None,
+            interfaces: vec![],
+            network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
+            fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
+            dpu_extension_service_version: None,
+            dpu_extension_services: vec![],
+        }))
+        .await
+        .unwrap();
+}
+
+async fn upgrade_needed(env: &TestEnv, dpu_machine_id: MachineId) -> bool {
+    env.api
+        .dpu_agent_upgrade_check(tonic::Request::new(rpc::DpuAgentUpgradeCheckRequest {
+            machine_id: dpu_machine_id.to_string(),
+            current_agent_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
+            binary_mtime: Some(SystemTime::now().into()),
+            binary_sha: "abc123".to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .should_upgrade
+}
+
+async fn set_upgrade_policy(env: &TestEnv) {
+    env.api
+        .dpu_agent_upgrade_policy_action(tonic::Request::new(rpc::DpuAgentUpgradePolicyRequest {
+            new_policy: Some(rpc::AgentUpgradePolicy::UpOnly as i32),
+        }))
+        .await
+        .unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_dpf_host_does_not_set_upgrade_flag(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_id = mh.dpu().id;
+
+    set_upgrade_policy(&env).await;
+
+    // Mark the host as DPF-managed (used_for_ingestion = true).
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    txn.commit().await?;
+
+    // Even with an old agent version reported, the upgrade flag must NOT be set.
+    report_old_agent_version(&env, dpu_id).await;
+
+    assert!(
+        !upgrade_needed(&env, dpu_id).await,
+        "DPF-managed DPU should never have the agent upgrade flag set"
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_dpf_transition_clears_stale_upgrade_flag(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_id = mh.dpu().id;
+
+    set_upgrade_policy(&env).await;
+
+    // While NOT yet DPF-managed, report an old version to set the upgrade flag.
+    report_old_agent_version(&env, dpu_id).await;
+    assert!(
+        upgrade_needed(&env, dpu_id).await,
+        "upgrade flag should be set before DPF transition"
+    );
+
+    // Transition the host to DPF.
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    txn.commit().await?;
+
+    // The next status report should clear the stale flag.
+    report_old_agent_version(&env, dpu_id).await;
+    assert!(
+        !upgrade_needed(&env, dpu_id).await,
+        "upgrade flag should be cleared after DPF transition"
+    );
+
+    // A second status report must NOT re-set the flag (no redundant DB writes).
+    report_old_agent_version(&env, dpu_id).await;
+    assert!(
+        !upgrade_needed(&env, dpu_id).await,
+        "upgrade flag must stay cleared on subsequent status reports"
+    );
+    Ok(())
+}
 
 #[crate::sqlx_test]
 async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
