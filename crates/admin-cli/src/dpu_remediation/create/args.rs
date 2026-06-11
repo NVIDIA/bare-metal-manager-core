@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 Create a remediation from a script:
-    $ carbide-admin-cli dpu-remediation create --script-filename ./remediate.sh
+    $ nico-admin-cli dpu-remediation create --script-filename ./remediate.sh
 
 Create a remediation that retries up to three times:
-    $ carbide-admin-cli dpu-remediation create --script-filename ./remediate.sh --retries 3
+    $ nico-admin-cli dpu-remediation create --script-filename ./remediate.sh --retries 3
 
 Create a remediation with descriptive metadata and a label:
-    $ carbide-admin-cli dpu-remediation create --script-filename ./remediate.sh \
+    $ nico-admin-cli dpu-remediation create --script-filename ./remediate.sh \
     --meta-name \"clear-eeprom\" --meta-description \"Clears stale EEPROM state\" --label DATACENTER:XYZ
 
 ")]

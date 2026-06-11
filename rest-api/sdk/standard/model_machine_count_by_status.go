@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,14 +22,22 @@ var _ MappedNullable = &MachineCountByStatus{}
 
 // MachineCountByStatus Describes count of Machines in various statuses
 type MachineCountByStatus struct {
-	Total          *int32 `json:"total,omitempty"`
-	Initializing   *int32 `json:"initializing,omitempty"`
-	Reset          *int32 `json:"reset,omitempty"`
-	Assigned       *int32 `json:"assigned,omitempty"`
-	Ready          *int32 `json:"ready,omitempty"`
-	Error          *int32 `json:"error,omitempty"`
+	// Total number of Machines
+	Total *int32 `json:"total,omitempty"`
+	// Number of Machines in Initializing status
+	Initializing *int32 `json:"initializing,omitempty"`
+	// Number of Machines in Reset status
+	Reset *int32 `json:"reset,omitempty"`
+	// Number of Machines in Assigned status
+	Assigned *int32 `json:"assigned,omitempty"`
+	// Number of Machines in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of Machines in Error status
+	Error *int32 `json:"error,omitempty"`
+	// Number of Machines in Decommissioned status
 	Decommissioned *int32 `json:"decommissioned,omitempty"`
-	Unknown        *int32 `json:"unknown,omitempty"`
+	// Number of Machines in Unknown status
+	Unknown *int32 `json:"unknown,omitempty"`
 }
 
 // NewMachineCountByStatus instantiates a new MachineCountByStatus object

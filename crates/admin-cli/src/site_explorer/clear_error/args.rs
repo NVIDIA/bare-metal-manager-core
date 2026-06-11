@@ -27,7 +27,7 @@ use super::super::common::ExploreOptions;
 EXAMPLES:
 
 Clear the last known error for a BMC in the latest report:
-    $ carbide-admin-cli site-explorer clear-error 192.0.2.10
+    $ nico-admin-cli site-explorer clear-error 192.0.2.10
 
 ")]
 pub struct Args {

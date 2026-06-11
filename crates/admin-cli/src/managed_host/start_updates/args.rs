@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Start delayed updates for one or more machines now:
-    $ carbide-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567
 
 Schedule the update window for a specific start time:
-    $ carbide-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host start-updates --machines 12345678-1234-5678-90ab-cdef01234567 \
     --start 2026-01-02T03:04:05
 
 ")]

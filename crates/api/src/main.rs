@@ -19,8 +19,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use carbide::{Command, Options};
+use carbide_secrets::CredentialConfig;
 use clap::CommandFactory;
-use forge_secrets::CredentialConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use tokio_util::sync::CancellationToken;

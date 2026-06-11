@@ -97,5 +97,8 @@ async fn test_reboot_bmc_ip() {
     dpu.spec.bmc_ip = Some("10.0.0.42".into());
     m.emit_dpu(dpu);
     c.wait_for(1).await;
-    assert_eq!(c.get(0).unwrap().host_bmc_ip, "10.0.0.42");
+    assert_eq!(
+        c.get(0).unwrap().host_bmc_ip,
+        "10.0.0.42".parse::<std::net::IpAddr>().unwrap()
+    );
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
@@ -17,6 +18,21 @@ const (
 	ValidationErrorAllocationConstraintResourceType = "Resource Type must be InstanceType or IPBlock"
 	// ValidationErrorAllocationConstraintConstraintType indicates an invalid ConstraintType field
 	ValidationErrorAllocationConstraintConstraintType = "Constraint Type should be Reserved, OnDemand or Preemptible"
+)
+
+var (
+	// resourceTypeIDDeprecationTime is the time when the ResourceTypeID attribute will be no longer be available in the API
+	resourceTypeIDDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	// resourceTypeIDDeprecations is a list of deprecated entities for the ResourceTypeID attribute
+	allocationConstraintDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "ResourceTypeID",
+			NewValue:     cutil.GetPtr("resourceTypeId"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: resourceTypeIDDeprecationTime,
+		},
+	}
 )
 
 // APIAllocationConstraintCreateRequest captures user request to create a new Allocation Constraint
@@ -82,8 +98,10 @@ type APIAllocationConstraint struct {
 	AllocationID string `json:"allocationId"`
 	// ResourceType is the type of the Resource
 	ResourceType string `json:"resourceType"`
+	// ResourceTypeIDDeprecated is the deprecated improperly cased attribute
+	ResourceTypeIDDeprecated *string `json:"ResourceTypeID,omitempty"`
 	// ResourceTypeID is the ID of the resource corresponding to the Allocation Constraint
-	ResourceTypeID string `bun:"resource_type_id,type:uuid,notnull"`
+	ResourceTypeID string `json:"resourceTypeId"`
 	// ConstraintType is the type of the Allocation Constraint
 	ConstraintType string `json:"constraintType"`
 	// ConstraintValue is the value of the Allocation Constraint
@@ -98,6 +116,8 @@ type APIAllocationConstraint struct {
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
 	Updated time.Time `json:"updated"`
+	// Deprecations is the list of deprecations for the Allocation Constraint
+	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 }
 
 // NewAPIAllocationConstraint accepts a DB layer Allocation Constraint object and returns an API object
@@ -120,6 +140,14 @@ func NewAPIAllocationConstraint(cdbm *cdbm.AllocationConstraint, dbinstp *cdbm.I
 
 	if dbipb != nil {
 		apiac.IPBlock = NewAPIIPBlockSummary(dbipb)
+	}
+
+	if time.Now().Before(resourceTypeIDDeprecationTime) {
+		apiac.ResourceTypeIDDeprecated = cutil.GetPtr(cdbm.ResourceTypeID.String())
+	}
+
+	for _, deprecation := range allocationConstraintDeprecations {
+		apiac.Deprecations = append(apiac.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return apiac

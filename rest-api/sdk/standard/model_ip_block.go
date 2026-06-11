@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,24 +23,36 @@ var _ MappedNullable = &IpBlock{}
 
 // IpBlock IP block contains information about an IPv4 address pool owned by the Infrastructure Provider and assigned as an overlay network for a particular Site. It is equivalent to Network Resource in product terminology.
 type IpBlock struct {
-	Id                       *string        `json:"id,omitempty"`
-	Name                     *string        `json:"name,omitempty"`
-	Description              NullableString `json:"description,omitempty"`
-	SiteId                   *string        `json:"siteId,omitempty"`
-	InfrastructureProviderId *string        `json:"infrastructureProviderId,omitempty"`
-	TenantId                 NullableString `json:"tenantId,omitempty"`
-	RoutingType              *string        `json:"routingType,omitempty"`
+	// Unique UUID v4 identifier for the IP Block
+	Id *string `json:"id,omitempty"`
+	// Name of the IP Block
+	Name *string `json:"name,omitempty"`
+	// Description of the IP Block
+	Description NullableString `json:"description,omitempty"`
+	// ID of the Site
+	SiteId *string `json:"siteId,omitempty"`
+	// ID of the Infrastructure Provider
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
+	// ID of the Tenant
+	TenantId NullableString `json:"tenantId,omitempty"`
+	// RoutingType of the IP Block
+	RoutingType *string `json:"routingType,omitempty"`
 	// Either IPv4 or IPv6 address
 	Prefix *string `json:"prefix,omitempty"`
 	// Min: 1, Max: 32 for ipv4, 128 for ipv6
-	PrefixLength    *int32             `json:"prefixLength,omitempty"`
-	ProtocolVersion *string            `json:"protocolVersion,omitempty"`
-	UsageStats      *IpBlockUsageStats `json:"usageStats,omitempty"`
-	Status          *IpBlockStatus     `json:"status,omitempty"`
-	StatusHistory   []StatusDetail     `json:"statusHistory,omitempty"`
-	Deprecations    []Deprecation      `json:"deprecations,omitempty"`
-	Created         *time.Time         `json:"created,omitempty"`
-	Updated         *time.Time         `json:"updated,omitempty"`
+	PrefixLength *int32 `json:"prefixLength,omitempty"`
+	// Version of the ip network IPv4 or IPv6
+	ProtocolVersion *string `json:"protocolVersion,omitempty"`
+	// Usage summary from IPAM for the IP Block
+	UsageStats *IpBlockUsageStats `json:"usageStats,omitempty"`
+	// Status of the IP Block
+	Status *IpBlockStatus `json:"status,omitempty"`
+	// Chronological status history for the IP Block
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the Ip Block was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Ip Block was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewIpBlock instantiates a new IpBlock object
@@ -498,38 +510,6 @@ func (o *IpBlock) SetStatusHistory(v []StatusDetail) {
 	o.StatusHistory = v
 }
 
-// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
-func (o *IpBlock) GetDeprecations() []Deprecation {
-	if o == nil || IsNil(o.Deprecations) {
-		var ret []Deprecation
-		return ret
-	}
-	return o.Deprecations
-}
-
-// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *IpBlock) GetDeprecationsOk() ([]Deprecation, bool) {
-	if o == nil || IsNil(o.Deprecations) {
-		return nil, false
-	}
-	return o.Deprecations, true
-}
-
-// HasDeprecations returns a boolean if a field has been set.
-func (o *IpBlock) HasDeprecations() bool {
-	if o != nil && !IsNil(o.Deprecations) {
-		return true
-	}
-
-	return false
-}
-
-// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
-func (o *IpBlock) SetDeprecations(v []Deprecation) {
-	o.Deprecations = v
-}
-
 // GetCreated returns the Created field value if set, zero value otherwise.
 func (o *IpBlock) GetCreated() time.Time {
 	if o == nil || IsNil(o.Created) {
@@ -642,9 +622,6 @@ func (o IpBlock) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.StatusHistory) {
 		toSerialize["statusHistory"] = o.StatusHistory
-	}
-	if !IsNil(o.Deprecations) {
-		toSerialize["deprecations"] = o.Deprecations
 	}
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created

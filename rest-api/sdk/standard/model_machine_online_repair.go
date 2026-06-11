@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,8 +25,10 @@ var _ MappedNullable = &MachineOnlineRepair{}
 // MachineOnlineRepair Enable or disable online repair of a Machine. Online repair facilitates repairing a Machine without the Tenant having to release the Machine by deleting the Instance. When `enabled` is true, `policy` and `acknowledgments` are required inside this object, and `healthIssue` is required at the top level of the MachineUpdateRequest. When `enabled` is false, none of those fields may be set.
 type MachineOnlineRepair struct {
 	// When true, initiates the online repair process by sending a merge-mode health override with source: `request-online-repair` and sets the associated Instance status to Repairing. When false, exits online repair by clearing the merge-mode health override and returns the Instance to Ready status. Cannot be combined with instance type, maintenance, or label updates in the same request.
-	Enabled         bool                                `json:"enabled"`
-	Policy          *MachineOnlineRepairPolicy          `json:"policy,omitempty"`
+	Enabled bool `json:"enabled"`
+	// Online repair policy to apply to the Machine
+	Policy *MachineOnlineRepairPolicy `json:"policy,omitempty"`
+	// Acknowledgments required before online repair can proceed
 	Acknowledgments *MachineOnlineRepairAcknowledgments `json:"acknowledgments,omitempty"`
 }
 

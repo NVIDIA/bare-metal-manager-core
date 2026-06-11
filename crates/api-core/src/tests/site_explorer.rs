@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -24,18 +23,15 @@ use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
-use db::{self, ObjectColumnFilter, explored_endpoints as db_explored_endpoints};
+use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
-use model::metadata::Metadata;
 use model::site_explorer::{
-    Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-    ExploredEndpoint,
+    Chassis, EndpointExplorationError, EndpointExplorationReport, ExploredEndpoint,
 };
-use model::switch::SwitchSearchFilter;
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -55,8 +51,6 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
-
-const UNDERLAY_RELAY: &str = "192.0.1.1";
 
 trait SiteExplorerConstructor {
     fn new_site_explorer(
@@ -207,6 +201,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
 
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
         explorations_per_run: 10,
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
@@ -797,142 +792,6 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
 }
 
 #[sqlx_test]
-async fn test_site_explorer_switch_discovery(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-
-    let bmc_mac: MacAddress = "B8:3F:D2:90:97:C0".parse().unwrap();
-    let serial_number = "SW-SN-001".to_string();
-    let bmc_username = "ADMIN".to_string();
-    let bmc_password = "Pwd2023".to_string();
-
-    let response = env
-        .api
-        .discover_dhcp(DhcpDiscovery::builder(bmc_mac.to_string(), UNDERLAY_RELAY).tonic_request())
-        .await?
-        .into_inner();
-    tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
-    let switch_ip = response.address.clone();
-
-    let mut txn = env.pool.begin().await?;
-    let expected_switch = model::expected_switch::ExpectedSwitch {
-        expected_switch_id: None,
-        bmc_mac_address: bmc_mac,
-        nvos_mac_addresses: vec![bmc_mac],
-        serial_number: serial_number.clone(),
-        bmc_username: bmc_username.clone(),
-        bmc_password: bmc_password.clone(),
-        nvos_username: None,
-        nvos_password: None,
-        bmc_ip_address: None,
-        nvos_ip_address: None,
-        metadata: Metadata {
-            name: format!("Test Switch {}", serial_number),
-            description: format!("A test switch with serial {}", serial_number),
-            labels: HashMap::new(),
-        },
-        rack_id: None,
-        bmc_retain_credentials: None,
-    };
-    db::expected_switch::create(&mut txn, expected_switch).await?;
-    txn.commit().await?;
-
-    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-
-    endpoint_explorer.insert_endpoint_result(
-        switch_ip.parse().unwrap(),
-        Ok(EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            last_exploration_error: None,
-            last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            machine_id: None,
-            managers: Vec::new(),
-            systems: vec![ComputerSystem {
-                serial_number: Some(serial_number.clone()),
-                ..Default::default()
-            }],
-            chassis: vec![Chassis {
-                id: "mgx_nvswitch_0".to_string(),
-                model: Some("Switch".to_string()),
-                manufacturer: Some("NVIDIA".to_string()),
-                serial_number: Some(serial_number.clone()),
-                part_number: Some(serial_number.clone()),
-                ..Default::default()
-            }],
-            service: Vec::new(),
-            versions: HashMap::default(),
-            model: Some("Switch".to_string()),
-            machine_setup_status: None,
-            secure_boot_status: None,
-            lockdown_status: None,
-            power_shelf_id: None,
-            switch_id: None,
-            compute_tray_index: None,
-            physical_slot_number: None,
-            revision_id: None,
-            topology_id: None,
-            remediation_error: None,
-        }),
-    );
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 1,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
-    let test_meter = &env.test_meter;
-
-    explorer.run_single_iteration().await.unwrap();
-
-    let mut txn = env.pool.begin().await?;
-    let explored = db_explored_endpoints::find_all(txn.as_mut()).await.unwrap();
-    txn.commit().await?;
-    assert_eq!(explored.len(), 1);
-
-    for report in &explored {
-        assert_eq!(report.report_version.version_nr(), 1);
-        let guard = endpoint_explorer.reports.lock().unwrap();
-        let res = guard.get(&report.address).unwrap();
-        assert!(res.is_ok());
-        assert_eq!(
-            res.clone().unwrap().endpoint_type,
-            report.report.endpoint_type
-        );
-        assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
-        assert_eq!(res.clone().unwrap().systems, report.report.systems);
-    }
-
-    let mut txn = env.pool.begin().await?;
-    db_explored_endpoints::set_preingestion_complete(switch_ip.parse().unwrap(), &mut txn).await?;
-    txn.commit().await?;
-
-    explorer.run_single_iteration().await.unwrap();
-
-    assert_eq!(
-        test_meter
-            .formatted_metric("carbide_endpoint_explorations_count")
-            .unwrap(),
-        "1"
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let switches = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
-    println!("switches: {:?}", switches);
-    txn.commit().await?;
-    assert_eq!(switches.len(), 1, "Expected one switch to be created");
-
-    Ok(())
-}
-
-#[sqlx_test]
 async fn test_get_machine_position_info(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) =
@@ -1503,170 +1362,511 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
     Ok(())
 }
 
-fn explored_managed_switch_fixture(
-    bmc_ip: IpAddr,
-    nvos_mac: MacAddress,
-    chassis_serial: Option<&str>,
-) -> model::site_explorer::ExploredManagedSwitch {
-    let chassis = Chassis {
-        id: "mgx_nvswitch_0".to_string(),
-        manufacturer: Some("NVIDIA".to_string()),
-        model: Some("Switch".to_string()),
-        serial_number: chassis_serial.map(String::from),
-        part_number: chassis_serial.map(String::from),
-        ..Default::default()
-    };
-    model::site_explorer::ExploredManagedSwitch {
-        bmc_ip,
-        nv_os_mac_addresses: vec![nvos_mac],
-        report: EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            vendor: Some(bmc_vendor::BMCVendor::Nvidia),
-            chassis: vec![chassis],
-            model: Some("Switch".to_string()),
-            ..Default::default()
-        },
-    }
-}
-
-fn expected_switch_fixture(
-    bmc_mac: MacAddress,
-    nvos_mac: MacAddress,
-    serial: &str,
-) -> model::expected_switch::ExpectedSwitch {
-    model::expected_switch::ExpectedSwitch {
-        expected_switch_id: None,
-        bmc_mac_address: bmc_mac,
-        nvos_mac_addresses: vec![nvos_mac],
-        serial_number: serial.to_string(),
-        bmc_username: "ADMIN".to_string(),
-        bmc_password: "Pwd2023".to_string(),
-        nvos_username: None,
-        nvos_password: None,
-        bmc_ip_address: None,
-        nvos_ip_address: None,
-        metadata: Metadata {
-            name: format!("Test Switch {serial}"),
-            description: String::new(),
-            labels: HashMap::new(),
-        },
-        rack_id: None,
-        bmc_retain_credentials: None,
-    }
-}
-
-/// When a switch is rediscovered with a chassis serial that hashes to a new
-/// `SwitchId`, the BMC MAC check must keep us from inserting a second record.
+/// Site-explorer hands a boot interface id to the predicted interfaces it
+/// mints for zero-DPU hosts (from the live report here), and DHCP promotion
+/// passes it on to the machine_interfaces row -- so the host's boot
+/// target is a full MAC + Redfish-id pair from its first owned interface.
 #[sqlx_test]
-async fn switch_skips_creation_when_bmc_mac_already_used(
+async fn test_predicted_interface_hands_boot_interface_id_to_real_row(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D0".parse().unwrap();
-    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D1".parse().unwrap();
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
 
-    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-DRIFT");
-    let mut txn = env.pool.begin().await?;
-    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
-    txn.commit().await?;
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
 
-    let switch_creator =
-        carbide_site_explorer::SwitchCreator::new(env.pool.clone(), SiteExplorerConfig::default());
-
-    // First discovery, we get a real serial, which succeeds,
-    // and inserts a switches row.
-    assert!(
-        switch_creator
-            .create_managed_switch(
-                &explored_managed_switch_fixture(
-                    "10.0.0.1".parse().unwrap(),
-                    nvos_mac,
-                    Some("SW-DRIFT-v1"),
-                ),
-                &expected_switch,
-                &env.pool,
-            )
-            .await?,
-        "first discovery must create a switch row"
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let ids_after_first = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
-    txn.commit().await?;
-    assert_eq!(ids_after_first.len(), 1);
-    let original_id = ids_after_first[0];
-
-    // Second discovery, we hit the same BMC MAC, but get a different chassis serial.
-    // Without the BMC MAC check, this would give us a different SwitchId and insert
-    // a second record.
-    assert!(
-        !switch_creator
-            .create_managed_switch(
-                &explored_managed_switch_fixture(
-                    "10.0.0.1".parse().unwrap(),
-                    nvos_mac,
-                    Some("SW-DRIFT-v2"),
-                ),
-                &expected_switch,
-                &env.pool,
-            )
-            .await?,
-        "second discovery with drifted fingerprint must not create a duplicate row"
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let ids_after_second =
-        db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
-    txn.commit().await?;
-    assert_eq!(
-        ids_after_second,
-        vec![original_id],
-        "exactly one switch row, original ID preserved"
-    );
+    MockExploredHost::new(&env, mock_host)
+        .discover_dhcp_host_bmc(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        // Site-explorer runs BEFORE the in-band NIC ever DHCPs, so ingestion
+        // mints a predicted interface for it.
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let predicted =
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+                        .await?
+                        .expect("zero-DPU ingest should have minted a predicted interface");
+                // The fixture report names the embedded NIC's Redfish id.
+                assert_eq!(
+                    predicted.boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "predicted interface should hold the report-derived boot interface id"
+                );
+                Ok(())
+            }
+        })
+        .await?
+        // The in-band NIC's first DHCP promotes the prediction into a
+        // machine_interfaces row.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result.unwrap().into_inner();
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac).await?;
+                assert_eq!(interfaces.len(), 1);
+                assert_eq!(
+                    interfaces[0].boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "promotion should land the predicted boot interface id on the promoted row"
+                );
+                assert!(
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+                        .await?
+                        .is_none(),
+                    "the prediction should be consumed by promotion"
+                );
+                Ok(())
+            }
+        })
+        .await?;
 
     Ok(())
 }
 
-/// A switch BMC reporting `"NA"` for its chassis serial is treated as a
-/// missing serial: `generate_switch_id` should error with
-/// `MissingHardwareInfo::Serial` rather than give us a junk `SwitchId`, and
-/// no record gets created. The next exploration cycle picks the switch up
-/// once a real serial is reported.
+/// When a retained boot interface id AND a prediction with a live-report
+/// id both exist for a MAC, DHCP promotion lands the LIVE id on the
+/// promoted row -- the prediction is refreshed every exploration cycle,
+/// while the retained id predates the deletion that recorded it. The
+/// retention record is consumed either way.
 #[sqlx_test]
-async fn switch_treats_na_chassis_serial_as_missing(
+async fn test_predicted_live_boot_interface_id_outranks_retained_at_promotion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
+
+    // A prior row for this MAC was deleted with its boot pair retained --
+    // the id names a slot the NIC occupied before the migration.
+    let mut txn = env.pool.begin().await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), inband_mac, "NIC.Old.9-9-9").await?;
+    txn.commit().await?;
+
+    MockExploredHost::new(&env, mock_host)
+        .discover_dhcp_host_bmc(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        // Ingestion mints a predicted interface holding the CURRENT id
+        // from the live report.
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let predicted =
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+                        .await?
+                        .expect("zero-DPU ingest should have minted a predicted interface");
+                assert_eq!(
+                    predicted.boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "the prediction holds the live-report id, never the retained one"
+                );
+                Ok(())
+            }
+        })
+        .await?
+        // The in-band NIC's first DHCP promotes the prediction. Creation
+        // recovers the retained id onto the brand-new row first -- the
+        // prediction's live id must still win.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac).await?;
+                assert_eq!(interfaces.len(), 1);
+                assert_eq!(
+                    interfaces[0].boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "the live predicted id outranks the retained id on the promoted row"
+                );
+                assert!(
+                    db::retained_boot_interface::find_by_mac(txn.as_mut(), inband_mac, None)
+                        .await?
+                        .is_none(),
+                    "the retention record is consumed by promotion regardless"
+                );
+                Ok(())
+            }
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// If a static preallocation creates the machine_interfaces row while a
+/// prediction is still pending (an ExpectedMachine `fixed_ip` recorded in
+/// between), the prediction's live-report id still outranks the retained
+/// id the preallocated row recovered.
+#[sqlx_test]
+async fn test_predicted_live_boot_interface_id_outranks_preallocated_retained_row_at_promotion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
+
+    // A prior row retained an obsolete boot interface id for this MAC.
+    let mut txn = env.pool.begin().await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), inband_mac, "NIC.Old.9-9-9").await?;
+    txn.commit().await?;
+
+    MockExploredHost::new(&env, mock_host)
+        .discover_dhcp_host_bmc(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        // Site-explorer mints a pending prediction with the current Redfish id.
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let static_ip: std::net::IpAddr = "192.0.3.77".parse()?;
+                let mut txn = pool.begin().await?;
+
+                // A `fixed_ip` declaration creates the row on the same
+                // HostInband segment before the NIC ever DHCPs; creation
+                // recovers the retained (obsolete) id onto it.
+                db::machine_interface::preallocate_machine_interface(
+                    txn.as_mut(),
+                    inband_mac,
+                    static_ip,
+                    None,
+                )
+                .await?;
+
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac).await?;
+                assert_eq!(interfaces.len(), 1);
+                assert_eq!(
+                    interfaces[0].boot_interface_id.as_deref(),
+                    Some("NIC.Old.9-9-9")
+                );
+                txn.commit().await?;
+                Ok(())
+            }
+        })
+        .await?
+        // DHCP promotion must overwrite the preallocated row with the live id.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac).await?;
+                assert_eq!(interfaces.len(), 1);
+                assert_eq!(
+                    interfaces[0].boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "the live predicted id outranks the preallocation-recovered retained id"
+                );
+                Ok(())
+            }
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// A newly DHCP-created machine_interface recovers a retained boot
+/// interface id -- recorded when a prior row for its MAC was deleted (e.g.
+/// admin force-delete during a DPU-to-NIC mode migration) -- and consumes
+/// the retention record.
+#[sqlx_test]
+async fn test_dhcp_created_interface_recovers_retained_boot_interface_id(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
+
+    // A prior interface row for this MAC was deleted with its boot pair
+    // retained; seed that record directly.
+    let mut txn = env.pool.begin().await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), inband_mac, "NIC.Retained.7-1-1").await?;
+    txn.commit().await?;
+
+    MockExploredHost::new(&env, mock_host)
+        // DHCP arrives before site-explorer ever runs: the brand-new row
+        // recovers the retained boot interface id on creation.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac).await?;
+                assert_eq!(interfaces.len(), 1);
+                assert_eq!(
+                    interfaces[0].boot_interface_id.as_deref(),
+                    Some("NIC.Retained.7-1-1"),
+                    "the new row should recover the retained boot interface id"
+                );
+                assert!(
+                    db::retained_boot_interface::find_by_mac(txn.as_mut(), inband_mac, None)
+                        .await?
+                        .is_none(),
+                    "the retention record should be consumed once applied"
+                );
+                Ok(())
+            }
+        })
+        .await?;
+
+    Ok(())
+}
+
+/// Retention recovery is centralized at row creation, so even a static
+/// preallocation (a declared `fixed_ip` reservation) recovers a retained
+/// boot interface id -- the pair must not depend on WHICH path recreates
+/// the row after a force-delete.
+#[sqlx_test]
+async fn test_preallocated_interface_recovers_retained_boot_interface_id(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
-    let bmc_mac: MacAddress = "B8:3F:D2:90:97:D2".parse().unwrap();
-    let nvos_mac: MacAddress = "B8:3F:D2:90:97:D3".parse().unwrap();
 
-    let expected_switch = expected_switch_fixture(bmc_mac, nvos_mac, "SW-NA");
+    let mac: MacAddress = "aa:55:66:77:88:99".parse()?;
+    // An external static IP: preallocation homes it on the
+    // static-assignments anchor segment, no fixture segment needed.
+    let static_ip: std::net::IpAddr = "203.0.113.7".parse()?;
+
+    // A prior row for this MAC was deleted with its boot pair retained.
     let mut txn = env.pool.begin().await?;
-    db::expected_switch::create(&mut txn, expected_switch.clone()).await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), mac, "NIC.Static.1-1-1").await?;
     txn.commit().await?;
 
-    let switch_creator =
-        carbide_site_explorer::SwitchCreator::new(env.pool.clone(), SiteExplorerConfig::default());
-
-    let result = switch_creator
-        .create_managed_switch(
-            &explored_managed_switch_fixture("10.0.0.2".parse().unwrap(), nvos_mac, Some("NA")),
-            &expected_switch,
-            &env.pool,
-        )
-        .await;
-    assert!(
-        result.is_err(),
-        "placeholder NA chassis serial must surface as an error, got: {result:?}"
-    );
+    // The static reservation recreates the row (the path a declared
+    // fixed_ip takes via DHCP discover or site-explorer reconciliation).
+    let mut txn = env.pool.begin().await?;
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), mac, static_ip, None)
+        .await?;
+    txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let ids = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
-    txn.commit().await?;
-    assert!(
-        ids.is_empty(),
-        "no switch row must be inserted when chassis serial is NA"
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), mac).await?;
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(
+        interfaces[0].boot_interface_id.as_deref(),
+        Some("NIC.Static.1-1-1"),
+        "a preallocation-created row recovers the retained boot interface id"
     );
+    assert!(
+        db::retained_boot_interface::find_by_mac(txn.as_mut(), mac, None)
+            .await?
+            .is_none(),
+        "the retention record is consumed once applied"
+    );
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+/// The expiry sweep removes only records older than the configured window
+/// -- and removes nothing when no window is set (records wait forever for
+/// their machine to come back).
+#[sqlx_test]
+async fn test_retained_boot_interface_sweep_removes_only_expired_records(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let old_mac: MacAddress = "aa:bb:cc:00:00:01".parse()?;
+    let recent_mac: MacAddress = "aa:bb:cc:00:00:02".parse()?;
+
+    let mut txn = pool.begin().await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), old_mac, "NIC.Old.1-1-1").await?;
+    db::retained_boot_interface::upsert(txn.as_mut(), recent_mac, "NIC.Recent.1-1-1").await?;
+    // Age one record past the window.
+    sqlx::query(
+        "UPDATE retained_boot_interfaces SET recorded_at = NOW() - INTERVAL '2 hours' \
+         WHERE mac_address = $1",
+    )
+    .bind(old_mac)
+    .execute(txn.as_mut())
+    .await?;
+    txn.commit().await?;
+
+    // No window -> nothing is swept.
+    let mut txn = pool.begin().await?;
+    assert_eq!(
+        db::retained_boot_interface::delete_expired(txn.as_mut(), None).await?,
+        0,
+        "without a window the sweep must leave every record in place"
+    );
+    let swept =
+        db::retained_boot_interface::delete_expired(txn.as_mut(), Some(chrono::Duration::hours(1)))
+            .await?;
+    assert_eq!(swept, 1, "only the aged-out record is swept");
+    assert!(
+        db::retained_boot_interface::find_by_mac(txn.as_mut(), old_mac, None)
+            .await?
+            .is_none(),
+        "the aged-out record is gone"
+    );
+    assert_eq!(
+        db::retained_boot_interface::find_by_mac(txn.as_mut(), recent_mac, None)
+            .await?
+            .as_deref(),
+        Some("NIC.Recent.1-1-1"),
+        "the in-window record survives the sweep"
+    );
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+/// A prediction minted before the BMC report resolved the NIC's Redfish id
+/// is refreshed by the next exploration that does resolve it -- pending
+/// predictions stay as current as the live report until DHCP promotes them.
+#[sqlx_test]
+async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
+
+    // First exploration: the BMC reports the NIC's MAC but no Redfish id
+    // yet, so the minted prediction has no boot interface id.
+    let mut id_less_report: model::site_explorer::EndpointExplorationReport =
+        mock_host.clone().into();
+    for system in id_less_report.systems.iter_mut() {
+        for iface in system.ethernet_interfaces.iter_mut() {
+            iface.id = None;
+        }
+    }
+
+    let mock = MockExploredHost::new(&env, mock_host)
+        .discover_dhcp_host_bmc(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?;
+    let host_bmc_ip = mock.host_bmc_ip.expect("host BMC should have DHCP'd");
+    env.endpoint_explorer
+        .insert_endpoint_result(host_bmc_ip, Ok(id_less_report));
+
+    let mock = mock
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let predicted =
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+                        .await?
+                        .expect("zero-DPU ingest should have minted a predicted interface");
+                assert!(
+                    predicted.boot_interface_id.is_none(),
+                    "an id-less report can't give the prediction a boot interface id"
+                );
+                Ok(())
+            }
+        })
+        .await?;
+
+    // Second exploration: the BMC now resolves the id; the pending
+    // prediction picks it up.
+    env.endpoint_explorer
+        .insert_endpoint_result(host_bmc_ip, Ok(mock.managed_host.clone().into()));
+    mock.run_site_explorer_iteration()
+        .await
+        .then(move |mock| {
+            let pool = mock.test_env.pool.clone();
+            async move {
+                let mut txn = pool.begin().await?;
+                let predicted =
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+                        .await?
+                        .expect("the prediction should still be pending");
+                assert_eq!(
+                    predicted.boot_interface_id.as_deref(),
+                    Some("NIC.Embedded.1-1-1"),
+                    "the next exploration that resolves the id refreshes the prediction"
+                );
+                Ok(())
+            }
+        })
+        .await?;
 
     Ok(())
 }

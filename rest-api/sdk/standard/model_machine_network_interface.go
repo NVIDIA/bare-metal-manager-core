@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,13 +22,20 @@ var _ MappedNullable = &MachineNetworkInterface{}
 
 // MachineNetworkInterface Describes information about an Ethernet Interface of a Machine
 type MachineNetworkInterface struct {
-	MacAddress  NullableString `json:"macAddress,omitempty"`
-	Vendor      NullableString `json:"vendor,omitempty"`
-	Device      NullableString `json:"device,omitempty"`
-	Path        NullableString `json:"path,omitempty"`
-	NumaNode    *int32         `json:"numaNode,omitempty"`
+	// Name of the Machine's NetworkInterface
+	MacAddress NullableString `json:"macAddress,omitempty"`
+	// Serial number of the Machine's NetworkInterface
+	Vendor NullableString `json:"vendor,omitempty"`
+	// Device number of the Machine's NetworkInterface
+	Device NullableString `json:"device,omitempty"`
+	// Bios path of the Machine's NetworkInterface
+	Path NullableString `json:"path,omitempty"`
+	// Info of numa node Machine's NetworkInterface
+	NumaNode *int32 `json:"numaNode,omitempty"`
+	// Description the Machine's NetworkInterface
 	Description NullableString `json:"description,omitempty"`
-	Slot        NullableString `json:"slot,omitempty"`
+	// Slot number of the Machine's NetworkInterface
+	Slot NullableString `json:"slot,omitempty"`
 }
 
 // NewMachineNetworkInterface instantiates a new MachineNetworkInterface object

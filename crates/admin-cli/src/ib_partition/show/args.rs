@@ -23,16 +23,16 @@ use clap::Parser;
 EXAMPLES:
 
 List all InfiniBand partitions:
-    $ carbide-admin-cli ib-partition show
+    $ nico-admin-cli ib-partition show
 
 Show one InfiniBand partition by ID:
-    $ carbide-admin-cli ib-partition show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli ib-partition show 12345678-1234-5678-90ab-cdef01234567
 
 List partitions for one tenant:
-    $ carbide-admin-cli ib-partition show --tenant-org-id fds34511233a
+    $ nico-admin-cli ib-partition show --tenant-org-id fds34511233a
 
 Find a partition by name:
-    $ carbide-admin-cli ib-partition show --name my-partition
+    $ nico-admin-cli ib-partition show --name my-partition
 
 ")]
 pub struct Args {

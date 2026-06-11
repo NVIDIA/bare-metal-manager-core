@@ -25,10 +25,10 @@ use crate::credential::common::DEFAULT_IB_FABRIC_NAME;
 EXAMPLES:
 
 Generate a UFM cert for the default fabric:
-    $ carbide-admin-cli credential generate-ufm-cert
+    $ nico-admin-cli credential generate-ufm-cert
 
 Generate a UFM cert for a named fabric:
-    $ carbide-admin-cli credential generate-ufm-cert --fabric default
+    $ nico-admin-cli credential generate-ufm-cert --fabric default
 
 ")]
 pub struct Args {

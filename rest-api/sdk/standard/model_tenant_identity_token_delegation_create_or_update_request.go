@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,7 +25,8 @@ var _ MappedNullable = &TenantIdentityTokenDelegationCreateOrUpdateRequest{}
 // TenantIdentityTokenDelegationCreateOrUpdateRequest RFC 8693 token exchange callback configuration. Omit `clientSecretBasic` entirely for auth method `none`; include it for `client_secret_basic`.  Because PUT is full-replace, omitting `clientSecretBasic` on a subsequent update **clears** any previously-stored credentials and switches the org back to no-auth. To keep basic-auth across updates, re-supply `clientId` and `clientSecret` on every PUT — Core never returns the raw secret (only its hash), so the secret must be available to the caller.
 type TenantIdentityTokenDelegationCreateOrUpdateRequest struct {
 	// URL of the tenant's RFC 8693 token exchange endpoint. The Core gRPC API validates scheme and host against its configured `[machine_identity].token_endpoint_domain_allowlist` and rejects mismatches with `400 Bad Request`. Operators that need to enforce HTTPS-only must populate that allowlist.
-	TokenEndpoint     string                                  `json:"tokenEndpoint"`
+	TokenEndpoint string `json:"tokenEndpoint"`
+	// Client-secret basic authentication settings for token delegation
 	ClientSecretBasic *TenantIdentityBasicClientSecretRequest `json:"clientSecretBasic,omitempty"`
 	// Audience value placed on the intermediate JWT-SVID posted to the exchange endpoint.
 	SubjectTokenAudience string `json:"subjectTokenAudience"`

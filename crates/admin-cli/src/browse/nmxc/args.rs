@@ -47,13 +47,13 @@ impl From<NmxcOperationArg> for forgerpc::NmxcBrowseOperation {
 EXAMPLES:
 
 List the GPUs on a chassis via NMX-C:
-    $ carbide-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info-list
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info-list
 
 List the compute nodes on a chassis:
-    $ carbide-admin-cli browse nmxc --chassis-serial 1234567890 --operation compute-node-info-list
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation compute-node-info-list
 
 Get info for a specific GPU UID:
-    $ carbide-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info --gpu-uid 42
+    $ nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info --gpu-uid 42
 
 ")]
 pub struct Args {

@@ -21,10 +21,10 @@
 EXAMPLES:
 
 Print network status of all DPUs:
-    $ carbide-admin-cli dpu network status
+    $ nico-admin-cli dpu network status
 
 Show the VPC network configuration for one DPU:
-    $ carbide-admin-cli dpu network config --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu network config --machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub enum Args {
@@ -35,7 +35,7 @@ pub enum Args {
 EXAMPLES:
 
 Show the VPC network configuration for one DPU:
-    $ carbide-admin-cli dpu network config --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu network config --machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
     Config(crate::machine::NetworkConfigQuery),

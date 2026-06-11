@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -307,7 +307,7 @@ func (r ApiGetAllVpcRequest) NvLinkLogicalPartitionId(nvLinkLogicalPartitionId s
 	return r
 }
 
-// Search for matches across all VPCs. Input will be matched against name, description, labels and status fields
+// Search for matches across all VPCs. Input will be matched against name, description, labels, and status fields
 func (r ApiGetAllVpcRequest) Query(query string) ApiGetAllVpcRequest {
 	r.query = &query
 	return r
@@ -772,7 +772,7 @@ UpdateVpcVirtualization Update VPC Virtualization
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
 
 Tenant must own the VPC
-Request is rejected if the VPC already has Subnets or Instances
+Request is rejected if the VPC already has Subnets or Instances.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

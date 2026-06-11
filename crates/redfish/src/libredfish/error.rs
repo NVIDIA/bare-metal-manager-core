@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::SecretsError;
+use carbide_secrets::SecretsError;
 use libredfish::RedfishError;
 use state_controller::state_handler::{ExternalServiceError, StateHandlerError};
 

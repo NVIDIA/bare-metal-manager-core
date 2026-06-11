@@ -650,8 +650,8 @@ func (rs *FlowServerImpl) PowerOnRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation:               operations.PowerOperationPowerOn,
-			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
+			Operation:              operations.PowerOperationPowerOn,
+			OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 		},
 	)
 }
@@ -671,9 +671,9 @@ func (rs *FlowServerImpl) PowerOffRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation:               op,
-			Forced:                  req.GetForced(),
-			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
+			Operation:              op,
+			Forced:                 req.GetForced(),
+			OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 		},
 	)
 }
@@ -693,9 +693,9 @@ func (rs *FlowServerImpl) PowerResetRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation:               op,
-			Forced:                  req.GetForced(),
-			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
+			Operation:              op,
+			Forced:                 req.GetForced(),
+			OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 		},
 	)
 }
@@ -718,8 +718,8 @@ func (rs *FlowServerImpl) BringUpRack(
 	}
 
 	info := &operations.BringUpTaskInfo{
-		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
-		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
+		RuleID:                 protobuf.UUIDStringFrom(req.GetRuleId()),
+		OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 	}
 	opReq, err := rs.convertTargetSpecToOperationRequest(
 		targetSpec, req.GetDescription(), info,
@@ -1254,11 +1254,11 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 
 	// Build FirmwareControlTaskInfo
 	info := &operations.FirmwareControlTaskInfo{
-		Operation:               operations.FirmwareOperationUpgrade,
-		TargetVersion:           req.GetTargetVersion(),
-		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
-		SubTargets:              req.GetSubTargets(),
-		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
+		Operation:              operations.FirmwareOperationUpgrade,
+		TargetVersion:          req.GetTargetVersion(),
+		RuleID:                 protobuf.UUIDStringFrom(req.GetRuleId()),
+		SubTargets:             req.GetSubTargets(),
+		OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 	}
 
 	// Parse optional time parameters for scheduled upgrade

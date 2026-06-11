@@ -28,13 +28,13 @@ use std::time::Instant;
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::sanitized_mac;
 use carbide_redfish::libredfish::conv::IntoModel;
+use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config::SiteExplorerConfig;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
-use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -734,6 +734,29 @@ impl SiteExplorer {
         self.audit_exploration_results(metrics, &expected_endpoint_index)
             .await?;
 
+        // Retained boot interface records that aged out of the configured
+        // window are already ignored at read time; sweep them once per pass
+        // so MACs that never return don't occupy table rows indefinitely.
+        // (A no-op without a window: records wait for their machine.)
+        if self.config.retained_boot_interface_window.is_some() {
+            let mut txn = self
+                .database_connection
+                .begin()
+                .await
+                .map_err(|e| DatabaseError::new("begin retained boot interface sweep", e))?;
+            let swept = db::retained_boot_interface::delete_expired(
+                &mut txn,
+                self.config.retained_boot_interface_window,
+            )
+            .await?;
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("end retained boot interface sweep", e))?;
+            if swept > 0 {
+                tracing::info!(swept, "Removed expired retained boot interface records");
+            }
+        }
+
         Ok(identified_hosts)
     }
 
@@ -1379,11 +1402,20 @@ impl SiteExplorer {
 
         // Record each host NIC's Redfish id on its machine_interfaces row so the
         // primary-flagged row is the host's complete boot interface (MAC + id).
+        // Pending predicted interfaces get the same refresh, so a prediction
+        // minted before the report resolved the id stays as current as the
+        // live report until DHCP promotes it.
         for boot_interface in &nic_boot_interfaces {
             db::machine_interface::set_boot_interface_id(
                 boot_interface.mac_address,
                 &boot_interface.interface_id,
                 &mut txn,
+            )
+            .await?;
+            db::predicted_machine_interface::set_boot_interface_id(
+                &mut txn,
+                boot_interface.mac_address,
+                &boot_interface.interface_id,
             )
             .await?;
         }
@@ -1578,6 +1610,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_machine BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1591,6 +1624,7 @@ impl SiteExplorer {
                     ip,
                     InterfaceType::Data,
                     "expected_machine host NIC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1604,6 +1638,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_switch BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -1620,6 +1655,7 @@ impl SiteExplorer {
                             nvos_ip,
                             InterfaceType::Data,
                             "expected_switch NVOS",
+                            self.config.retained_boot_interface_window,
                         )
                         .await;
                     }
@@ -1643,6 +1679,7 @@ impl SiteExplorer {
                     bmc_ip,
                     InterfaceType::Bmc,
                     "expected_power_shelf BMC",
+                    self.config.retained_boot_interface_window,
                 )
                 .await;
             }
@@ -2828,6 +2865,7 @@ pub async fn try_preallocate_one(
     ip: IpAddr,
     interface_type: InterfaceType,
     kind: &'static str,
+    retained_window: Option<chrono::Duration>,
 ) {
     let mut txn = match db::Transaction::begin(pool).await {
         Ok(t) => t,
@@ -2841,10 +2879,22 @@ pub async fn try_preallocate_one(
     };
     let result = match interface_type {
         InterfaceType::Bmc => {
-            db::machine_interface::preallocate_bmc_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_bmc_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
         InterfaceType::Data => {
-            db::machine_interface::preallocate_machine_interface(txn.as_pgconn(), mac, ip).await
+            db::machine_interface::preallocate_machine_interface(
+                txn.as_pgconn(),
+                mac,
+                ip,
+                retained_window,
+            )
+            .await
         }
     };
     match result {
@@ -3144,6 +3194,8 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
 mod tests {
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
+    use nico_test_support::Outcome::*;
+    use nico_test_support::{Case, check_cases};
 
     use super::*;
 
@@ -3272,10 +3324,11 @@ mod tests {
 
     #[test]
     fn test_find_host_pf_mac_address() {
-        let ep_report: EndpointExplorationReport = load_bf2_ep_report();
-        let ep = ExploredEndpoint {
+        // A freshly-loaded BF2 endpoint; each case starts from one of these and
+        // perturbs the firmware inventory the legacy MAC lookup reads from.
+        let endpoint = || ExploredEndpoint {
             address: "10.217.132.202".parse().unwrap(),
-            report: ep_report,
+            report: load_bf2_ep_report(),
             report_version: ConfigVersion::initial(),
             preingestion_state: PreingestionState::Initial,
             waiting_for_explorer_refresh: false,
@@ -3290,73 +3343,72 @@ mod tests {
             boot_interface_id: None,
         };
 
-        assert_eq!(
-            find_host_pf_mac_address(&ep).unwrap(),
-            "B8:3F:D2:90:95:F4".parse().unwrap()
-        );
+        // Override the `DPU_SYS_IMAGE` firmware version the legacy path parses.
+        let with_sys_image = |version: &str| {
+            let mut ep = endpoint();
+            let inv = ep
+                .report
+                .service
+                .iter_mut()
+                .find(|s| s.id == "FirmwareInventory")
+                .unwrap()
+                .inventories
+                .iter_mut()
+                .find(|inv| inv.id == "DPU_SYS_IMAGE")
+                .unwrap();
+            inv.version = Some(version.to_string());
+            ep
+        };
 
-        // Invalid DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        let inv = update_service
-            .inventories
-            .iter_mut()
-            .find(|inv| inv.id == "DPU_SYS_IMAGE")
-            .unwrap();
-        inv.version = Some("b83f:d203:0090:95fz".to_string());
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string())
-        );
+        // Drop the firmware-inventory entry whose `id` matches `inventory_id`.
+        let without_inventory = |inventory_id: &str| {
+            let mut ep = endpoint();
+            ep.report
+                .service
+                .iter_mut()
+                .find(|s| s.id == "FirmwareInventory")
+                .unwrap()
+                .inventories
+                .retain(|inv| inv.id != inventory_id);
+            ep
+        };
 
-        // Invalid DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        let inv = update_service
-            .inventories
-            .iter_mut()
-            .find(|inv| inv.id == "DPU_SYS_IMAGE")
-            .unwrap();
-        inv.version = Some("abc".to_string());
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Invalid sys_image_version length: 3 (abc)".to_string())
-        );
+        // Drop the whole `FirmwareInventory` service.
+        let without_firmware_inventory = || {
+            let mut ep = endpoint();
+            ep.report.service.retain(|s| s.id != "FirmwareInventory");
+            ep
+        };
 
-        // Missing DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        update_service
-            .inventories
-            .retain_mut(|inv| inv.id != "DPU_SYS_IMAGE");
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Missing DPU_SYS_IMAGE".to_string())
-        );
-
-        // Missing FirmwareInventory field
-        let mut ep1 = ep;
-        ep1.report
-            .service
-            .retain_mut(|inv| inv.id != "FirmwareInventory");
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Missing FirmwareInventory".to_string())
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy sys-image MAC, sanitized",
+                    input: endpoint(),
+                    expect: Yields("B8:3F:D2:90:95:F4".parse().unwrap()),
+                },
+                Case {
+                    scenario: "legacy sys-image MAC fails sanitization",
+                    input: with_sys_image("b83f:d203:0090:95fz"),
+                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
+                },
+                Case {
+                    scenario: "legacy sys-image is too short",
+                    input: with_sys_image("abc"),
+                    expect: FailsWith("Invalid sys_image_version length: 3 (abc)".to_string()),
+                },
+                Case {
+                    scenario: "no DPU_SYS_IMAGE inventory",
+                    input: without_inventory("DPU_SYS_IMAGE"),
+                    expect: FailsWith("Missing DPU_SYS_IMAGE".to_string()),
+                },
+                Case {
+                    scenario: "no FirmwareInventory service",
+                    input: without_firmware_inventory(),
+                    expect: FailsWith("Missing FirmwareInventory".to_string()),
+                },
+            ],
+            |ep| find_host_pf_mac_address(&ep),
         );
     }
 

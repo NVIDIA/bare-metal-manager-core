@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Unassign whatever SKU is assigned to a machine:
-    $ carbide-admin-cli sku unassign 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli sku unassign 12345678-1234-5678-90ab-cdef01234567
 
 Force the unassignment:
-    $ carbide-admin-cli sku unassign 12345678-1234-5678-90ab-cdef01234567 --force
+    $ nico-admin-cli sku unassign 12345678-1234-5678-90ab-cdef01234567 --force
 
 ")]
 pub struct Args {

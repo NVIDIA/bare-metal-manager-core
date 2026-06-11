@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,15 +24,24 @@ var _ MappedNullable = &NetworkSecurityGroupRule{}
 
 // NetworkSecurityGroupRule Aggregation of Network Security Group rules
 type NetworkSecurityGroupRule struct {
-	Name                 NullableString `json:"name,omitempty"`
-	Direction            string         `json:"direction"`
-	SourcePortRange      NullableString `json:"sourcePortRange,omitempty"`
+	// Name of the Network Security Group rule
+	Name NullableString `json:"name,omitempty"`
+	// Traffic direction the rule applies to
+	Direction string `json:"direction"`
+	// Source port or port range matched by the rule
+	SourcePortRange NullableString `json:"sourcePortRange,omitempty"`
+	// Destination port or port range matched by the rule
 	DestinationPortRange NullableString `json:"destinationPortRange,omitempty"`
-	Protocol             string         `json:"protocol"`
-	Action               string         `json:"action"`
-	Priority             *int32         `json:"priority,omitempty"`
-	SourcePrefix         string         `json:"sourcePrefix"`
-	DestinationPrefix    string         `json:"destinationPrefix"`
+	// Network protocol matched by the rule
+	Protocol string `json:"protocol"`
+	// Action applied when traffic matches the rule
+	Action string `json:"action"`
+	// Rule priority used to order evaluation
+	Priority *int32 `json:"priority,omitempty"`
+	// Source CIDR prefix matched by the rule
+	SourcePrefix string `json:"sourcePrefix"`
+	// Destination CIDR prefix matched by the rule
+	DestinationPrefix string `json:"destinationPrefix"`
 }
 
 type _NetworkSecurityGroupRule NetworkSecurityGroupRule

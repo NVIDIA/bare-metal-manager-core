@@ -22,8 +22,8 @@ use ::rpc::forge::{
     self as rpc, DpuExtensionServiceObservabilityConfig,
     DpuExtensionServiceObservabilityConfigLogging,
 };
+use carbide_secrets::credentials::{CredentialKey, Credentials};
 use config_version::ConfigVersion;
-use forge_secrets::credentials::{CredentialKey, Credentials};
 use tonic::Request;
 use uuid::Uuid;
 
@@ -244,7 +244,7 @@ async fn get_credentials_for_extension_service(
     extension_service: &rpc::DpuExtensionService,
 ) -> Result<Credentials, eyre::Report> {
     // Verify the credential is stored correctly in Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = carbide_secrets::credentials::CredentialKey::ExtensionService {
         service_id: extension_service.service_id.clone(),
         version: extension_service
             .latest_version_info
@@ -375,7 +375,7 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
     assert!(latest_version.has_credential);
 
     // Verify the credential is stored correctly in Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = carbide_secrets::credentials::CredentialKey::ExtensionService {
         service_id: extension_service.service_id.clone(),
         version: latest_version
             .version
@@ -1871,7 +1871,7 @@ async fn test_extension_service_create_update_delete_credential(
     assert!(services.is_empty());
 
     // Expect the credential is deleted from Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = carbide_secrets::credentials::CredentialKey::ExtensionService {
         service_id: service_id.clone(),
         version: 4.to_string(),
     };

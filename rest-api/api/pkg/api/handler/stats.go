@@ -305,8 +305,8 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 				return acc + ac.ConstraintValue
 			}, 0)
 
-			apiAllocs := lo.Map(details, func(ac cdbm.AllocationConstraint, _ int) model.APITenantInstanceTypeAllocation {
-				return model.APITenantInstanceTypeAllocation{
+			apiAllocs := lo.Map(details, func(ac cdbm.AllocationConstraint, _ int) model.APITenantInstanceTypeAllocationStats {
+				return model.APITenantInstanceTypeAllocationStats{
 					ID:    ac.Allocation.ID.String(),
 					Name:  ac.Allocation.Name,
 					Total: ac.ConstraintValue,

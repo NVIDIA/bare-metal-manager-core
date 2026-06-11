@@ -25,10 +25,10 @@ pub enum Args {
 EXAMPLES:
 
 Show power options for all hosts:
-    $ carbide-admin-cli managed-host power-options show
+    $ nico-admin-cli managed-host power-options show
 
 Show power options for one host:
-    $ carbide-admin-cli managed-host power-options show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-host power-options show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
     Show(ShowPowerOptions),
@@ -36,7 +36,7 @@ Show power options for one host:
 EXAMPLES:
 
 Set a host's desired power state (on / off / power-manager-disabled):
-    $ carbide-admin-cli managed-host power-options update 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host power-options update 12345678-1234-5678-90ab-cdef01234567 \
     --desired-power-state off
 
 ")]
@@ -46,7 +46,7 @@ Set a host's desired power state (on / off / power-manager-disabled):
 EXAMPLES:
 
 Get the ingestion state for a machine by its BMC MAC:
-    $ carbide-admin-cli managed-host power-options get-machine-ingestion-state \
+    $ nico-admin-cli managed-host power-options get-machine-ingestion-state \
     --mac-address 00:11:22:33:44:55
 
 ")]
@@ -56,7 +56,7 @@ Get the ingestion state for a machine by its BMC MAC:
 EXAMPLES:
 
 Allow a machine to be ingested and powered on:
-    $ carbide-admin-cli managed-host power-options allow-ingestion-and-power-on \
+    $ nico-admin-cli managed-host power-options allow-ingestion-and-power-on \
     --mac-address 00:11:22:33:44:55
 
 ")]

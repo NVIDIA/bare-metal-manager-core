@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,10 +23,14 @@ var _ MappedNullable = &StatusDetail{}
 
 // StatusDetail Describes the details of a status transition for a resource
 type StatusDetail struct {
-	Status  *string        `json:"status,omitempty"`
+	// State of the associated entity at a particular time
+	Status *string `json:"status,omitempty"`
+	// Description of the state and cause/remedy in case of error
 	Message NullableString `json:"message,omitempty"`
-	Created *time.Time     `json:"created,omitempty"`
-	Updated *time.Time     `json:"updated,omitempty"`
+	// Date/time when the associated entity assumed the status
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the associated entity was last observed with this status
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewStatusDetail instantiates a new StatusDetail object

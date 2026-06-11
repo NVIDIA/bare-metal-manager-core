@@ -87,6 +87,7 @@ serde_yaml = "0.9"
 [dev-dependencies]
 carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 carbide-ssh = { path = "../ssh", features = ["test_support"] }
+nico-test-support = { path = "../test-support" }
 russh = { workspace = true }
 
 [features]

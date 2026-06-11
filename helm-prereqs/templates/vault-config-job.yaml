@@ -200,7 +200,7 @@ spec:
                 key_bits=256 \
                 ttl=1h \
                 max_ttl=12h \
-                ou={{ .Values.vault.nicoCliClientRole.name | quote }}{{ if .Values.vault.nicoCliClientRole.organization }} \
+                ou={{ .Values.vault.nicoCliClientRole.ou | default .Values.vault.nicoCliClientRole.name | quote }}{{ if .Values.vault.nicoCliClientRole.organization }} \
                 organization={{ .Values.vault.nicoCliClientRole.organization | quote }}{{ end }}
               {{ end }}
 

@@ -1762,17 +1762,12 @@ pub async fn list_machines_requested_for_host_reprovisioning(
 pub async fn apply_agent_upgrade_policy(
     txn: &mut PgConnection,
     policy: AgentUpgradePolicy,
-    machine_id: &MachineId,
+    machine: &Machine,
 ) -> Result<bool, DatabaseError> {
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
-    let machine = find_one(&mut *txn, machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| DatabaseError::NotFoundError {
-            kind: "dpu_machine",
-            id: machine_id.to_string(),
-        })?;
+
     match machine.network_status_observation.as_ref() {
         None => Ok(false),
         Some(obs) => {
@@ -1784,7 +1779,7 @@ pub async fn apply_agent_upgrade_policy(
             if should_upgrade != machine.needs_agent_upgrade() {
                 set_dpu_agent_upgrade_requested(
                     txn,
-                    machine_id,
+                    &machine.id,
                     should_upgrade,
                     carbide_api_version,
                 )

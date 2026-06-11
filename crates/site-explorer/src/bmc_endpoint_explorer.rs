@@ -26,7 +26,7 @@ use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use forge_secrets::credentials::{CredentialManager, Credentials};
+use carbide_secrets::credentials::{CredentialManager, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_entity::{BmcCredentialsData, ExpectedEntity};

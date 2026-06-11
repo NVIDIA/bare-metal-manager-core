@@ -22,7 +22,7 @@ use std::net::{IpAddr, SocketAddr};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc};
 use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
 };
 use mac_address::MacAddress;

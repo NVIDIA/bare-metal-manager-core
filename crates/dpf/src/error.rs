@@ -42,6 +42,9 @@ pub enum DpfError {
 
     #[error("Watcher error: {0}")]
     WatcherError(String),
+
+    #[error("JSON serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
 }
 
 impl DpfError {

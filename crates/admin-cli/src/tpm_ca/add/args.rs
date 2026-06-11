@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Add a CA certificate from a DER/CER/PEM file:
-    $ carbide-admin-cli tpm-ca add --filename /path/to/tpm-ca.der
+    $ nico-admin-cli tpm-ca add --filename /path/to/tpm-ca.der
 
 ")]
 pub struct Args {

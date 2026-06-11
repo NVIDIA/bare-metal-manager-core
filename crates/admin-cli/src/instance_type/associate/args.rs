@@ -25,11 +25,11 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Associate one machine with an instance type:
-    $ carbide-admin-cli instance-type associate 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance-type associate 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
 Associate several machines (comma-separated, no spaces):
-    $ carbide-admin-cli instance-type associate 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance-type associate 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789,11111111-2222-3333-4444-555555555555
 
 ")]

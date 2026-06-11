@@ -24,11 +24,11 @@ use clap::Parser;
 EXAMPLES:
 
 Attach a network security group to a VPC:
-    $ carbide-admin-cli network-security-group attach --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group attach --id 12345678-1234-5678-90ab-cdef01234567 \
     --vpc-id abcdef01-2345-6789-abcd-ef0123456789
 
 Attach it to a single instance:
-    $ carbide-admin-cli network-security-group attach --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group attach --id 12345678-1234-5678-90ab-cdef01234567 \
     --instance-id abcdef01-2345-6789-abcd-ef0123456789
 
 ")]
