@@ -223,7 +223,7 @@ sequenceDiagram
 
 This crate is meant to implement a clean architectural boundary, but the implementation still couples to nico in slightly uncomfortable ways:
 
-1. It's still a component of the ncx-infra-controller-core repo, so it's not fully independent
+1. It's still a component of the infra-controller repo, so it's not fully independent
 2. It expects nico-api to resolve proxied BMC IPs through `FindMacAddressByBmcIp`.
 3. It expects nico-api to return credentials from `GetBmcCredentials` for every proxied BMC.
 

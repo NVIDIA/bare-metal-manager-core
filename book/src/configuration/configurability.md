@@ -689,8 +689,8 @@ it with the rack-level state machine. See
 The NICo REST stack (separate helm release named `nico-rest`, in the
 `nico-rest` namespace) sits on top of NICo Core and provides the public
 REST API, workflow orchestration, optional Keycloak IdP, and the
-per-site agent. Its source repo is
-[`infra-controller-rest`](https://github.com/NVIDIA/ncx-infra-controller-rest);
+per-site agent. Its source lives in the
+[`rest-api/`](https://github.com/NVIDIA/infra-controller/tree/main/rest-api) tree;
 this guide covers only the *site-side* configuration knobs.
 
 ### nico-rest helm release — `helm-prereqs/values/nico-rest.yaml`
@@ -732,7 +732,7 @@ Temporal is deployed by `setup.sh` Phase 7f using the upstream Temporal
 helm chart with mTLS enabled. The mTLS issuer (`nico-rest-ca-issuer`) is
 installed in Phase 7b. Operators usually don't touch Temporal config
 directly; see the temporal subchart values in
-[`infra-controller-rest/helm/charts/temporal/values.yaml`](https://github.com/NVIDIA/ncx-infra-controller-rest)
+[`rest-api/temporal-helm/temporal/values.yaml`](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/temporal-helm/temporal)
 if you need to tune retention or task queue counts.
 
 ### Keycloak (dev IdP)
@@ -814,7 +814,7 @@ also re-applies operator-chart defaults that may not match your
 production tuning.
 
 For the REST stack the equivalent is `helm upgrade nico-rest …` against
-`infra-controller-rest/helm/charts/nico-rest`.
+`rest-api/helm/charts/nico-rest`.
 
 See [`helm/README.md` → Upgrading](../../../helm/README.md#upgrading) for
 the diff-then-apply pattern.

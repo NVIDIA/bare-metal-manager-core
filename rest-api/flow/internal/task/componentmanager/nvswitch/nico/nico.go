@@ -163,6 +163,12 @@ func (m *Manager) ensureRackOperable(
 		return nil
 	}
 
+	// A nil gate is the documented permissive mode: skip the rack lookup
+	// entirely rather than dispatch on a nil interface.
+	if m.readiness == nil {
+		return nil
+	}
+
 	if overrideReadinessCheck {
 		log.Warn().
 			Strs("switch_ids", switchIDs).
