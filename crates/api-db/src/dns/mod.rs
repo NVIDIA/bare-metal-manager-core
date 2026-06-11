@@ -27,6 +27,8 @@ pub fn normalize_domain(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async};
     use sqlx::Row;
 
     #[test]
@@ -39,26 +41,48 @@ mod tests {
 
     #[crate::sqlx_test]
     async fn test_dns_hostname_from_ipv6_expands_to_rust_format(pool: sqlx::PgPool) {
-        let cases = [
-            ("192.168.1.2", "192-168-1-2"),
-            ("::", "0000-0000-0000-0000-0000-0000-0000-0000"),
-            ("::1", "0000-0000-0000-0000-0000-0000-0000-0001"),
-            ("2001:db8::2", "2001-0db8-0000-0000-0000-0000-0000-0002"),
-            (
-                "::ffff:192.0.2.128",
-                "0000-0000-0000-0000-0000-ffff-c000-0280",
-            ),
-        ];
-
-        for (address, expected_hostname) in cases {
-            let hostname: String = sqlx::query_scalar("SELECT nico_inet_to_dns_hostname($1::inet)")
-                .bind(address)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-            assert_eq!(hostname, expected_hostname);
-        }
+        check_cases_async(
+            [
+                Case {
+                    scenario: "ipv4 dotted-quad becomes dashed octets",
+                    input: "192.168.1.2",
+                    expect: Yields("192-168-1-2".to_string()),
+                },
+                Case {
+                    scenario: "unspecified address expands every hextet",
+                    input: "::",
+                    expect: Yields("0000-0000-0000-0000-0000-0000-0000-0000".to_string()),
+                },
+                Case {
+                    scenario: "loopback keeps the low hextet",
+                    input: "::1",
+                    expect: Yields("0000-0000-0000-0000-0000-0000-0000-0001".to_string()),
+                },
+                Case {
+                    scenario: "documentation prefix expands in full",
+                    input: "2001:db8::2",
+                    expect: Yields("2001-0db8-0000-0000-0000-0000-0000-0002".to_string()),
+                },
+                Case {
+                    scenario: "ipv4-mapped folds into the trailing hextets",
+                    input: "::ffff:192.0.2.128",
+                    expect: Yields("0000-0000-0000-0000-0000-ffff-c000-0280".to_string()),
+                },
+            ],
+            |address| {
+                // Clone the (Arc-backed) pool per case so the future owns it and
+                // the closure stays `Fn` — see check_cases_async's signature.
+                let pool = pool.clone();
+                async move {
+                    sqlx::query_scalar::<_, String>("SELECT nico_inet_to_dns_hostname($1::inet)")
+                        .bind(address)
+                        .fetch_one(&pool)
+                        .await
+                        .map_err(drop)
+                }
+            },
+        )
+        .await;
     }
 
     #[crate::sqlx_test]

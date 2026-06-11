@@ -201,56 +201,83 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn token_exchange_request_success_parses_json_response() {
-        let mut server = mockito::Server::new_async().await;
-        let _m = server
-            .mock("POST", "/token")
-            .match_header("content-type", "application/x-www-form-urlencoded")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                r#"{"access_token":"exchanged","issued_token_type":"urn:ietf:params:oauth:token-type:jwt","token_type":"Bearer","expires_in":42}"#,
-            )
-            .create_async()
-            .await;
+    async fn token_exchange_request_maps_endpoint_response() {
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::{Case, check_cases_async};
 
-        let client = reqwest::Client::new();
-        let url = format!("{}/token", server.url());
-        let out = token_exchange_request(
-            &client,
-            &url,
-            "sub.jwt",
-            &["spiffe://workload".to_string()],
-            None,
+        // What the mocked `token_endpoint` returns for one request.
+        struct Reply {
+            status: usize,
+            body: &'static str,
+        }
+
+        // The four token fields we expect a 2xx response to parse into.
+        #[derive(Debug, PartialEq)]
+        struct Exchanged {
+            access_token: String,
+            issued_token_type: String,
+            token_type: String,
+            expires_in_sec: u32,
+        }
+
+        // The success row asserts the JSON parses into all four fields; the error
+        // row only asserts *that* a non-2xx fails — `Status` (the error) isn't
+        // `PartialEq`, so the closure maps it to `()` and the row uses `Fails`.
+        check_cases_async(
+            [
+                Case {
+                    scenario: "2xx JSON parses into the response fields",
+                    input: Reply {
+                        status: 200,
+                        body: r#"{"access_token":"exchanged","issued_token_type":"urn:ietf:params:oauth:token-type:jwt","token_type":"Bearer","expires_in":42}"#,
+                    },
+                    expect: Yields(Exchanged {
+                        access_token: "exchanged".to_string(),
+                        issued_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
+                        token_type: "Bearer".to_string(),
+                        expires_in_sec: 42,
+                    }),
+                },
+                Case {
+                    scenario: "non-2xx maps to an error",
+                    input: Reply {
+                        status: 401,
+                        body: r#"{"error":"invalid_client"}"#,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |reply| async move {
+                let mut server = mockito::Server::new_async().await;
+                let _m = server
+                    .mock("POST", "/token")
+                    .match_header("content-type", "application/x-www-form-urlencoded")
+                    .with_status(reply.status)
+                    .with_header("content-type", "application/json")
+                    .with_body(reply.body)
+                    .create_async()
+                    .await;
+
+                let client = reqwest::Client::new();
+                let url = format!("{}/token", server.url());
+                token_exchange_request(
+                    &client,
+                    &url,
+                    "sub.jwt",
+                    &["spiffe://workload".to_string()],
+                    None,
+                )
+                .await
+                .map(|out| Exchanged {
+                    access_token: out.access_token,
+                    issued_token_type: out.issued_token_type,
+                    token_type: out.token_type,
+                    expires_in_sec: out.expires_in_sec,
+                })
+                .map_err(drop)
+            },
         )
-        .await
-        .unwrap();
-
-        assert_eq!(out.access_token, "exchanged");
-        assert_eq!(
-            out.issued_token_type,
-            "urn:ietf:params:oauth:token-type:jwt"
-        );
-        assert_eq!(out.token_type, "Bearer");
-        assert_eq!(out.expires_in_sec, 42);
-    }
-
-    #[tokio::test]
-    async fn token_exchange_request_http_error_maps_to_status() {
-        let mut server = mockito::Server::new_async().await;
-        let _m = server
-            .mock("POST", "/token")
-            .with_status(401)
-            .with_body(r#"{"error":"invalid_client"}"#)
-            .create_async()
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/token", server.url());
-        let err = token_exchange_request(&client, &url, "sub.jwt", &["aud".to_string()], None)
-            .await
-            .unwrap_err();
-        assert!(err.message().contains("401"));
+        .await;
     }
 
     #[tokio::test]

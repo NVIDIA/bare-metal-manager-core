@@ -51,5 +51,8 @@ sqlx = { workspace = true, features = ["postgres"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true
