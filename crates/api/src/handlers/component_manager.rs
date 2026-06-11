@@ -20,7 +20,6 @@ use std::net::IpAddr;
 
 use ::rpc::common::SystemPowerControl;
 use ::rpc::forge::{self as rpc};
-use crate::rack::firmware_object::rms_access_token_or_noauth;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -46,6 +45,7 @@ use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use tonic::{Code, Request, Response, Status};
 
 use crate::api::{Api, log_request_data, log_request_data_redacted};
+use crate::rack::firmware_object::rms_access_token_or_noauth;
 
 const MACHINE_POWER_OVERRIDE_SOURCE: &str = "component_power_control";
 const MACHINE_POWER_OVERRIDE_MESSAGE: &str = "Compute-Tray component power control in progress";
@@ -2208,10 +2208,7 @@ mod tests {
     fn rack_maintenance_firmware_update_defaults_missing_access_token_to_noauth() {
         let token = require_firmware_object_json_for_rack_maintenance("rack", &None, "{}").unwrap();
 
-        assert_eq!(
-            token,
-            crate::rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN
-        );
+        assert_eq!(token, crate::rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN);
     }
 
     #[test]
@@ -2232,10 +2229,7 @@ mod tests {
             require_firmware_object_json_for_rack_maintenance("rack", &Some(String::new()), "{}")
                 .unwrap();
 
-        assert_eq!(
-            token,
-            crate::rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN
-        );
+        assert_eq!(token, crate::rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN);
     }
 
     #[test]

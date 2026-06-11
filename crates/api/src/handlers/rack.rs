@@ -19,9 +19,6 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
-use crate::rack::firmware_object::{
-    rack_maintenance_access_token_key, rms_access_token_or_noauth,
-};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -41,6 +38,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::auth::AuthContext;
+use crate::rack::firmware_object::{rack_maintenance_access_token_key, rms_access_token_or_noauth};
 
 pub async fn get_rack(
     api: &Api,
