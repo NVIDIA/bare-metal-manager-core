@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use carbide_ipmi::IPMITool;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
@@ -359,10 +360,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<&str>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .machine_setup(bmc_ip_address, credentials, boot_interface_mac)
+            .machine_setup(bmc_ip_address, credentials, boot_interface)
             .await
     }
 
@@ -370,10 +371,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: &str,
+        boot_interface: &BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface_mac)
+            .set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface)
             .await
     }
 
@@ -548,9 +549,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
                     };
 
-                // Lite-On power shelf BMCs don't expose vendor details in the
-                // service root, so we fall back to checking the Manufacturer
-                // field across all Chassis entries.
+                // Lite-On and Delta power shelf BMCs don't expose vendor
+                // details in the service root, so we fall back to checking the
+                // Manufacturer field across all Chassis entries.
                 let vendor = match self
                     .redfish_client
                     .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
@@ -562,10 +563,14 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         return Err(e);
                     }
                 };
-                if !vendor.to_lowercase().contains("lite-on") {
+                let vendor_lc = vendor.to_lowercase();
+                if vendor_lc.contains("lite-on") {
+                    RedfishVendor::LiteOnPowerShelf
+                } else if vendor_lc.contains("delta") {
+                    RedfishVendor::DeltaPowerShelf
+                } else {
                     return Err(e);
                 }
-                RedfishVendor::LiteOnPowerShelf
             }
         };
 
@@ -945,13 +950,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        boot_interface_mac: Option<&str>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.machine_setup(bmc_ip_address, credentials, boot_interface_mac)
+                self.machine_setup(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             Err(e) => {
@@ -969,13 +974,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        boot_interface_mac: &str,
+        boot_interface: &BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface_mac)
+                self.set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             Err(e) => {

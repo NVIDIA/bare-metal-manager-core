@@ -174,7 +174,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
             (CONTROLLED_DEVICE_LABEL.to_string(), "true".to_string()),
             (
                 "carbide.nvidia.com/host-bmc-ip".to_string(),
-                info.host_bmc_ip.clone(),
+                info.host_bmc_ip.to_string(),
             ),
             (
                 "carbide.nvidia.com/is-primary-dpu".to_string(),
@@ -200,7 +200,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
         BTreeMap::from([(
             "carbide.nvidia.com/host-bmc-ip".to_string(),
-            info.host_bmc_ip.clone(),
+            info.host_bmc_ip.to_string(),
         )])
     }
 

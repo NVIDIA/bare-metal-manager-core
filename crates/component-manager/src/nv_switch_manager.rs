@@ -38,6 +38,31 @@ pub struct SwitchFirmwareUpdateStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SwitchSlotAndTrayResult {
+    pub bmc_mac: MacAddress,
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitchPowerStateResult {
+    pub bmc_mac: MacAddress,
+    pub power_state: Option<String>,
+    pub error: Option<String>,
+}
+
+impl crate::component_common::ComponentPowerStateResult for SwitchPowerStateResult {
+    fn power_state(&self) -> Option<&str> {
+        self.power_state.as_deref()
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
+
 /// Backend trait for NV-Switch management operations.
 ///
 /// Implementations receive physical endpoint information (BMC + NVOS IPs/MACs)
@@ -72,4 +97,14 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     ) -> Result<Vec<SwitchFirmwareUpdateStatus>, ComponentManagerError>;
 
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError>;
+
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError>;
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError>;
 }

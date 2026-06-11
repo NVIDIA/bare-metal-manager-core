@@ -129,11 +129,24 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 		proto.NvosPassword = creds.NvosPassword
 	}
 
-	if es.Labels != nil {
-		proto.Metadata = &cwssaws.Metadata{
-			Labels: es.Labels.ToProto(),
-		}
+	metadata := &cwssaws.Metadata{
+		Labels: expectedComponentLabelsInput{
+			Manufacturer:    es.Manufacturer,
+			Model:           es.Model,
+			FirmwareVersion: es.FirmwareVersion,
+			SlotID:          es.SlotID,
+			TrayIdx:         es.TrayIdx,
+			HostID:          es.HostID,
+			Labels:          es.Labels,
+		}.ToProto(),
 	}
+	if es.Name != nil {
+		metadata.Name = *es.Name
+	}
+	if es.Description != nil {
+		metadata.Description = *es.Description
+	}
+	proto.Metadata = metadata
 
 	return proto
 }

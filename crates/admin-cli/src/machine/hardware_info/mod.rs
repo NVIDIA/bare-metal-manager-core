@@ -33,7 +33,8 @@ impl Run for Args {
                     &mut ctx.output_file,
                     &ctx.config.format,
                     show_cmd.machine,
-                )?;
+                )
+                .await?;
             }
             Args::Update(capability) => match capability {
                 args::MachineHardwareInfo::Gpus(gpus) => {

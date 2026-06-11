@@ -79,6 +79,10 @@ impl InternalRBACRules {
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "FindVpcPrefixStateHistories",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
         x.perm("GetAllDpaInterfaceIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindDpaInterfacesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateDpaInterface", vec![]);
@@ -641,6 +645,7 @@ impl InternalRBACRules {
         x.perm("DetermineMachineIngestionState", vec![ForgeAdminCLI, Flow]);
         x.perm("AllowIngestionAndPowerOn", vec![ForgeAdminCLI, Flow]);
         x.perm("SetPrimaryDpu", vec![ForgeAdminCLI]);
+        x.perm("SetPrimaryInterface", vec![ForgeAdminCLI]);
         x.perm("CreateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteDpuExtensionService", vec![ForgeAdminCLI, SiteAgent]);

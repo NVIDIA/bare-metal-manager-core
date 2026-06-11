@@ -326,6 +326,30 @@ pub async fn find_by_serial(
         .map_err(|e| DatabaseError::new("machine_topologies find_by_serial", e))
 }
 
+/// Returns a machine's hardware serial -- product, then board, then chassis --
+/// from its discovered topology, or `None` if no topology (or no serial) has
+/// been recorded. Reads the same JSON path that [`find_by_serial`] matches.
+pub async fn serial_for_machine(
+    txn: impl DbReader<'_>,
+    machine_id: &MachineId,
+) -> DatabaseResult<Option<String>> {
+    let query = r#"
+        SELECT COALESCE(
+            NULLIF(topology #>> '{discovery_data,Info,dmi_data,product_serial}', ''),
+            NULLIF(topology #>> '{discovery_data,Info,dmi_data,board_serial}', ''),
+            NULLIF(topology #>> '{discovery_data,Info,dmi_data,chassis_serial}', '')
+        )
+        FROM machine_topologies
+        WHERE machine_id = $1
+    "#;
+    sqlx::query_scalar::<_, Option<String>>(query)
+        .bind(machine_id)
+        .fetch_optional(txn)
+        .await
+        .map(Option::flatten)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 /// Search the topologyfor a string anywhere in the JSON.
 /// Used by the serial number finder for non-exact matches
 pub async fn find_freetext(

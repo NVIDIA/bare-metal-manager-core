@@ -64,8 +64,7 @@ pub async fn update_bmc_network_into_machine_interfaces(
     let interface = if let Some(interface_id) = bmc_info.machine_interface_id {
         crate::machine_interface::find_one(&mut *txn, interface_id).await?
     } else if let Some(bmc_ip) = bmc_info.ip.as_ref() {
-        let bmc_ip_address = bmc_ip.parse()?;
-        crate::machine_interface::find_by_ip(&mut *txn, bmc_ip_address)
+        crate::machine_interface::find_by_ip(&mut *txn, *bmc_ip)
             .await?
             .ok_or_else(|| DatabaseError::NotFoundError {
                 kind: "machine_interfaces.address",
@@ -112,7 +111,7 @@ pub async fn enrich_mac_address(
         )));
     }
 
-    let bmc_ip_address = bmc_info.ip.clone().unwrap().parse()?;
+    let bmc_ip_address = bmc_info.ip.unwrap();
     if bmc_info.mac.is_none() {
         if let Some(bmc_machine_interface) =
             crate::machine_interface::find_by_ip(&mut *txn, bmc_ip_address).await?

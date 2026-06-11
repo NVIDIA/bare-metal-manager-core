@@ -1,4 +1,4 @@
-# Infiniband NIC and port selection
+# Infiniband NIC and Port Selection
 
 NVIDIA Infra Controller (NICo) supports multiple Infiniband enabled Network Interface Cards (NICs).
 Each of those NICs might feature 1-2 physical ports, where each port allows
@@ -56,10 +56,11 @@ While the devices for the 2 ports seem mostly independent, there are still a few
     This breaks the illusion of 2 independent devices. Since the tenant can install and use those tools without the availability of a NIC firmware lockdown, they are able to inspect these properties. There however doesn't seem to be an obvious problem with it.
 3. Due to 2), the port configurations for both ports are performed by manipulating a single device object in the Mellanox Firmware tools. E.g. both of the following commands
     ```
-    mlxconfig -d /dev/mst/mt4123_pciconf0 set LINK_TYPE_P1=2 LINK_TYPE_P2=2
-    mlxconfig -d /dev/mst/mt4123_pciconf0.1 set LINK_TYPE_P1=2 LINK_TYPE_P2=2
+    mlxconfig -d /dev/mst/mt4123_pciconf0 set LINK_TYPE_P1=1 LINK_TYPE_P2=1
+    mlxconfig -d /dev/mst/mt4123_pciconf0.1 set LINK_TYPE_P1=1 LINK_TYPE_P2=1
     ```
-    reconfigure both ports of a physical card from ethernet to infiniband, independent of whether the target
+    reconfigure both ports of a physical card from ethernet to infiniband (`LINK_TYPE=2` configures
+    ethernet, `LINK_TYPE=1` configures infiniband), independent of whether the target
     device is the first port (`/dev/mst/mt4123_pciconf0` or 2nd port `/dev/mst/mt4123_pciconf0.1`).
 
     The same applies also for settings like `NUM_OF_VFS` and `SRIOV_EN`.

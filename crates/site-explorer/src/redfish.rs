@@ -22,7 +22,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
+use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
 use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
@@ -30,7 +32,7 @@ use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{Redfish, RedfishError};
+use libredfish::{BootInterfaceRef, Redfish, RedfishError};
 use mac_address::MacAddress;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
@@ -214,6 +216,7 @@ impl RedfishClient {
             | RedfishVendor::NvidiaGBSwitch
             | RedfishVendor::P3809
             | RedfishVendor::LiteOnPowerShelf
+            | RedfishVendor::DeltaPowerShelf
             | RedfishVendor::NvidiaGBx00 => {
                 // change_password does things that require a password and DPUs need a first
                 // password use to be change, so just change it directly
@@ -307,10 +310,33 @@ impl RedfishClient {
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let machine_setup_status = fetch_machine_setup_status(client.as_ref(), boot_interface_mac)
-            .await
-            .inspect_err(|error| tracing::warn!(%error, "Failed to fetch machine setup status."))
-            .ok();
+        let is_dpu = system.id.to_lowercase().contains("bluefield");
+        let (machine_setup_status, remediation_error) = match fetch_machine_setup_status(
+            client.as_ref(),
+            boot_interface_mac,
+        )
+        .await
+        {
+            Ok(status) => (Some(status), None),
+            Err(error) if is_dpu && is_dpu_bios_attributes_not_ready(&error) => {
+                let details = format!(
+                    "DPU BMC BIOS attributes not ready ({error}); scheduling a force-restart to mitigate the known UEFI POST/BMC race"
+                );
+                tracing::warn!("{details}");
+                (
+                    None,
+                    Some(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                        details,
+                        response_body: None,
+                        response_code: None,
+                    }),
+                )
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Failed to fetch machine setup status.");
+                (None, None)
+            }
+        };
 
         let secure_boot_status = fetch_secure_boot_status(client.as_ref())
             .await
@@ -349,6 +375,7 @@ impl RedfishClient {
             compute_tray_index: None,
             topology_id: None,
             revision_id: None,
+            remediation_error,
         })
     }
 
@@ -506,7 +533,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<&str>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
@@ -514,15 +541,33 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         // We will be redoing machine_setup later and can worry about getting the profile right then.
-        client
-            .machine_setup(
-                boot_interface_mac,
-                &HashMap::default(),
-                libredfish::BiosProfileType::Performance,
-                &HashMap::default(),
-            )
-            .await
-            .map_err(map_redfish_error)?;
+        // Bind the empty profiles outside the fallback closure so they outlive both attempts.
+        let empty_profiles: libredfish::BiosProfileVendor = HashMap::default();
+        let result = match boot_interface {
+            Some(target) => {
+                target
+                    .run(|bi| {
+                        client.machine_setup(
+                            Some(bi),
+                            &empty_profiles,
+                            libredfish::BiosProfileType::Performance,
+                            &empty_profiles,
+                        )
+                    })
+                    .await
+            }
+            None => {
+                client
+                    .machine_setup(
+                        None,
+                        &empty_profiles,
+                        libredfish::BiosProfileType::Performance,
+                        &empty_profiles,
+                    )
+                    .await
+            }
+        };
+        result.map_err(map_redfish_error)?;
 
         Ok(())
     }
@@ -531,15 +576,15 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: &str,
+        boot_interface: &BootInterfaceTarget,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client
-            .set_boot_order_dpu_first(boot_interface_mac)
+        boot_interface
+            .run(|bi| client.set_boot_order_dpu_first(bi))
             .await
             .map_err(map_redfish_error)?;
 
@@ -677,10 +722,10 @@ async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
             return Ok(true);
         }
         if let Ok(chassis) = client.get_chassis(chassis_id).await
-            && chassis
-                .manufacturer
-                .as_ref()
-                .is_some_and(|m| m.to_lowercase().contains("lite-on"))
+            && chassis.manufacturer.as_ref().is_some_and(|m| {
+                let m = m.to_lowercase();
+                m.contains("lite-on") || m.contains("delta")
+            })
         {
             return Ok(true);
         }
@@ -1143,7 +1188,7 @@ async fn fetch_machine_setup_status(
     boot_interface_mac: Option<MacAddress>,
 ) -> Result<MachineSetupStatus, RedfishError> {
     let status = client
-        .machine_setup_status(boot_interface_mac.map(|mac| mac.to_string()).as_deref())
+        .machine_setup_status(boot_interface_mac.map(BootInterfaceRef::Mac))
         .await?;
     let mut diffs: Vec<MachineSetupDiff> = Vec::new();
 

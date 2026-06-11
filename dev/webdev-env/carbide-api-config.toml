@@ -74,6 +74,11 @@ network_segment_drain_time = "24h"
 [network_segment_state_controller.controller]
 iteration_time = "24h"
 
+[vpc_prefix_state_controller]
+vpc_prefix_drain_time = "24h"
+[vpc_prefix_state_controller.controller]
+iteration_time = "24h"
+
 [ib_partition_state_controller.controller]
 iteration_time = "24h"
 

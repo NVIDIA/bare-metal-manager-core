@@ -40,6 +40,8 @@ category = "Build"
 description = "Build the .deb package"
 workspace = false
 script = '''
+    set -e
+
     if [ "${CARBIDE_ARCH}" = "x86_64" ]
     then
         DEB_ARCH="amd64"
@@ -66,6 +68,14 @@ script = '''
     WORKING_DIR="${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${PACKAGE_BIN}_${PKG_VERSION}_${DEB_ARCH}"
     mkdir -p "${WORKING_DIR}/lib/systemd/system"
     mkdir -p "${WORKING_DIR}${INSTALL_DIR}"
+    if [ "${CARBIDE_ARCH}" = "aarch64" ]
+    then
+        for path in \
+            "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" \
+            "${REPO_ROOT}/target/${CARBIDE_PROFILE}/${PACKAGE_BIN}"; do
+            bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+        done
+    fi
     cp "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" "${WORKING_DIR}${INSTALL_DIR}"
     cp ${MISC_DIR}/*.service "${WORKING_DIR}/lib/systemd/system/"
     cp -r ${DEB_CONFIG_DIR} "${WORKING_DIR}/"

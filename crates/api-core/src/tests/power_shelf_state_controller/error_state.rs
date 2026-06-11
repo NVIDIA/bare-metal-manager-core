@@ -40,10 +40,29 @@ use crate::tests::power_shelf_state_controller::fixtures::power_shelf::{
 
 const TEST_ERROR_CAUSE: &str = "test error";
 
-fn services(env: &crate::tests::common::api_fixtures::TestEnv) -> PowerShelfStateHandlerServices {
+async fn services(
+    env: &crate::tests::common::api_fixtures::TestEnv,
+) -> PowerShelfStateHandlerServices {
+    let config = component_manager::config::ComponentManagerConfig {
+        nv_switch_backend: "mock".into(),
+        power_shelf_backend: "rms".into(),
+        compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
+        ..Default::default()
+    };
+    let component_manager = component_manager::component_manager::build_component_manager(
+        &config,
+        env.rms_sim.as_rms_client(),
+        None,
+        Some(env.pool.clone()),
+        None,
+    )
+    .await
+    .ok()
+    .map(Arc::new);
+
     PowerShelfStateHandlerServices {
         db_pool: env.pool.clone(),
-        rms_client: env.rms_sim.as_rms_client(),
+        component_manager,
         credential_manager: Arc::new(TestCredentialManager::default()),
     }
 }
@@ -123,7 +142,7 @@ async fn error_with_power_on_maintenance_request_transitions_to_maintenance(
         .await?;
     }
 
-    let mut services = services(&env);
+    let mut services = services(&env).await;
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = extract_transition(outcome).expect("should transition out of Error");
@@ -167,7 +186,7 @@ async fn error_with_power_off_maintenance_request_transitions_to_maintenance(
         .await?;
     }
 
-    let mut services = services(&env);
+    let mut services = services(&env).await;
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = extract_transition(outcome).expect("should transition out of Error");
@@ -198,7 +217,7 @@ async fn error_without_maintenance_request_holds_in_error(
         park_in_error(txn.as_mut(), &power_shelf_id).await;
     }
 
-    let mut services = services(&env);
+    let mut services = services(&env).await;
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
 
@@ -236,7 +255,7 @@ async fn error_with_deletion_takes_precedence_over_maintenance(
         mark_power_shelf_as_deleted(txn.as_mut(), &power_shelf_id).await?;
     }
 
-    let mut services = services(&env);
+    let mut services = services(&env).await;
     let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
     let outcome = run_handler(&mut services, &mut shelf).await;
     let transition = extract_transition(outcome).expect("should transition out of Error");

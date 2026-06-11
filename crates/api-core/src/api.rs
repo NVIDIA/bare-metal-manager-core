@@ -236,6 +236,13 @@ impl Forge for Api {
         crate::handlers::vpc_prefix::delete(self, request).await
     }
 
+    async fn find_vpc_prefix_state_histories(
+        &self,
+        request: Request<rpc::VpcPrefixStateHistoriesRequest>,
+    ) -> Result<Response<rpc::StateHistories>, Status> {
+        crate::handlers::vpc_prefix::find_state_histories(self, request).await
+    }
+
     async fn create_vpc_peering(
         &self,
         request: Request<rpc::VpcPeeringCreationRequest>,
@@ -2904,6 +2911,13 @@ impl Forge for Api {
         request: Request<rpc::SetPrimaryDpuRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::managed_host::set_primary_dpu(self, request).await
+    }
+
+    async fn set_primary_interface(
+        &self,
+        request: Request<rpc::SetPrimaryInterfaceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::managed_host::set_primary_interface(self, request).await
     }
 
     async fn create_dpu_extension_service(

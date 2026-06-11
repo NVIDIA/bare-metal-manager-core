@@ -36,8 +36,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("nil RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   nil,
-			RackType: "type-A",
+			RackId:        nil,
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -47,8 +47,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("empty RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: ""},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: ""},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -58,8 +58,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("populates all proto fields", func(t *testing.T) {
 		er := &ExpectedRack{}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 			Metadata: &cwssaws.Metadata{
 				Name:        "rack-name",
 				Description: "primary rack",
@@ -79,9 +79,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 	t.Run("nil Metadata clears Name/Description and Labels", func(t *testing.T) {
 		er := &ExpectedRack{Name: "stale-name", Description: "stale-desc", Labels: map[string]string{"old": "val"}}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
-			Metadata: nil,
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+			Metadata:      nil,
 		})
 
 		assert.Equal(t, "rack-1", er.RackID)
@@ -98,8 +98,8 @@ func TestExpectedRack_FromProto(t *testing.T) {
 			CreatedBy: creator,
 		}
 		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-1"},
-			RackType: "type-A",
+			RackId:        &cwssaws.RackId{Id: "rack-1"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, preservedID, er.ID)

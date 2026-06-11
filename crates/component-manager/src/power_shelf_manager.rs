@@ -53,6 +53,23 @@ pub struct PowerShelfFirmwareVersions {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PowerShelfPowerStateResult {
+    pub pmc_mac: MacAddress,
+    pub power_state: Option<String>,
+    pub error: Option<String>,
+}
+
+impl crate::component_common::ComponentPowerStateResult for PowerShelfPowerStateResult {
+    fn power_state(&self) -> Option<&str> {
+        self.power_state.as_deref()
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
+
 /// Backend trait for power shelf management operations.
 ///
 /// Implementations receive physical endpoint information (PMC IP/MAC + vendor)
@@ -89,4 +106,9 @@ pub trait PowerShelfManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[PowerShelfEndpoint],
     ) -> Result<Vec<PowerShelfFirmwareVersions>, ComponentManagerError>;
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[PowerShelfEndpoint],
+    ) -> Result<Vec<PowerShelfPowerStateResult>, ComponentManagerError>;
 }

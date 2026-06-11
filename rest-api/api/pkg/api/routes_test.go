@@ -70,6 +70,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"dpu-extension-service":     7,
 		"sku":                       2,
 		"task":                      2,
+		"rule":                      5,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,

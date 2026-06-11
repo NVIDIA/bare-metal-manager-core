@@ -1009,6 +1009,7 @@ pub mod tests {
                     rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 
@@ -1054,6 +1055,7 @@ pub mod tests {
                     rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 
@@ -1113,6 +1115,7 @@ pub mod tests {
                     rpc::DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
                 )),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 
@@ -1148,6 +1151,7 @@ pub mod tests {
                     rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
+                ..Default::default()
             }))
             .await;
 

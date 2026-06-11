@@ -16,6 +16,7 @@
  */
 
 use std::fs;
+use std::net::IpAddr;
 
 use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
@@ -26,7 +27,7 @@ const TMPL_BRIDGING: &str = include_str!("../templates/update_intercept_bridging
 
 // What we need for the commands to configure the bridge.
 pub struct TrafficInterceptBridgingConfig {
-    pub secondary_overlay_vtep_ip: String,
+    pub secondary_overlay_vtep_ip: IpAddr,
     pub secondary_vtep_aggregate_prefixes: Vec<String>,
     pub vf_intercept_bridge_ip: String,
     pub vf_intercept_bridge_name: String,
@@ -67,7 +68,7 @@ struct TmplTrafficInterceptBridging {
 
 pub fn build(conf: TrafficInterceptBridgingConfig) -> eyre::Result<String> {
     let params = TmplTrafficInterceptBridging {
-        SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip,
+        SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip.to_string(),
         SecondaryVtepAggregatePrefixes: conf.secondary_vtep_aggregate_prefixes,
         VfInterceptBridgeIP: conf.vf_intercept_bridge_ip,
         VfInterceptBridgeName: conf.vf_intercept_bridge_name,

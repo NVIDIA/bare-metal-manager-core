@@ -44,7 +44,7 @@ impl InstanceExtensionServicesStatus {
     /// For each extension service, we aggregate the statuses from all DPUs.
     /// The config passed must be from database (not rpc InstanceConfig), and must contain any terminating services.
     pub fn from_config_and_observations(
-        dpu_id_to_device_map: &HashMap<String, Vec<MachineId>>,
+        dpu_ids: &[MachineId],
         config: Versioned<&InstanceExtensionServicesConfig>,
         observations: &HashMap<MachineId, InstanceExtensionServiceStatusObservation>,
     ) -> Self {
@@ -57,15 +57,11 @@ impl InstanceExtensionServicesStatus {
             };
         }
 
-        // Extract all unique DPU machine IDs from the dpu_id_to_device_map
-        let all_dpu_ids: Vec<MachineId> =
-            dpu_id_to_device_map.values().flatten().copied().collect();
-
         // Instance allocation rejects non-empty service_configs on zero-DPU
         // hosts, so, in practice, we *shouldn't* reach here. BUT, if we do,
         // assume it's from something like a stale pre-validation instance,
         // and just report unsynced.
-        if all_dpu_ids.is_empty() {
+        if dpu_ids.is_empty() {
             return Self::unsynced_for_config(&config);
         }
 
@@ -76,7 +72,7 @@ impl InstanceExtensionServicesStatus {
         for service in config.service_configs.iter() {
             let mut dpu_statuses = vec![];
 
-            for dpu_id in &all_dpu_ids {
+            for dpu_id in dpu_ids {
                 match observations.get(dpu_id) {
                     // DPU has observation with matching config version
                     Some(obs) if obs.config_version == config.version => {
@@ -439,18 +435,17 @@ mod tests {
         InstanceExtensionServiceConfig, InstanceExtensionServicesConfig,
     };
 
-    fn get_test_machine_id() -> MachineId {
-        MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80").unwrap()
+    fn get_dpu_ids() -> Vec<MachineId> {
+        vec![
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")
+                .unwrap(),
+            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")
+                .unwrap(),
+        ]
     }
 
     fn get_test_service_id() -> ExtensionServiceId {
         ExtensionServiceId::from_str("00000000-0000-0000-0000-000000000000").unwrap()
-    }
-
-    fn create_dpu_map_with_one_dpu() -> HashMap<String, Vec<MachineId>> {
-        let mut map = HashMap::new();
-        map.insert("device0".to_string(), vec![get_test_machine_id()]);
-        map
     }
 
     fn create_service_config(version: ConfigVersion) -> InstanceExtensionServicesConfig {
@@ -464,14 +459,14 @@ mod tests {
     }
 
     fn create_observation(
+        dpu_id: MachineId,
         config_version: ConfigVersion,
         service_version: ConfigVersion,
         status: ExtensionServiceDeploymentStatus,
     ) -> HashMap<MachineId, InstanceExtensionServiceStatusObservation> {
         let mut observations = HashMap::new();
         observations.insert(
-            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")
-                .unwrap(),
+            dpu_id,
             InstanceExtensionServiceStatusObservation {
                 config_version,
                 instance_config_version: None,
@@ -497,10 +492,9 @@ mod tests {
         let config = create_service_config(service_version);
 
         let config_version = ConfigVersion::initial();
-        let dpu_map = create_dpu_map_with_one_dpu();
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[get_dpu_ids()[0]],
             Versioned::new(&config, config_version),
             &HashMap::new(),
         );
@@ -530,15 +524,17 @@ mod tests {
         let config = create_service_config(service_version);
         let config_version = ConfigVersion::initial();
 
-        let dpu_map = create_dpu_map_with_one_dpu();
+        let dpu_id = get_dpu_ids()[0];
+
         let observations = create_observation(
+            dpu_id,
             config_version,
             service_version,
             ExtensionServiceDeploymentStatus::Running,
         );
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[dpu_id],
             Versioned::new(&config, config_version),
             &observations,
         );
@@ -552,7 +548,7 @@ mod tests {
         assert_eq!(status.extension_services[0].dpu_statuses.len(), 1);
         assert_eq!(
             status.extension_services[0].dpu_statuses[0].machine_id,
-            get_test_machine_id(),
+            dpu_id,
         );
         assert_eq!(
             status.extension_services[0].dpu_statuses[0].status,
@@ -568,15 +564,16 @@ mod tests {
     fn extension_service_status_with_outdated_observation() {
         let config = create_service_config(ConfigVersion::initial());
         let version = ConfigVersion::initial();
-        let dpu_map = create_dpu_map_with_one_dpu();
+        let dpu_id = get_dpu_ids()[0];
         let observations = create_observation(
+            dpu_id,
             ConfigVersion::initial(),
             ConfigVersion::initial(),
             ExtensionServiceDeploymentStatus::Running,
         );
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[dpu_id],
             Versioned::new(&config, version.increment()), // Increment config version for extension service config
             &observations,                                // Observation has initial config version
         );
@@ -616,22 +613,19 @@ mod tests {
         let config_version = ConfigVersion::initial();
 
         // Create a map with two DPUs
-        let dpu1_id = get_test_machine_id();
-        let dpu2_id =
-            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")
-                .unwrap();
-        let mut dpu_map = HashMap::new();
-        dpu_map.insert("device0".to_string(), vec![dpu1_id, dpu2_id]);
+        let dpu1_id = get_dpu_ids()[0];
+        let dpu2_id = get_dpu_ids()[1];
 
         // Create observation for only one DPU
         let observations = create_observation(
+            dpu1_id,
             config_version,
             service_version,
             ExtensionServiceDeploymentStatus::Running,
         );
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[dpu1_id, dpu2_id],
             Versioned::new(&config, config_version),
             &observations,
         );
@@ -671,12 +665,8 @@ mod tests {
         let config_version = ConfigVersion::initial();
 
         // Create a map with two DPUs
-        let dpu1_id = get_test_machine_id();
-        let dpu2_id =
-            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")
-                .unwrap();
-        let mut dpu_map = HashMap::new();
-        dpu_map.insert("device0".to_string(), vec![dpu1_id, dpu2_id]);
+        let dpu1_id = get_dpu_ids()[0];
+        let dpu2_id = get_dpu_ids()[1];
 
         // Create observations for both DPUs
         let mut observations = HashMap::new();
@@ -718,7 +708,7 @@ mod tests {
         );
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[dpu1_id, dpu2_id],
             Versioned::new(&config, config_version),
             &observations,
         );
@@ -743,6 +733,76 @@ mod tests {
         // Readiness check: configs synced and all services running, should be Ready
         let readiness = compute_extension_services_readiness(&status);
         assert_eq!(readiness, ExtensionServicesReadiness::Ready);
+    }
+
+    #[test]
+    fn extension_service_status_scopes_to_target_dpus() {
+        let service_version = ConfigVersion::initial();
+        let config = create_service_config(service_version);
+        let config_version = ConfigVersion::initial();
+
+        let dpu1_id = get_dpu_ids()[0];
+        let dpu2_id = get_dpu_ids()[1];
+
+        let mut observations = HashMap::new();
+        observations.insert(
+            dpu1_id,
+            InstanceExtensionServiceStatusObservation {
+                config_version,
+                instance_config_version: None,
+                extension_service_statuses: vec![ExtensionServiceStatusObservation {
+                    service_id: get_test_service_id(),
+                    service_type: ExtensionServiceType::KubernetesPod,
+                    service_name: "test-service".to_string(),
+                    version: service_version,
+                    removed: None,
+                    overall_state: ExtensionServiceDeploymentStatus::Running,
+                    components: vec![],
+                    message: String::new(),
+                }],
+                observed_at: chrono::Utc::now(),
+            },
+        );
+        observations.insert(
+            dpu2_id,
+            InstanceExtensionServiceStatusObservation {
+                config_version,
+                instance_config_version: None,
+                extension_service_statuses: vec![ExtensionServiceStatusObservation {
+                    service_id: get_test_service_id(),
+                    service_type: ExtensionServiceType::KubernetesPod,
+                    service_name: "test-service".to_string(),
+                    version: service_version,
+                    removed: None,
+                    overall_state: ExtensionServiceDeploymentStatus::Pending,
+                    components: vec![],
+                    message: "No pod sandbox found".to_string(),
+                }],
+                observed_at: chrono::Utc::now(),
+            },
+        );
+
+        let status = InstanceExtensionServicesStatus::from_config_and_observations(
+            &[dpu1_id],
+            Versioned::new(&config, config_version),
+            &observations,
+        );
+
+        assert_eq!(status.configs_synced, SyncState::Synced);
+        assert_eq!(status.extension_services.len(), 1);
+        assert_eq!(
+            status.extension_services[0].overall_status,
+            ExtensionServiceDeploymentStatus::Running
+        );
+        assert_eq!(status.extension_services[0].dpu_statuses.len(), 1);
+        assert_eq!(
+            status.extension_services[0].dpu_statuses[0].machine_id,
+            dpu1_id
+        );
+        assert_eq!(
+            compute_extension_services_readiness(&status),
+            ExtensionServicesReadiness::Ready
+        );
     }
 
     #[test]
@@ -811,6 +871,7 @@ mod tests {
     }
 
     fn create_observation_two_versions(
+        dpu_id: MachineId,
         cfg_version: ConfigVersion,
         v_new: ConfigVersion,
         new_state: ExtensionServiceDeploymentStatus,
@@ -819,7 +880,7 @@ mod tests {
     ) -> HashMap<MachineId, InstanceExtensionServiceStatusObservation> {
         let mut observations = HashMap::new();
         observations.insert(
-            get_test_machine_id(),
+            dpu_id,
             InstanceExtensionServiceStatusObservation {
                 config_version: cfg_version,
                 instance_config_version: None,
@@ -853,6 +914,8 @@ mod tests {
 
     #[test]
     fn extension_service_get_terminated_service_keys() {
+        let dpu_id = get_dpu_ids()[0];
+
         let init_version = ConfigVersion::initial();
         let second_version = init_version.increment();
         let config = InstanceExtensionServicesConfig {
@@ -870,8 +933,8 @@ mod tests {
             ],
         };
         let config_version = ConfigVersion::initial();
-        let dpu_map = create_dpu_map_with_one_dpu();
         let observations = create_observation_two_versions(
+            dpu_id,
             config_version,
             second_version,
             ExtensionServiceDeploymentStatus::Running,
@@ -880,7 +943,7 @@ mod tests {
         );
 
         let status = InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_map,
+            &[dpu_id],
             Versioned::new(&config, config_version),
             &observations,
         );

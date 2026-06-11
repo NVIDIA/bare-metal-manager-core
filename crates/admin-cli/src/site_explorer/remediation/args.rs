@@ -18,6 +18,16 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Pause remediation actions for an endpoint:
+    $ carbide-admin-cli site-explorer remediation 192.0.2.10 --pause
+
+Resume remediation actions for an endpoint:
+    $ carbide-admin-cli site-explorer remediation 192.0.2.10 --resume
+
+")]
 pub struct Args {
     #[clap(help = "BMC IP address of the endpoint")]
     pub address: String,

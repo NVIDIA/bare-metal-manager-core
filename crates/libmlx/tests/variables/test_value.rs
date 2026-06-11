@@ -18,6 +18,8 @@
 use libmlx::variables::spec::MlxVariableSpec;
 use libmlx::variables::value::{MlxValueError, MlxValueType};
 use libmlx::variables::variable::MlxConfigVariable;
+use nico_test_support::Outcome::*;
+use nico_test_support::{Case, check_cases};
 
 // create_test_variable creates a test variable with a given spec
 // to use for testing. This is leveraged for basically each test.
@@ -76,12 +78,13 @@ fn test_string_value_creation() {
     assert_eq!(value2.value, MlxValueType::String("world".to_string()));
 }
 
-// test_enum_value_validation creates a new variable called "test_enum"
-// with an enum spec, and then makes sure we can call `with`
-// on it with an enum, ensuring the IntoMlxValue trait is working
-// as expected for enums (among other things).
+// enum_values_validate_against_the_spec migrates the old hand-written enum test
+// onto nico-test-support: each row is a labeled input + an expected `Outcome`,
+// and `check_cases` runs the operation under test (`var.with`) over them. A valid
+// option yields an Enum value; an unknown option fails with the exact
+// InvalidEnumOption error — no `match … panic!` to read past.
 #[test]
-fn test_enum_value_validation() {
+fn enum_values_validate_against_the_spec() {
     let var = create_test_variable(
         "test_enum",
         MlxVariableSpec::Enum {
@@ -89,57 +92,82 @@ fn test_enum_value_validation() {
         },
     );
 
-    // Valid enum value - underlying logic it's an enum and validates.
-    let valid_value = var.with("medium").unwrap();
-    assert_eq!(valid_value.value, MlxValueType::Enum("medium".to_string()));
-
-    // Invalid enum value - still gets validated.
-    let invalid_result = var.with("invalid");
-    assert!(invalid_result.is_err());
-    match invalid_result.unwrap_err() {
-        MlxValueError::InvalidEnumOption { value, allowed } => {
-            assert_eq!(value, "invalid");
-            assert_eq!(allowed, vec!["low", "medium", "high"]);
-        }
-        _ => panic!("Expected InvalidEnumOption error"),
-    }
+    check_cases(
+        [
+            Case {
+                scenario: "a valid option",
+                input: "medium",
+                expect: Yields(MlxValueType::Enum("medium".to_string())),
+            },
+            Case {
+                scenario: "another valid option",
+                input: "high",
+                expect: Yields(MlxValueType::Enum("high".to_string())),
+            },
+            Case {
+                scenario: "an unknown option",
+                input: "invalid",
+                expect: FailsWith(MlxValueError::InvalidEnumOption {
+                    value: "invalid".to_string(),
+                    allowed: vec!["low".to_string(), "medium".to_string(), "high".to_string()],
+                }),
+            },
+        ],
+        |input| var.with(input).map(|v| v.value),
+    );
 }
 
-// test_preset_value creates a new variable called "test_preset"
-// with a preset spec, and then makes sure we can call `with`
-// on it with a preset, ensuring the IntoMlxValue trait is working
-// as expected for presets (among other things).
+// preset_values_respect_the_max migrates the old preset test onto `Outcome`: an
+// in-range u8 yields a Preset, an out-of-range one fails. We don't pin which error
+// the out-of-range case produces, so `Fails` says exactly that.
 #[test]
-fn test_preset_value() {
+fn preset_values_respect_the_max() {
     let var = create_test_variable("test_preset", MlxVariableSpec::Preset { max_preset: 5 });
 
-    // u8 gets automatically converted to preset with validation.
-    let valid_value = var.with(3u8).unwrap();
-    assert_eq!(valid_value.value, MlxValueType::Preset(3));
-
-    // Out of range preset.
-    let invalid_result = var.with(10u8);
-    assert!(invalid_result.is_err());
+    check_cases(
+        [
+            Case {
+                scenario: "in range",
+                input: 3u8,
+                expect: Yields(MlxValueType::Preset(3)),
+            },
+            Case {
+                scenario: "above the max",
+                input: 10u8,
+                expect: Fails,
+            },
+        ],
+        |input| var.with(input).map(|v| v.value),
+    );
 }
 
-// test_boolean_array_creation creates a new variable called "test_bool_array"
-// with a boolean array spec, and then makes sure we can call `with`
-// on it with a boolean array, ensuring the IntoMlxValue trait is working
-// as expected for boolean arrays (among other things).
+// boolean_arrays_validate_size_and_convert migrates the bool-array test onto
+// check_cases. The valid row shows `Yields` carrying real data — a dense Vec<bool>
+// is converted to the sparse BooleanArray form — while a wrong-sized input fails.
 #[test]
-fn test_boolean_array_creation() {
+fn boolean_arrays_validate_size_and_convert() {
     let var = create_test_variable("test_bool_array", MlxVariableSpec::BooleanArray { size: 4 });
 
-    // Vec<bool> gets automatically validated for size and converted to sparse format.
-    let valid_value = var.with(vec![true, false, true, false]).unwrap();
-    assert_eq!(
-        valid_value.value,
-        MlxValueType::BooleanArray(vec![Some(true), Some(false), Some(true), Some(false)])
+    check_cases(
+        [
+            Case {
+                scenario: "a right-sized Vec<bool> converts to the sparse form",
+                input: vec![true, false, true, false],
+                expect: Yields(MlxValueType::BooleanArray(vec![
+                    Some(true),
+                    Some(false),
+                    Some(true),
+                    Some(false),
+                ])),
+            },
+            Case {
+                scenario: "a wrong-sized input is rejected",
+                input: vec![true, false],
+                expect: Fails,
+            },
+        ],
+        |input| var.with(input).map(|v| v.value),
     );
-
-    // Wrong size gets caught.
-    let invalid_result = var.with(vec![true, false]);
-    assert!(invalid_result.is_err());
 }
 
 // test_sparse_boolean_array_creation tests creating sparse boolean arrays

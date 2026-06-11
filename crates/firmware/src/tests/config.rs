@@ -108,6 +108,94 @@ default = true
 }
 
 #[test]
+fn lenovoami_falls_back_to_lenovo_firmware_config() -> eyre::Result<()> {
+    let cfg = r#"
+model = "ThinkSystem HS350X V3"
+vendor = "Lenovo"
+
+[components.bmc]
+current_version_reported_as = "BMCImage1"
+preingest_upgrade_when_below = "1.27.260418"
+
+[[components.bmc.known_firmware]]
+version = "1.27.260418"
+filename = "/opt/carbide/firmware/lenovo-thinksystem_hs350x_v3-bmc-1.27.260418/lnvgy_fw_BMC_igc602j-1.27_anyos_noarch.ima"
+default = true
+"#;
+    let mut config: FirmwareConfig = Default::default();
+    config.add_test_override(cfg.to_string());
+
+    let snapshot = config.create_snapshot();
+    let server = snapshot
+        .find(bmc_vendor::BMCVendor::LenovoAMI, "ThinkSystem HS350X V3")
+        .unwrap();
+
+    assert_eq!(server.vendor, bmc_vendor::BMCVendor::Lenovo);
+    assert_eq!(
+        server
+            .components
+            .get(&FirmwareComponentType::Bmc)
+            .unwrap()
+            .known_firmware
+            .first()
+            .unwrap()
+            .version,
+        "1.27.260418"
+    );
+    Ok(())
+}
+
+#[test]
+fn lenovoami_firmware_config_takes_precedence_over_lenovo_fallback() -> eyre::Result<()> {
+    let lenovo_cfg = r#"
+model = "ThinkSystem HS350X V3"
+vendor = "Lenovo"
+
+[components.bmc]
+current_version_reported_as = "BMCImage1"
+
+[[components.bmc.known_firmware]]
+version = "1.27.260418"
+filename = "/opt/carbide/firmware/lenovo-thinksystem_hs350x_v3-bmc-1.27.260418/lnvgy_fw_BMC_igc602j-1.27_anyos_noarch.ima"
+default = true
+"#;
+    let lenovoami_cfg = r#"
+model = "ThinkSystem HS350X V3"
+vendor = "LenovoAMI"
+
+[components.bmc]
+current_version_reported_as = "BMCImage1"
+
+[[components.bmc.known_firmware]]
+version = "1.28.260500"
+filename = "/opt/carbide/firmware/lenovoami-thinksystem_hs350x_v3-bmc-1.28.260500/lnvgy_fw_BMC_igc602x-1.28_anyos_noarch.ima"
+default = true
+"#;
+    let mut config: FirmwareConfig = Default::default();
+    config.add_test_override(lenovo_cfg.to_string());
+    config.add_test_override(lenovoami_cfg.to_string());
+
+    let snapshot = config.create_snapshot();
+    let server = snapshot
+        .find(bmc_vendor::BMCVendor::LenovoAMI, "ThinkSystem HS350X V3")
+        .unwrap();
+
+    assert_eq!(server.vendor, bmc_vendor::BMCVendor::LenovoAMI);
+    assert_eq!(
+        server
+            .components
+            .get(&FirmwareComponentType::Bmc)
+            .unwrap()
+            .known_firmware
+            .first()
+            .unwrap()
+            .version,
+        "1.28.260500"
+    );
+    Ok(())
+}
+
+#[test]
 fn cx7_component_config_parses_as_first_class_component() -> eyre::Result<()> {
     let cfg = r#"
 model = "DGXH100"

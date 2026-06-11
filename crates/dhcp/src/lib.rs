@@ -49,9 +49,9 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 #[derive(Debug)]
 pub struct CarbideDhcpContext {
     api_endpoint: String,
-    nameservers: String,
+    nameservers: Vec<Ipv4Addr>,
     mqtt_server: Option<String>,
-    ntpservers: String,
+    ntpservers: Vec<Ipv4Addr>,
     provisioning_server_ipv4: Option<Ipv4Addr>,
     forge_root_ca_path: String,
     forge_client_cert_path: String,
@@ -74,14 +74,18 @@ impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
-            nameservers: "1.1.1.1".to_string(),
+            nameservers: vec![Ipv4Addr::new(1, 1, 1, 1)],
             forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH")
                 .unwrap_or_else(|_| tls_default::ROOT_CA.to_string()),
             forge_client_cert_path: std::env::var("FORGE_CLIENT_CERT_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_CERT.to_string()),
             forge_client_key_path: std::env::var("FORGE_CLIENT_KEY_PATH")
                 .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
-            ntpservers: "172.20.0.24,172.20.0.26,172.20.0.27".to_string(), // local ntp servers
+            ntpservers: vec![
+                Ipv4Addr::new(172, 20, 0, 24),
+                Ipv4Addr::new(172, 20, 0, 26),
+                Ipv4Addr::new(172, 20, 0, 27),
+            ], // local ntp servers
             mqtt_server: None,
             provisioning_server_ipv4: None,
             metrics_endpoint: None,
@@ -90,6 +94,23 @@ impl Default for CarbideDhcpContext {
             startup_time: chrono::Utc::now(),
         }
     }
+}
+
+pub(crate) fn parse_ipv4_list(addresses: &str) -> Result<Vec<Ipv4Addr>, std::net::AddrParseError> {
+    addresses
+        .split(',')
+        .map(str::trim)
+        .filter(|address| !address.is_empty())
+        .map(str::parse)
+        .collect()
+}
+
+pub(crate) fn format_ipv4_list(addresses: &[Ipv4Addr]) -> String {
+    addresses
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 impl CarbideDhcpContext {
@@ -143,7 +164,12 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
     unsafe {
         let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
-        CONFIG.write().unwrap().nameservers = nameserver_str;
+        match parse_ipv4_list(&nameserver_str) {
+            Ok(nameservers) => CONFIG.write().unwrap().nameservers = nameservers,
+            Err(err) => {
+                log::error!("failed to parse nameserver configuration {nameserver_str}: {err}");
+            }
+        }
     }
 }
 
@@ -169,7 +195,12 @@ pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_cha
 pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
     unsafe {
         let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
-        CONFIG.write().unwrap().ntpservers = ntp_str;
+        match parse_ipv4_list(&ntp_str) {
+            Ok(ntpservers) => CONFIG.write().unwrap().ntpservers = ntpservers,
+            Err(err) => {
+                log::error!("failed to parse NTP server configuration {ntp_str}: {err}");
+            }
+        }
     }
 }
 
@@ -216,5 +247,52 @@ pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_cha
     unsafe {
         let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
         metrics::increment_dropped_requests(reason_value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use super::{format_ipv4_list, parse_ipv4_list};
+
+    #[test]
+    fn parses_comma_separated_ipv4_list() {
+        let addresses = parse_ipv4_list("1.1.1.1, 8.8.8.8,172.20.0.24").unwrap();
+
+        assert_eq!(
+            addresses,
+            vec![
+                Ipv4Addr::new(1, 1, 1, 1),
+                Ipv4Addr::new(8, 8, 8, 8),
+                Ipv4Addr::new(172, 20, 0, 24),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_non_ipv4_list_entries() {
+        assert!(parse_ipv4_list("1.1.1.1,fd00::1").is_err());
+        assert!(parse_ipv4_list("1.1.1.1,not-an-ip").is_err());
+    }
+
+    #[test]
+    fn parses_empty_ipv4_list_as_empty() {
+        assert_eq!(parse_ipv4_list("").unwrap(), Vec::<Ipv4Addr>::new());
+        assert_eq!(parse_ipv4_list("  ").unwrap(), Vec::<Ipv4Addr>::new());
+    }
+
+    #[test]
+    fn parses_trailing_comma_ipv4_list() {
+        let addresses = parse_ipv4_list("1.1.1.1,").unwrap();
+
+        assert_eq!(addresses, vec![Ipv4Addr::new(1, 1, 1, 1)]);
+    }
+
+    #[test]
+    fn formats_ipv4_list_for_kea_option_payload() {
+        let addresses = [Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
+
+        assert_eq!(format_ipv4_list(&addresses), "1.1.1.1,8.8.8.8");
     }
 }

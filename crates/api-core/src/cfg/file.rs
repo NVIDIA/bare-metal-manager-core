@@ -17,12 +17,16 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
 use carbide_firmware::FirmwareConfig;
+use carbide_firmware::defaults::{
+    BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
+    BF3_CEC_VERSION, BF3_NIC_VERSION, BF3_UEFI_VERSION,
+};
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
 use carbide_machine_controller::config::power_manager::default_power_options;
 use carbide_machine_controller::config::{
@@ -36,6 +40,7 @@ use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_std_duration};
 use chrono::Duration;
+use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -56,14 +61,6 @@ use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 
-static BF2_NIC: &str = "24.47.2682";
-static BF2_BMC: &str = "BF-25.10-20";
-static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.13.2-12-g943a91640d";
-static BF3_NIC: &str = "32.47.2682";
-static BF3_BMC: &str = "BF-25.10-20";
-static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
 
@@ -113,12 +110,12 @@ pub struct CarbideConfig {
     /// DHCP server addresses announced to DPUs during
     /// network provisioning.
     #[serde(default)]
-    pub dhcp_servers: Vec<String>,
+    pub dhcp_servers: Vec<Ipv4Addr>,
 
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
-    pub route_servers: Vec<String>,
+    pub route_servers: Vec<IpAddr>,
 
     /// Enables route server injection into DPU FRR
     /// configs for L2VPN Ethernet Virtual networks.
@@ -162,6 +159,15 @@ pub struct CarbideConfig {
     /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
+
+    /// Strategy for deriving machine hostnames: `ip_address` (default), `fun`
+    /// (stable adjective-noun handles), `serial_number`, or `mac_address`.
+    /// Only `fun` leaves existing hostnames alone (it keeps any real name);
+    /// the others re-derive, so switching to one progressively renames
+    /// existing interfaces as they reconcile. `serial_number` errors on
+    /// duplicate serials rather than assigning a substitute name.
+    #[serde(default)]
+    pub host_naming_strategy: HostNamingStrategyKind,
 
     /// Pinger implementation type (e.g., "OobNetBind") used
     /// by the DPU network monitor to health-check DPU links.
@@ -275,6 +281,10 @@ pub struct CarbideConfig {
     /// NetworkSegmentController related configuration parameter
     #[serde(default)]
     pub network_segment_state_controller: NetworkSegmentStateControllerConfig,
+
+    /// VpcPrefixStateController related configuration parameter
+    #[serde(default)]
+    pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
 
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
@@ -673,6 +683,32 @@ pub struct CarbideConfig {
     /// per page to the browser.
     #[serde(default)]
     pub log_history: LogHistoryConfig,
+
+    #[serde(default)]
+    pub tracing: TracingConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TracingConfig {
+    /// Whether to enable OTLP tracing. Default: false
+    #[serde(default)]
+    pub enabled: bool,
+    /// Whether to allow enabling/disabling tracing at runtime. Default: true
+    #[serde(default = "default_to_true")]
+    pub allow_runtime_changes: bool,
+    /// Endpoint to send traces to. Can be overridden by the OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env var.
+    #[serde(default)]
+    pub otlp_endpoint: Option<String>,
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_runtime_changes: true,
+            otlp_endpoint: None,
+        }
+    }
 }
 
 impl CarbideConfig {
@@ -1428,6 +1464,43 @@ impl Default for NetworkSegmentStateControllerConfig {
     }
 }
 
+/// VpcPrefixStateController related config.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct VpcPrefixStateControllerConfig {
+    /// Common state controller configs
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+    /// The time for which VPC prefixes must have 0 referencing network prefixes,
+    /// before they are actually released.
+    /// This should be set to a duration long enough that ensures no pending
+    /// RPC calls might still use the VPC prefix to avoid race conditions.
+    #[serde(
+        default = "VpcPrefixStateControllerConfig::vpc_prefix_drain_time_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub vpc_prefix_drain_time: chrono::Duration,
+}
+
+impl VpcPrefixStateControllerConfig {
+    /// Returns the default VPC prefix drain time.
+    pub fn vpc_prefix_drain_time_default() -> Duration {
+        // Match the network segment drain default for hierarchical cleanup.
+        Duration::minutes(5)
+    }
+}
+
+impl Default for VpcPrefixStateControllerConfig {
+    /// Builds the default VPC prefix state controller configuration.
+    fn default() -> Self {
+        // Use framework defaults plus the VPC prefix drain grace period.
+        Self {
+            controller: StateControllerConfig::default(),
+            vpc_prefix_drain_time: Self::vpc_prefix_drain_time_default(),
+        }
+    }
+}
+
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct IbPartitionStateControllerConfig {
@@ -1672,7 +1745,7 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_BMC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_BMC_VERSION)],
                                 },
                             ),
                             (
@@ -1682,7 +1755,7 @@ impl Default for DpuConfig {
                                         Regex::new("Bluefield_FW_ERoT").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_CEC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_CEC_VERSION)],
                                 },
                             ),
                             (
@@ -1692,7 +1765,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_NIC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_NIC_VERSION)],
                                 },
                             ),
                             (
@@ -1702,7 +1775,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_UEFI").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_UEFI)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_UEFI_VERSION)],
                                 },
                             ),
                         ]),
@@ -1725,7 +1798,7 @@ impl Default for DpuConfig {
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![
                                         // BF-24.10-33 (DOCA 2.9) is the expected BMC FW that we expect on BF3s after ingesting them
-                                        FirmwareEntry::standard(BF3_BMC),
+                                        FirmwareEntry::standard(BF3_BMC_VERSION),
                                     ],
                                 },
                             ),
@@ -1737,7 +1810,7 @@ impl Default for DpuConfig {
                                     ),
 
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_CEC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_CEC_VERSION)],
                                 },
                             ),
                             (
@@ -1747,7 +1820,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_NIC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_NIC_VERSION)],
                                 },
                             ),
                             (
@@ -1757,14 +1830,17 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_UEFI").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_UEFI)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_UEFI_VERSION)],
                                 },
                             ),
                         ]),
                     },
                 ),
             ]),
-            dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
+            dpu_nic_firmware_update_versions: vec![
+                BF2_NIC_VERSION.to_string(),
+                BF3_NIC_VERSION.to_string(),
+            ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
         }
@@ -1941,8 +2017,16 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_database_connections: value.max_database_connections,
             enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
             asn: value.asn,
-            dhcp_servers: value.dhcp_servers,
-            route_servers: value.route_servers,
+            dhcp_servers: value
+                .dhcp_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            route_servers: value
+                .route_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
             enable_route_servers: value.enable_route_servers,
             deny_prefixes: value
                 .deny_prefixes
@@ -2523,6 +2607,10 @@ mod tests {
             NetworkSegmentStateControllerConfig::default()
         );
         assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig::default()
+        );
+        assert_eq!(
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig::default()
         );
@@ -2551,7 +2639,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
         assert!(config.route_servers.is_empty());
         assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
@@ -2663,6 +2751,21 @@ mod tests {
             }
         );
         assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(46),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(19 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(199),
+                    max_concurrency: 1999,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig {
                 controller: StateControllerConfig {
@@ -2697,14 +2800,14 @@ mod tests {
         assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,
-            vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+            vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
             Some(VpcPeeringPolicy::Mixed)
         );
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/path/to/cert"
@@ -2842,6 +2945,21 @@ mod tests {
                     iteration_time: std::time::Duration::from_secs(8 * 60),
                     max_object_handling_time: std::time::Duration::from_secs(88),
                     max_concurrency: 888,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(43),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(6 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(66),
+                    max_concurrency: 666,
                     processor_dispatch_interval: std::time::Duration::from_secs(2),
                     processor_log_interval: std::time::Duration::from_secs(60),
                     metric_emission_interval: std::time::Duration::from_secs(60),
@@ -3011,8 +3129,8 @@ mod tests {
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
         assert_eq!(config.bmc_session_lockout_threshold, 5);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/patched/path/to/cert"
@@ -3161,6 +3279,21 @@ mod tests {
             }
         );
         assert_eq!(
+            config.vpc_prefix_state_controller,
+            VpcPrefixStateControllerConfig {
+                vpc_prefix_drain_time: Duration::seconds(46),
+                controller: StateControllerConfig {
+                    iteration_time: std::time::Duration::from_secs(19 * 60),
+                    max_object_handling_time: std::time::Duration::from_secs(199),
+                    max_concurrency: 1999,
+                    processor_dispatch_interval: std::time::Duration::from_secs(2),
+                    processor_log_interval: std::time::Duration::from_secs(60),
+                    metric_emission_interval: std::time::Duration::from_secs(60),
+                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
+                },
+            }
+        );
+        assert_eq!(
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig {
                 controller: StateControllerConfig {
@@ -3222,9 +3355,9 @@ mod tests {
             assert_eq!(config.asn, 777);
             assert_eq!(
                 config.dhcp_servers,
-                vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+                vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
             );
-            assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+            assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
             assert_eq!(config.dpu_network_monitor_pinger_type, None);
             assert_eq!(
                 config.tls.as_ref().unwrap().identity_pemfile_path,
@@ -3308,6 +3441,59 @@ mod tests {
             ))
             .extract()
             .expect("legacy force_dpu_nic_mode in TOML must still parse");
+    }
+
+    #[test]
+    fn tracing_config_defaults_when_omitted() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        assert!(!config.tracing.enabled);
+        assert!(config.tracing.allow_runtime_changes);
+        assert_eq!(config.tracing.otlp_endpoint, None);
+    }
+
+    #[test]
+    fn tracing_config_deserializes_from_toml() {
+        let toml = r#"
+[tracing]
+enabled = true
+allow_runtime_changes = false
+otlp_endpoint = "http://otel-collector.observability.svc.cluster.local:4317"
+"#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        assert!(config.tracing.enabled);
+        assert!(!config.tracing.allow_runtime_changes);
+        assert_eq!(
+            config.tracing.otlp_endpoint.as_deref(),
+            Some("http://otel-collector.observability.svc.cluster.local:4317")
+        );
+    }
+
+    #[test]
+    fn tracing_config_defaults_runtime_changes_when_section_is_partial() {
+        let toml = r#"
+[tracing]
+enabled = true
+"#;
+
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(toml))
+            .extract()
+            .unwrap();
+
+        assert!(config.tracing.enabled);
+        assert!(config.tracing.allow_runtime_changes);
+        assert_eq!(config.tracing.otlp_endpoint, None);
     }
 
     #[test]
@@ -3545,8 +3731,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("admin").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".to_string(),
-                gateway: "172.20.0.1".to_string(),
+                prefix: "172.20.0.0/24".parse().unwrap(),
+                gateway: "172.20.0.1".parse().unwrap(),
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3557,8 +3743,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("DEV1-C09-IPMI-01").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".to_string(),
-                gateway: "172.99.0.1".to_string(),
+                prefix: "172.99.0.0/26".parse().unwrap(),
+                gateway: "172.99.0.1".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),

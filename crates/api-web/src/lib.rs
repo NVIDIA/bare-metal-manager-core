@@ -479,6 +479,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(explored_endpoint::set_dpu_first_boot_order),
             )
             .route(
+                "/explored-endpoint/{endpoint_ip}/restore-boot-interface",
+                post(explored_endpoint::restore_boot_interface),
+            )
+            .route(
                 "/explored-endpoint/{endpoint_ip}/clear-credentials",
                 post(explored_endpoint::clear_bmc_credentials),
             )
@@ -558,6 +562,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/quarantine",
                 post(machine::quarantine),
             )
+            .route("/machine/{machine_id}/sku", post(machine::sku))
             .route(
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),

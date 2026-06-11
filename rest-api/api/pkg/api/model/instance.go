@@ -42,18 +42,6 @@ var (
         url: %s
         post: all`
 
-	// Time when sshKeyGroupsLegacyDeprecatedTime query param will be deprecated
-	sshKeyGroupsLegacyDeprecatedTime, _ = time.Parse(time.RFC1123, "Thu, 04 Sep 2025 00:00:00 UTC")
-
-	instanceDeprecations = []DeprecatedEntity{
-		{
-			OldValue:     "sshkeygroups",
-			NewValue:     cutil.GetPtr("sshKeyGroups"),
-			Type:         DeprecationTypeAttribute,
-			TakeActionBy: sshKeyGroupsLegacyDeprecatedTime,
-		},
-	}
-
 	// MachineIssueCategoriesFromAPIToProtobuf is the map of instance issue categories to their corresponding values
 	MachineIssueCategoriesFromAPIToProtobuf = map[string]int32{
 		MachineIssueCategoryHardware:    int32(cwssaws.IssueCategory_HARDWARE),
@@ -1873,10 +1861,6 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 	apiInstance.StatusHistory = []APIStatusDetail{}
 	for _, dbsd := range dbsds {
 		apiInstance.StatusHistory = append(apiInstance.StatusHistory, NewAPIStatusDetail(dbsd))
-	}
-
-	for _, deprecation := range instanceDeprecations {
-		apiInstance.Deprecations = append(apiInstance.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return &apiInstance

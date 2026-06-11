@@ -43,7 +43,8 @@ use crate::cfg::file::{
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
-    VmaasConfig, VpcPeeringPolicy, default_bmc_session_lockout_threshold, default_max_find_by_ids,
+    TracingConfig, VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
+    default_bmc_session_lockout_threshold, default_max_find_by_ids,
 };
 
 pub fn get() -> CarbideConfig {
@@ -74,6 +75,7 @@ pub fn get() -> CarbideConfig {
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),
+        host_naming_strategy: <_ as Default>::default(),
         tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
             identity_pemfile_path: "Not a real pemfile".to_string(),
@@ -135,6 +137,10 @@ pub fn get() -> CarbideConfig {
         },
         network_segment_state_controller: NetworkSegmentStateControllerConfig {
             network_segment_drain_time: Duration::seconds(2),
+            controller: StateControllerConfig::default(),
+        },
+        vpc_prefix_state_controller: VpcPrefixStateControllerConfig {
+            vpc_prefix_drain_time: Duration::seconds(2),
             controller: StateControllerConfig::default(),
         },
         ib_partition_state_controller: IbPartitionStateControllerConfig {
@@ -242,6 +248,7 @@ pub fn get() -> CarbideConfig {
         component_manager: None,
         initial_objects_file: None,
         config_ctx: None,
+        tracing: TracingConfig::default(),
     }
 }
 

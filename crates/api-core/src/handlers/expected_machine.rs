@@ -124,14 +124,6 @@ pub(crate) fn validate_expected_machine_for_insert(
 ) -> Result<(), CarbideError> {
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
-    for nic in &machine.data.host_nics {
-        if let Some(ref ip_str) = nic.fixed_ip {
-            let _: std::net::IpAddr = ip_str.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
-            })?;
-        }
-    }
-
     Ok(())
 }
 
@@ -237,10 +229,7 @@ pub(crate) async fn update(
 
     // Update/create machine interfaces for host NICs with fixed IPs.
     for nic in &machine.data.host_nics {
-        if let Some(ref ip_str) = nic.fixed_ip {
-            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
-                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
-            })?;
+        if let Some(ip) = nic.fixed_ip {
             update_preallocated_machine_interface(&mut txn, nic.mac_address, ip).await?;
         }
     }

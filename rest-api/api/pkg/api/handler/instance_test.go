@@ -173,7 +173,12 @@ func testInstanceBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infras
 func testInstanceBuildTenant(t *testing.T, dbSession *cdb.Session, name string, org string, user *cdbm.User) *cdbm.Tenant {
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
-	tn, err := tnDAO.CreateFromParams(context.Background(), nil, name, cutil.GetPtr("Test Tenant"), org, nil, nil, user)
+	tn, err := tnDAO.Create(context.Background(), nil, cdbm.TenantCreateInput{
+		Name:        name,
+		DisplayName: cutil.GetPtr("Test Tenant"),
+		Org:         org,
+		CreatedBy:   user.ID,
+	})
 	assert.Nil(t, err)
 
 	return tn
@@ -184,7 +189,10 @@ func testInstanceUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn
 	}
 
 	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.UpdateFromParams(context.Background(), nil, tn.ID, nil, nil, nil, &tncfg)
+	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
+		TenantID: tn.ID,
+		Config:   &tncfg,
+	})
 	assert.Nil(t, err)
 
 	return tn

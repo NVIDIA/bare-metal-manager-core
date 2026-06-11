@@ -1495,15 +1495,6 @@ func TestVpc_GetSiteID(t *testing.T) {
 	})
 }
 
-func TestVpc_ToDeletionRequestProto(t *testing.T) {
-	id := uuid.New()
-	v := &Vpc{ID: id}
-	req := v.ToDeletionRequestProto()
-	require.NotNil(t, req)
-	require.NotNil(t, req.Id)
-	assert.Equal(t, id.String(), req.Id.Value)
-}
-
 func TestVpc_ToProto(t *testing.T) {
 	id := uuid.New()
 	desc := "primary"

@@ -22,21 +22,19 @@ use db::{ObjectColumnFilter, network_prefix};
 use model::hardware_info::HardwareInfo;
 use model::machine::MachineState::UefiSetup;
 use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_agent_control_response::LegacyAction;
 use rpc::forge::forge_server::Forge;
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
-use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, MachineDiscoveryReporter};
 use strum::IntoEnumIterator;
 use tonic::Request;
 
 use super::tpm_attestation::{AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED};
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::{TestEnv, TestMachine, forge_agent_control};
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
-pub const X86_INFO_JSON: &[u8] =
-    include_bytes!("../../../../../api-model/src/hardware_info/test_data/x86_info.json");
 pub const GB200_COMPUTE_TRAY_1_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_1_info.json"
 );
@@ -114,6 +112,38 @@ pub async fn host_discover_machine(
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(DiscoveryData::Info(discovery_info)),
             create_machine: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    response.machine_id.expect("machine_id must be set")
+}
+
+pub async fn host_discover_machine_with_reporter(
+    env: &TestEnv,
+    host_config: &ManagedHostConfig,
+    machine_interface_id: MachineInterfaceId,
+    reporter: MachineDiscoveryReporter,
+    reporter_version: Option<&str>,
+) -> MachineId {
+    let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap();
+
+    discovery_info.attest_key_info = Some(AttestKeyInfo {
+        ek_pub: EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: AK_PUB_SERIALIZED.to_vec(),
+        ak_name: AK_NAME_SERIALIZED.to_vec(),
+    });
+
+    let response = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: true,
+            discovery_reporter: reporter as i32,
+            discovery_reporter_version: reporter_version.map(str::to_owned),
         }))
         .await
         .unwrap()

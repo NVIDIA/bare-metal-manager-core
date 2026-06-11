@@ -1242,10 +1242,21 @@ async fn test_on_demant_machine_validation_all_contexts(
     machine_validation_result.validation_id = on_demand_response.clone().validation_id;
 
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
+    let in_progress_state_int =
+        rpc::forge::machine_validation_status::MachineValidationState::InProgress(
+            rpc::forge::machine_validation_status::MachineValidationInProgress::InProgress.into(),
+        );
     for run in runs.runs {
         if run.validation_id == on_demand_response.clone().validation_id {
-            assert_eq!(run.status.unwrap_or_default().total, 0);
-            assert_eq!(run.status.unwrap_or_default().completed_tests, 0);
+            let status = run.status.unwrap_or_default();
+            assert_eq!(status.total, 0);
+            assert_eq!(status.completed_tests, 0);
+            assert_eq!(
+                status
+                    .machine_validation_state
+                    .unwrap_or(in_progress_state_int),
+                in_progress_state_int
+            );
             assert_eq!(run.duration_to_complete.unwrap_or_default().seconds, 3600);
         }
     }
@@ -1293,6 +1304,175 @@ async fn test_on_demant_machine_validation_all_contexts(
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn test_machine_validation_manager_reconciles_stale_run(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let machine_validation_result = rpc::forge::MachineValidationResult {
+        validation_id: None,
+        name: "test1".to_string(),
+        description: "desc".to_string(),
+        command: "echo".to_string(),
+        args: "test".to_string(),
+        std_out: "".to_string(),
+        std_err: "".to_string(),
+        context: "Discovery".to_string(),
+        exit_code: 0,
+        start_time: Some(Timestamp::from(SystemTime::now())),
+        end_time: Some(Timestamp::from(SystemTime::now())),
+        test_id: Some("test1".to_string()),
+    };
+
+    let mh = create_host_with_machine_validation(&env, Some(machine_validation_result), None).await;
+    let machine = mh.host().rpc_machine().await;
+    let on_demand_response = on_demand_machine_validation(
+        &env,
+        machine.id.unwrap_or_default(),
+        Vec::new(),
+        Vec::new(),
+        false,
+        Vec::new(),
+    )
+    .await;
+    let validation_id = on_demand_response.validation_id.unwrap();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::RebootHost { validation_id },
+            },
+        },
+    )
+    .await;
+    let _ = mh.host().reboot_completed().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "OnDemand".to_string(),
+                    id: validation_id,
+                    completed: 1,
+                    total: 1,
+                    is_enabled: env.config.machine_validation_config.enabled,
+                },
+            },
+        },
+    )
+    .await;
+
+    sqlx::query(
+        "UPDATE machine_validation SET start_time = NOW() - INTERVAL '2 days' WHERE id = $1",
+    )
+    .bind(validation_id)
+    .execute(&env.pool)
+    .await?;
+
+    let mut config = env.config.machine_validation_config.clone();
+    config.stale_run_timeout = std::time::Duration::from_secs(1);
+    crate::machine_validation::MachineValidationManager::new(
+        env.pool.clone(),
+        config,
+        opentelemetry::global::meter("test_machine_validation_manager_reconciles_stale_run"),
+    )
+    .run_single_iteration()
+    .await?;
+
+    let late_result_name = "late-stale-result".to_string();
+    env.api
+        .persist_validation_result(tonic::Request::new(
+            rpc::forge::MachineValidationResultPostRequest {
+                result: Some(rpc::forge::MachineValidationResult {
+                    validation_id: Some(validation_id),
+                    name: late_result_name.clone(),
+                    description: "desc".to_string(),
+                    command: "echo".to_string(),
+                    args: "test".to_string(),
+                    std_out: "".to_string(),
+                    std_err: "".to_string(),
+                    context: "OnDemand".to_string(),
+                    exit_code: 0,
+                    start_time: Some(Timestamp::from(SystemTime::now())),
+                    end_time: Some(Timestamp::from(SystemTime::now())),
+                    test_id: Some(late_result_name.clone()),
+                }),
+            },
+        ))
+        .await?;
+    let results =
+        db::machine_validation_result::find_by_validation_id(&env.pool, &validation_id).await?;
+    assert!(!results.iter().any(|result| result.name == late_result_name));
+
+    env.api
+        .machine_validation_completed(tonic::Request::new(
+            rpc::forge::MachineValidationCompletedRequest {
+                machine_id: Some(mh.host().id),
+                machine_validation_error: None,
+                validation_id: Some(validation_id),
+            },
+        ))
+        .await?;
+
+    let update_completed_run = env
+        .api
+        .update_machine_validation_run(tonic::Request::new(
+            rpc::forge::MachineValidationRunRequest {
+                validation_id: Some(validation_id),
+                duration_to_complete: Some(rpc::Duration::from(std::time::Duration::from_secs(1))),
+                total: 1,
+            },
+        ))
+        .await;
+    assert!(update_completed_run.is_err());
+
+    let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
+    let failed_state_int = rpc::forge::machine_validation_status::MachineValidationState::Completed(
+        rpc::forge::machine_validation_status::MachineValidationCompleted::Failed.into(),
+    );
+    let stale_run = runs
+        .runs
+        .into_iter()
+        .find(|run| run.validation_id == Some(validation_id))
+        .expect("stale run should be listed");
+    assert_eq!(
+        stale_run
+            .status
+            .unwrap_or_default()
+            .machine_validation_state
+            .unwrap_or(failed_state_int),
+        failed_state_int
+    );
+
+    env.run_machine_state_controller_iteration_until_state_condition(
+        &mh.host().id,
+        1,
+        |machine| {
+            matches!(
+                machine.current_state(),
+                ManagedHostState::Failed {
+                    retry_count: 0,
+                    details: FailureDetails {
+                        cause: FailureCause::MachineValidation { err },
+                        source: FailureSource::Scout,
+                        ..
+                    },
+                    ..
+                } if err == &format!(
+                    "Machine validation run {validation_id} exceeded its expected duration plus stale timeout"
+                )
+            )
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
 #[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
 async fn test_machine_validation_tests_on_startup_default_mode(
     pool: sqlx::PgPool,
@@ -1314,6 +1494,7 @@ async fn test_machine_validation_tests_on_startup_default_mode(
         enabled: true,
         test_selection_mode: MachineValidationTestSelectionMode::Default,
         run_interval: std::time::Duration::from_secs(60),
+        stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![
             MachineValidationTestConfig {
                 id: initial_tests[0].test_id.clone(),
@@ -1395,6 +1576,7 @@ async fn test_machine_validation_tests_enable_all_mode(
         enabled: true,
         test_selection_mode: MachineValidationTestSelectionMode::EnableAll,
         run_interval: std::time::Duration::from_secs(60),
+        stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![MachineValidationTestConfig {
             id: initial_tests[0].test_id.clone(),
             enable: false, // Override first test to be disabled
@@ -1456,6 +1638,7 @@ async fn test_machine_validation_tests_on_startup_disable_all_mode(
         enabled: true,
         test_selection_mode: MachineValidationTestSelectionMode::DisableAll,
         run_interval: std::time::Duration::from_secs(60),
+        stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![MachineValidationTestConfig {
             id: initial_tests[0].test_id.clone(),
             enable: true, // Override first test to be enabled
@@ -1573,6 +1756,7 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
         enabled: true,
         test_selection_mode: MachineValidationTestSelectionMode::EnableAll,
         run_interval: std::time::Duration::from_secs(60),
+        stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![], // Empty test configuration
     };
 
@@ -1603,6 +1787,7 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
         enabled: true,
         test_selection_mode: MachineValidationTestSelectionMode::DisableAll,
         run_interval: std::time::Duration::from_secs(60),
+        stale_run_timeout: std::time::Duration::from_secs(24 * 60 * 60),
         tests: vec![], // Empty test configuration
     };
 

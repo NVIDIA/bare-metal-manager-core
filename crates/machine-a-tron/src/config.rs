@@ -209,11 +209,8 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub use_single_bmc_mock: bool,
 
-    #[serde(default = "default_false")]
-    pub use_pxe_api: bool,
-    pub pxe_server_host: Option<String>,
-    pub pxe_server_port: Option<String>,
-    /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host (this will be combined with bmc_mock_port.)
+    /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the
+    /// bmc_proxy host (this will be combined with bmc_mock_port.)
     pub configure_carbide_bmc_proxy_host: Option<String>,
 
     #[serde(default)]
@@ -329,6 +326,10 @@ pub struct PersistedHostMachine {
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
     pub non_dpu_mac_address: Option<MacAddress>,
+    #[serde(default)]
+    pub nvos_mac_addresses: Vec<MacAddress>,
+    #[serde(default)]
+    pub switch_serial_number: Option<String>,
     pub observed_machine_id: Option<MachineId>,
     pub installed_os: OsImage,
     pub tpm_ek_certificate: Option<Vec<u8>>,
@@ -344,6 +345,8 @@ impl From<PersistedHostMachine> for HostMachineInfo {
             serial: value.serial,
             dpus: value.dpus.into_iter().map(Into::into).collect(),
             non_dpu_mac_address: value.non_dpu_mac_address,
+            nvos_mac_addresses: value.nvos_mac_addresses,
+            switch_serial_number: value.switch_serial_number,
         }
     }
 }

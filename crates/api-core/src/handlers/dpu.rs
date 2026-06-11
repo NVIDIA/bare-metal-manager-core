@@ -795,9 +795,6 @@ pub(crate) async fn record_dpu_network_status(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.dpu_machine_id.as_ref())?;
 
-    // TODO: persist this somewhere
-    let _fabric_interfaces_data = request.fabric_interfaces.as_slice();
-
     let mut txn = api.txn_begin().await?;
 
     // Load the DPU Object. We require it to update the health report based
@@ -898,8 +895,39 @@ pub(crate) async fn record_dpu_network_status(
     let mut txn = api.txn_begin().await?;
 
     if let Some(policy) = dpu_agent_upgrade_policy::get(&mut txn).await? {
-        let _needs_upgrade =
-            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
+        let snapshot =
+            db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, Default::default())
+                .await?
+                .ok_or(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: dpu_machine_id.to_string(),
+                })?;
+
+        let dpu_machine = snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|x| x.id == dpu_machine_id)
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu",
+                id: dpu_machine_id.to_string(),
+            })?;
+
+        if snapshot.host_snapshot.dpf.used_for_ingestion {
+            // DPF-managed DPUs don't use this upgrade path. Clear any stale flag so the DPU
+            // doesn't keep receiving upgrade signals after the host was switched to DPF.
+            if dpu_machine.needs_agent_upgrade() {
+                db::machine::set_dpu_agent_upgrade_requested(
+                    &mut txn,
+                    &dpu_machine_id,
+                    false,
+                    carbide_version::v!(build_version),
+                )
+                .await?;
+            }
+        } else {
+            let _needs_upgrade =
+                db::machine::apply_agent_upgrade_policy(&mut txn, policy, dpu_machine).await?;
+        }
     }
 
     txn.commit().await?;
@@ -1113,9 +1141,9 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .classifications
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
-        return Err(CarbideError::InvalidArgument(
-            "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
-        ).into());
+        return Err(CarbideError::InvalidArgument(format!(
+            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+        )).into());
     }
 
     if snapshot.dpu_snapshots.iter().any(|ms| {
@@ -1195,7 +1223,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    "No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs.".to_string(),
+                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
                 )
                     .into());
             }

@@ -28,6 +28,7 @@ use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::cfg::cli_options::SortField;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_writeln, invalid_machine_id};
@@ -484,27 +485,21 @@ async fn show_instance_details(
     Ok(())
 }
 
-pub async fn handle_show(
-    args: Args,
-    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-    output_format: &OutputFormat,
-    api_client: &ApiClient,
-    page_size: usize,
-    sort_by: &SortField,
-) -> CarbideCliResult<()> {
+pub async fn handle_show(args: Args, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
     if args.id.is_empty() {
-        let mut all_instances = api_client
+        let mut all_instances = ctx
+            .api_client
             .get_all_instances(
                 args.tenant_org_id,
                 args.vpc_id,
                 args.label_key,
                 args.label_value,
                 args.instance_type_id,
-                page_size,
+                ctx.config.page_size,
             )
             .await?;
 
-        match sort_by {
+        match ctx.config.sort_by {
             SortField::PrimaryId => all_instances.instances.sort_by_key(|instance| instance.id),
             SortField::State => all_instances.instances.sort_by(|i1, i2| {
                 let tenant_status1 = i1
@@ -524,17 +519,17 @@ pub async fn handle_show(
                 tenant_status1.cmp(&tenant_status2)
             }),
         }
-        match output_format {
+        match ctx.config.format {
             OutputFormat::Json => {
                 async_writeln!(
-                    output_file,
+                    ctx.output_file,
                     "{}",
                     serde_json::to_string_pretty(&all_instances)?
                 )?;
             }
             OutputFormat::AsciiTable => {
                 let table = convert_instances_to_nice_table(all_instances);
-                async_write!(output_file, "{}", table)?;
+                async_write!(ctx.output_file, "{}", table)?;
             }
             OutputFormat::Csv => {
                 return Err(CarbideCliError::NotImplemented(
@@ -551,9 +546,9 @@ pub async fn handle_show(
     }
     show_instance_details(
         args.id,
-        output_file,
-        output_format,
-        api_client,
+        &mut ctx.output_file,
+        &ctx.config.format,
+        &ctx.api_client,
         args.extrainfo,
     )
     .await?;

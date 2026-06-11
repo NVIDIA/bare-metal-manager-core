@@ -87,9 +87,9 @@ func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadat
 	return nil
 }
 
-// CreateMachineHealthReportOverride inserts the tenant-reported OnlineRepair health override on Site.
-func CreateMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.InsertHealthReportOverrideRequest) error {
-	logger := log.With().Str("Workflow", "CreateMachineHealthReportOverride").Logger()
+// CreateMachineHealthReport inserts the tenant-reported OnlineRepair health report on Site.
+func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
+	logger := log.With().Str("Workflow", "CreateMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	retrypolicy := &temporal.RetryPolicy{
@@ -105,8 +105,8 @@ func CreateMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.In
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var machineManager activity.ManageMachine
-	if err := workflow.ExecuteActivity(ctx, machineManager.CreateMachineHealthReportOverrideOnSite, request).Get(ctx, nil); err != nil {
-		logger.Error().Err(err).Str("Activity", "CreateMachineHealthReportOverrideOnSite").Msg("Failed to execute activity from workflow")
+	if err := workflow.ExecuteActivity(ctx, machineManager.CreateMachineHealthReportOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "CreateMachineHealthReportOnSite").Msg("Failed to execute activity from workflow")
 		return err
 	}
 
@@ -114,9 +114,9 @@ func CreateMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.In
 	return nil
 }
 
-// DeleteMachineHealthReportOverride removes the tenant-reported OnlineRepair health override on Site.
-func DeleteMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.RemoveHealthReportOverrideRequest) error {
-	logger := log.With().Str("Workflow", "DeleteMachineHealthReportOverride").Logger()
+// DeleteMachineHealthReport removes the tenant-reported OnlineRepair health report on Site.
+func DeleteMachineHealthReport(ctx workflow.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
+	logger := log.With().Str("Workflow", "DeleteMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")
 
 	retrypolicy := &temporal.RetryPolicy{
@@ -132,8 +132,8 @@ func DeleteMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.Re
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var machineManager activity.ManageMachine
-	if err := workflow.ExecuteActivity(ctx, machineManager.DeleteMachineHealthReportOverrideOnSite, request).Get(ctx, nil); err != nil {
-		logger.Error().Err(err).Str("Activity", "DeleteMachineHealthReportOverrideOnSite").Msg("Failed to execute activity from workflow")
+	if err := workflow.ExecuteActivity(ctx, machineManager.DeleteMachineHealthReportOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "DeleteMachineHealthReportOnSite").Msg("Failed to execute activity from workflow")
 		return err
 	}
 

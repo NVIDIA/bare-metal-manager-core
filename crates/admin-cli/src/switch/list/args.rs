@@ -20,6 +20,22 @@ use mac_address::MacAddress;
 use rpc::forge::DeletedFilter;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+List all live switches:
+    $ carbide-admin-cli switch list
+
+Include deleted switches:
+    $ carbide-admin-cli switch list --deleted include
+
+Filter by controller state:
+    $ carbide-admin-cli switch list --controller-state ready
+
+Find a switch by its BMC MAC address:
+    $ carbide-admin-cli switch list --bmc-mac 00:11:22:33:44:55
+
+")]
 pub struct Args {
     /// Include deleted switches
     #[clap(long, value_enum, default_value = "exclude")]

@@ -27,6 +27,7 @@ use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{
     IntoLibredfish, IntoModel, machine_last_reboot_requested_mode,
 };
@@ -95,6 +96,7 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
+use crate::boot_interface::boot_interface_target;
 use crate::config::{
     FirmwareGlobal, MachineStateHandlerSiteConfig, MachineValidationConfig, TimePeriod,
 };
@@ -2909,22 +2911,12 @@ async fn handle_dpu_reprovision(
                         }
                     })?;
 
-                    let bmc_ip_address = state
-                        .host_snapshot
-                        .bmc_info
-                        .ip
-                        .clone()
-                        .ok_or_else(|| StateHandlerError::MissingData {
+                    let bmc_ip_address = state.host_snapshot.bmc_info.ip.ok_or_else(|| {
+                        StateHandlerError::MissingData {
                             object_id: state.host_snapshot.id.to_string(),
                             missing: "bmc_ip",
-                        })?
-                        .parse()
-                        .map_err(|e| {
-                            StateHandlerError::GenericError(eyre!(
-                                "parsing the host's BMC IP address failed: {}",
-                                e
-                            ))
-                        })?;
+                        }
+                    })?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
@@ -3600,7 +3592,7 @@ impl DpuMachineStateHandler {
                     return Ok(outcome);
                 }
 
-                let boot_interface_mac = None; // libredfish will choose the DPU
+                let boot_interface = None; // libredfish will choose the DPU
                 if self.enable_secure_boot {
                     dpu_redfish_client
                         .set_host_rshim(EnabledDisabled::Disabled)
@@ -3612,7 +3604,7 @@ impl DpuMachineStateHandler {
                         .map_err(|e| redfish_error("set_host_privilege_level", e))?;
                 } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
                     dpu_redfish_client.as_ref(),
-                    boot_interface_mac,
+                    boot_interface,
                     state.host_snapshot.associated_dpu_machine_ids().len(),
                     &ctx.services.site_config,
                 )
@@ -3714,6 +3706,28 @@ impl DpuMachineStateHandler {
                         "Polling BIOS setup status, waiting for settings to be applied on DPU {}",
                         dpu_snapshot.id
                     ))),
+                    Err(e)
+                        if carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready(&e) =>
+                    {
+                        let msg = format!(
+                            "DPU {} BIOS attributes not ready ({e}); issuing a force-restart to mitigate the known UEFI POST/BMC race",
+                            dpu_snapshot.id
+                        );
+                        tracing::warn!("{msg}");
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+
+                        Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )))
+                    }
                     Err(e) => {
                         tracing::warn!(
                             dpu_id = %dpu_snapshot.id,
@@ -5023,7 +5037,13 @@ impl StateHandler for HostMachineStateHandler {
                     }
                 }
                 MachineState::WaitingForDiscovery => {
-                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none() {
+                    // Storage cleanup is a destructive disk wipe (NVMe/HDD) that scout runs after a
+                    // reset, so only a real, discovered host enters it. A predicted host waits for
+                    // discovery to promote it; the promoted host then does the cleanup.
+                    // (machine_scout.rs mirrors this on the scout side.)
+                    if mh_snapshot.host_snapshot.last_cleanup_time.is_none()
+                        && host_machine_id.machine_type().is_host()
+                    {
                         return Ok(StateHandlerOutcome::transition(waiting_for_cleanup_state(
                             CleanupState::Init,
                             CleanupContext::InitialDiscovery,
@@ -6309,10 +6329,10 @@ impl StateHandler for InstanceStateHandler {
                                 &mh_snapshot.instance,
                                 &mh_snapshot.host_snapshot.spx_status_observation,
                             ) {
-                                return Ok(StateHandlerOutcome::wait(
-                                        "Waiting for DPA agent(s) to apply network config and report healthy network"
-                                            .to_string()
-                                    ));
+                                return Ok(StateHandlerOutcome::wait(format!(
+                                    "Waiting for DPA agent {dpa_id} to apply network config and report healthy network",
+                                    dpa_id = dpa_interface.id,
+                                )));
                             }
                         }
                     }
@@ -6347,19 +6367,25 @@ impl StateHandler for InstanceStateHandler {
 }
 
 // Gets extension services status from DB, checks if any removed services are fully terminated
-// across all DPUs, if so, remove them from the instance config in the DB(without updating the version).
+// across targeted DPUs, if so, remove them from the instance config in the DB(without updating the version).
 fn get_extension_services_status(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
 ) -> InstanceExtensionServicesStatus {
-    let (_, dpu_id_to_device_map) = mh_snapshot
+    let (_, device_to_id_map) = mh_snapshot
         .host_snapshot
         .get_dpu_device_and_id_mappings()
         .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
 
-    // Gather instance extension services status from all DPU observations
+    let primary_dpu_machine_id = mh_snapshot.host_snapshot.primary_attached_dpu_machine_id();
+    let used_dpus = instance
+        .config
+        .network
+        .get_used_dpus(&device_to_id_map, primary_dpu_machine_id);
+
+    // Gather instance extension services status from targeted DPUs.
     InstanceExtensionServicesStatus::from_config_and_observations(
-        &dpu_id_to_device_map,
+        &used_dpus,
         Versioned::new(
             &instance.config.extension_services,
             instance.extension_services_config_version,
@@ -9063,7 +9089,7 @@ async fn wait_for_boss_controller_job_to_scheduled(
                 cleanup_context,
             )
         }
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+        _ if job_state.is_error_state() => {
             return handle_boss_controller_job_error(
                 boss_controller_id,
                 iteration.unwrap_or_default(),
@@ -9189,18 +9215,16 @@ async fn wait_for_boss_controller_job_to_complete(
             Ok(StateHandlerOutcome::transition(next_state))
         }
         // The job has failed; handle error
-        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
-            handle_boss_controller_job_error(
-                boss_controller_id,
-                iterations,
-                secure_erase_boss_controller,
-                cleanup_context,
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
-                )),
-                mh_snapshot.host_snapshot.state.version.since_state_change(),
-            )
-        }
+        _ if job_state.is_error_state() => handle_boss_controller_job_error(
+            boss_controller_id,
+            iterations,
+            secure_erase_boss_controller,
+            cleanup_context,
+            StateHandlerError::GenericError(eyre::eyre!(
+                "job {job_id} will not complete because it is in a failure state: {job_state:#?}",
+            )),
+            mh_snapshot.host_snapshot.state.version.since_state_change(),
+        ),
         // The job is still running (hopefully...); wait for the job to complete
         _ => Ok(StateHandlerOutcome::wait(format!(
             "waiting for job {job_id} to complete; current state: {job_state:#?}"
@@ -9464,18 +9488,9 @@ async fn do_ipmi_restart(
     let ip: IpAddr = machine
         .bmc_info
         .ip
-        .as_ref()
         .ok_or_else(|| StateHandlerError::MissingData {
             object_id: machine.id.to_string(),
             missing: "bmc_ip",
-        })?
-        .parse()
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre!(
-                "parsing BMC IP address for {} failed: {}",
-                machine.id,
-                e
-            ))
         })?;
     let credential_key = CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot {
@@ -9560,28 +9575,44 @@ fn can_restart_reprovision(dpu_snapshots: &[Machine], version: ConfigVersion) ->
 /// config job that must complete before configuring boot order; `Ok(None)` when no job to wait for.
 pub async fn call_machine_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
-    boot_interface_mac: Option<&str>,
+    boot_interface: Option<&BootInterfaceTarget>,
     expected_dpu_count: usize,
     site_config: &MachineStateHandlerSiteConfig,
 ) -> Result<Option<String>, RedfishError> {
-    let setup_result = redfish_client
-        .machine_setup(
-            boot_interface_mac,
-            &site_config.bios_profiles,
-            site_config.selected_profile,
-            &site_config.oem_manager_profiles,
-        )
-        .await;
+    let setup_result = match boot_interface {
+        Some(target) => {
+            target
+                .run(|bi| {
+                    redfish_client.machine_setup(
+                        Some(bi),
+                        &site_config.bios_profiles,
+                        site_config.selected_profile,
+                        &site_config.oem_manager_profiles,
+                    )
+                })
+                .await
+        }
+        None => {
+            redfish_client
+                .machine_setup(
+                    None,
+                    &site_config.bios_profiles,
+                    site_config.selected_profile,
+                    &site_config.oem_manager_profiles,
+                )
+                .await
+        }
+    };
     handle_no_dpu_error(setup_result, expected_dpu_count, "machine_setup")
 }
 
 async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
-    boot_interface_mac: &str,
+    boot_interface: &BootInterfaceTarget,
     expected_dpu_count: usize,
 ) -> Result<Option<String>, RedfishError> {
-    let setup_result = redfish_client
-        .set_boot_order_dpu_first(boot_interface_mac)
+    let setup_result = boot_interface
+        .run(|bi| redfish_client.set_boot_order_dpu_first(bi))
         .await;
     handle_no_dpu_error(setup_result, expected_dpu_count, "set_boot_order_dpu_first")
 }
@@ -9941,9 +9972,9 @@ async fn handle_instance_host_platform_config(
             // For zero-DPU hosts, it's the operator-declared primary host
             // NIC (which comes from `ExpectedHostNic.primary`) *or* the
             // "lowest" deterministic-fallback host NIC.
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
+            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
+                    "Missing boot interface for host: {}",
                     mh_snapshot.host_snapshot.id
                 ))
             })?;
@@ -9968,8 +9999,8 @@ async fn handle_instance_host_platform_config(
                     "Skipping boot order remediation on Viking (known FW/BMC issue)"
                 );
                 false
-            } else if redfish_client
-                .is_boot_order_setup(&boot_interface_mac.to_string())
+            } else if boot_interface
+                .run(|bi| redfish_client.is_boot_order_setup(bi))
                 .await
                 .map_err(|e| redfish_error("is_boot_order_setup", e))?
             {
@@ -10224,16 +10255,16 @@ async fn set_host_boot_order(
             //
             // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
             // supporting hosts with DPU(s) and zero DPUs alike.
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
+            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
+                    "Missing boot interface for host: {}",
                     mh_snapshot.host_snapshot.id
                 ))
             })?;
 
             let jid = match set_boot_order_dpu_first_and_handle_no_dpu_error(
                 redfish_client,
-                &boot_interface_mac.to_string(),
+                &boot_interface,
                 mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
             )
             .await
@@ -10371,8 +10402,7 @@ async fn set_host_boot_order(
                     libredfish::JobState::Completed => {
                         // Job completed successfully, proceed to CheckBootOrder
                     }
-                    libredfish::JobState::ScheduledWithErrors
-                    | libredfish::JobState::CompletedWithErrors => {
+                    _ if job_state.is_error_state() => {
                         tracing::warn!(
                             "SetBootOrder: job {} failed for {} with state {job_state:#?}, transitioning to HandleJobFailure",
                             job_id,
@@ -10509,15 +10539,15 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
+            let boot_interface = boot_interface_target(mh_snapshot).ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing boot interface MAC for host: {}",
+                    "Missing boot interface for host: {}",
                     mh_snapshot.host_snapshot.id
                 ))
             })?;
 
-            let boot_order_configured = redfish_client
-                .is_boot_order_setup(&boot_interface_mac.to_string())
+            let boot_order_configured = boot_interface
+                .run(|bi| redfish_client.is_boot_order_setup(bi))
                 .await
                 .map_err(|e| redfish_error("is_boot_order_setup", e))?;
 
@@ -10672,6 +10702,7 @@ mod tests {
             pause_ingestion_and_poweron: false,
             pause_remediation: false,
             boot_interface_mac: None,
+            boot_interface_id: None,
         };
 
         let to_install = need_host_fw_upgrade(&endpoint, &fw_info, firmware_type)

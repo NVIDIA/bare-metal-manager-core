@@ -27,13 +27,13 @@
 //!
 //! ```ignore
 //! let mock = MockRmsApi::new();
-//! mock.enqueue_power_state(Ok(MockRmsApi::power_ok())).await;
+//! mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok())).await;
 //!
 //! let backend = RmsPowerShelfBackend::new(Arc::new(mock));
 //! let results = backend.power_control(&endpoints, PowerAction::On).await.unwrap();
 //!
 //! assert!(results[0].success);
-//! let calls = mock.power_state_calls().await;
+//! let calls = mock.set_power_state_calls().await;
 //! assert_eq!(calls[0].node_id, "ps-001");
 //! ```
 
@@ -48,8 +48,8 @@ use tokio::sync::Mutex;
 /// per method and inspect what requests were sent.
 ///
 /// Every `RmsApi` method has a corresponding:
-/// - `enqueue_*()` — push a response to be returned on the next call
-/// - `*_calls()` — retrieve all recorded requests for that method
+/// - `enqueue_*()` - push a response to be returned on the next call
+/// - `*_calls()` - retrieve all recorded requests for that method
 ///
 /// If no response is queued when a method is called, it returns a
 /// clear "no response queued" error so tests fail explicitly.
@@ -59,35 +59,35 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::SetPowerStateResponse, RackManagerError>>>,
     set_power_state_calls: Mutex<Vec<rms::SetPowerStateRequest>>,
 
-    set_power_state_by_device_list_responses:
-        Mutex<VecDeque<Result<rms::SetPowerStateByDeviceListResponse, RackManagerError>>>,
-    set_power_state_by_device_list_calls: Mutex<Vec<rms::SetPowerStateByDeviceListRequest>>,
+    batch_set_power_state_responses:
+        Mutex<VecDeque<Result<rms::BatchSetPowerStateResponse, RackManagerError>>>,
+    batch_set_power_state_calls: Mutex<Vec<rms::BatchSetPowerStateRequest>>,
 
     get_power_state_responses:
         Mutex<VecDeque<Result<rms::GetPowerStateResponse, RackManagerError>>>,
     get_power_state_calls: Mutex<Vec<rms::GetPowerStateRequest>>,
 
-    get_power_state_by_device_list_responses:
-        Mutex<VecDeque<Result<rms::GetPowerStateByDeviceListResponse, RackManagerError>>>,
-    get_power_state_by_device_list_calls: Mutex<Vec<rms::GetPowerStateByDeviceListRequest>>,
+    batch_get_power_state_responses:
+        Mutex<VecDeque<Result<rms::BatchGetPowerStateResponse, RackManagerError>>>,
+    batch_get_power_state_calls: Mutex<Vec<rms::BatchGetPowerStateRequest>>,
 
     sequence_rack_power_responses:
         Mutex<VecDeque<Result<rms::SequenceRackPowerResponse, RackManagerError>>>,
     sequence_rack_power_calls: Mutex<Vec<rms::SequenceRackPowerRequest>>,
 
     // Inventory calls.
-    get_all_inventory_responses:
-        Mutex<VecDeque<Result<rms::GetAllInventoryResponse, RackManagerError>>>,
-    get_all_inventory_calls: Mutex<Vec<rms::GetAllInventoryRequest>>,
+    list_node_inventory_responses:
+        Mutex<VecDeque<Result<rms::ListNodeInventoryResponse, RackManagerError>>>,
+    list_node_inventory_calls: Mutex<Vec<rms::ListNodeInventoryRequest>>,
 
-    add_node_responses: Mutex<VecDeque<Result<rms::AddNodeResponse, RackManagerError>>>,
-    add_node_calls: Mutex<Vec<rms::AddNodeRequest>>,
+    create_nodes_responses: Mutex<VecDeque<Result<rms::CreateNodesResponse, RackManagerError>>>,
+    create_nodes_calls: Mutex<Vec<rms::CreateNodesRequest>>,
 
     update_node_responses: Mutex<VecDeque<Result<rms::UpdateNodeResponse, RackManagerError>>>,
     update_node_calls: Mutex<Vec<rms::UpdateNodeRequest>>,
 
-    remove_node_responses: Mutex<VecDeque<Result<rms::RemoveNodeResponse, RackManagerError>>>,
-    remove_node_calls: Mutex<Vec<rms::RemoveNodeRequest>>,
+    delete_node_responses: Mutex<VecDeque<Result<rms::DeleteNodeResponse, RackManagerError>>>,
+    delete_node_calls: Mutex<Vec<rms::DeleteNodeRequest>>,
 
     list_racks_responses: Mutex<VecDeque<Result<rms::ListRacksResponse, RackManagerError>>>,
     list_racks_calls: Mutex<Vec<rms::ListRacksRequest>>,
@@ -97,13 +97,13 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::GetNodeDeviceInfoResponse, RackManagerError>>>,
     get_node_device_info_calls: Mutex<Vec<rms::GetNodeDeviceInfoRequest>>,
 
-    get_device_info_by_node_type_responses:
-        Mutex<VecDeque<Result<rms::GetDeviceInfoByNodeTypeResponse, RackManagerError>>>,
-    get_device_info_by_node_type_calls: Mutex<Vec<rms::GetDeviceInfoByNodeTypeRequest>>,
+    list_node_device_info_by_node_type_responses:
+        Mutex<VecDeque<Result<rms::ListNodeDeviceInfoByNodeTypeResponse, RackManagerError>>>,
+    list_node_device_info_by_node_type_calls: Mutex<Vec<rms::ListNodeDeviceInfoByNodeTypeRequest>>,
 
-    get_device_info_by_device_list_responses:
-        Mutex<VecDeque<Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError>>>,
-    get_device_info_by_device_list_calls: Mutex<Vec<rms::GetDeviceInfoByDeviceListRequest>>,
+    batch_get_node_device_info_responses:
+        Mutex<VecDeque<Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError>>>,
+    batch_get_node_device_info_calls: Mutex<Vec<rms::BatchGetNodeDeviceInfoRequest>>,
 
     // Power-on sequence calls.
     get_rack_power_on_sequence_responses:
@@ -123,10 +123,12 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::GetRackFirmwareInventoryResponse, RackManagerError>>>,
     get_rack_firmware_inventory_calls: Mutex<Vec<rms::GetRackFirmwareInventoryRequest>>,
 
-    add_firmware_object_responses: Mutex<VecDeque<Result<rms::FirmwareObject, RackManagerError>>>,
+    add_firmware_object_responses:
+        Mutex<VecDeque<Result<rms::AddFirmwareObjectResponse, RackManagerError>>>,
     add_firmware_object_calls: Mutex<Vec<rms::AddFirmwareObjectRequest>>,
 
-    get_firmware_object_responses: Mutex<VecDeque<Result<rms::FirmwareObject, RackManagerError>>>,
+    get_firmware_object_responses:
+        Mutex<VecDeque<Result<rms::GetFirmwareObjectResponse, RackManagerError>>>,
     get_firmware_object_calls: Mutex<Vec<rms::GetFirmwareObjectRequest>>,
 
     list_firmware_objects_responses:
@@ -134,66 +136,69 @@ pub struct MockRmsApi {
     list_firmware_objects_calls: Mutex<Vec<rms::ListFirmwareObjectsRequest>>,
 
     delete_firmware_object_responses:
-        Mutex<VecDeque<Result<rms::OperationResponse, RackManagerError>>>,
+        Mutex<VecDeque<Result<rms::DeleteFirmwareObjectResponse, RackManagerError>>>,
     delete_firmware_object_calls: Mutex<Vec<rms::DeleteFirmwareObjectRequest>>,
 
     set_default_firmware_object_responses:
-        Mutex<VecDeque<Result<rms::FirmwareObject, RackManagerError>>>,
+        Mutex<VecDeque<Result<rms::SetDefaultFirmwareObjectResponse, RackManagerError>>>,
     set_default_firmware_object_calls: Mutex<Vec<rms::SetDefaultFirmwareObjectRequest>>,
+
+    apply_stored_firmware_object_responses:
+        Mutex<VecDeque<Result<rms::ApplyStoredFirmwareObjectResponse, RackManagerError>>>,
+    apply_stored_firmware_object_calls: Mutex<Vec<rms::ApplyStoredFirmwareObjectRequest>>,
 
     apply_firmware_object_responses:
         Mutex<VecDeque<Result<rms::ApplyFirmwareObjectResponse, RackManagerError>>>,
     apply_firmware_object_calls: Mutex<Vec<rms::ApplyFirmwareObjectRequest>>,
 
-    apply_firmware_object_from_json_responses:
-        Mutex<VecDeque<Result<rms::ApplyFirmwareObjectResponse, RackManagerError>>>,
-    apply_firmware_object_from_json_calls: Mutex<Vec<rms::ApplyFirmwareObjectFromJsonRequest>>,
-
-    apply_switch_system_image_from_json_responses:
-        Mutex<VecDeque<Result<rms::ApplySwitchSystemImageResponse, RackManagerError>>>,
-    apply_switch_system_image_from_json_calls:
-        Mutex<Vec<rms::ApplySwitchSystemImageFromJsonRequest>>,
-
     apply_switch_system_image_responses:
         Mutex<VecDeque<Result<rms::ApplySwitchSystemImageResponse, RackManagerError>>>,
     apply_switch_system_image_calls: Mutex<Vec<rms::ApplySwitchSystemImageRequest>>,
 
-    get_switch_system_image_job_status_responses:
-        Mutex<VecDeque<Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError>>>,
-    get_switch_system_image_job_status_calls: Mutex<Vec<rms::GetSwitchSystemImageJobStatusRequest>>,
+    apply_stored_switch_system_image_responses:
+        Mutex<VecDeque<Result<rms::ApplyStoredSwitchSystemImageResponse, RackManagerError>>>,
+    apply_stored_switch_system_image_calls: Mutex<Vec<rms::ApplyStoredSwitchSystemImageRequest>>,
 
     get_firmware_object_history_responses:
         Mutex<VecDeque<Result<rms::GetFirmwareObjectHistoryResponse, RackManagerError>>>,
     get_firmware_object_history_calls: Mutex<Vec<rms::GetFirmwareObjectHistoryRequest>>,
 
-    update_node_firmware_async_responses:
-        Mutex<VecDeque<Result<rms::UpdateNodeFirmwareResponse, RackManagerError>>>,
-    update_node_firmware_async_calls: Mutex<Vec<rms::UpdateNodeFirmwareRequest>>,
+    update_firmware_responses:
+        Mutex<VecDeque<Result<rms::UpdateFirmwareResponse, RackManagerError>>>,
+    update_firmware_calls: Mutex<Vec<rms::UpdateFirmwareRequest>>,
 
-    update_firmware_by_node_type_async_responses:
-        Mutex<VecDeque<Result<rms::UpdateFirmwareByNodeTypeAsyncResponse, RackManagerError>>>,
-    update_firmware_by_node_type_async_calls: Mutex<Vec<rms::UpdateFirmwareByNodeTypeRequest>>,
+    batch_update_firmware_by_node_type_responses:
+        Mutex<VecDeque<Result<rms::BatchUpdateFirmwareByNodeTypeResponse, RackManagerError>>>,
+    batch_update_firmware_by_node_type_calls: Mutex<Vec<rms::BatchUpdateFirmwareByNodeTypeRequest>>,
 
-    update_firmware_by_device_list_responses:
-        Mutex<VecDeque<Result<rms::UpdateFirmwareByDeviceListResponse, RackManagerError>>>,
-    update_firmware_by_device_list_calls: Mutex<Vec<rms::UpdateFirmwareByDeviceListRequest>>,
+    batch_update_firmware_responses:
+        Mutex<VecDeque<Result<rms::BatchUpdateFirmwareResponse, RackManagerError>>>,
+    batch_update_firmware_calls: Mutex<Vec<rms::BatchUpdateFirmwareRequest>>,
+
+    update_switch_system_image_responses:
+        Mutex<VecDeque<Result<rms::UpdateSwitchSystemImageResponse, RackManagerError>>>,
+    update_switch_system_image_calls: Mutex<Vec<rms::UpdateSwitchSystemImageRequest>>,
+
+    update_switch_system_password_responses:
+        Mutex<VecDeque<Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>>>,
+    update_switch_system_password_calls: Mutex<Vec<rms::UpdateSwitchSystemPasswordRequest>>,
 
     get_firmware_job_status_responses:
         Mutex<VecDeque<Result<rms::GetFirmwareJobStatusResponse, RackManagerError>>>,
     get_firmware_job_status_calls: Mutex<Vec<rms::GetFirmwareJobStatusRequest>>,
 
     // Switch firmware calls.
-    list_firmware_on_switch_responses:
-        Mutex<VecDeque<Result<rms::ListFirmwareOnSwitchResponse, RackManagerError>>>,
-    list_firmware_on_switch_calls: Mutex<Vec<rms::ListFirmwareOnSwitchCommand>>,
+    list_switch_firmware_responses:
+        Mutex<VecDeque<Result<rms::ListSwitchFirmwareResponse, RackManagerError>>>,
+    list_switch_firmware_calls: Mutex<Vec<rms::ListSwitchFirmwareRequest>>,
 
-    push_firmware_to_switch_responses:
-        Mutex<VecDeque<Result<rms::PushFirmwareToSwitchResponse, RackManagerError>>>,
-    push_firmware_to_switch_calls: Mutex<Vec<rms::PushFirmwareToSwitchCommand>>,
+    push_switch_firmware_responses:
+        Mutex<VecDeque<Result<rms::PushSwitchFirmwareResponse, RackManagerError>>>,
+    push_switch_firmware_calls: Mutex<Vec<rms::PushSwitchFirmwareRequest>>,
 
-    upgrade_firmware_on_switch_responses:
-        Mutex<VecDeque<Result<rms::UpgradeFirmwareOnSwitchResponse, RackManagerError>>>,
-    upgrade_firmware_on_switch_calls: Mutex<Vec<rms::UpgradeFirmwareOnSwitchCommand>>,
+    upgrade_switch_firmware_responses:
+        Mutex<VecDeque<Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError>>>,
+    upgrade_switch_firmware_calls: Mutex<Vec<rms::UpgradeSwitchFirmwareRequest>>,
 
     // Switch system images calls.
     fetch_switch_system_image_responses:
@@ -208,27 +213,40 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::ListSwitchSystemImagesResponse, RackManagerError>>>,
     list_switch_system_images_calls: Mutex<Vec<rms::ListSwitchSystemImagesRequest>>,
 
-    poll_job_status_responses:
-        Mutex<VecDeque<Result<rms::PollJobStatusResponse, RackManagerError>>>,
-    poll_job_status_calls: Mutex<Vec<rms::PollJobStatusCommand>>,
+    poll_switch_firmware_job_status_responses:
+        Mutex<VecDeque<Result<rms::PollSwitchFirmwareJobStatusResponse, RackManagerError>>>,
+    poll_switch_firmware_job_status_calls: Mutex<Vec<rms::PollSwitchFirmwareJobStatusRequest>>,
+
+    get_switch_system_image_job_status_responses:
+        Mutex<VecDeque<Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError>>>,
+    get_switch_system_image_job_status_calls: Mutex<Vec<rms::GetSwitchSystemImageJobStatusRequest>>,
 
     // Scale-up fabric calls.
     configure_scale_up_fabric_manager_responses:
         Mutex<VecDeque<Result<rms::ConfigureScaleUpFabricManagerResponse, RackManagerError>>>,
     configure_scale_up_fabric_manager_calls: Mutex<Vec<rms::ConfigureScaleUpFabricManagerRequest>>,
 
-    set_scale_up_fabric_state_responses:
-        Mutex<VecDeque<Result<rms::SetScaleUpFabricStateResponse, RackManagerError>>>,
-    set_scale_up_fabric_state_calls: Mutex<Vec<rms::SetScaleUpFabricStateRequest>>,
+    batch_set_scale_up_fabric_state_responses:
+        Mutex<VecDeque<Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError>>>,
+    batch_set_scale_up_fabric_state_calls: Mutex<Vec<rms::BatchSetScaleUpFabricStateRequest>>,
 
-    enable_scale_up_fabric_telemetry_interface_responses: Mutex<
-        VecDeque<Result<rms::EnableScaleUpFabricTelemetryInterfaceResponse, RackManagerError>>,
+    batch_get_scale_up_fabric_service_status_responses:
+        Mutex<VecDeque<Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError>>>,
+    batch_get_scale_up_fabric_service_status_calls:
+        Mutex<Vec<rms::BatchGetScaleUpFabricServiceStatusRequest>>,
+
+    get_scale_up_fabric_state_responses:
+        Mutex<VecDeque<Result<rms::GetScaleUpFabricStateResponse, RackManagerError>>>,
+    get_scale_up_fabric_state_calls: Mutex<Vec<rms::GetScaleUpFabricStateRequest>>,
+
+    set_scale_up_fabric_telemetry_interface_state_responses: Mutex<
+        VecDeque<Result<rms::SetScaleUpFabricTelemetryInterfaceStateResponse, RackManagerError>>,
     >,
-    enable_scale_up_fabric_telemetry_interface_calls:
-        Mutex<Vec<rms::EnableScaleUpFabricTelemetryInterfaceRequest>>,
+    set_scale_up_fabric_telemetry_interface_state_calls:
+        Mutex<Vec<rms::SetScaleUpFabricTelemetryInterfaceStateRequest>>,
 
-    // Version (no request type).
-    version_responses: Mutex<VecDeque<Result<(), RackManagerError>>>,
+    // Version calls.
+    version_responses: Mutex<VecDeque<Result<rms::GetVersionResponse, RackManagerError>>>,
     version_call_count: Mutex<u32>,
 }
 
@@ -250,30 +268,30 @@ impl MockRmsApi {
         Self {
             set_power_state_responses: Default::default(),
             set_power_state_calls: Default::default(),
-            set_power_state_by_device_list_responses: Default::default(),
-            set_power_state_by_device_list_calls: Default::default(),
-            get_power_state_by_device_list_responses: Default::default(),
-            get_power_state_by_device_list_calls: Default::default(),
+            batch_set_power_state_responses: Default::default(),
+            batch_set_power_state_calls: Default::default(),
             get_power_state_responses: Default::default(),
             get_power_state_calls: Default::default(),
+            batch_get_power_state_responses: Default::default(),
+            batch_get_power_state_calls: Default::default(),
             sequence_rack_power_responses: Default::default(),
             sequence_rack_power_calls: Default::default(),
-            get_all_inventory_responses: Default::default(),
-            get_all_inventory_calls: Default::default(),
-            add_node_responses: Default::default(),
-            add_node_calls: Default::default(),
+            list_node_inventory_responses: Default::default(),
+            list_node_inventory_calls: Default::default(),
+            create_nodes_responses: Default::default(),
+            create_nodes_calls: Default::default(),
             update_node_responses: Default::default(),
             update_node_calls: Default::default(),
-            remove_node_responses: Default::default(),
-            remove_node_calls: Default::default(),
+            delete_node_responses: Default::default(),
+            delete_node_calls: Default::default(),
             list_racks_responses: Default::default(),
             list_racks_calls: Default::default(),
             get_node_device_info_responses: Default::default(),
             get_node_device_info_calls: Default::default(),
-            get_device_info_by_node_type_responses: Default::default(),
-            get_device_info_by_node_type_calls: Default::default(),
-            get_device_info_by_device_list_responses: Default::default(),
-            get_device_info_by_device_list_calls: Default::default(),
+            list_node_device_info_by_node_type_responses: Default::default(),
+            list_node_device_info_by_node_type_calls: Default::default(),
+            batch_get_node_device_info_responses: Default::default(),
+            batch_get_node_device_info_calls: Default::default(),
             get_rack_power_on_sequence_responses: Default::default(),
             get_rack_power_on_sequence_calls: Default::default(),
             set_rack_power_on_sequence_responses: Default::default(),
@@ -292,46 +310,54 @@ impl MockRmsApi {
             delete_firmware_object_calls: Default::default(),
             set_default_firmware_object_responses: Default::default(),
             set_default_firmware_object_calls: Default::default(),
+            apply_stored_firmware_object_responses: Default::default(),
+            apply_stored_firmware_object_calls: Default::default(),
             apply_firmware_object_responses: Default::default(),
             apply_firmware_object_calls: Default::default(),
-            apply_firmware_object_from_json_responses: Default::default(),
-            apply_firmware_object_from_json_calls: Default::default(),
-            apply_switch_system_image_from_json_responses: Default::default(),
-            apply_switch_system_image_from_json_calls: Default::default(),
             apply_switch_system_image_responses: Default::default(),
             apply_switch_system_image_calls: Default::default(),
-            get_switch_system_image_job_status_responses: Default::default(),
-            get_switch_system_image_job_status_calls: Default::default(),
+            apply_stored_switch_system_image_responses: Default::default(),
+            apply_stored_switch_system_image_calls: Default::default(),
             get_firmware_object_history_responses: Default::default(),
             get_firmware_object_history_calls: Default::default(),
-            update_node_firmware_async_responses: Default::default(),
-            update_node_firmware_async_calls: Default::default(),
-            update_firmware_by_node_type_async_responses: Default::default(),
-            update_firmware_by_node_type_async_calls: Default::default(),
-            update_firmware_by_device_list_responses: Default::default(),
-            update_firmware_by_device_list_calls: Default::default(),
+            update_firmware_responses: Default::default(),
+            update_firmware_calls: Default::default(),
+            batch_update_firmware_by_node_type_responses: Default::default(),
+            batch_update_firmware_by_node_type_calls: Default::default(),
+            batch_update_firmware_responses: Default::default(),
+            batch_update_firmware_calls: Default::default(),
+            update_switch_system_image_responses: Default::default(),
+            update_switch_system_image_calls: Default::default(),
+            update_switch_system_password_responses: Default::default(),
+            update_switch_system_password_calls: Default::default(),
             get_firmware_job_status_responses: Default::default(),
             get_firmware_job_status_calls: Default::default(),
-            list_firmware_on_switch_responses: Default::default(),
-            list_firmware_on_switch_calls: Default::default(),
-            push_firmware_to_switch_responses: Default::default(),
-            push_firmware_to_switch_calls: Default::default(),
-            upgrade_firmware_on_switch_responses: Default::default(),
-            upgrade_firmware_on_switch_calls: Default::default(),
+            list_switch_firmware_responses: Default::default(),
+            list_switch_firmware_calls: Default::default(),
+            push_switch_firmware_responses: Default::default(),
+            push_switch_firmware_calls: Default::default(),
+            upgrade_switch_firmware_responses: Default::default(),
+            upgrade_switch_firmware_calls: Default::default(),
             fetch_switch_system_image_responses: Default::default(),
             fetch_switch_system_image_calls: Default::default(),
             install_switch_system_image_responses: Default::default(),
             install_switch_system_image_calls: Default::default(),
             list_switch_system_images_responses: Default::default(),
             list_switch_system_images_calls: Default::default(),
-            poll_job_status_responses: Default::default(),
-            poll_job_status_calls: Default::default(),
+            poll_switch_firmware_job_status_responses: Default::default(),
+            poll_switch_firmware_job_status_calls: Default::default(),
+            get_switch_system_image_job_status_responses: Default::default(),
+            get_switch_system_image_job_status_calls: Default::default(),
             configure_scale_up_fabric_manager_responses: Default::default(),
             configure_scale_up_fabric_manager_calls: Default::default(),
-            set_scale_up_fabric_state_responses: Default::default(),
-            set_scale_up_fabric_state_calls: Default::default(),
-            enable_scale_up_fabric_telemetry_interface_responses: Default::default(),
-            enable_scale_up_fabric_telemetry_interface_calls: Default::default(),
+            batch_set_scale_up_fabric_state_responses: Default::default(),
+            batch_set_scale_up_fabric_state_calls: Default::default(),
+            batch_get_scale_up_fabric_service_status_responses: Default::default(),
+            batch_get_scale_up_fabric_service_status_calls: Default::default(),
+            get_scale_up_fabric_state_responses: Default::default(),
+            get_scale_up_fabric_state_calls: Default::default(),
+            set_scale_up_fabric_telemetry_interface_state_responses: Default::default(),
+            set_scale_up_fabric_telemetry_interface_state_calls: Default::default(),
             version_responses: Default::default(),
             version_call_count: Default::default(),
         }
@@ -352,12 +378,12 @@ impl MockRmsApi {
         rms::SetPowerStateResponse
     );
     impl_enqueue_inspect!(
-        enqueue_set_power_state_by_device_list,
-        set_power_state_by_device_list_calls,
-        set_power_state_by_device_list_responses,
-        set_power_state_by_device_list_calls,
-        rms::SetPowerStateByDeviceListRequest,
-        rms::SetPowerStateByDeviceListResponse
+        enqueue_batch_set_power_state,
+        batch_set_power_state_calls,
+        batch_set_power_state_responses,
+        batch_set_power_state_calls,
+        rms::BatchSetPowerStateRequest,
+        rms::BatchSetPowerStateResponse
     );
     impl_enqueue_inspect!(
         enqueue_get_power_state,
@@ -366,6 +392,14 @@ impl MockRmsApi {
         get_power_state_calls,
         rms::GetPowerStateRequest,
         rms::GetPowerStateResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_batch_get_power_state,
+        batch_get_power_state_calls,
+        batch_get_power_state_responses,
+        batch_get_power_state_calls,
+        rms::BatchGetPowerStateRequest,
+        rms::BatchGetPowerStateResponse
     );
     impl_enqueue_inspect!(
         enqueue_sequence_rack_power,
@@ -378,20 +412,20 @@ impl MockRmsApi {
 
     // Inventory
     impl_enqueue_inspect!(
-        enqueue_get_all_inventory,
-        get_all_inventory_calls,
-        get_all_inventory_responses,
-        get_all_inventory_calls,
-        rms::GetAllInventoryRequest,
-        rms::GetAllInventoryResponse
+        enqueue_list_node_inventory,
+        list_node_inventory_calls,
+        list_node_inventory_responses,
+        list_node_inventory_calls,
+        rms::ListNodeInventoryRequest,
+        rms::ListNodeInventoryResponse
     );
     impl_enqueue_inspect!(
-        enqueue_add_node,
-        add_node_calls,
-        add_node_responses,
-        add_node_calls,
-        rms::AddNodeRequest,
-        rms::AddNodeResponse
+        enqueue_create_nodes,
+        create_nodes_calls,
+        create_nodes_responses,
+        create_nodes_calls,
+        rms::CreateNodesRequest,
+        rms::CreateNodesResponse
     );
     impl_enqueue_inspect!(
         enqueue_update_node,
@@ -402,12 +436,12 @@ impl MockRmsApi {
         rms::UpdateNodeResponse
     );
     impl_enqueue_inspect!(
-        enqueue_remove_node,
-        remove_node_calls,
-        remove_node_responses,
-        remove_node_calls,
-        rms::RemoveNodeRequest,
-        rms::RemoveNodeResponse
+        enqueue_delete_node,
+        delete_node_calls,
+        delete_node_responses,
+        delete_node_calls,
+        rms::DeleteNodeRequest,
+        rms::DeleteNodeResponse
     );
     impl_enqueue_inspect!(
         enqueue_list_racks,
@@ -428,20 +462,20 @@ impl MockRmsApi {
         rms::GetNodeDeviceInfoResponse
     );
     impl_enqueue_inspect!(
-        enqueue_get_device_info_by_node_type,
-        get_device_info_by_node_type_calls,
-        get_device_info_by_node_type_responses,
-        get_device_info_by_node_type_calls,
-        rms::GetDeviceInfoByNodeTypeRequest,
-        rms::GetDeviceInfoByNodeTypeResponse
+        enqueue_list_node_device_info_by_node_type,
+        list_node_device_info_by_node_type_calls,
+        list_node_device_info_by_node_type_responses,
+        list_node_device_info_by_node_type_calls,
+        rms::ListNodeDeviceInfoByNodeTypeRequest,
+        rms::ListNodeDeviceInfoByNodeTypeResponse
     );
     impl_enqueue_inspect!(
-        enqueue_get_device_info_by_device_list,
-        get_device_info_by_device_list_calls,
-        get_device_info_by_device_list_responses,
-        get_device_info_by_device_list_calls,
-        rms::GetDeviceInfoByDeviceListRequest,
-        rms::GetDeviceInfoByDeviceListResponse
+        enqueue_batch_get_node_device_info,
+        batch_get_node_device_info_calls,
+        batch_get_node_device_info_responses,
+        batch_get_node_device_info_calls,
+        rms::BatchGetNodeDeviceInfoRequest,
+        rms::BatchGetNodeDeviceInfoResponse
     );
 
     // Power-on sequence
@@ -485,7 +519,7 @@ impl MockRmsApi {
         add_firmware_object_responses,
         add_firmware_object_calls,
         rms::AddFirmwareObjectRequest,
-        rms::FirmwareObject
+        rms::AddFirmwareObjectResponse
     );
     impl_enqueue_inspect!(
         enqueue_get_firmware_object,
@@ -493,7 +527,7 @@ impl MockRmsApi {
         get_firmware_object_responses,
         get_firmware_object_calls,
         rms::GetFirmwareObjectRequest,
-        rms::FirmwareObject
+        rms::GetFirmwareObjectResponse
     );
     impl_enqueue_inspect!(
         enqueue_list_firmware_objects,
@@ -509,7 +543,7 @@ impl MockRmsApi {
         delete_firmware_object_responses,
         delete_firmware_object_calls,
         rms::DeleteFirmwareObjectRequest,
-        rms::OperationResponse
+        rms::DeleteFirmwareObjectResponse
     );
     impl_enqueue_inspect!(
         enqueue_set_default_firmware_object,
@@ -517,7 +551,15 @@ impl MockRmsApi {
         set_default_firmware_object_responses,
         set_default_firmware_object_calls,
         rms::SetDefaultFirmwareObjectRequest,
-        rms::FirmwareObject
+        rms::SetDefaultFirmwareObjectResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_apply_stored_firmware_object,
+        apply_stored_firmware_object_calls,
+        apply_stored_firmware_object_responses,
+        apply_stored_firmware_object_calls,
+        rms::ApplyStoredFirmwareObjectRequest,
+        rms::ApplyStoredFirmwareObjectResponse
     );
     impl_enqueue_inspect!(
         enqueue_apply_firmware_object,
@@ -528,22 +570,6 @@ impl MockRmsApi {
         rms::ApplyFirmwareObjectResponse
     );
     impl_enqueue_inspect!(
-        enqueue_apply_firmware_object_from_json,
-        apply_firmware_object_from_json_calls,
-        apply_firmware_object_from_json_responses,
-        apply_firmware_object_from_json_calls,
-        rms::ApplyFirmwareObjectFromJsonRequest,
-        rms::ApplyFirmwareObjectResponse
-    );
-    impl_enqueue_inspect!(
-        enqueue_apply_switch_system_image_from_json,
-        apply_switch_system_image_from_json_calls,
-        apply_switch_system_image_from_json_responses,
-        apply_switch_system_image_from_json_calls,
-        rms::ApplySwitchSystemImageFromJsonRequest,
-        rms::ApplySwitchSystemImageResponse
-    );
-    impl_enqueue_inspect!(
         enqueue_apply_switch_system_image,
         apply_switch_system_image_calls,
         apply_switch_system_image_responses,
@@ -552,12 +578,12 @@ impl MockRmsApi {
         rms::ApplySwitchSystemImageResponse
     );
     impl_enqueue_inspect!(
-        enqueue_get_switch_system_image_job_status,
-        get_switch_system_image_job_status_calls,
-        get_switch_system_image_job_status_responses,
-        get_switch_system_image_job_status_calls,
-        rms::GetSwitchSystemImageJobStatusRequest,
-        rms::GetSwitchSystemImageJobStatusResponse
+        enqueue_apply_stored_switch_system_image,
+        apply_stored_switch_system_image_calls,
+        apply_stored_switch_system_image_responses,
+        apply_stored_switch_system_image_calls,
+        rms::ApplyStoredSwitchSystemImageRequest,
+        rms::ApplyStoredSwitchSystemImageResponse
     );
     impl_enqueue_inspect!(
         enqueue_get_firmware_object_history,
@@ -568,28 +594,44 @@ impl MockRmsApi {
         rms::GetFirmwareObjectHistoryResponse
     );
     impl_enqueue_inspect!(
-        enqueue_update_node_firmware_async,
-        update_node_firmware_async_calls,
-        update_node_firmware_async_responses,
-        update_node_firmware_async_calls,
-        rms::UpdateNodeFirmwareRequest,
-        rms::UpdateNodeFirmwareResponse
+        enqueue_update_firmware,
+        update_firmware_calls,
+        update_firmware_responses,
+        update_firmware_calls,
+        rms::UpdateFirmwareRequest,
+        rms::UpdateFirmwareResponse
     );
     impl_enqueue_inspect!(
-        enqueue_update_firmware_by_node_type_async,
-        update_firmware_by_node_type_async_calls,
-        update_firmware_by_node_type_async_responses,
-        update_firmware_by_node_type_async_calls,
-        rms::UpdateFirmwareByNodeTypeRequest,
-        rms::UpdateFirmwareByNodeTypeAsyncResponse
+        enqueue_batch_update_firmware_by_node_type,
+        batch_update_firmware_by_node_type_calls,
+        batch_update_firmware_by_node_type_responses,
+        batch_update_firmware_by_node_type_calls,
+        rms::BatchUpdateFirmwareByNodeTypeRequest,
+        rms::BatchUpdateFirmwareByNodeTypeResponse
     );
     impl_enqueue_inspect!(
-        enqueue_update_firmware_by_device_list,
-        update_firmware_by_device_list_calls,
-        update_firmware_by_device_list_responses,
-        update_firmware_by_device_list_calls,
-        rms::UpdateFirmwareByDeviceListRequest,
-        rms::UpdateFirmwareByDeviceListResponse
+        enqueue_batch_update_firmware,
+        batch_update_firmware_calls,
+        batch_update_firmware_responses,
+        batch_update_firmware_calls,
+        rms::BatchUpdateFirmwareRequest,
+        rms::BatchUpdateFirmwareResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_update_switch_system_image,
+        update_switch_system_image_calls,
+        update_switch_system_image_responses,
+        update_switch_system_image_calls,
+        rms::UpdateSwitchSystemImageRequest,
+        rms::UpdateSwitchSystemImageResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_update_switch_system_password,
+        update_switch_system_password_calls,
+        update_switch_system_password_responses,
+        update_switch_system_password_calls,
+        rms::UpdateSwitchSystemPasswordRequest,
+        rms::UpdateSwitchSystemPasswordResponse
     );
     impl_enqueue_inspect!(
         enqueue_get_firmware_job_status,
@@ -602,28 +644,28 @@ impl MockRmsApi {
 
     // Switch firmware
     impl_enqueue_inspect!(
-        enqueue_list_firmware_on_switch,
-        list_firmware_on_switch_calls,
-        list_firmware_on_switch_responses,
-        list_firmware_on_switch_calls,
-        rms::ListFirmwareOnSwitchCommand,
-        rms::ListFirmwareOnSwitchResponse
+        enqueue_list_switch_firmware,
+        list_switch_firmware_calls,
+        list_switch_firmware_responses,
+        list_switch_firmware_calls,
+        rms::ListSwitchFirmwareRequest,
+        rms::ListSwitchFirmwareResponse
     );
     impl_enqueue_inspect!(
-        enqueue_push_firmware_to_switch,
-        push_firmware_to_switch_calls,
-        push_firmware_to_switch_responses,
-        push_firmware_to_switch_calls,
-        rms::PushFirmwareToSwitchCommand,
-        rms::PushFirmwareToSwitchResponse
+        enqueue_push_switch_firmware,
+        push_switch_firmware_calls,
+        push_switch_firmware_responses,
+        push_switch_firmware_calls,
+        rms::PushSwitchFirmwareRequest,
+        rms::PushSwitchFirmwareResponse
     );
     impl_enqueue_inspect!(
-        enqueue_upgrade_firmware_on_switch,
-        upgrade_firmware_on_switch_calls,
-        upgrade_firmware_on_switch_responses,
-        upgrade_firmware_on_switch_calls,
-        rms::UpgradeFirmwareOnSwitchCommand,
-        rms::UpgradeFirmwareOnSwitchResponse
+        enqueue_upgrade_switch_firmware,
+        upgrade_switch_firmware_calls,
+        upgrade_switch_firmware_responses,
+        upgrade_switch_firmware_calls,
+        rms::UpgradeSwitchFirmwareRequest,
+        rms::UpgradeSwitchFirmwareResponse
     );
 
     // Switch system images
@@ -652,12 +694,20 @@ impl MockRmsApi {
         rms::ListSwitchSystemImagesResponse
     );
     impl_enqueue_inspect!(
-        enqueue_poll_job_status,
-        poll_job_status_calls,
-        poll_job_status_responses,
-        poll_job_status_calls,
-        rms::PollJobStatusCommand,
-        rms::PollJobStatusResponse
+        enqueue_poll_switch_firmware_job_status,
+        poll_switch_firmware_job_status_calls,
+        poll_switch_firmware_job_status_responses,
+        poll_switch_firmware_job_status_calls,
+        rms::PollSwitchFirmwareJobStatusRequest,
+        rms::PollSwitchFirmwareJobStatusResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_get_switch_system_image_job_status,
+        get_switch_system_image_job_status_calls,
+        get_switch_system_image_job_status_responses,
+        get_switch_system_image_job_status_calls,
+        rms::GetSwitchSystemImageJobStatusRequest,
+        rms::GetSwitchSystemImageJobStatusResponse
     );
 
     // Scale-up fabric
@@ -670,24 +720,40 @@ impl MockRmsApi {
         rms::ConfigureScaleUpFabricManagerResponse
     );
     impl_enqueue_inspect!(
-        enqueue_set_scale_up_fabric_state,
-        set_scale_up_fabric_state_calls,
-        set_scale_up_fabric_state_responses,
-        set_scale_up_fabric_state_calls,
-        rms::SetScaleUpFabricStateRequest,
-        rms::SetScaleUpFabricStateResponse
+        enqueue_batch_set_scale_up_fabric_state,
+        batch_set_scale_up_fabric_state_calls,
+        batch_set_scale_up_fabric_state_responses,
+        batch_set_scale_up_fabric_state_calls,
+        rms::BatchSetScaleUpFabricStateRequest,
+        rms::BatchSetScaleUpFabricStateResponse
     );
     impl_enqueue_inspect!(
-        enqueue_enable_scale_up_fabric_telemetry_interface,
-        enable_scale_up_fabric_telemetry_interface_calls,
-        enable_scale_up_fabric_telemetry_interface_responses,
-        enable_scale_up_fabric_telemetry_interface_calls,
-        rms::EnableScaleUpFabricTelemetryInterfaceRequest,
-        rms::EnableScaleUpFabricTelemetryInterfaceResponse
+        enqueue_batch_get_scale_up_fabric_service_status,
+        batch_get_scale_up_fabric_service_status_calls,
+        batch_get_scale_up_fabric_service_status_responses,
+        batch_get_scale_up_fabric_service_status_calls,
+        rms::BatchGetScaleUpFabricServiceStatusRequest,
+        rms::BatchGetScaleUpFabricServiceStatusResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_get_scale_up_fabric_state,
+        get_scale_up_fabric_state_calls,
+        get_scale_up_fabric_state_responses,
+        get_scale_up_fabric_state_calls,
+        rms::GetScaleUpFabricStateRequest,
+        rms::GetScaleUpFabricStateResponse
+    );
+    impl_enqueue_inspect!(
+        enqueue_set_scale_up_fabric_telemetry_interface_state,
+        set_scale_up_fabric_telemetry_interface_state_calls,
+        set_scale_up_fabric_telemetry_interface_state_responses,
+        set_scale_up_fabric_telemetry_interface_state_calls,
+        rms::SetScaleUpFabricTelemetryInterfaceStateRequest,
+        rms::SetScaleUpFabricTelemetryInterfaceStateResponse
     );
 
-    // Version (special — no request type)
-    pub async fn enqueue_version(&self, resp: Result<(), RackManagerError>) {
+    // The RmsApi wrapper exposes get_version without a request argument.
+    pub async fn enqueue_version(&self, resp: Result<rms::GetVersionResponse, RackManagerError>) {
         self.version_responses.lock().await.push_back(resp);
     }
 
@@ -701,7 +767,6 @@ impl MockRmsApi {
     pub fn power_ok() -> rms::SetPowerStateResponse {
         rms::SetPowerStateResponse {
             status: rms::ReturnCode::Success as i32,
-            ..Default::default()
         }
     }
 
@@ -709,20 +774,21 @@ impl MockRmsApi {
     pub fn power_fail() -> rms::SetPowerStateResponse {
         rms::SetPowerStateResponse {
             status: rms::ReturnCode::Failure as i32,
-            ..Default::default()
         }
     }
 
-    /// Success response for `set_power_state_by_device_list` covering a
+    /// Success response for `batch_set_power_state` covering a
     /// single targeted node.
-    pub fn power_by_device_list_ok(node_id: &str) -> rms::SetPowerStateByDeviceListResponse {
-        rms::SetPowerStateByDeviceListResponse {
+    pub fn batch_set_power_state_ok(node_id: &str) -> rms::BatchSetPowerStateResponse {
+        rms::BatchSetPowerStateResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Success as i32,
-                total_nodes: 1,
-                successful_nodes: 1,
-                failed_nodes: 0,
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Success as i32,
                     error_message: String::new(),
@@ -732,21 +798,23 @@ impl MockRmsApi {
         }
     }
 
-    /// Failure response for `set_power_state_by_device_list` covering a
+    /// Failure response for `batch_set_power_state` covering a
     /// single targeted node, with an optional batch-level message and
     /// per-node `error_message`.
-    pub fn power_by_device_list_fail(
+    pub fn batch_set_power_state_fail(
         node_id: &str,
         node_error_message: &str,
-    ) -> rms::SetPowerStateByDeviceListResponse {
-        rms::SetPowerStateByDeviceListResponse {
+    ) -> rms::BatchSetPowerStateResponse {
+        rms::BatchSetPowerStateResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Failure as i32,
-                total_nodes: 1,
-                successful_nodes: 0,
-                failed_nodes: 1,
                 message: String::new(),
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 0,
+                    failed_nodes: 1,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Failure as i32,
                     error_message: node_error_message.to_owned(),
@@ -756,25 +824,25 @@ impl MockRmsApi {
         }
     }
 
-    /// Success response for `update_node_firmware_async` with a job ID.
-    pub fn firmware_update_ok(job_id: &str) -> rms::UpdateNodeFirmwareResponse {
-        rms::UpdateNodeFirmwareResponse {
+    /// Success response for `update_firmware` with a job ID.
+    pub fn firmware_update_ok(job_id: &str) -> rms::UpdateFirmwareResponse {
+        rms::UpdateFirmwareResponse {
             status: rms::ReturnCode::Success as i32,
             job_id: job_id.to_owned(),
             ..Default::default()
         }
     }
 
-    /// Failure response for `update_node_firmware_async`.
-    pub fn firmware_update_fail(msg: &str) -> rms::UpdateNodeFirmwareResponse {
-        rms::UpdateNodeFirmwareResponse {
+    /// Failure response for `update_firmware`.
+    pub fn firmware_update_fail(msg: &str) -> rms::UpdateFirmwareResponse {
+        rms::UpdateFirmwareResponse {
             status: rms::ReturnCode::Failure as i32,
             message: msg.to_owned(),
             ..Default::default()
         }
     }
 
-    /// Success response for `apply_firmware_object_from_json` with a child job ID.
+    /// Success response for `apply_firmware_object` with a child job ID.
     pub fn firmware_object_apply_ok(
         node_id: &str,
         job_id: &str,
@@ -782,17 +850,19 @@ impl MockRmsApi {
         rms::ApplyFirmwareObjectResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Success as i32,
-                total_nodes: 1,
-                successful_nodes: 1,
-                failed_nodes: 0,
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Success as i32,
                     error_message: String::new(),
                 }],
                 ..Default::default()
             }),
-            node_jobs: vec![rms::NodeFirmwareJobInfo {
+            jobs: vec![rms::NodeFirmwareJobInfo {
                 node_id: node_id.to_owned(),
                 job_id: job_id.to_owned(),
             }],
@@ -800,7 +870,7 @@ impl MockRmsApi {
         }
     }
 
-    /// Failure response for `apply_firmware_object_from_json`.
+    /// Failure response for `apply_firmware_object`.
     pub fn firmware_object_apply_fail(
         node_id: &str,
         msg: &str,
@@ -808,22 +878,24 @@ impl MockRmsApi {
         rms::ApplyFirmwareObjectResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Failure as i32,
-                total_nodes: 1,
-                successful_nodes: 0,
-                failed_nodes: 1,
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 0,
+                    failed_nodes: 1,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Failure as i32,
                     error_message: msg.to_owned(),
                 }],
                 ..Default::default()
             }),
-            node_jobs: Vec::new(),
+            jobs: Vec::new(),
             object_id: "fw-json".to_owned(),
         }
     }
 
-    /// Success response for `apply_switch_system_image_from_json` with a child job ID.
+    /// Success response for `apply_switch_system_image` with a child job ID.
     pub fn switch_system_image_apply_ok(
         node_id: &str,
         job_id: &str,
@@ -831,17 +903,19 @@ impl MockRmsApi {
         rms::ApplySwitchSystemImageResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Success as i32,
-                total_nodes: 1,
-                successful_nodes: 1,
-                failed_nodes: 0,
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Success as i32,
                     error_message: String::new(),
                 }],
                 ..Default::default()
             }),
-            node_jobs: vec![rms::SwitchSystemImageUpdateJobInfo {
+            jobs: vec![rms::SwitchSystemImageUpdateJobInfo {
                 node_id: node_id.to_owned(),
                 job_id: job_id.to_owned(),
             }],
@@ -850,7 +924,7 @@ impl MockRmsApi {
         }
     }
 
-    /// Failure response for `apply_switch_system_image_from_json`.
+    /// Failure response for `apply_switch_system_image`.
     pub fn switch_system_image_apply_fail(
         node_id: &str,
         msg: &str,
@@ -858,17 +932,19 @@ impl MockRmsApi {
         rms::ApplySwitchSystemImageResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Failure as i32,
-                total_nodes: 1,
-                successful_nodes: 0,
-                failed_nodes: 1,
-                node_results: vec![rms::NodeResult {
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 0,
+                    failed_nodes: 1,
+                }),
+                node_results: vec![rms::NodeOperationResult {
                     node_id: node_id.to_owned(),
                     status: rms::ReturnCode::Failure as i32,
                     error_message: msg.to_owned(),
                 }],
                 ..Default::default()
             }),
-            node_jobs: Vec::new(),
+            jobs: Vec::new(),
             object_id: "fw-json".to_owned(),
             image_filename: "nvos.img".to_owned(),
         }
@@ -885,9 +961,11 @@ impl MockRmsApi {
         }
     }
 
-    /// Success response for `poll_job_status`.
-    pub fn poll_job_status_ok(state: &str) -> rms::PollJobStatusResponse {
-        rms::PollJobStatusResponse {
+    /// Success response for `poll_switch_firmware_job_status`.
+    pub fn poll_switch_firmware_job_status_ok(
+        state: &str,
+    ) -> rms::PollSwitchFirmwareJobStatusResponse {
+        rms::PollSwitchFirmwareJobStatusResponse {
             status: rms::ReturnCode::Success as i32,
             state: state.to_owned(),
             ..Default::default()
@@ -935,7 +1013,6 @@ impl MockRmsApi {
                     ..Default::default()
                 })
                 .collect(),
-            ..Default::default()
         }
     }
 
@@ -965,16 +1042,6 @@ fn pop_or_err<T>(
 
 #[async_trait::async_trait]
 impl RmsApi for MockRmsApi {
-    async fn get_power_state_by_device_list(
-        &self,
-        cmd: rms::GetPowerStateByDeviceListRequest,
-    ) -> Result<rms::GetPowerStateByDeviceListResponse, RackManagerError> {
-        self.get_power_state_by_device_list_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.get_power_state_by_device_list_responses.lock().await)
-    }
     async fn set_power_state(
         &self,
         cmd: rms::SetPowerStateRequest,
@@ -982,21 +1049,22 @@ impl RmsApi for MockRmsApi {
         self.set_power_state_calls.lock().await.push(cmd);
         pop_or_err(&mut self.set_power_state_responses.lock().await)
     }
-    async fn set_power_state_by_device_list(
+    async fn batch_set_power_state(
         &self,
-        cmd: rms::SetPowerStateByDeviceListRequest,
-    ) -> Result<rms::SetPowerStateByDeviceListResponse, RackManagerError> {
-        self.set_power_state_by_device_list_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.set_power_state_by_device_list_responses.lock().await)
+        cmd: rms::BatchSetPowerStateRequest,
+    ) -> Result<rms::BatchSetPowerStateResponse, RackManagerError> {
+        self.batch_set_power_state_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.batch_set_power_state_responses.lock().await)
     }
     async fn update_switch_system_password(
         &self,
-        _cmd: rms::UpdateSwitchSystemPasswordRequest,
+        cmd: rms::UpdateSwitchSystemPasswordRequest,
     ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
-        Ok(rms::UpdateSwitchSystemPasswordResponse::default())
+        self.update_switch_system_password_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.update_switch_system_password_responses.lock().await)
     }
     async fn get_power_state(
         &self,
@@ -1005,6 +1073,15 @@ impl RmsApi for MockRmsApi {
         self.get_power_state_calls.lock().await.push(cmd);
         pop_or_err(&mut self.get_power_state_responses.lock().await)
     }
+
+    async fn batch_get_power_state(
+        &self,
+        cmd: rms::BatchGetPowerStateRequest,
+    ) -> Result<rms::BatchGetPowerStateResponse, RackManagerError> {
+        self.batch_get_power_state_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.batch_get_power_state_responses.lock().await)
+    }
+
     async fn sequence_rack_power(
         &self,
         cmd: rms::SequenceRackPowerRequest,
@@ -1012,19 +1089,21 @@ impl RmsApi for MockRmsApi {
         self.sequence_rack_power_calls.lock().await.push(cmd);
         pop_or_err(&mut self.sequence_rack_power_responses.lock().await)
     }
-    async fn get_all_inventory(
+    async fn list_node_inventory(
         &self,
-        cmd: rms::GetAllInventoryRequest,
-    ) -> Result<rms::GetAllInventoryResponse, RackManagerError> {
-        self.get_all_inventory_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.get_all_inventory_responses.lock().await)
+    ) -> Result<rms::ListNodeInventoryResponse, RackManagerError> {
+        self.list_node_inventory_calls
+            .lock()
+            .await
+            .push(rms::ListNodeInventoryRequest::default());
+        pop_or_err(&mut self.list_node_inventory_responses.lock().await)
     }
-    async fn add_node(
+    async fn create_nodes(
         &self,
-        cmd: rms::AddNodeRequest,
-    ) -> Result<rms::AddNodeResponse, RackManagerError> {
-        self.add_node_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.add_node_responses.lock().await)
+        cmd: rms::CreateNodesRequest,
+    ) -> Result<rms::CreateNodesResponse, RackManagerError> {
+        self.create_nodes_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.create_nodes_responses.lock().await)
     }
     async fn update_node(
         &self,
@@ -1033,18 +1112,18 @@ impl RmsApi for MockRmsApi {
         self.update_node_calls.lock().await.push(cmd);
         pop_or_err(&mut self.update_node_responses.lock().await)
     }
-    async fn remove_node(
+    async fn delete_node(
         &self,
-        cmd: rms::RemoveNodeRequest,
-    ) -> Result<rms::RemoveNodeResponse, RackManagerError> {
-        self.remove_node_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.remove_node_responses.lock().await)
+        cmd: rms::DeleteNodeRequest,
+    ) -> Result<rms::DeleteNodeResponse, RackManagerError> {
+        self.delete_node_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.delete_node_responses.lock().await)
     }
-    async fn list_racks(
-        &self,
-        cmd: rms::ListRacksRequest,
-    ) -> Result<rms::ListRacksResponse, RackManagerError> {
-        self.list_racks_calls.lock().await.push(cmd);
+    async fn list_racks(&self) -> Result<rms::ListRacksResponse, RackManagerError> {
+        self.list_racks_calls
+            .lock()
+            .await
+            .push(rms::ListRacksRequest::default());
         pop_or_err(&mut self.list_racks_responses.lock().await)
     }
     async fn get_node_device_info(
@@ -1054,25 +1133,27 @@ impl RmsApi for MockRmsApi {
         self.get_node_device_info_calls.lock().await.push(cmd);
         pop_or_err(&mut self.get_node_device_info_responses.lock().await)
     }
-    async fn get_device_info_by_node_type(
+    async fn list_node_device_info_by_node_type(
         &self,
-        cmd: rms::GetDeviceInfoByNodeTypeRequest,
-    ) -> Result<rms::GetDeviceInfoByNodeTypeResponse, RackManagerError> {
-        self.get_device_info_by_node_type_calls
+        cmd: rms::ListNodeDeviceInfoByNodeTypeRequest,
+    ) -> Result<rms::ListNodeDeviceInfoByNodeTypeResponse, RackManagerError> {
+        self.list_node_device_info_by_node_type_calls
             .lock()
             .await
             .push(cmd);
-        pop_or_err(&mut self.get_device_info_by_node_type_responses.lock().await)
+        pop_or_err(
+            &mut self
+                .list_node_device_info_by_node_type_responses
+                .lock()
+                .await,
+        )
     }
-    async fn get_device_info_by_device_list(
+    async fn batch_get_node_device_info(
         &self,
-        cmd: rms::GetDeviceInfoByDeviceListRequest,
-    ) -> Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError> {
-        self.get_device_info_by_device_list_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.get_device_info_by_device_list_responses.lock().await)
+        cmd: rms::BatchGetNodeDeviceInfoRequest,
+    ) -> Result<rms::BatchGetNodeDeviceInfoResponse, RackManagerError> {
+        self.batch_get_node_device_info_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.batch_get_node_device_info_responses.lock().await)
     }
     async fn get_rack_power_on_sequence(
         &self,
@@ -1111,17 +1192,19 @@ impl RmsApi for MockRmsApi {
     async fn add_firmware_object(
         &self,
         cmd: rms::AddFirmwareObjectRequest,
-    ) -> Result<rms::FirmwareObject, RackManagerError> {
+    ) -> Result<rms::AddFirmwareObjectResponse, RackManagerError> {
         self.add_firmware_object_calls.lock().await.push(cmd);
         pop_or_err(&mut self.add_firmware_object_responses.lock().await)
     }
+
     async fn get_firmware_object(
         &self,
         cmd: rms::GetFirmwareObjectRequest,
-    ) -> Result<rms::FirmwareObject, RackManagerError> {
+    ) -> Result<rms::GetFirmwareObjectResponse, RackManagerError> {
         self.get_firmware_object_calls.lock().await.push(cmd);
         pop_or_err(&mut self.get_firmware_object_responses.lock().await)
     }
+
     async fn list_firmware_objects(
         &self,
         cmd: rms::ListFirmwareObjectsRequest,
@@ -1132,20 +1215,33 @@ impl RmsApi for MockRmsApi {
     async fn delete_firmware_object(
         &self,
         cmd: rms::DeleteFirmwareObjectRequest,
-    ) -> Result<rms::OperationResponse, RackManagerError> {
+    ) -> Result<rms::DeleteFirmwareObjectResponse, RackManagerError> {
         self.delete_firmware_object_calls.lock().await.push(cmd);
         pop_or_err(&mut self.delete_firmware_object_responses.lock().await)
     }
+
     async fn set_default_firmware_object(
         &self,
         cmd: rms::SetDefaultFirmwareObjectRequest,
-    ) -> Result<rms::FirmwareObject, RackManagerError> {
+    ) -> Result<rms::SetDefaultFirmwareObjectResponse, RackManagerError> {
         self.set_default_firmware_object_calls
             .lock()
             .await
             .push(cmd);
         pop_or_err(&mut self.set_default_firmware_object_responses.lock().await)
     }
+
+    async fn apply_stored_firmware_object(
+        &self,
+        cmd: rms::ApplyStoredFirmwareObjectRequest,
+    ) -> Result<rms::ApplyStoredFirmwareObjectResponse, RackManagerError> {
+        self.apply_stored_firmware_object_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.apply_stored_firmware_object_responses.lock().await)
+    }
+
     async fn apply_firmware_object(
         &self,
         cmd: rms::ApplyFirmwareObjectRequest,
@@ -1153,37 +1249,24 @@ impl RmsApi for MockRmsApi {
         self.apply_firmware_object_calls.lock().await.push(cmd);
         pop_or_err(&mut self.apply_firmware_object_responses.lock().await)
     }
-    async fn apply_firmware_object_from_json(
-        &self,
-        cmd: rms::ApplyFirmwareObjectFromJsonRequest,
-    ) -> Result<rms::ApplyFirmwareObjectResponse, RackManagerError> {
-        self.apply_firmware_object_from_json_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.apply_firmware_object_from_json_responses.lock().await)
-    }
-    async fn apply_switch_system_image_from_json(
-        &self,
-        cmd: rms::ApplySwitchSystemImageFromJsonRequest,
-    ) -> Result<rms::ApplySwitchSystemImageResponse, RackManagerError> {
-        self.apply_switch_system_image_from_json_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(
-            &mut self
-                .apply_switch_system_image_from_json_responses
-                .lock()
-                .await,
-        )
-    }
+
     async fn apply_switch_system_image(
         &self,
         cmd: rms::ApplySwitchSystemImageRequest,
     ) -> Result<rms::ApplySwitchSystemImageResponse, RackManagerError> {
         self.apply_switch_system_image_calls.lock().await.push(cmd);
         pop_or_err(&mut self.apply_switch_system_image_responses.lock().await)
+    }
+
+    async fn apply_stored_switch_system_image(
+        &self,
+        cmd: rms::ApplyStoredSwitchSystemImageRequest,
+    ) -> Result<rms::ApplyStoredSwitchSystemImageResponse, RackManagerError> {
+        self.apply_stored_switch_system_image_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.apply_stored_switch_system_image_responses.lock().await)
     }
     async fn get_firmware_object_history(
         &self,
@@ -1195,38 +1278,44 @@ impl RmsApi for MockRmsApi {
             .push(cmd);
         pop_or_err(&mut self.get_firmware_object_history_responses.lock().await)
     }
-    async fn update_node_firmware_async(
+    async fn update_firmware(
         &self,
-        cmd: rms::UpdateNodeFirmwareRequest,
-    ) -> Result<rms::UpdateNodeFirmwareResponse, RackManagerError> {
-        self.update_node_firmware_async_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.update_node_firmware_async_responses.lock().await)
+        cmd: rms::UpdateFirmwareRequest,
+    ) -> Result<rms::UpdateFirmwareResponse, RackManagerError> {
+        self.update_firmware_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.update_firmware_responses.lock().await)
     }
-    async fn update_firmware_by_node_type_async(
+    async fn batch_update_firmware_by_node_type(
         &self,
-        cmd: rms::UpdateFirmwareByNodeTypeRequest,
-    ) -> Result<rms::UpdateFirmwareByNodeTypeAsyncResponse, RackManagerError> {
-        self.update_firmware_by_node_type_async_calls
+        cmd: rms::BatchUpdateFirmwareByNodeTypeRequest,
+    ) -> Result<rms::BatchUpdateFirmwareByNodeTypeResponse, RackManagerError> {
+        self.batch_update_firmware_by_node_type_calls
             .lock()
             .await
             .push(cmd);
         pop_or_err(
             &mut self
-                .update_firmware_by_node_type_async_responses
+                .batch_update_firmware_by_node_type_responses
                 .lock()
                 .await,
         )
     }
-    async fn update_firmware_by_device_list(
+    async fn batch_update_firmware(
         &self,
-        cmd: rms::UpdateFirmwareByDeviceListRequest,
-    ) -> Result<rms::UpdateFirmwareByDeviceListResponse, RackManagerError> {
-        self.update_firmware_by_device_list_calls
-            .lock()
-            .await
-            .push(cmd);
-        pop_or_err(&mut self.update_firmware_by_device_list_responses.lock().await)
+        cmd: rms::BatchUpdateFirmwareRequest,
+    ) -> Result<rms::BatchUpdateFirmwareResponse, RackManagerError> {
+        self.batch_update_firmware_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.batch_update_firmware_responses.lock().await)
     }
+
+    async fn update_switch_system_image(
+        &self,
+        cmd: rms::UpdateSwitchSystemImageRequest,
+    ) -> Result<rms::UpdateSwitchSystemImageResponse, RackManagerError> {
+        self.update_switch_system_image_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.update_switch_system_image_responses.lock().await)
+    }
+
     async fn get_firmware_job_status(
         &self,
         cmd: rms::GetFirmwareJobStatusRequest,
@@ -1234,26 +1323,26 @@ impl RmsApi for MockRmsApi {
         self.get_firmware_job_status_calls.lock().await.push(cmd);
         pop_or_err(&mut self.get_firmware_job_status_responses.lock().await)
     }
-    async fn list_firmware_on_switch(
+    async fn list_switch_firmware(
         &self,
-        cmd: rms::ListFirmwareOnSwitchCommand,
-    ) -> Result<rms::ListFirmwareOnSwitchResponse, RackManagerError> {
-        self.list_firmware_on_switch_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.list_firmware_on_switch_responses.lock().await)
+        cmd: rms::ListSwitchFirmwareRequest,
+    ) -> Result<rms::ListSwitchFirmwareResponse, RackManagerError> {
+        self.list_switch_firmware_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.list_switch_firmware_responses.lock().await)
     }
-    async fn push_firmware_to_switch(
+    async fn push_switch_firmware(
         &self,
-        cmd: rms::PushFirmwareToSwitchCommand,
-    ) -> Result<rms::PushFirmwareToSwitchResponse, RackManagerError> {
-        self.push_firmware_to_switch_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.push_firmware_to_switch_responses.lock().await)
+        cmd: rms::PushSwitchFirmwareRequest,
+    ) -> Result<rms::PushSwitchFirmwareResponse, RackManagerError> {
+        self.push_switch_firmware_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.push_switch_firmware_responses.lock().await)
     }
-    async fn upgrade_firmware_on_switch(
+    async fn upgrade_switch_firmware(
         &self,
-        cmd: rms::UpgradeFirmwareOnSwitchCommand,
-    ) -> Result<rms::UpgradeFirmwareOnSwitchResponse, RackManagerError> {
-        self.upgrade_firmware_on_switch_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.upgrade_firmware_on_switch_responses.lock().await)
+        cmd: rms::UpgradeSwitchFirmwareRequest,
+    ) -> Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError> {
+        self.upgrade_switch_firmware_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.upgrade_switch_firmware_responses.lock().await)
     }
     async fn fetch_switch_system_image(
         &self,
@@ -1279,13 +1368,33 @@ impl RmsApi for MockRmsApi {
         self.list_switch_system_images_calls.lock().await.push(cmd);
         pop_or_err(&mut self.list_switch_system_images_responses.lock().await)
     }
-    async fn poll_job_status(
+    async fn poll_switch_firmware_job_status(
         &self,
-        cmd: rms::PollJobStatusCommand,
-    ) -> Result<rms::PollJobStatusResponse, RackManagerError> {
-        self.poll_job_status_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.poll_job_status_responses.lock().await)
+        cmd: rms::PollSwitchFirmwareJobStatusRequest,
+    ) -> Result<rms::PollSwitchFirmwareJobStatusResponse, RackManagerError> {
+        self.poll_switch_firmware_job_status_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.poll_switch_firmware_job_status_responses.lock().await)
     }
+
+    async fn get_switch_system_image_job_status(
+        &self,
+        cmd: rms::GetSwitchSystemImageJobStatusRequest,
+    ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError> {
+        self.get_switch_system_image_job_status_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(
+            &mut self
+                .get_switch_system_image_job_status_responses
+                .lock()
+                .await,
+        )
+    }
+
     async fn configure_scale_up_fabric_manager(
         &self,
         cmd: rms::ConfigureScaleUpFabricManagerRequest,
@@ -1301,34 +1410,62 @@ impl RmsApi for MockRmsApi {
                 .await,
         )
     }
-    async fn set_scale_up_fabric_state(
+    async fn batch_set_scale_up_fabric_state(
         &self,
-        cmd: rms::SetScaleUpFabricStateRequest,
-    ) -> Result<rms::SetScaleUpFabricStateResponse, RackManagerError> {
-        self.set_scale_up_fabric_state_calls.lock().await.push(cmd);
-        pop_or_err(&mut self.set_scale_up_fabric_state_responses.lock().await)
+        cmd: rms::BatchSetScaleUpFabricStateRequest,
+    ) -> Result<rms::BatchSetScaleUpFabricStateResponse, RackManagerError> {
+        self.batch_set_scale_up_fabric_state_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.batch_set_scale_up_fabric_state_responses.lock().await)
     }
-    async fn enable_scale_up_fabric_telemetry_interface(
+
+    async fn batch_get_scale_up_fabric_service_status(
         &self,
-        cmd: rms::EnableScaleUpFabricTelemetryInterfaceRequest,
-    ) -> Result<rms::EnableScaleUpFabricTelemetryInterfaceResponse, RackManagerError> {
-        self.enable_scale_up_fabric_telemetry_interface_calls
+        cmd: rms::BatchGetScaleUpFabricServiceStatusRequest,
+    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, RackManagerError> {
+        self.batch_get_scale_up_fabric_service_status_calls
             .lock()
             .await
             .push(cmd);
         pop_or_err(
             &mut self
-                .enable_scale_up_fabric_telemetry_interface_responses
+                .batch_get_scale_up_fabric_service_status_responses
                 .lock()
                 .await,
         )
     }
-    async fn version(&self) -> Result<(), RackManagerError> {
+
+    async fn get_scale_up_fabric_state(
+        &self,
+        cmd: rms::GetScaleUpFabricStateRequest,
+    ) -> Result<rms::GetScaleUpFabricStateResponse, RackManagerError> {
+        self.get_scale_up_fabric_state_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.get_scale_up_fabric_state_responses.lock().await)
+    }
+
+    async fn set_scale_up_fabric_telemetry_interface_state(
+        &self,
+        cmd: rms::SetScaleUpFabricTelemetryInterfaceStateRequest,
+    ) -> Result<rms::SetScaleUpFabricTelemetryInterfaceStateResponse, RackManagerError> {
+        self.set_scale_up_fabric_telemetry_interface_state_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(
+            &mut self
+                .set_scale_up_fabric_telemetry_interface_state_responses
+                .lock()
+                .await,
+        )
+    }
+    async fn get_version(&self) -> Result<rms::GetVersionResponse, RackManagerError> {
         *self.version_call_count.lock().await += 1;
         self.version_responses
             .lock()
             .await
             .pop_front()
-            .unwrap_or(Ok(()))
+            .unwrap_or(Ok(rms::GetVersionResponse::default()))
     }
 }

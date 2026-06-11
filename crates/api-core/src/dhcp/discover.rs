@@ -262,13 +262,8 @@ pub async fn discover_dhcp(
                             is_primary_nic = Some(pmac == parsed_mac);
                         }
                         if let Some(ref nic) = host_nic
-                            && let Some(fixed_ip_str) = &nic.fixed_ip
+                            && let Some(fixed_ip) = nic.fixed_ip
                         {
-                            let fixed_ip: IpAddr = fixed_ip_str.parse().map_err(|_| {
-                            CarbideError::InvalidArgument(format!(
-                                "invalid fixed_ip on ExpectedHostNic {parsed_mac}: {fixed_ip_str}"
-                            ))
-                        })?;
                             // It looks like there's a DHCP reservation for this address,
                             // so make an idempotent call to ensure we have a preallocated
                             // machine interface (and machine interface address) for it,

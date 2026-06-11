@@ -18,22 +18,17 @@
 use std::collections::VecDeque;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::instance::common::GlobalOptions;
 use crate::machine;
 use crate::rpc::ApiClient;
 
 pub async fn allocate(
     api_client: &ApiClient,
     allocate_request: Args,
-    opts: GlobalOptions<'_>,
+    ctx: &RuntimeContext,
 ) -> CarbideCliResult<()> {
-    if opts.cloud_unsafe_op.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Operation not allowed due to potential inconsistencies with cloud database."
-                .to_owned(),
-        ));
-    }
+    let unsafe_op_msg = ctx.assert_cloud_unsafe_op_message()?;
 
     let number = allocate_request.number.unwrap_or(1);
 
@@ -87,7 +82,7 @@ pub async fn allocate(
                     machine,
                     &allocate_request,
                     &format!("{}_{}", allocate_request.prefix_name, i),
-                    opts.cloud_unsafe_op.clone(),
+                    Some(unsafe_op_msg.to_string()),
                 )
                 .await?;
             requests.push(request);
@@ -127,7 +122,7 @@ pub async fn allocate(
                     machine,
                     &allocate_request,
                     &format!("{}_{}", allocate_request.prefix_name, i),
-                    opts.cloud_unsafe_op.clone(),
+                    Some(unsafe_op_msg.to_string()),
                 )
                 .await
             {

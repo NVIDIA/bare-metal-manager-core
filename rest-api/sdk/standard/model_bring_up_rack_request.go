@@ -28,6 +28,8 @@ type BringUpRackRequest struct {
 	SiteId string `json:"siteId"`
 	// Optional description for the bring up operation
 	Description *string `json:"description,omitempty"`
+	// Optional Operation Rule UUID. When set, pins this bring-up to the named rule and overrides Flow's default rule resolution.
+	RuleId *string `json:"ruleId,omitempty"`
 }
 
 type _BringUpRackRequest BringUpRackRequest
@@ -106,6 +108,38 @@ func (o *BringUpRackRequest) SetDescription(v string) {
 	o.Description = &v
 }
 
+// GetRuleId returns the RuleId field value if set, zero value otherwise.
+func (o *BringUpRackRequest) GetRuleId() string {
+	if o == nil || IsNil(o.RuleId) {
+		var ret string
+		return ret
+	}
+	return *o.RuleId
+}
+
+// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BringUpRackRequest) GetRuleIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RuleId) {
+		return nil, false
+	}
+	return o.RuleId, true
+}
+
+// HasRuleId returns a boolean if a field has been set.
+func (o *BringUpRackRequest) HasRuleId() bool {
+	if o != nil && !IsNil(o.RuleId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+func (o *BringUpRackRequest) SetRuleId(v string) {
+	o.RuleId = &v
+}
+
 func (o BringUpRackRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -119,6 +153,9 @@ func (o BringUpRackRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize["siteId"] = o.SiteId
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
+	}
+	if !IsNil(o.RuleId) {
+		toSerialize["ruleId"] = o.RuleId
 	}
 	return toSerialize, nil
 }

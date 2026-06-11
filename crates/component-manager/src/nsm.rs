@@ -12,6 +12,7 @@ use crate::config::BackendTlsConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::proto::nsm;
 use crate::types::parse_mac;
@@ -335,6 +336,37 @@ impl NvSwitchManager for NsmSwitchBackend {
         let response = self.client.clone().list_bundles(()).await?.into_inner();
 
         Ok(response.bundles.into_iter().map(|b| b.version).collect())
+    }
+
+    #[instrument(skip(self), fields(backend = "nsm"))]
+    async fn get_slot_and_tray(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| SwitchSlotAndTrayResult {
+                bmc_mac: ep.bmc_mac,
+                slot_number: None,
+                tray_index: None,
+                error: Some("slot and tray lookup is not supported by NSM".into()),
+            })
+            .collect())
+    }
+
+    #[instrument(skip(self), fields(backend = "nsm"))]
+    async fn get_power_state(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| SwitchPowerStateResult {
+                bmc_mac: ep.bmc_mac,
+                power_state: None,
+                error: Some("get power state is not supported by NSM".into()),
+            })
+            .collect())
     }
 }
 

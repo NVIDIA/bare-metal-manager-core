@@ -43,7 +43,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
-use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
@@ -431,6 +431,27 @@ impl ApiClient {
         Ok(result
             .histories
             .remove(&segment_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
+    /// Fetches controller state history for a single VPC prefix.
+    pub async fn get_vpc_prefix_state_history(
+        &self,
+        vpc_prefix_id: VpcPrefixId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        // Request the history through the generic state-history RPC.
+        let mut result = self
+            .0
+            .find_vpc_prefix_state_histories(rpc::VpcPrefixStateHistoriesRequest {
+                vpc_prefix_ids: vec![vpc_prefix_id],
+            })
+            .await?;
+
+        // Return an empty list when the object has no recorded transitions yet.
+        Ok(result
+            .histories
+            .remove(&vpc_prefix_id.to_string())
             .map(|h| h.records)
             .unwrap_or_default())
     }

@@ -102,13 +102,13 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 	return err
 }
 
-// CreateMachineHealthReportOverrideOnSite applies a health report override on the Site controller.
-func (mm *ManageMachine) CreateMachineHealthReportOverrideOnSite(ctx context.Context, request *cwssaws.InsertHealthReportOverrideRequest) error {
-	logger := log.With().Str("Activity", "CreateMachineHealthReportOverrideOnSite").Logger()
+// CreateMachineHealthReportOnSite applies a health report on the Site controller.
+func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
+	logger := log.With().Str("Activity", "CreateMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
 
-	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.Override == nil || request.Override.Report == nil {
-		return temporal.NewNonRetryableApplicationError("invalid InsertHealthReportOverride request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or override report"))
+	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.HealthReportEntry == nil || request.HealthReportEntry.Report == nil {
+		return temporal.NewNonRetryableApplicationError("invalid InsertMachineHealthReportRequest request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or health report entry"))
 	}
 
 	grpcClient := mm.coreGrpcAtomicClient.GetClient()
@@ -117,9 +117,9 @@ func (mm *ManageMachine) CreateMachineHealthReportOverrideOnSite(ctx context.Con
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err := grpcServiceClient.InsertHealthReportOverride(ctx, request)
+	_, err := grpcServiceClient.InsertMachineHealthReport(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to insert health report override using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to insert health report using Site Controller API")
 		return swe.WrapErr(err)
 	}
 
@@ -127,13 +127,13 @@ func (mm *ManageMachine) CreateMachineHealthReportOverrideOnSite(ctx context.Con
 	return nil
 }
 
-// DeleteMachineHealthReportOverrideOnSite removes a health report override on the Site controller.
-func (mm *ManageMachine) DeleteMachineHealthReportOverrideOnSite(ctx context.Context, request *cwssaws.RemoveHealthReportOverrideRequest) error {
-	logger := log.With().Str("Activity", "DeleteMachineHealthReportOverrideOnSite").Logger()
+// DeleteMachineHealthReportOnSite removes a health report override on the Site controller.
+func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
+	logger := log.With().Str("Activity", "DeleteMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.Source == "" {
-		return temporal.NewNonRetryableApplicationError("invalid RemoveHealthReportOverride request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or source"))
+		return temporal.NewNonRetryableApplicationError("invalid RemoveMachineHealthReportRequest request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or source"))
 	}
 
 	grpcClient := mm.coreGrpcAtomicClient.GetClient()
@@ -142,9 +142,9 @@ func (mm *ManageMachine) DeleteMachineHealthReportOverrideOnSite(ctx context.Con
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err := grpcServiceClient.RemoveHealthReportOverride(ctx, request)
+	_, err := grpcServiceClient.RemoveMachineHealthReport(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to remove health report override using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to remove health report using Site Controller API")
 		return swe.WrapErr(err)
 	}
 

@@ -61,6 +61,7 @@ pub struct TestApiBuilder {
     dpf_sdk: Option<Arc<dyn DpfOperations>>,
     metric_emitter: Option<ApiMetricsEmitter>,
     ib_fabric_manager: Option<Arc<dyn IBFabricManager>>,
+    component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
 }
 
 impl TestApiBuilder {
@@ -82,6 +83,7 @@ impl TestApiBuilder {
             dpf_sdk: None,
             metric_emitter: None,
             ib_fabric_manager: None,
+            component_manager: None,
         }
     }
 
@@ -148,6 +150,16 @@ impl TestApiBuilder {
         }
     }
 
+    pub fn with_component_manager(
+        self,
+        component_manager: Arc<component_manager::component_manager::ComponentManager>,
+    ) -> Self {
+        Self {
+            component_manager: Some(component_manager),
+            ..self
+        }
+    }
+
     pub fn build(self) -> Api {
         let runtime_config = self
             .runtime_config
@@ -209,7 +221,7 @@ impl TestApiBuilder {
             site_explorer_enabled: runtime_config.site_explorer.enabled.clone(),
             create_machines: runtime_config.site_explorer.create_machines.clone(),
             bmc_proxy: runtime_config.site_explorer.bmc_proxy.clone(),
-            tracing_enabled: Arc::new(false.into()),
+            tracing_enabled: Arc::new(runtime_config.tracing.enabled.into()),
             log_stream: Default::default(),
         };
 
@@ -236,7 +248,7 @@ impl TestApiBuilder {
             work_lock_manager_handle: self.work_lock_manager,
             machine_state_handler_enqueuer,
             metric_emitter,
-            component_manager: None,
+            component_manager: self.component_manager.map(|cm| (*cm).clone()),
             bmc_session_manager,
             bms_client: std::sync::OnceLock::new(),
         }

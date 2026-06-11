@@ -100,29 +100,16 @@ tags:
   - name: Infrastructure Provider
     description: |-
       Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
-
-      Deprecation history:
-
-      - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by the user.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
-
-      Deprecation history:
-
-      - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
-      - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by the user.
   - name: Tenant Account
     description: Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
 
-      Deprecation history:
+      Recent deprecations:
 
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
@@ -145,10 +132,6 @@ tags:
       Subnet is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use Subnets to enable network connectivity between their Instances.
 
       Subnets are used on Sites that do not support Native Networking (FNN).
-
-      Deprecation history:
-
-      - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: Expected Machine
     description: |-
       Expected Machine identifies a Machine that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Machines using BMC credentials
@@ -184,20 +167,9 @@ tags:
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
-
-      Deprecation history:
-
-      - `includeMachineAssociation` was deprecated in favor of `includeMachineAssignment` and was removed on July 26th, 2023 0:00 UTC. Please use `includeMachineAssignment` instead.
-      - `displayName` attribute was deprecated and removed on October 30, 2024 0:00 UTC. Please update your usage accordingly.
   - name: Instance
     description: |-
       Instance is a Machine provisioned with an Operating System by a Tenant and attached to one or more VPC Prefixes or Subnets.
-
-      Deprecation history:
-
-      - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
-      - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
-      - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
@@ -213,6 +185,9 @@ tags:
   - name: Task
     description: |-
       Task represents an asynchronous, site-scoped operation (for example firmware update, power state change, or rack bring-up). Tasks are created when operations run against Racks, Trays, or other components. Endpoints in this tag retrieve or cancel a Task by ID; list Tasks for a Rack or Tray under the Rack and Tray tags.
+  - name: Rule
+    description: |-
+      Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -221,10 +196,6 @@ tags:
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
       It can be used by the Provider to describe the overlay network of a particular Site. Providers can also use Allocations to delegate portions of these IP Blocks to Tenants.
-
-      Deprecation history:
-
-      - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: DPU Extension Service
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
@@ -281,33 +252,11 @@ tags:
     description: |-
       NICo REST API maintains backward compatibility with the previous versions. Any breaking changes are announced using deprecation notices.
 
-      Endpoints that have deprecations will be grouped here. Following deprecations are in effect or slated to be effective in future:
+      Active Deprecations:
 
-      Infrastructure Provider:
-      - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by user.
+      - Currently there are no active deprecations
 
-      Tenant:
-      - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
-      - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by user.
-
-      Instance Type:
-      - `includeMachineAssociation` was deprecated in favor of `includeMachineAssignment` and was removed on July 26th, 2023 0:00 UTC. Please use `includeMachineAssignment` instead.
-      - `displayName` attribute was deprecated and removed on October 30, 2024 0:00 UTC. Please update your usage accordingly.
-
-      Instance:
-      - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
-      - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
-      - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
-
-      IP Block:
-      - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
-
-      Subnet:
-      - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
+      Recent Deprecations:
 
       Site:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
@@ -10168,7 +10117,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10245,7 +10194,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RackTask'
+                $ref: '#/components/schemas/Task'
               examples:
                 example-1:
                   value:
@@ -10261,6 +10210,209 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Task
+  '/v2/org/{org}/nico/task/rule':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create an Operation Rule
+      operationId: create-rule
+      description: |-
+        Create a new Operation Rule on the target Site. The rule definition is validated
+        server-side by Flow; on validation failure no state changes (the request acts
+        as a dry-run by way of its own validation step).
+
+        Rules are site-scoped and per (operationType, operationCode) tuple. The response
+        echoes the submitted body with the assigned `id`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRuleRequest'
+      responses:
+        '201':
+          description: Rule was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+    get:
+      summary: List Operation Rules
+      operationId: list-rules
+      description: |-
+        List Operation Rules on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rules (rules are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Rule
+  '/v2/org/{org}/nico/task/rule/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Rule
+    get:
+      summary: Retrieve an Operation Rule
+      operationId: get-rule
+      description: |-
+        Get an Operation Rule by UUID.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    patch:
+      summary: Update an Operation Rule
+      operationId: update-rule
+      description: |-
+        Patch the mutable fields of an Operation Rule: `name`, `description`, and
+        `ruleDefinition`. Unset fields are left unchanged. The rule definition is
+        re-validated server-side; validation failure leaves the rule untouched.
+
+        `operationType` and `operationCode` are immutable after creation — create a
+        new rule and delete the old one to change them.
+
+        Org must have an Infrastructure Provider entity. User must have authorization
+        role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuleRequest'
+      responses:
+        '204':
+          description: Rule was updated.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
+    delete:
+      summary: Delete an Operation Rule
+      operationId: delete-rule
+      description: |-
+        Delete an Operation Rule by UUID. Flow rejects deletion of rules that are
+        still associated with a Rack or that are the active default for their
+        (operationType, operationCode) tuple; dissociate / un-default first.
+
+        Rules are site-scoped; `siteId` must be the Site that owns the rule. Org must
+        have an Infrastructure Provider entity. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the rule (rules are site-scoped).
+      responses:
+        '204':
+          description: Rule was deleted.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Rule
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -10285,6 +10437,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10299,6 +10453,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10323,7 +10483,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -10937,6 +11097,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10951,6 +11113,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10975,7 +11143,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RackTask'
+                  $ref: '#/components/schemas/Task'
           headers:
             X-Pagination:
               schema:
@@ -17552,6 +17720,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchUpdateTrayPowerStateRequest:
       title: BatchUpdateTrayPowerStateRequest
       type: object
@@ -17575,6 +17750,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchRackFirmwareUpdateRequest:
       title: BatchRackFirmwareUpdateRequest
       type: object
@@ -17593,6 +17775,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BringUpRackRequest:
       title: BringUpRackRequest
       type: object
@@ -17607,6 +17796,12 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this bring-up to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
         - siteId: 550e8400-e29b-41d4-a716-446655440000
@@ -17627,6 +17822,13 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every bring-up task
+            spawned by this batch to the named rule and overrides Flow's default
+            rule resolution.
     BringUpRackResponse:
       title: BringUpRackResponse
       type: object
@@ -17641,10 +17843,10 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
-    RackTask:
-      title: RackTask
+    Task:
+      title: Task
       type: object
-      description: A task representing an asynchronous operation on rack infrastructure.
+      description: A task representing an asynchronous, site-scoped operation against rack, tray, or other site infrastructure.
       properties:
         id:
           type: string
@@ -17667,6 +17869,16 @@ components:
         message:
           type: string
           description: Optional status or error message describing the current state or result.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule that Flow resolved for this task — either because
+            the caller pinned one via `ruleId` on the originating request or
+            because Flow's default rule resolution picked it. Null if Flow
+            has not yet recorded a resolution.
         started:
           type: string
           format: date-time
@@ -17683,11 +17895,403 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
+        report:
+          allOf:
+            - $ref: '#/components/schemas/TaskReportV1'
+          description: |
+            Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.
+
+            A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump.
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          ruleId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+          report:
+            version: 1
+            stages:
+              - number: 1
+                status: completed
+                startedAt: '2026-06-08T18:00:00Z'
+                finishedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: Compute
+                    status: completed
+                    totalComponents: 4
+                    startedAt: '2026-06-08T18:00:00Z'
+                    finishedAt: '2026-06-08T18:00:42Z'
+              - number: 2
+                status: running
+                startedAt: '2026-06-08T18:00:42Z'
+                steps:
+                  - componentType: NVLSwitch
+                    status: running
+                    totalComponents: 2
+                    startedAt: '2026-06-08T18:00:42Z'
+                  - componentType: PowerShelf
+                    status: skipped
+                    totalComponents: 0
+    OperationRule:
+      title: OperationRule
+      type: object
+      description: |-
+        An Operation Rule template for a single (operationType, operationCode) tuple.
+        The `ruleDefinition` carries the executable schedule (stages, per-component
+        concurrency, actions, retry) Flow runs when this rule is selected for an
+        operation.
+      required:
+        - id
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+        - isDefault
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the rule.
+        name:
+          type: string
+          description: Human-readable name of the rule. Required and non-empty.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this rule applies to. Immutable after creation.
+        operationCode:
+          type: string
+          description: |-
+            Operation code within the operation type (e.g. `power_on`, `power_off`,
+            `upgrade`). Server-side validated against Flow's allow-list for the type.
+            Immutable after creation.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+        isDefault:
+          type: boolean
+          description: |-
+            Whether this rule is currently the default for its `(operationType,
+            operationCode)` tuple.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the rule was last updated.
+    RuleDefinition:
+      title: RuleDefinition
+      type: object
+      description: |-
+        Executable definition of a rule. Mirrors Flow's wire schema 1:1 so existing
+        YAML rule files can be converted to JSON without any key renaming
+        (nested fields use `snake_case`).
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Schema version. Currently always `v1`.
+          enum:
+            - v1
+        steps:
+          type: array
+          description: |-
+            Ordered execution steps. Steps with the same `stage` run in parallel,
+            stages run sequentially in ascending numerical order. May be empty for
+            operations whose sequencing is hardcoded in Flow (e.g. bring-up,
+            firmware update).
+          items:
+            $ref: '#/components/schemas/SequenceStep'
+    SequenceStep:
+      title: SequenceStep
+      type: object
+      description: A single execution step inside a `RuleDefinition`.
+      required:
+        - componentType
+        - stage
+        - mainOperation
+      properties:
+        componentType:
+          type: string
+          description: |-
+            Component type this step targets (e.g. `Compute`, `NVLSwitch`,
+            `PowerShelf`). Validated against Flow's component-type set.
+        stage:
+          type: integer
+          minimum: 1
+          description: |-
+            Stage number; steps with the same stage run in parallel, lower stages run
+            first. Component types must be unique within a stage.
+        maxParallel:
+          type: integer
+          minimum: 0
+          description: |-
+            Maximum number of components of this type processed concurrently. `0`
+            means unlimited, `1` means strictly sequential.
+        timeout:
+          type: string
+          description: |-
+            Optional child-workflow timeout for this step, as a Go duration string
+            (e.g. `30s`, `2m`). Applies to pre + main + post combined.
+        retry:
+          $ref: '#/components/schemas/RetryPolicy'
+        preOperation:
+          type: array
+          description: Actions to run before the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        mainOperation:
+          $ref: '#/components/schemas/ActionConfig'
+        postOperation:
+          type: array
+          description: Actions to run after the main operation.
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        delayAfter:
+          type: string
+          description: |-
+            Deprecated legacy field — sleep duration after this step, as a Go
+            duration string. Prefer encoding the wait as an explicit `Sleep`
+            post-operation action.
+    ActionConfig:
+      title: ActionConfig
+      type: object
+      description: Configuration for a single action within a step.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          enum:
+            - Sleep
+            - PowerControl
+            - VerifyPowerStatus
+            - VerifyReachability
+            - GetPowerStatus
+            - FirmwareControl
+            - VerifyFirmwareVersion
+            - VerifyFirmwareConsistency
+            - BringUpControl
+            - WaitBringUp
+            - InjectExpectation
+          description: |-
+            Executor-agnostic action name. Server-side validated; unknown names
+            fail the rule definition.
+        timeout:
+          type: string
+          description: |-
+            Optional per-action timeout override as a Go duration string
+            (e.g. `30s`, `2m`).
+        pollInterval:
+          type: string
+          description: |-
+            Poll interval for actions that loop (e.g. `FirmwareControl`,
+            `VerifyPowerStatus`) as a Go duration string.
+        parameters:
+          type: object
+          additionalProperties: true
+          description: |-
+            Action-specific parameters. Validated server-side against the action's
+            schema. Examples:
+              - `Sleep`: `{ duration: "30s" }`
+              - `PowerControl`: `{ operation: "on" }`
+              - `VerifyPowerStatus`: `{ expected_status: "on" }`
+              - `VerifyReachability`: `{ component_types: ["Compute"], require_all: true }`
+              - `FirmwareControl`: `{ poll_interval: "10s", poll_timeout: "30m" }`
+    RetryPolicy:
+      title: RetryPolicy
+      type: object
+      description: Retry behavior for a step's child workflow.
+      required:
+        - maxAttempts
+        - initialInterval
+        - backoffCoefficient
+      properties:
+        maxAttempts:
+          type: integer
+          minimum: 1
+          description: Maximum number of attempts including the first.
+        initialInterval:
+          type: string
+          description: Initial retry interval, as a Go duration string (e.g. `1s`).
+        backoffCoefficient:
+          type: number
+          minimum: 1
+          description: Exponential backoff multiplier; must be `>= 1.0`.
+        maxInterval:
+          type: string
+          description: Optional cap on retry interval, as a Go duration string.
+    CreateRuleRequest:
+      title: CreateRuleRequest
+      type: object
+      description: Request body for creating an Operation Rule.
+      required:
+        - siteId
+        - name
+        - operationType
+        - operationCode
+        - ruleDefinition
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the rule on.
+        name:
+          type: string
+          description: Human-readable name of the rule.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Operation type the rule applies to.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `power_on`).
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+    UpdateRuleRequest:
+      title: UpdateRuleRequest
+      type: object
+      description: |-
+        Request body for patching an Operation Rule. All mutable fields are optional;
+        unset fields are left unchanged. At least one of `name`, `description`,
+        `ruleDefinition` must be provided.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the rule.
+        name:
+          type: string
+          description: New rule name. Must be non-empty when provided.
+        description:
+          type: string
+          description: New free-form description.
+        ruleDefinition:
+          $ref: '#/components/schemas/RuleDefinition'
+    TaskReportV1:
+      title: TaskReportV1
+      type: object
+      description: |
+        Structured execution report (version 1) for a Flow-scheduled task.
+        The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.
+
+        Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched.
+      required:
+        - version
+        - stages
+      properties:
+        version:
+          type: integer
+          enum: [1]
+          description: Schema version of this report. Always `1` for `TaskReportV1`.
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Stage'
+        error:
+          type: string
+          description: |
+            Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer.
+    TaskReportV1Stage:
+      title: TaskReportV1Stage
+      type: object
+      description: |
+        Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry.
+      required:
+        - number
+        - status
+        - steps
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: 1-based rule stage number.
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskReportV1Step'
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the stage leaves `pending`.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the stage reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Step:
+      title: TaskReportV1Step
+      type: object
+      description: |
+        Execution state of one rule sequence step. Pairs 1:1 with the rule's ordered steps within the containing stage and shares its index.
+      required:
+        - componentType
+        - status
+      properties:
+        componentType:
+          type: string
+          description: 'Component class this step targets, e.g. `Compute`, `NVLSwitch`, `PowerShelf`.'
+        status:
+          $ref: '#/components/schemas/TaskReportV1Status'
+        totalComponents:
+          type: integer
+          description: |
+            Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
+        completedComponents:
+          type: integer
+          description: |
+            Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
+        failedComponents:
+          type: integer
+          description: Reserved (see `completedComponents`).
+        startedAt:
+          type: string
+          format: date-time
+          description: Set when the step leaves `pending`. `skipped` steps carry no timestamp.
+        finishedAt:
+          type: string
+          format: date-time
+          description: Set when the step reaches a terminal state.
+        error:
+          type: string
+          description: Failure summary when `status == failed`. Truncated to 512 bytes.
+    TaskReportV1Status:
+      title: TaskReportV1Status
+      type: string
+      description: |
+        Per-stage and per-step execution status.
+
+        - `pending`   — workflow has not yet reached this stage/step.
+        - `running`   — execution is in progress.
+        - `completed` — execution finished successfully.
+        - `failed`    — execution finished with an error; see `error`.
+        - `skipped`   — the rule lists this component type but the task targets no components of that type, so the workflow will not invoke it.
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - skipped
     BatchTrayFirmwareUpdateRequest:
       title: BatchTrayFirmwareUpdateRequest
       type: object
@@ -17736,6 +18340,13 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
@@ -17769,6 +18380,12 @@ components:
             - `cycle`: Graceful power cycle (restart)
             - `forceoff`: Forced power off (immediate)
             - `forcecycle`: Forced power cycle (immediate restart)
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this operation to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           state: 'on'
@@ -17836,6 +18453,12 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this firmware update to
+            the named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           version: '24.11.0'
@@ -21612,29 +22235,42 @@ components:
         - attribute: blockSize
           replacedBy: prefixLength
           takeActionBy: '2023-04-15T00:00:00Z'
-          notice: blockSize' has been deprecated in favor of 'prefixLength'. Please take action as soon as possible
+          notice: "'blockSize' has been deprecated in favor of 'prefixLength'. Please take action by specified date."
+        - queryParam: includeMachineAssociation
+          replacedBy: includeMachineAssignment
+          takeActionBy: '2023-07-26T00:00:00Z'
+          notice: "'includeMachineAssociation' has been deprecated in favor of 'includeMachineAssignment'. Please take action prior to the specified date"
+        - endpoint: POST /org/:orgName/nico/infrastructure-provider
+          takeActionBy: '2026-06-08T00:00:00Z'
+          notice: "'POST /org/:orgName/nico/infrastructure-provider' has been deprecated. Please take action prior to the specified date"
       properties:
         attribute:
           type:
             - string
             - 'null'
+          description: Name of the attribute that is deprecated. Omitted if queryParam or endpoint is being deprecated.
         queryParam:
           type:
             - string
             - 'null'
+          description: Query parameter that is deprecated. Omitted if attribute or endpoint is being deprecated.
         endpoint:
           type:
             - string
             - 'null'
+          description: API endpoint that is deprecated. Omitted if attribute or queryParam is being deprecated.
         replacedBy:
           type:
             - string
             - 'null'
+          description: Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
         takeActionBy:
           type: string
           format: date-time
+          description: ISO datetime string for when the deprecated field will no longer be accepted or available in the API
         notice:
           type: string
+          description: Message describing the deprecation
     NICoAPIError:
       title: NICoAPIError
       type: object

@@ -25,6 +25,24 @@ global:
 ## Override the release namespace (defaults to helm install -n <namespace>)
 namespaceOverride: ""
 
+## Legacy name aliases — opt-in ExternalName Services so binaries that
+## hardcode the pre-rename hostname (e.g. `carbide-pxe.forge-system.svc.
+## cluster.local`) continue to resolve to this chart's nico-pxe Service.
+## See helm/charts/nico-api/values.yaml `legacyAlias` for the full
+## explanation; this chart's variant creates only the Service. The alias
+## namespace is owned by nico-api's legacyAlias template, so enable
+## nico-api.legacyAlias in tandem.
+legacyAlias:
+  # On by default to match the chart's cert SAN posture (the `nico-pxe`
+  # Certificate already includes `carbide-pxe.forge-system.svc.cluster.local`
+  # as a SAN). Flip to false on all-modern fleets where no client uses the
+  # legacy hostname. Requires `nico-api.legacyAlias.enabled` to be true so
+  # the `forge-system` namespace is owned by nico-api's template.
+  enabled: true
+  aliases:
+    - name: carbide-pxe
+      namespace: forge-system
+
 replicas: 1
 
 ## Optional init containers (general-purpose pass-through)
@@ -32,17 +50,26 @@ initContainers: []
 
 ## Boot-artifact init containers
 ## Each entry is rendered as a Kubernetes init container with the boot-artifacts
-## volume automatically mounted at /boot-artifacts/blobs/internal.
+## volume automatically mounted at /boot-artifacts/blobs/internal, then served by
+## nico-pxe at /public/blobs/internal.
+##
+## REQUIRED for DPU and host HTTP boot: if empty, the DPU/host requests its bootloader
+## (e.g. /public/blobs/internal/aarch64/ipxe.efi) and gets HTTP 404, then falls back to
+## its local disk and never (re)provisions. Populate per site (extensible list).
+##
+## NOTE: copy ONLY directories that exist in the image. The boot-artifacts-aarch64 image
+## ships /aarch64 and /apt (NOT /firmware); copying a missing dir makes `cp` exit non-zero
+## and the init container crash-loops.
 bootArtifactContainers: []
 # bootArtifactContainers:
 #   - name: boot-artifacts-x86-64
-#     image: <your-registry>/boot-artifacts-x86_64:latest
+#     image: <your-registry>/boot-artifacts-x86_64:<tag>
 #     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
 #   - name: boot-artifacts-aarch64
-#     image: <your-registry>/boot-artifacts-aarch64:latest
-#     command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+#     image: <your-registry>/boot-artifacts-aarch64:<tag>
+#     command: ["sh", "-c", "cp -r /aarch64 /apt /boot-artifacts/blobs/internal"]
 #   - name: machine-validation-config
-#     image: <your-registry>/machine-validation-config:latest
+#     image: <your-registry>/machine-validation-config:<tag>
 #     command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
 
 ## Boot artifact serving configuration

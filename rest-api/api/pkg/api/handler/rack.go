@@ -884,7 +884,7 @@ func (pcrh UpdateRackPowerStateHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecutePowerControlWorkflow(ctx, c, logger, stc, targetSpec, apiRequest.State,
-		fmt.Sprintf("rack-power-state-update-%s-%s", apiRequest.State, rackStrID), "Rack")
+		apiRequest.RuleID, fmt.Sprintf("rack-power-state-update-%s-%s", apiRequest.State, rackStrID), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1002,7 +1002,7 @@ func (pcrbh BatchUpdateRackPowerStateHandler) Handle(c echo.Context) error {
 	targetSpec := request.Filter.ToTargetSpec()
 
 	flowResp, err := common.ExecutePowerControlWorkflow(ctx, c, logger, stc, targetSpec, request.State,
-		fmt.Sprintf("rack-power-state-batch-update-%s-%s", request.State, common.RequestHash(request.Filter)), "Rack")
+		request.RuleID, fmt.Sprintf("rack-power-state-batch-update-%s-%s", request.State, common.RequestHash(request.Filter)), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1136,7 +1136,7 @@ func (furh UpdateRackFirmwareHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, apiRequest.Version,
-		nil, fmt.Sprintf("rack-firmware-update-%s", rackStrID), "Rack")
+		nil, apiRequest.RuleID, fmt.Sprintf("rack-firmware-update-%s", rackStrID), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1254,7 +1254,7 @@ func (furbh BatchUpdateRackFirmwareHandler) Handle(c echo.Context) error {
 	targetSpec := request.Filter.ToTargetSpec()
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, request.Version,
-		nil, fmt.Sprintf("rack-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Rack")
+		nil, request.RuleID, fmt.Sprintf("rack-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1394,7 +1394,7 @@ func (burh BringUpRackHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteBringUpRackWorkflow(ctx, c, logger, stc, targetSpec, description,
-		fmt.Sprintf("rack-bringup-%s", rackStrID), "Rack")
+		apiRequest.RuleID, fmt.Sprintf("rack-bringup-%s", rackStrID), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1517,7 +1517,7 @@ func (bbuh BatchBringUpRackHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteBringUpRackWorkflow(ctx, c, logger, stc, targetSpec, description,
-		fmt.Sprintf("rack-bringup-batch-%s", common.RequestHash(request.Filter)), "Rack")
+		request.RuleID, fmt.Sprintf("rack-bringup-batch-%s", common.RequestHash(request.Filter)), "Rack")
 	if err != nil {
 		return err
 	}

@@ -29,6 +29,7 @@ use model::machine::{
 };
 use state_controller::state_handler::StateHandlerError;
 
+pub mod boot_interface;
 pub mod config;
 pub mod context;
 pub mod dpf;

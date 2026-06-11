@@ -1,0 +1,265 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+
+use carbide_site_explorer::{EndpointExplorer, SiteExplorationMetrics};
+use libredfish::{PowerState, RoleId, SystemPowerControl};
+use mac_address::MacAddress;
+use model::expected_entity::ExpectedEntity;
+use model::machine::MachineInterfaceSnapshot;
+use model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
+    NicMode,
+};
+
+/// EndpointExplorer which returns predefined data
+#[derive(Clone, Default, Debug)]
+pub struct MockEndpointExplorer {
+    pub reports:
+        Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    pub power_states: Arc<Mutex<HashMap<IpAddr, PowerState>>>,
+    pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
+    /// Records every call to `set_nic_mode` (BMC address + requested target
+    /// mode) so tests can assert the auto-correct path fired with the
+    /// right arguments. Cleared on each `insert_endpoints` reset.
+    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
+    /// Records IPs that `explore_endpoint` was called for.
+    pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+}
+
+impl MockEndpointExplorer {
+    pub fn explore_endpoint_call_count(&self) -> usize {
+        self.explore_endpoint_calls.lock().unwrap().len()
+    }
+
+    pub fn insert_endpoints(&self, endpoints: Vec<(IpAddr, EndpointExplorationReport)>) {
+        self.insert_endpoint_results(
+            endpoints
+                .into_iter()
+                .map(|(addr, report)| (addr, Ok(report)))
+                .collect(),
+        )
+    }
+
+    pub fn insert_endpoint_result(
+        &self,
+        address: IpAddr,
+        result: Result<EndpointExplorationReport, EndpointExplorationError>,
+    ) {
+        self.insert_endpoint_results(vec![(address, result)]);
+    }
+
+    pub fn insert_endpoint_results(
+        &self,
+        endpoints: Vec<(
+            IpAddr,
+            Result<EndpointExplorationReport, EndpointExplorationError>,
+        )>,
+    ) {
+        let mut guard = self.reports.lock().unwrap();
+        for (address, result) in endpoints {
+            guard.insert(address, result);
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl EndpointExplorer for MockEndpointExplorer {
+    async fn check_preconditions(
+        &self,
+        _metrics: &mut SiteExplorationMetrics,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+    async fn explore_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _expected: Option<&ExpectedEntity>,
+        _last_error: Option<&EndpointExplorationError>,
+        _boot_interface_mac: Option<MacAddress>,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        tracing::info!("Endpoint {bmc_ip_address} is getting explored");
+        self.explore_endpoint_calls
+            .lock()
+            .unwrap()
+            .push(bmc_ip_address.ip());
+        let guard = self.reports.lock().unwrap();
+        let res = guard.get(&bmc_ip_address.ip()).unwrap();
+        res.clone()
+    }
+
+    async fn redfish_reset_bmc(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn ipmitool_reset_bmc(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn redfish_get_power_state(
+        &self,
+        address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        Ok(self
+            .power_states
+            .lock()
+            .unwrap()
+            .get(&address.ip())
+            .copied()
+            .unwrap_or(PowerState::On))
+    }
+
+    async fn redfish_power_control(
+        &self,
+        address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_power_control_calls
+            .lock()
+            .unwrap()
+            .push((address, action));
+        Ok(())
+    }
+
+    async fn have_credentials(&self, _interface: &MachineInterfaceSnapshot) -> bool {
+        true
+    }
+
+    async fn disable_secure_boot(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn lockdown(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _action: libredfish::EnabledDisabled,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn lockdown_status(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<LockdownStatus, EndpointExplorationError> {
+        Ok(LockdownStatus {
+            status: InternalLockdownStatus::Disabled,
+            message: "".to_string(),
+        })
+    }
+
+    async fn machine_setup(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _boot_interface: Option<&carbide_redfish::boot_interface::BootInterfaceTarget>,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn set_boot_order_dpu_first(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _boot_interface: &carbide_redfish::boot_interface::BootInterfaceTarget,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn set_nic_mode(
+        &self,
+        address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        mode: NicMode,
+    ) -> Result<(), EndpointExplorationError> {
+        self.set_nic_mode_calls
+            .lock()
+            .unwrap()
+            .push((address, mode));
+        Ok(())
+    }
+
+    async fn is_viking(
+        &self,
+        _bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<bool, EndpointExplorationError> {
+        Ok(false)
+    }
+
+    async fn clear_nvram(
+        &self,
+        _bmc_ip_address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn create_bmc_user(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _username: &str,
+        _password: &str,
+        _role_id: RoleId,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn delete_bmc_user(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _username: &str,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn enable_infinite_boot(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
+    async fn is_infinite_boot_enabled(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<Option<bool>, EndpointExplorationError> {
+        Ok(None)
+    }
+}

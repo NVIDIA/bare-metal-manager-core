@@ -62,7 +62,7 @@ func NewGetTaskHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Client
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Task"
 // @Param siteId query string true "ID of the Site"
-// @Success 200 {object} model.APIRackTask
+// @Success 200 {object} model.APITask
 // @Router /v2/org/{org}/nico/rack/task/{id} [get]
 func (gth GetTaskHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Task", "Get", c, gth.tracerSpan)
@@ -183,7 +183,7 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Task not found", nil)
 	}
 
-	apiTask := model.NewAPIRackTask(tasks[0])
+	apiTask := model.NewAPITask(tasks[0], model.WithTaskReport())
 
 	logger.Info().Msg("finishing API handler")
 
@@ -229,7 +229,7 @@ func NewCancelTaskHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Cli
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Task"
 // @Param body body model.APICancelTaskRequest true "Cancel task request"
-// @Success 202 {object} model.APIRackTask
+// @Success 202 {object} model.APITask
 // @Router /v2/org/{org}/nico/rack/task/{id}/cancel [post]
 func (cth CancelTaskHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Task", "Cancel", c, cth.tracerSpan)
@@ -354,7 +354,7 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task cancellation workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiTask := model.NewAPIRackTask(flowResponse.GetTask())
+	apiTask := model.NewAPITask(flowResponse.GetTask(), model.WithTaskReport())
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusAccepted, apiTask)
@@ -393,9 +393,10 @@ func NewGetRackTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Rack"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param includeReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
-// @Success 200 {array} model.APIRackTask
+// @Success 200 {array} model.APITask
 // @Router /v2/org/{org}/nico/rack/{id}/task [get]
 func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("RackTasks", "List", c, h.tracerSpan)
@@ -490,6 +491,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		RackId:     &flowv1.UUID{Id: rackID},
 		ActiveOnly: apiRequest.ActiveOnly,
+		WithReport: apiRequest.IncludeReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
@@ -527,9 +529,10 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
 	}
 
-	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
+	taskOpts := apiRequest.TaskOptions()
+	apiTasks := make([]*model.APITask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
-		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+		apiTasks = append(apiTasks, model.NewAPITask(t, taskOpts...))
 	}
 
 	total := int(flowResponse.GetTotal())
@@ -576,9 +579,10 @@ func NewGetTrayTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Tray"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param includeReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
-// @Success 200 {array} model.APIRackTask
+// @Success 200 {array} model.APITask
 // @Router /v2/org/{org}/nico/tray/{id}/task [get]
 func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TrayTasks", "List", c, h.tracerSpan)
@@ -673,6 +677,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		ComponentId: &flowv1.UUID{Id: trayID},
 		ActiveOnly:  apiRequest.ActiveOnly,
+		WithReport:  apiRequest.IncludeReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
@@ -710,9 +715,10 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
 	}
 
-	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
+	taskOpts := apiRequest.TaskOptions()
+	apiTasks := make([]*model.APITask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
-		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+		apiTasks = append(apiTasks, model.NewAPITask(t, taskOpts...))
 	}
 
 	total := int(flowResponse.GetTotal())

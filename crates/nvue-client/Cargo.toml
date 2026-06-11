@@ -34,5 +34,8 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+glob = { workspace = true }
+
 [lints]
 workspace = true

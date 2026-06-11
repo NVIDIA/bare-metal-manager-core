@@ -331,20 +331,20 @@ func (mcgsc *MockCoreGrpcServiceClient) UpdateMachineMetadata(ctx context.Contex
 	return out, nil
 }
 
-func (mcgsc *MockCoreGrpcServiceClient) InsertHealthReportOverride(ctx context.Context, in *wflows.InsertHealthReportOverrideRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) InsertMachineHealthReport(ctx context.Context, in *wflows.InsertMachineHealthReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
-		return nil, status.Error(status.Code(err), "failed to insert health report override")
+		return nil, status.Error(status.Code(err), "failed to insert machine health report")
 	}
 
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (mcgsc *MockCoreGrpcServiceClient) RemoveHealthReportOverride(ctx context.Context, in *wflows.RemoveHealthReportOverrideRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) RemoveMachineHealthReport(ctx context.Context, in *wflows.RemoveMachineHealthReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
-		return nil, status.Error(status.Code(err), "failed to remove health report override")
+		return nil, status.Error(status.Code(err), "failed to remove machine health report")
 	}
 
 	out := new(emptypb.Empty)
@@ -1221,7 +1221,7 @@ func (mcgsc *MockCoreGrpcServiceClient) AddExpectedRack(ctx context.Context, in 
 	if in.RackId == nil || in.RackId.Id == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for AddExpectedRack")
 	}
-	if in.RackType == "" {
+	if in.RackProfileId == nil || in.RackProfileId.Id == "" {
 		return nil, status.Error(codes.Internal, "Rack Profile ID not provided for AddExpectedRack")
 	}
 	out := new(emptypb.Empty)
@@ -1232,7 +1232,7 @@ func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedRack(ctx context.Context, 
 	if in.RackId == nil || in.RackId.Id == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for UpdateExpectedRack")
 	}
-	if in.RackType == "" {
+	if in.RackProfileId == nil || in.RackProfileId.Id == "" {
 		return nil, status.Error(codes.Internal, "Rack Profile ID not provided for UpdateExpectedRack")
 	}
 	out := new(emptypb.Empty)
@@ -1258,8 +1258,8 @@ func (mcgsc *MockCoreGrpcServiceClient) GetExpectedRack(ctx context.Context, in 
 		}
 	}
 	out := &wflows.ExpectedRack{
-		RackId:   &wflows.RackId{Id: in.RackId},
-		RackType: uuid.NewString(),
+		RackId:        &wflows.RackId{Id: in.RackId},
+		RackProfileId: &wflows.RackProfileId{Id: uuid.NewString()},
 	}
 	return out, nil
 }
@@ -1278,8 +1278,8 @@ func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedRacks(ctx context.Context,
 	if ok {
 		for range count {
 			out.ExpectedRacks = append(out.ExpectedRacks, &wflows.ExpectedRack{
-				RackId:   &wflows.RackId{Id: uuid.NewString()},
-				RackType: uuid.NewString(),
+				RackId:        &wflows.RackId{Id: uuid.NewString()},
+				RackProfileId: &wflows.RackProfileId{Id: uuid.NewString()},
 			})
 		}
 	}
@@ -1295,7 +1295,7 @@ func (mcgsc *MockCoreGrpcServiceClient) ReplaceAllExpectedRacks(ctx context.Cont
 		if er == nil || er.RackId == nil || er.RackId.Id == "" {
 			return nil, status.Error(codes.Internal, "ID not provided for ReplaceAllExpectedRacks")
 		}
-		if er.RackType == "" {
+		if er.RackProfileId == nil || er.RackProfileId.Id == "" {
 			return nil, status.Error(codes.Internal, "Rack Profile ID not provided for ReplaceAllExpectedRacks")
 		}
 	}

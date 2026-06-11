@@ -19,7 +19,9 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
-use carbide_rack::firmware_object::rack_maintenance_access_token_key;
+use carbide_rack::firmware_object::{
+    rack_maintenance_access_token_key, rms_access_token_or_noauth,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -523,10 +525,6 @@ fn non_empty_string(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-fn non_empty_optional_string(value: &Option<String>) -> Option<String> {
-    value.as_deref().and_then(non_empty_string)
-}
-
 fn set_maintenance_access_token(
     maintenance_access_token: &mut Option<String>,
     access_token: Option<String>,
@@ -601,18 +599,12 @@ pub(crate) async fn on_demand_rack_maintenance(
         let activity = match &entry.activity {
             Some(ProtoActivity::FirmwareUpgrade(fw)) => {
                 let firmware_version = non_empty_string(&fw.firmware_version);
-                let access_token = non_empty_optional_string(&fw.access_token);
+                let access_token = rms_access_token_or_noauth(fw.access_token.as_deref());
 
                 if firmware_version.is_none() {
                     return Err(CarbideError::InvalidArgument(
                         "firmware-upgrade rack maintenance requires SOT JSON in firmware_version"
                             .into(),
-                    )
-                    .into());
-                }
-                if access_token.is_none() {
-                    return Err(CarbideError::InvalidArgument(
-                        "firmware-upgrade rack maintenance requires access_token".into(),
                     )
                     .into());
                 }
@@ -623,7 +615,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                         ))
                     })?;
                 }
-                set_maintenance_access_token(&mut maintenance_access_token, access_token)?;
+                set_maintenance_access_token(&mut maintenance_access_token, Some(access_token))?;
 
                 MaintenanceActivity::FirmwareUpgrade {
                     firmware_version,
@@ -633,17 +625,11 @@ pub(crate) async fn on_demand_rack_maintenance(
             }
             Some(ProtoActivity::NvosUpdate(nvos)) => {
                 let config_json = non_empty_string(&nvos.config_json);
-                let access_token = non_empty_optional_string(&nvos.access_token);
+                let access_token = rms_access_token_or_noauth(nvos.access_token.as_deref());
 
                 if config_json.is_none() {
                     return Err(CarbideError::InvalidArgument(
                         "nvos-update rack maintenance requires SOT JSON in config_json".into(),
-                    )
-                    .into());
-                }
-                if access_token.is_none() {
-                    return Err(CarbideError::InvalidArgument(
-                        "nvos-update rack maintenance requires access_token".into(),
                     )
                     .into());
                 }
@@ -653,7 +639,7 @@ pub(crate) async fn on_demand_rack_maintenance(
                         "nvos-update config_json must contain valid SOT JSON: {error}"
                     ))
                 })?;
-                set_maintenance_access_token(&mut maintenance_access_token, access_token)?;
+                set_maintenance_access_token(&mut maintenance_access_token, Some(access_token))?;
 
                 MaintenanceActivity::NvosUpdate { config_json }
             }

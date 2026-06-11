@@ -24,11 +24,56 @@ use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
 use model::machine::network::{
-    MachineNetworkStatusObservation, ManagedHostQuarantineMode, ManagedHostQuarantineState,
+    DpuFabricInterfaceStatusObservation, DpuLinkStatusObservation, MachineNetworkStatusObservation,
+    ManagedHostQuarantineMode, ManagedHostQuarantineState,
 };
 
 use crate::errors::RpcDataConversionError;
 use crate::forge as rpc;
+
+impl From<rpc::FabricInterfaceData> for DpuFabricInterfaceStatusObservation {
+    fn from(interface: rpc::FabricInterfaceData) -> Self {
+        Self {
+            interface_name: interface.interface_name,
+            link_data: interface.link_data.map(Into::into),
+        }
+    }
+}
+
+impl From<rpc::LinkData> for DpuLinkStatusObservation {
+    fn from(link: rpc::LinkData) -> Self {
+        Self {
+            link_type: link.link_type,
+            state: link.state,
+            carrier_up: link.carrier_up,
+            mtu: link.mtu,
+            carrier_up_count: link.carrier_up_count,
+            carrier_down_count: link.carrier_down_count,
+        }
+    }
+}
+
+impl From<DpuFabricInterfaceStatusObservation> for rpc::FabricInterfaceData {
+    fn from(interface: DpuFabricInterfaceStatusObservation) -> Self {
+        Self {
+            interface_name: interface.interface_name,
+            link_data: interface.link_data.map(Into::into),
+        }
+    }
+}
+
+impl From<DpuLinkStatusObservation> for rpc::LinkData {
+    fn from(link: DpuLinkStatusObservation) -> Self {
+        Self {
+            link_type: link.link_type,
+            state: link.state,
+            carrier_up: link.carrier_up,
+            mtu: link.mtu,
+            carrier_up_count: link.carrier_up_count,
+            carrier_down_count: link.carrier_down_count,
+        }
+    }
+}
 
 impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
     type Error = RpcDataConversionError;
@@ -115,6 +160,7 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
             agent_version_superseded_at: None,
             instance_network_observation,
             extension_service_observation,
+            fabric_interfaces: obs.fabric_interfaces.into_iter().map(Into::into).collect(),
         })
     }
 }
@@ -138,7 +184,7 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
             network_config_error: None,
             client_certificate_expiry_unix_epoch_secs: None,
             dpu_health: None,
-            fabric_interfaces: vec![],
+            fabric_interfaces: m.fabric_interfaces.into_iter().map(Into::into).collect(),
             last_dhcp_requests: vec![],
             dpu_extension_service_version: None,
             dpu_extension_services: vec![],

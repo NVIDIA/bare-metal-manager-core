@@ -45,7 +45,9 @@ use crate::rpc::ApiClient;
 mod async_write;
 mod attestation;
 mod bmc_machine;
+mod bmc_role;
 mod boot_override;
+mod browse;
 mod cfg;
 mod component_manager;
 mod compute_allocation;
@@ -64,6 +66,7 @@ mod expected_rack;
 mod expected_switch;
 mod extension_service;
 mod firmware;
+mod generate_docs;
 mod generate_man;
 mod generate_shell_complete;
 mod health_utils;
@@ -127,7 +130,14 @@ pub fn invalid_machine_id() -> String {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
-    color_eyre::install()?;
+    // This is a user-facing CLI, so keep error output to the message chain.
+    // The source-code `Location:` block and the "run with RUST_BACKTRACE"
+    // footer are developer noise on an expected failure (a missing flag, an
+    // unreachable BMC); a backtrace is still captured when RUST_BACKTRACE is set.
+    color_eyre::config::HookBuilder::default()
+        .display_location_section(false)
+        .display_env_section(false)
+        .install()?;
 
     let config = CliOptions::load();
     if config.version {
@@ -162,12 +172,13 @@ async fn main() -> color_eyre::Result<()> {
         .try_init()?;
 
     if let Some(CliCommand::Redfish(ref ra)) = config.commands {
-        match ra.command {
-            redfish::Cmd::Browse(_) => {}
-            _ => {
-                return redfish::action(ra.clone()).await;
-            }
-        }
+        // Redfish talks straight to a BMC, so it's handled here — before the
+        // API client is built — rather than via the ctx-based dispatch below.
+        // (Browsing a Redfish tree through the API server is a separate
+        // top-level command, `browse redfish`, which does not need a BMC.)
+        // --address is clap-`required` on RedfishAction; --username/--password
+        // are optional.
+        return redfish::action(ra.clone()).await;
     }
     if let Some(CliCommand::Rms(ref rms)) = config.commands {
         // do rms same as redfish above
@@ -205,7 +216,7 @@ async fn main() -> color_eyre::Result<()> {
             format: config.format,
             page_size: config.internal_page_size,
             extended: config.extended,
-            cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
+            cloud_unsafe_op: config.cloud_unsafe_op,
             sort_by: config.sort_by,
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,
@@ -230,6 +241,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::ExpectedSwitch(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ExtensionService(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Firmware(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::GenerateCliDocs(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::GenerateMan(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::GenerateShellComplete(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Host(cmd) => cmd.dispatch(ctx).await?,
@@ -276,14 +288,9 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::VpcPeering(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::VpcPrefix(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Dpf(cmd) => cmd.dispatch(ctx).await?,
-        CliCommand::Redfish(action) => {
-            if let redfish::Cmd::Browse(redfish::UriInfo { uri }) = &action.command {
-                return redfish::handle_browse_command(&ctx.api_client, uri).await;
-            }
-
-            // Handled earlier
-            unreachable!();
-        }
+        CliCommand::Browse(cmd) => cmd.dispatch(ctx).await?,
+        // Redfish is handled before the API client is built (see above).
+        CliCommand::Redfish(_) => unreachable!("redfish is dispatched before client init"),
         _ => return Err(eyre!("Unsupported command")),
     }
 

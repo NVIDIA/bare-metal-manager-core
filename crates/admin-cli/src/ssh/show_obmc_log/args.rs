@@ -23,6 +23,13 @@ use super::super::common::SshArgs;
 // specific newtype to allow sharing of SshArgs, and still
 // providing a subcommand-specific Run trait implementation.
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Dump the OpenBMC log from a DPU BMC:
+    $ carbide-admin-cli ssh show-obmc-log 192.0.2.10:22 admin mypassword
+
+")]
 pub struct Args {
     #[clap(flatten)]
     pub inner: SshArgs,

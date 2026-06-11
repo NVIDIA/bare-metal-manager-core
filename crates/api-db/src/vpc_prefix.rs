@@ -19,8 +19,13 @@ pub use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
+use model::DeletedFilter;
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::network_prefix::NetworkPrefix;
-use model::vpc_prefix::{DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix};
+use model::vpc_prefix::{
+    DeleteVpcPrefix, NewVpcPrefix, UpdateVpcPrefix, VpcPrefix, VpcPrefixControllerState,
+    VpcPrefixSearch,
+};
 use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
@@ -97,12 +102,22 @@ async fn update_stats(
 pub async fn get_by_id<'a, C>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
+    deleted_filter: DeletedFilter,
 ) -> Result<Vec<VpcPrefix>, DatabaseError>
 where
     C: ColumnInfo<'a, TableType = VpcPrefix>,
 {
     let mut query =
         super::FilterableQueryBuilder::new("SELECT * FROM network_vpc_prefixes").filter(&filter);
+    match deleted_filter {
+        DeletedFilter::Exclude => {
+            query.push(" AND deleted IS NULL");
+        }
+        DeletedFilter::Only => {
+            query.push(" AND deleted IS NOT NULL");
+        }
+        DeletedFilter::Include => {}
+    }
     let mut container = query
         .build_query_as()
         .fetch_all(&mut *txn)
@@ -119,11 +134,21 @@ pub async fn get_by_id_with_row_lock(
     filter: &[VpcPrefixId],
 ) -> Result<Vec<VpcPrefix>, DatabaseError> {
     let query = "SELECT * FROM network_vpc_prefixes WHERE id=ANY($1) FOR NO KEY UPDATE";
-    let mut container = sqlx::query_as(query)
+    let mut container: Vec<VpcPrefix> = sqlx::query_as(query)
         .bind(filter)
         .fetch_all(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    if let Some(vpc_prefix) = container
+        .iter()
+        .find(|prefix| prefix.is_marked_as_deleted())
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "VPC prefix {} is marked for deletion and cannot be used for allocation",
+            vpc_prefix.id
+        )));
+    }
 
     update_stats(&mut container, txn).await?;
     Ok(container)
@@ -135,6 +160,7 @@ pub async fn find_by_vpc(
     vpc_id: VpcId,
 ) -> Result<Vec<VpcPrefix>, DatabaseError> {
     let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=$1 \
+            AND deleted IS NULL \
             ORDER BY prefix";
     let mut container = sqlx::query_as(query)
         .bind(vpc_id)
@@ -152,6 +178,7 @@ pub async fn find_by_vpcs(
     vpc_ids: &Vec<VpcId>,
 ) -> Result<Vec<VpcPrefix>, DatabaseError> {
     let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=ANY($1) \
+                AND deleted IS NULL \
                 ORDER BY prefix";
     sqlx::query_as(query)
         .bind(vpc_ids)
@@ -166,7 +193,7 @@ pub async fn update_last_used_prefix(
     vpc_prefix_id: &VpcPrefixId,
     last_used_prefix: IpNetwork,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE network_vpc_prefixes SET last_used_prefix=$1 WHERE id=$2 RETURNING *";
+    let query = "UPDATE network_vpc_prefixes SET last_used_prefix=$1 WHERE id=$2 AND deleted IS NULL RETURNING *";
     sqlx::query_as::<_, VpcPrefix>(query)
         .bind(last_used_prefix)
         .bind(vpc_prefix_id)
@@ -181,11 +208,26 @@ pub async fn update_last_used_prefix(
 // the prefix (or some combination). Returns just the IDs.
 pub async fn search(
     txn: &mut PgConnection,
-    vpc_id: Option<VpcId>,
-    name: Option<String>,
-    prefix_match: Option<PrefixMatch>,
+    search: VpcPrefixSearch,
 ) -> Result<Vec<VpcPrefixId>, DatabaseError> {
+    let VpcPrefixSearch {
+        vpc_id,
+        name,
+        prefix_match,
+        deleted_filter,
+    } = search;
+
     let mut query = QueryBuilder::new("SELECT id FROM network_vpc_prefixes WHERE true");
+
+    match deleted_filter {
+        DeletedFilter::Exclude => {
+            query.push(" AND deleted IS NULL");
+        }
+        DeletedFilter::Only => {
+            query.push(" AND deleted IS NOT NULL");
+        }
+        DeletedFilter::Include => {}
+    }
 
     if let Some(vpc_id) = vpc_id {
         query.push(" AND vpc_id=");
@@ -238,28 +280,64 @@ pub async fn persist(
     expected_vpc_version: ConfigVersion,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    let insert_query = "INSERT INTO network_vpc_prefixes (id, prefix, name, labels, description, vpc_id) VALUES ($1, $2, $3, $4::json, $5, $6) RETURNING *";
-    let vpc_prefix: VpcPrefix = sqlx::query_as(insert_query)
+    let initial_version = ConfigVersion::initial();
+    let initial_state = VpcPrefixControllerState::Provisioning;
+
+    let insert_query = "INSERT INTO network_vpc_prefixes (
+                id,
+                prefix,
+                name,
+                labels,
+                description,
+                vpc_id,
+                controller_state,
+                controller_state_version)
+            VALUES ($1, $2, $3, $4::json, $5, $6, $7::json, $8)
+            RETURNING *";
+    let vpc_prefix: VpcPrefix = match sqlx::query_as(insert_query)
         .bind(value.id)
         .bind(value.config.prefix)
         .bind(&value.metadata.name)
         .bind(sqlx::types::Json(&value.metadata.labels))
         .bind(&value.metadata.description)
         .bind(value.vpc_id)
+        .bind(sqlx::types::Json(&initial_state))
+        .bind(initial_version)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(insert_query, e))?;
+    {
+        Ok(vpc_prefix) => vpc_prefix,
+        Err(sqlx::Error::Database(error))
+            if error.constraint() == Some("network_vpc_prefixes_globally_unique") =>
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "The requested VPC prefix ({}) overlaps an existing or deleting VPC prefix",
+                value.config.prefix
+            )));
+        }
+        Err(e) => return Err(DatabaseError::query(insert_query, e)),
+    };
+
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::VpcPrefix,
+        &vpc_prefix.id,
+        &initial_state,
+        initial_version,
+    )
+    .await?;
 
     increment_vpc_version(txn, value.vpc_id, expected_vpc_version).await?;
 
     Ok(vpc_prefix)
 }
 
-// Check for existing VPC prefixes using any of our address space.
+/// Checks for existing or deleting VPC prefixes using any of the address space.
 pub async fn probe(
     network: IpNetwork,
     txn: &mut PgConnection,
 ) -> Result<Vec<VpcPrefix>, DatabaseError> {
+    // Include soft-deleted rows because the global exclusion constraint still reserves them.
     let query = "SELECT * FROM network_vpc_prefixes WHERE prefix && $1";
     sqlx::query_as(query)
         .bind(network)
@@ -297,7 +375,7 @@ pub async fn update(
     update: &UpdateVpcPrefix,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefix, DatabaseError> {
-    let query = "UPDATE network_vpc_prefixes SET name=$1, labels=$2::json, description=$3 WHERE id=$4 RETURNING *";
+    let query = "UPDATE network_vpc_prefixes SET name=$1, labels=$2::json, description=$3 WHERE id=$4 AND deleted IS NULL RETURNING *";
     sqlx::query_as(query)
         .bind(&update.metadata.name)
         .bind(sqlx::types::Json(&update.metadata.labels))
@@ -310,19 +388,99 @@ pub async fn update(
     // call increment_vpc_version() here.
 }
 
-pub async fn delete(
+/// Marks an active VPC prefix for asynchronous deletion and bumps the parent VPC version.
+pub async fn mark_as_deleted(
     value: &DeleteVpcPrefix,
     expected_vpc_version: ConfigVersion,
     txn: &mut PgConnection,
 ) -> Result<VpcPrefixId, DatabaseError> {
-    let query = "DELETE FROM network_vpc_prefixes WHERE id=$1 RETURNING *";
+    // Mark the prefix deleted while keeping its address space reserved for the controller.
+    let query =
+        "UPDATE network_vpc_prefixes SET deleted=NOW() WHERE id=$1 AND deleted IS NULL RETURNING *";
     let deleted_prefix: VpcPrefix = sqlx::query_as(query)
         .bind(value.id)
         .fetch_one(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "vpc_prefix",
+                id: value.id.to_string(),
+            },
+            e => DatabaseError::query(query, e),
+        })?;
 
     increment_vpc_version(txn, deleted_prefix.vpc_id, expected_vpc_version).await?;
 
     Ok(deleted_prefix.id)
+}
+
+/// Hard-deletes a VPC prefix after the controller has drained all dependencies.
+pub async fn final_delete(
+    vpc_prefix_id: VpcPrefixId,
+    txn: &mut PgConnection,
+) -> Result<VpcPrefixId, DatabaseError> {
+    // Remove the terminal row without bumping the parent VPC version again.
+    let query = "DELETE FROM network_vpc_prefixes WHERE id=$1 RETURNING id";
+    let deleted_id = sqlx::query_as::<_, VpcPrefixId>(query)
+        .bind(vpc_prefix_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(deleted_id)
+}
+
+/// Updates the controller-owned VPC prefix state if the version still matches.
+pub async fn try_update_controller_state(
+    txn: &mut PgConnection,
+    vpc_prefix_id: VpcPrefixId,
+    expected_version: ConfigVersion,
+    new_version: ConfigVersion,
+    new_state: &VpcPrefixControllerState,
+) -> Result<bool, DatabaseError> {
+    // Use optimistic locking so concurrent controller attempts cannot overwrite each other.
+    let query = "UPDATE network_vpc_prefixes SET controller_state_version=$1, controller_state=$2::json WHERE id=$3 AND controller_state_version=$4 RETURNING id";
+    let result = sqlx::query_as::<_, VpcPrefixId>(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(new_state))
+        .bind(vpc_prefix_id)
+        .bind(expected_version)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.is_some())
+}
+
+/// Stores the result of the most recent VPC prefix controller handling attempt.
+pub async fn update_controller_state_outcome(
+    txn: &mut PgConnection,
+    vpc_prefix_id: VpcPrefixId,
+    outcome: PersistentStateHandlerOutcome,
+) -> Result<(), DatabaseError> {
+    // Persist the outcome separately from state so waits/errors remain visible.
+    let query = "UPDATE network_vpc_prefixes SET controller_state_outcome=$1::json WHERE id=$2";
+    sqlx::query(query)
+        .bind(sqlx::types::Json(outcome))
+        .bind(vpc_prefix_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+/// Counts network-prefix rows that still reference a VPC prefix.
+pub async fn count_network_prefixes_by_vpc_prefix_id(
+    txn: &mut PgConnection,
+    vpc_prefix_id: &VpcPrefixId,
+) -> Result<usize, DatabaseError> {
+    // The controller uses this durable dependency as the deletion drain gate.
+    let query = "SELECT count(*) FROM network_prefixes WHERE vpc_prefix_id=$1";
+    let (network_prefix_count,): (i64,) = sqlx::query_as(query)
+        .bind(vpc_prefix_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(network_prefix_count.max(0) as usize)
 }

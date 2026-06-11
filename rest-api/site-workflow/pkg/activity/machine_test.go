@@ -125,45 +125,45 @@ func TestManageMachine_UpdateMachineMetadataOnSite(t *testing.T) {
 	}
 }
 
-func TestManageMachine_CreateMachineHealthReportOverrideOnSite(t *testing.T) {
+func TestManageMachine_CreateMachineHealthReportOnSite(t *testing.T) {
 	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
 	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	mm := NewManageMachine(coreGrpcAtomicClient)
-	req := &cwssaws.InsertHealthReportOverrideRequest{
+	req := &cwssaws.InsertMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: "machine-1"},
-		Override: &cwssaws.HealthReportOverride{
+		HealthReportEntry: &cwssaws.HealthReportEntry{
 			Report: &cwssaws.HealthReport{
 				Source: "request-online-repair",
 				Alerts: []*cwssaws.HealthProbeAlert{
 					{Id: "OnLineRepair", Message: `{"details":"d","issue_category":"OTHER","summary":"s"}`},
 				},
 			},
-			Mode: cwssaws.OverrideMode_Merge,
+			Mode: cwssaws.HealthReportApplyMode_Merge,
 		},
 	}
-	assert.NoError(t, mm.CreateMachineHealthReportOverrideOnSite(context.Background(), req))
+	assert.NoError(t, mm.CreateMachineHealthReportOnSite(context.Background(), req))
 
-	err := mm.CreateMachineHealthReportOverrideOnSite(context.Background(), nil)
+	err := mm.CreateMachineHealthReportOnSite(context.Background(), nil)
 	assert.Error(t, err)
 }
 
-func TestManageMachine_DeleteMachineHealthReportOverrideOnSite(t *testing.T) {
+func TestManageMachine_DeleteMachineHealthReportOnSite(t *testing.T) {
 	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
 	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	mm := NewManageMachine(coreGrpcAtomicClient)
-	req := &cwssaws.RemoveHealthReportOverrideRequest{
+	req := &cwssaws.RemoveMachineHealthReportRequest{
 		MachineId: &cwssaws.MachineId{Id: "machine-1"},
 		Source:    "request-online-repair",
 	}
-	assert.NoError(t, mm.DeleteMachineHealthReportOverrideOnSite(context.Background(), req))
+	assert.NoError(t, mm.DeleteMachineHealthReportOnSite(context.Background(), req))
 
-	err := mm.DeleteMachineHealthReportOverrideOnSite(context.Background(), nil)
+	err := mm.DeleteMachineHealthReportOnSite(context.Background(), nil)
 	assert.Error(t, err)
 }
 

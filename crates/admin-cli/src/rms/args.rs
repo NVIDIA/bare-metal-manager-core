@@ -18,6 +18,24 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get the full RMS inventory (RMS URL taken from --url or config):
+    $ carbide-admin-cli rms --url https://rms.example.com:8443 inventory
+
+Get a rack's power-on sequence (URL from config):
+    $ carbide-admin-cli rms power-on-sequence rack-1
+
+Talk to RMS over mTLS with explicit certs:
+    $ carbide-admin-cli rms --url https://rms.example.com:8443 \
+    --root-ca /etc/rms/ca.crt --client-cert /etc/rms/client.crt \
+    --client-key /etc/rms/client.key inventory
+
+The --url, --root-ca, --client-cert and --client-key flags are global and
+may be given before or after the subcommand.
+
+")]
 pub struct RmsAction {
     #[clap(subcommand)]
     pub command: Cmd,
@@ -49,6 +67,13 @@ pub enum Cmd {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get the power-on sequence for a rack:
+    $ carbide-admin-cli rms power-on-sequence rack-1
+
+")]
 pub struct PowerOnSequence {
     #[clap(help = "Rack ID to get power sequence for")]
     pub rack_id: String,
@@ -57,13 +82,19 @@ pub struct PowerOnSequence {
 impl From<PowerOnSequence> for librms::protos::rack_manager::GetRackPowerOnSequenceRequest {
     fn from(args: PowerOnSequence) -> Self {
         Self {
-            metadata: None,
             rack_id: args.rack_id,
         }
     }
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get the power state of a node in a rack:
+    $ carbide-admin-cli rms power-state rack-1 node-1
+
+")]
 pub struct PowerState {
     #[clap(help = "Rack ID to get power sequence for")]
     pub rack_id: String,
@@ -74,7 +105,6 @@ pub struct PowerState {
 impl From<PowerState> for librms::protos::rack_manager::GetPowerStateRequest {
     fn from(args: PowerState) -> Self {
         Self {
-            metadata: None,
             node_id: args.node_id,
             rack_id: args.rack_id,
         }
@@ -82,6 +112,13 @@ impl From<PowerState> for librms::protos::rack_manager::GetPowerStateRequest {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Get the firmware inventory for a node in a rack:
+    $ carbide-admin-cli rms firmware-inventory rack-1 node-1
+
+")]
 pub struct FirmwareInventory {
     #[clap(help = "Rack ID to get power sequence for")]
     pub rack_id: String,
@@ -92,7 +129,6 @@ pub struct FirmwareInventory {
 impl From<FirmwareInventory> for librms::protos::rack_manager::GetNodeFirmwareInventoryRequest {
     fn from(args: FirmwareInventory) -> Self {
         Self {
-            metadata: None,
             node_id: args.node_id,
             rack_id: args.rack_id,
         }

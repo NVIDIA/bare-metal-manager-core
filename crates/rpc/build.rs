@@ -46,6 +46,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
         .type_attribute(
+            ".forge.DpaInterfaceType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
             ".forge.DpuMode",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
@@ -410,6 +414,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.VpcPrefix", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.VpcPrefixStateHistoriesRequest",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute(
             "forge.VpcPrefixConfig",
             "#[derive(serde::Serialize)]",

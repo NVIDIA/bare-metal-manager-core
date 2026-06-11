@@ -20,8 +20,6 @@ use std::path::Path;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
-use rcgen::{CertifiedKey, generate_simple_self_signed};
-use reqwest::{ClientBuilder, StatusCode};
 use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -50,7 +48,7 @@ pub enum PxeError {
     #[error("API Client error running PXE request: {0}")]
     ClientApi(#[from] ClientApiError),
     #[error("PXE Request failed with status: {0}")]
-    PxeRequest(StatusCode),
+    PxeRequest(#[from] tonic::Status),
     #[error("Error sending PXE request: {0}")]
     Reqwest(#[from] reqwest::Error),
 }
@@ -92,47 +90,17 @@ pub async fn send_pxe_boot_request(
     client_ip: std::net::IpAddr,
     product: Option<String>,
 ) -> Result<PxeResponse, PxeError> {
-    let pxe_script: String =
-        if app_context.app_config.use_pxe_api {
-            let response = app_context
-                .api_client()
-                .get_pxe_instructions(arch, client_ip, product)
-                .await?;
-            tracing::info!("PXE Request successful");
-            response.pxe_script
-        } else {
-            let url =
-                format!(
-                    "http://{}:{}/api/v0/pxe/boot?buildarch={}",
-                    app_context.app_config.pxe_server_host.as_ref().expect(
-                        "Config error: use_pxe_api is false but pxe_server_host is not set"
-                    ),
-                    app_context.app_config.pxe_server_port.as_ref().expect(
-                        "Config error: use_pxe_api is false but pxe_server_port is not set"
-                    ),
-                    match arch {
-                        MachineArchitecture::X86 => "x86_64",
-                        MachineArchitecture::Arm => "arm64",
-                    }
-                );
-
-            // carbide-pxe identifies the machine by the request's client
-            // IP (via X-Forwarded-For when fronted by a proxy), so spoof
-            // it via XFF here.
-            let request = ClientBuilder::new()
-                .build()
-                .unwrap()
-                .get(&url)
-                .header("X-Forwarded-For", client_ip.to_string());
-
-            let response = request.send().await?;
-            if !response.status().is_success() {
-                tracing::error!("Request failed with status: {}", response.status());
-                return Err(PxeError::PxeRequest(response.status()));
-            }
-            tracing::info!("PXE Request successful with status: {}", response.status());
-            response.text().await.unwrap()
-        };
+    let pxe_script = app_context
+        .forge_api_client
+        .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
+            arch: arch.into(),
+            product,
+            client_ip: Some(client_ip.to_string()),
+            ..Default::default()
+        })
+        .await?
+        .pxe_script;
+    tracing::info!("PXE Request successful");
 
     let response = if pxe_script.contains("exit") {
         tracing::info!("PXE Request is EXIT");
@@ -254,16 +222,6 @@ async fn interface_has_address(interface: &str, address: &str) -> Result<bool, A
     } else {
         Ok(true)
     }
-}
-
-pub fn create_random_self_signed_cert() -> Vec<u8> {
-    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
-
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names).expect(
-        "BUG: Keypair generation should not fail, subject alt names are static and must be valid",
-    );
-
-    cert.der().to_vec()
 }
 
 fn find_sudo_command() -> &'static str {

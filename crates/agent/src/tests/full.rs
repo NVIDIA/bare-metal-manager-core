@@ -89,7 +89,7 @@ async fn test_traffic_intercept_bridging() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/update_intercept_bridging.sh.expected");
     let bridging = traffic_intercept_bridging::build(
         traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-            secondary_overlay_vtep_ip: "1.1.1.1".to_string(),
+            secondary_overlay_vtep_ip: "1.1.1.1".parse().unwrap(),
             secondary_vtep_aggregate_prefixes: vec!["1.1.1.0/24".to_string()],
             vf_intercept_bridge_ip: "10.10.10.2".to_string(),
             vf_intercept_bridge_name: "pfdpu000br-dpu".to_string(),
@@ -964,10 +964,12 @@ async fn handle_get_dpu_info_list(
             DpuInfo {
                 id: "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg".to_string(),
                 loopback_ip: "172.20.0.119".to_string(),
+                observed_status: None,
             },
             DpuInfo {
                 id: "fm100dsjd1vuk6gklgvh0ao8t7r7tk1pt101ub5ck0g3j7lqcm8h3rf1p8g".to_string(),
                 loopback_ip: "172.20.0.200".to_string(),
+                observed_status: None,
             },
         ],
     })

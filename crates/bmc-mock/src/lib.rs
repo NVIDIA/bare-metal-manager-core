@@ -59,6 +59,10 @@ pub enum HostHardwareType {
     WiwynnGB200Nvl,
     #[serde(rename = "lenovo_gb300_nvl")]
     LenovoGB300Nvl,
+    #[serde(rename = "nvidia_dgx_gb300")]
+    NvidiaDgxGb300,
+    #[serde(rename = "supermicro_gb300_nvl")]
+    SupermicroGb300Nvl,
     #[serde(rename = "liteon_power_shelf")]
     LiteOnPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
@@ -67,6 +71,11 @@ pub enum HostHardwareType {
     NvidiaDgxH100,
     #[serde(rename = "generic_ami")]
     GenericAmi,
+    /// A non-GB300 Supermicro-vendor server (no NVIDIA GB300 GPU chassis). Reuses the
+    /// generic-server representation but reports a Supermicro vendor; used to assert that
+    /// the `is_gb300()` gate keeps such a box classified as generic `Supermicro`.
+    #[serde(rename = "generic_supermicro")]
+    GenericSupermicro,
 }
 
 impl fmt::Display for HostHardwareType {
@@ -75,10 +84,13 @@ impl fmt::Display for HostHardwareType {
             Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
             Self::WiwynnGB200Nvl => "WIWYNN GB200 NVL".fmt(f),
             Self::LenovoGB300Nvl => "Lenovo GB300 NVL".fmt(f),
+            Self::NvidiaDgxGb300 => "NVIDIA DGX GB300 NVL".fmt(f),
+            Self::SupermicroGb300Nvl => "Supermicro GB300 NVL".fmt(f),
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
             Self::GenericAmi => "Generic AMI Server".fmt(f),
+            Self::GenericSupermicro => "Generic Supermicro Server".fmt(f),
         }
     }
 }
@@ -92,10 +104,13 @@ impl HostHardwareType {
             Self::DellPowerEdgeR750 => None,
             Self::WiwynnGB200Nvl => Some(2),
             Self::LenovoGB300Nvl => Some(1),
+            Self::NvidiaDgxGb300 => Some(1),
+            Self::SupermicroGb300Nvl => Some(1),
             Self::LiteOnPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
             Self::GenericAmi => None,
+            Self::GenericSupermicro => None,
         }
     }
 }

@@ -18,6 +18,13 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Delete a TPM CA certificate by its id (from `tpm-ca show`):
+    $ carbide-admin-cli tpm-ca delete --ca-id 42
+
+")]
 pub struct Args {
     #[clap(short, long, help = "TPM CA id obtained from the show command")]
     pub ca_id: i32,

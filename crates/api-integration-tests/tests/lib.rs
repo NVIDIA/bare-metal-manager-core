@@ -263,7 +263,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../docs/manuals/metrics/core_metrics.md"
+    "/../../docs/observability/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own
@@ -901,9 +901,6 @@ where
         )]),
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
-        use_pxe_api: true,
-        pxe_server_host: None,
-        pxe_server_port: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,

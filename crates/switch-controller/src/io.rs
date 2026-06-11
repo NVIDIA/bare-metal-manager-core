@@ -22,7 +22,9 @@ use config_version::{ConfigVersion, Versioned};
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::switch::{Switch, SwitchControllerState, SwitchSearchFilter, state_sla};
+use model::switch::{
+    Switch, SwitchControllerState, SwitchMaintenanceOperation, SwitchSearchFilter, state_sla,
+};
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
 
@@ -148,6 +150,14 @@ impl StateControllerIO for SwitchStateControllerIO {
             SwitchControllerState::Validating { .. } => ("validating", ""),
             SwitchControllerState::BomValidating { .. } => ("bomvalidating", ""),
             SwitchControllerState::Ready => ("ready", ""),
+            SwitchControllerState::Maintenance { operation } => {
+                let substate = match operation {
+                    SwitchMaintenanceOperation::PowerOn => "power_on",
+                    SwitchMaintenanceOperation::PowerOff => "power_off",
+                    SwitchMaintenanceOperation::Reset => "reset",
+                };
+                ("maintenance", substate)
+            }
             SwitchControllerState::ReProvisioning { .. } => ("reprovisioning", ""),
             SwitchControllerState::Error { .. } => ("error", ""),
             SwitchControllerState::Deleting => ("deleting", ""),

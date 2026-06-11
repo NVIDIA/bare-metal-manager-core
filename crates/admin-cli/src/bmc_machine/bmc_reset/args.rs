@@ -19,6 +19,17 @@ use clap::Parser;
 use rpc::forge as forgerpc;
 
 #[derive(Parser, Debug, Clone)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Reset the BMC of a machine via Redfish:
+    $ carbide-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567
+
+Reset the BMC using ipmitool instead of Redfish:
+    $ carbide-admin-cli bmc-machine bmc-reset --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --use-ipmitool
+
+")]
 pub struct Args {
     #[clap(long, help = "ID of the machine to reboot")]
     pub machine: String,
