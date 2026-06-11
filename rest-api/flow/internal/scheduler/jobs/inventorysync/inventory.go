@@ -18,7 +18,9 @@ import (
 //
 //  1. syncExpectedFromCore mirrors Core's expected inventory into Flow's
 //     rack / component tables (the "expected" half of the package — see
-//     expected_mirror*.go).
+//     expected_mirror*.go). Gated by expectedSyncEnabled; when false the
+//     step is skipped entirely and Flow's existing ingestion path is the
+//     sole writer to rack / component.
 //  2. runActualSync reconciles each component type against Core's runtime
 //     view and returns one combined drift set (the "actual" half — see
 //     actual_sync*.go).
@@ -33,8 +35,13 @@ func runInventoryOne(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
+	expectedSyncEnabled bool,
 ) {
-	syncExpectedFromCore(ctx, pool, nicoClient)
+	if expectedSyncEnabled {
+		syncExpectedFromCore(ctx, pool, nicoClient)
+	} else {
+		log.Debug().Msgf("Expected-inventory mirror: skipped this cycle (gate %s is off)", envExpectedSyncEnabled)
+	}
 
 	drifts := runActualSync(ctx, pool, nicoClient)
 

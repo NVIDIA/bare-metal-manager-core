@@ -61,7 +61,11 @@ func TestInventory(t *testing.T) {
 	err = c.Create(ctx, pool.DB)
 	assert.Nil(t, err)
 
-	runInventoryOne(ctx, pool, grpcMock)
+	// Pass expectedSyncEnabled=true so the mirror step runs against the
+	// empty mock (no-op via the safety guard) — matches the cycle layout
+	// production will have once the feature gate is flipped on, without
+	// changing what this test asserts about actual-sync outputs.
+	runInventoryOne(ctx, pool, grpcMock, true)
 
 	rows, err := pool.DB.Query("SELECT serial_number, power_state FROM component;")
 	assert.NotNil(t, rows)
@@ -127,7 +131,7 @@ func TestSyncFirmwareVersion(t *testing.T) {
 	err = c2.Create(ctx, pool.DB)
 	assert.Nil(t, err)
 
-	runInventoryOne(ctx, pool, grpcMock)
+	runInventoryOne(ctx, pool, grpcMock, true)
 
 	var updated1 model.Component
 	err = pool.DB.NewSelect().Model(&updated1).Where("id = ?", c1.ID).Scan(ctx)
