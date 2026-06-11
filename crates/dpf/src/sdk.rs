@@ -75,7 +75,12 @@ use crate::repository::{
     K8sConfigRepository,
 };
 use crate::types::{
-    BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DpfProxyDetails, DpuDeviceInfo, DpuDeviceSummary, DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion
+    BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
+    DPU_AGENT_SERVICE_NAME, DpfProxyDetails, DpuDeviceInfo, DpuDeviceSummary, DpuNodeInfo,
+    DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
+    DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot,
+    InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
