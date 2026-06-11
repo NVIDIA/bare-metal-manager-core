@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,13 +22,20 @@ var _ MappedNullable = &NetworkSecurityGroupPropagationDetails{}
 
 // NetworkSecurityGroupPropagationDetails The Network Security Group propagation details for a VPC or Instance
 type NetworkSecurityGroupPropagationDetails struct {
-	// The VPC or Instance ID
-	Id                      *string                                `json:"id,omitempty"`
-	DetailedStatus          *string                                `json:"detailedStatus,omitempty"`
-	Status                  *NetworkSecurityGroupPropagationStatus `json:"status,omitempty"`
-	Details                 NullableString                         `json:"details,omitempty"`
-	UnpropagatedInstanceIds []string                               `json:"unpropagatedInstanceIds,omitempty"`
-	RelatedInstanceIds      []string                               `json:"relatedInstanceIds,omitempty"`
+	// The ID of the object (VPC/Instance etc.)
+	ObjectId *string `json:"objectId,omitempty"`
+	// The detailed propagation status that was actually returned from NICo
+	DetailedStatus *string `json:"detailedStatus,omitempty"`
+	// The simplified propagation status that reduces the actual status to just a few values
+	Status *NetworkSecurityGroupPropagationStatus `json:"status,omitempty"`
+	// Additional details for the status
+	Details NullableString `json:"details,omitempty"`
+	// IDs of Instances associated with the object that have not yet updated their Network Security Group rules
+	UnpropagatedInstanceIds []string `json:"unpropagatedInstanceIds,omitempty"`
+	// IDs of the instances involved in determining the propagation status
+	RelatedInstanceIds []string `json:"relatedInstanceIds,omitempty"`
+	// Deprecation notices for fields returned by this propagation detail
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
 }
 
 // NewNetworkSecurityGroupPropagationDetails instantiates a new NetworkSecurityGroupPropagationDetails object
@@ -48,36 +55,36 @@ func NewNetworkSecurityGroupPropagationDetailsWithDefaults() *NetworkSecurityGro
 	return &this
 }
 
-// GetId returns the Id field value if set, zero value otherwise.
-func (o *NetworkSecurityGroupPropagationDetails) GetId() string {
-	if o == nil || IsNil(o.Id) {
+// GetObjectId returns the ObjectId field value if set, zero value otherwise.
+func (o *NetworkSecurityGroupPropagationDetails) GetObjectId() string {
+	if o == nil || IsNil(o.ObjectId) {
 		var ret string
 		return ret
 	}
-	return *o.Id
+	return *o.ObjectId
 }
 
-// GetIdOk returns a tuple with the Id field value if set, nil otherwise
+// GetObjectIdOk returns a tuple with the ObjectId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NetworkSecurityGroupPropagationDetails) GetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.Id) {
+func (o *NetworkSecurityGroupPropagationDetails) GetObjectIdOk() (*string, bool) {
+	if o == nil || IsNil(o.ObjectId) {
 		return nil, false
 	}
-	return o.Id, true
+	return o.ObjectId, true
 }
 
-// HasId returns a boolean if a field has been set.
-func (o *NetworkSecurityGroupPropagationDetails) HasId() bool {
-	if o != nil && !IsNil(o.Id) {
+// HasObjectId returns a boolean if a field has been set.
+func (o *NetworkSecurityGroupPropagationDetails) HasObjectId() bool {
+	if o != nil && !IsNil(o.ObjectId) {
 		return true
 	}
 
 	return false
 }
 
-// SetId gets a reference to the given string and assigns it to the Id field.
-func (o *NetworkSecurityGroupPropagationDetails) SetId(v string) {
-	o.Id = &v
+// SetObjectId gets a reference to the given string and assigns it to the ObjectId field.
+func (o *NetworkSecurityGroupPropagationDetails) SetObjectId(v string) {
+	o.ObjectId = &v
 }
 
 // GetDetailedStatus returns the DetailedStatus field value if set, zero value otherwise.
@@ -251,6 +258,38 @@ func (o *NetworkSecurityGroupPropagationDetails) SetRelatedInstanceIds(v []strin
 	o.RelatedInstanceIds = v
 }
 
+// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
+func (o *NetworkSecurityGroupPropagationDetails) GetDeprecations() []Deprecation {
+	if o == nil || IsNil(o.Deprecations) {
+		var ret []Deprecation
+		return ret
+	}
+	return o.Deprecations
+}
+
+// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NetworkSecurityGroupPropagationDetails) GetDeprecationsOk() ([]Deprecation, bool) {
+	if o == nil || IsNil(o.Deprecations) {
+		return nil, false
+	}
+	return o.Deprecations, true
+}
+
+// HasDeprecations returns a boolean if a field has been set.
+func (o *NetworkSecurityGroupPropagationDetails) HasDeprecations() bool {
+	if o != nil && !IsNil(o.Deprecations) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
+func (o *NetworkSecurityGroupPropagationDetails) SetDeprecations(v []Deprecation) {
+	o.Deprecations = v
+}
+
 func (o NetworkSecurityGroupPropagationDetails) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -261,8 +300,8 @@ func (o NetworkSecurityGroupPropagationDetails) MarshalJSON() ([]byte, error) {
 
 func (o NetworkSecurityGroupPropagationDetails) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Id) {
-		toSerialize["id"] = o.Id
+	if !IsNil(o.ObjectId) {
+		toSerialize["objectId"] = o.ObjectId
 	}
 	if !IsNil(o.DetailedStatus) {
 		toSerialize["detailedStatus"] = o.DetailedStatus
@@ -278,6 +317,9 @@ func (o NetworkSecurityGroupPropagationDetails) ToMap() (map[string]interface{},
 	}
 	if !IsNil(o.RelatedInstanceIds) {
 		toSerialize["relatedInstanceIds"] = o.RelatedInstanceIds
+	}
+	if !IsNil(o.Deprecations) {
+		toSerialize["deprecations"] = o.Deprecations
 	}
 	return toSerialize, nil
 }

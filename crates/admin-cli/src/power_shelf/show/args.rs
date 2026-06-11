@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all power shelves:
-    $ carbide-admin-cli power-shelf show
+    $ nico-admin-cli power-shelf show
 
 Show one power shelf by ID or name:
-    $ carbide-admin-cli power-shelf show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

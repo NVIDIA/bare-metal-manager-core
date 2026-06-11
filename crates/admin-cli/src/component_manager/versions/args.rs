@@ -24,15 +24,15 @@ use crate::component_manager::common::DeviceTargetArgs;
 EXAMPLES:
 
 List available firmware versions for switches:
-    $ carbide-admin-cli component-manager get-firmware-versions switch \
+    $ nico-admin-cli component-manager get-firmware-versions switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567
 
 List versions for power shelves:
-    $ carbide-admin-cli component-manager get-firmware-versions power-shelf \
+    $ nico-admin-cli component-manager get-firmware-versions power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
 
 List versions for an entire rack:
-    $ carbide-admin-cli component-manager get-firmware-versions rack \
+    $ nico-admin-cli component-manager get-firmware-versions rack \
     --rack-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]

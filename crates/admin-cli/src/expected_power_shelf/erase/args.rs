@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Erase all expected power shelf records (requires explicit confirmation):
-    $ carbide-admin-cli expected-power-shelf erase --confirm
+    $ nico-admin-cli expected-power-shelf erase --confirm
 
 ")]
 pub struct Args {

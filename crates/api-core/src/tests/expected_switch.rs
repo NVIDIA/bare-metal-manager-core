@@ -996,6 +996,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
         bmc_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_switch BMC",
+        None,
     )
     .await;
 

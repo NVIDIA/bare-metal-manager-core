@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -495,7 +495,7 @@ func (r ApiGetAllInstanceRequest) IpAddress(ipAddress string) ApiGetAllInstanceR
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description, status, and labels fields
+// Search for matches across all Instances. Input will be matched against name, description, status, and labels fields
 func (r ApiGetAllInstanceRequest) Query(query string) ApiGetAllInstanceRequest {
 	r.query = &query
 	return r
@@ -525,7 +525,7 @@ func (r ApiGetAllInstanceRequest) OrderBy(orderBy string) ApiGetAllInstanceReque
 	return r
 }
 
-// Filter by NetworkSecurityGroup ID.  Can be specified multiple times to filter on more than one Network Security Group.
+// Filter by Network Security Group ID. Can be specified multiple times to filter on more than one Network Security Group.
 func (r ApiGetAllInstanceRequest) NetworkSecurityGroupId(networkSecurityGroupId string) ApiGetAllInstanceRequest {
 	r.networkSecurityGroupId = &networkSecurityGroupId
 	return r

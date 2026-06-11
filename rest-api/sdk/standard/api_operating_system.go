@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -48,9 +48,9 @@ Create an Operating System for the org.
 
 Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
 
-If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
 
 Only Tenants are allowed to create Operating System for MVP.
 

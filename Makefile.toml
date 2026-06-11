@@ -83,52 +83,53 @@ args = [
 
 [tasks.build-cli-ci]
 category = "Build"
-description = "Build carbide-admin-cli in CI"
+description = "Build nico-admin-cli in CI"
 workspace = false
 script = '''
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 # Emit man pages as a build artifact via the hidden `generate-man` subcommand.
-cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+cargo run -p nico-admin-cli -- generate-man --out-dir target/man
 '''
 
 [tasks.gen-man]
 category = "Build"
-description = "Generate carbide-admin-cli man pages into target/man"
+description = "Generate nico-admin-cli man pages into target/man"
 workspace = false
 script = '''
-cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+cargo run -p nico-admin-cli -- generate-man --out-dir target/man
 '''
 
 [tasks.gen-cli-docs]
 category = "Build"
-description = "Generate the carbide-admin-cli markdown reference into docs/cli"
+description = "Generate the nico-admin-cli markdown reference into docs/manuals/nico-admin-cli"
 workspace = false
 # `generate-cli-docs` renders each command's man page and converts it to
 # markdown with pandoc, so the `pandoc` binary must be installed. It writes one
-# directory per top-level command under docs/cli/commands plus the four domain
-# index files (Hardware/Network/Tenant/Admin). The hand-authored pages
-# (README.md, setup.md, workflows.md, rest-cli-parity.md) are left alone.
+# directory per top-level command under docs/manuals/nico-admin-cli/commands
+# plus the four domain index files (Hardware/Network/Tenant/Admin). The
+# hand-authored pages (README.md, setup.md, workflows.md, rest-cli-parity.md)
+# are left alone.
 script = '''
-cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
+cargo run -p nico-admin-cli -- generate-cli-docs --out-dir docs/manuals/nico-admin-cli
 '''
 
 [tasks.check-cli-docs]
 category = "Test"
-description = "Fail if docs/cli is stale or a command is missing a domain"
+description = "Fail if docs/manuals/nico-admin-cli is stale or a command is missing a domain"
 workspace = false
 # Keeps the checked-in CLI reference honest as commands are added. First the
 # domain-mapping test fails CI if a new command is not categorized in
 # cli_domains.yaml; then we regenerate and fail if the result differs from
 # what is committed (regenerate locally with `cargo make gen-cli-docs`).
 script = '''
-cargo test -p carbide-admin-cli cfg::cli_options::tests
-cargo run -p carbide-admin-cli -- generate-cli-docs --out-dir docs/cli
-git diff --exit-code -- docs/cli
+cargo test -p nico-admin-cli cfg::cli_options::tests
+cargo run -p nico-admin-cli -- generate-cli-docs --out-dir docs/manuals/nico-admin-cli
+git diff --exit-code -- docs/manuals/nico-admin-cli
 '''
 
 [tasks.build-cli]
 category = "Build"
-description = "Build carbide-admin-cli locally using debian container. Ensures correct GCC version is used."
+description = "Build nico-admin-cli locally using debian container. Ensures correct GCC version is used."
 workspace = false
 script = '''
 docker run \
@@ -139,7 +140,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL}" \
-	cargo build -p carbide-admin-cli --release
+	cargo build -p nico-admin-cli --release
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -197,7 +198,7 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p carbide-admin-cli --release"
+echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p nico-admin-cli --release"
 '''
 
 [tasks.build-cargo-docker-image-minimal]
@@ -207,7 +208,7 @@ workspace = false
 script = '''
 set -e
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
+echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p nico-admin-cli --release"
 '''
 
 [tasks.build-pxe-build-container]
@@ -269,7 +270,7 @@ dependencies = ["check-cargo-home-set"]
 script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 docker run --rm \
@@ -307,7 +308,7 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 # cargo-make may join task args with semicolons; normalize to spaces and strip leading --
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 # Pass DATABASE_URL into container so DB tests can connect (use host.docker.internal from Mac)
@@ -364,7 +365,7 @@ docker run --rm \
 
 [tasks.build-cli-cross-aarch64]
 category = "Build"
-description = "Cross compile forge-scout and carbide-admin-cli for aarch64, intended only for local artifact builds."
+description = "Cross compile forge-scout and nico-admin-cli for aarch64, intended only for local artifact builds."
 workspace = false
 script = '''
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
@@ -376,11 +377,11 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "--release" \
     "--target=aarch64-unknown-linux-gnu" \
     "-p" \
-    "carbide-admin-cli" \
+    "nico-admin-cli" \
     "-p" \
     "carbide-scout"
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
-    "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-admin-cli" \
+    "/carbide/target/aarch64-unknown-linux-gnu/release/nico-admin-cli" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-scout"   
 '''
 dependencies = ["check-cargo-home-set", "build-cross-docker-image"]
@@ -613,7 +614,7 @@ args = ["clippy", "--locked", "--all-targets", "--all-features", "--release"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
-cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
+cargo build -p carbide-agent -p nico-admin-cli -p carbide-api
 '''
 workspace = false
 
@@ -651,7 +652,7 @@ for artifact in \
   carbide-api \
   carbide \
   carbide-dns \
-  carbide-admin-cli \
+  nico-admin-cli \
   carbide-dsx-exchange-consumer \
   forge-dpu-agent \
   forge-dhcp-server \

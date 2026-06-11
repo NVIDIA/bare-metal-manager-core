@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 List all configured route servers:
-    $ carbide-admin-cli route-server get
+    $ nico-admin-cli route-server get
 
 ")]
 pub struct Args {}

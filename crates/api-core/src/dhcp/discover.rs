@@ -208,6 +208,7 @@ pub async fn discover_dhcp(
                         &mut txn,
                         &expected_interface,
                         relay_ip,
+                        api.runtime_config.retained_boot_interface_window,
                     )
                     .await?;
                     Some(expected_interface.machine_id)
@@ -269,7 +270,10 @@ pub async fn discover_dhcp(
                             // machine interface (and machine interface address) for it,
                             // creating one if needed.
                             db::machine_interface::preallocate_machine_interface(
-                                &mut txn, parsed_mac, fixed_ip,
+                                &mut txn,
+                                parsed_mac,
+                                fixed_ip,
+                                api.runtime_config.retained_boot_interface_window,
                             )
                             .await?;
                         }
@@ -286,7 +290,10 @@ pub async fn discover_dhcp(
                         // InterfaceType::Bmc (and primary=false). Races against
                         // site-explorer's reconciliation pass are handled inside preallocate.
                         db::machine_interface::preallocate_bmc_machine_interface(
-                            &mut txn, parsed_mac, bmc_ip,
+                            &mut txn,
+                            parsed_mac,
+                            bmc_ip,
+                            api.runtime_config.retained_boot_interface_window,
                         )
                         .await?;
                     } else if let Some(s) =
@@ -303,7 +310,10 @@ pub async fn discover_dhcp(
                         // Races against site-explorer's reconciliation pass are handled
                         // inside preallocate.
                         db::machine_interface::preallocate_machine_interface(
-                            &mut txn, parsed_mac, nvos_ip,
+                            &mut txn,
+                            parsed_mac,
+                            nvos_ip,
+                            api.runtime_config.retained_boot_interface_window,
                         )
                         .await?;
                     }
@@ -319,6 +329,7 @@ pub async fn discover_dhcp(
         std::slice::from_ref(&parsed_relay),
         host_nic,
         is_primary_nic,
+        api.runtime_config.retained_boot_interface_window,
     )
     .await?;
 

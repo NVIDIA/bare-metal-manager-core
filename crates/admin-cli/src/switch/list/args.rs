@@ -24,16 +24,16 @@ use rpc::forge::DeletedFilter;
 EXAMPLES:
 
 List all live switches:
-    $ carbide-admin-cli switch list
+    $ nico-admin-cli switch list
 
 Include deleted switches:
-    $ carbide-admin-cli switch list --deleted include
+    $ nico-admin-cli switch list --deleted include
 
 Filter by controller state:
-    $ carbide-admin-cli switch list --controller-state ready
+    $ nico-admin-cli switch list --controller-state ready
 
 Find a switch by its BMC MAC address:
-    $ carbide-admin-cli switch list --bmc-mac 00:11:22:33:44:55
+    $ nico-admin-cli switch list --bmc-mac 00:11:22:33:44:55
 
 ")]
 pub struct Args {

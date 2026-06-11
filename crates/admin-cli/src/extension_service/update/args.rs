@@ -25,21 +25,21 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Update the data of an existing service:
-    $ carbide-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
     --data '{\"image\":\"my-registry/my-service:2.0\"}'
 
 Rename a service and update its description:
-    $ carbide-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
     --name my-renamed-service --description \"Updated telemetry agent\" \
     --data '{\"image\":\"my-registry/my-service:2.0\"}'
 
 Rotate the registry pull credentials:
-    $ carbide-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
     --data '{\"image\":\"my-registry/my-service:2.0\"}' --registry-url my-registry.example.com \
     --username admin --password mynewpassword
 
 Update only if the version counter matches (optimistic concurrency):
-    $ carbide-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli extension-service update --id 12345678-1234-5678-90ab-cdef01234567 \
     --data '{\"image\":\"my-registry/my-service:2.0\"}' --if-version-ctr-match 3
 
 ")]

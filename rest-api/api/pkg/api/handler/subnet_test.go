@@ -213,9 +213,6 @@ func TestSubnetHandler_Create(t *testing.T) {
 	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 
-	errBodyIPBlockSize, err := json.Marshal(model.APISubnetCreateRequest{Name: "okipb", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), IPBlockSize: &prefixLen})
-	assert.Nil(t, err)
-
 	prefixLen = 16
 	okBodyFG, err := json.Marshal(model.APISubnetCreateRequest{Name: "okFG", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
@@ -407,13 +404,6 @@ func TestSubnetHandler_Create(t *testing.T) {
 			expectedStatus:  http.StatusCreated,
 			expectedGateway: "192.168.0.1",
 			expectedPrefix:  "192.168.0.0",
-		}, {
-			name:           "error when ipBlockSize is specified",
-			reqOrgName:     tnOrg1,
-			reqBody:        string(errBodyIPBlockSize),
-			user:           tnu,
-			expectedErr:    true,
-			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:               "success case with Full Grant",

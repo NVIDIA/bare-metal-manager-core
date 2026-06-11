@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Add every certificate in a directory as a CA certificate:
-    $ carbide-admin-cli tpm-ca add-bulk --dirname /path/to/tpm-ca-certs/
+    $ nico-admin-cli tpm-ca add-bulk --dirname /path/to/tpm-ca-certs/
 
 ")]
 pub struct Args {

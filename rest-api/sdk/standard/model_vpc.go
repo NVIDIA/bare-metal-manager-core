@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -51,7 +51,7 @@ type VPC struct {
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails,omitempty"`
 	// ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
 	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
-	// String key value pairs describing VPC labels
+	// String key-value pairs describing VPC labels
 	Labels map[string]string `json:"labels,omitempty"`
 	// Status of the VPC
 	Status *VpcStatus `json:"status,omitempty"`

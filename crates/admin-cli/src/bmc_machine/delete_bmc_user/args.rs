@@ -24,14 +24,14 @@ use rpc::forge as forgerpc;
 EXAMPLES:
 
 Delete a BMC user, targeting the BMC by machine id:
-    $ carbide-admin-cli bmc-machine delete-bmc-user \
+    $ nico-admin-cli bmc-machine delete-bmc-user \
     --machine 12345678-1234-5678-90ab-cdef01234567 --username admin
 
 Target the BMC by IP address:
-    $ carbide-admin-cli bmc-machine delete-bmc-user --ip-address 192.0.2.20 --username admin
+    $ nico-admin-cli bmc-machine delete-bmc-user --ip-address 192.0.2.20 --username admin
 
 Target the BMC by MAC address:
-    $ carbide-admin-cli bmc-machine delete-bmc-user --mac-address 00:11:22:33:44:55 --username admin
+    $ nico-admin-cli bmc-machine delete-bmc-user --mac-address 00:11:22:33:44:55 --username admin
 
 ")]
 pub struct Args {

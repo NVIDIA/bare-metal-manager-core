@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool;
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, PowerAction};
 
 use crate::compute_tray_manager::{

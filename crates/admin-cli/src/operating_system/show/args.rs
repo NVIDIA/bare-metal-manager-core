@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 List all operating system definitions:
-    $ carbide-admin-cli operating-system show
+    $ nico-admin-cli operating-system show
 
 Show one OS definition by ID:
-    $ carbide-admin-cli operating-system show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli operating-system show 12345678-1234-5678-90ab-cdef01234567
 
 List the OS definitions for an organization:
-    $ carbide-admin-cli operating-system show --org fds34511233a
+    $ nico-admin-cli operating-system show --org fds34511233a
 
 ")]
 pub struct Args {

@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use librms::protos::rack_manager as rms;
 use librms::{RackManagerError, RmsApi};
 use mac_address::MacAddress;
@@ -1657,7 +1657,7 @@ mod tests {
     // ---- Test helpers ----
 
     fn make_ps_endpoint(mac: &str) -> PowerShelfEndpoint {
-        use forge_secrets::credentials::Credentials;
+        use carbide_secrets::credentials::Credentials;
         PowerShelfEndpoint {
             pmc_ip: "10.0.0.1".parse().unwrap(),
             pmc_mac: mac.parse().unwrap(),
@@ -1670,7 +1670,7 @@ mod tests {
     }
 
     fn make_sw_endpoint(mac: &str) -> SwitchEndpoint {
-        use forge_secrets::credentials::Credentials;
+        use carbide_secrets::credentials::Credentials;
         SwitchEndpoint {
             bmc_ip: "10.0.0.1".parse().unwrap(),
             bmc_mac: mac.parse().unwrap(),

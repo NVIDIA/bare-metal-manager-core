@@ -26,15 +26,15 @@ use crate::machine::HealthReportTemplates;
 EXAMPLES:
 
 Add a health report source from a predefined template:
-    $ carbide-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance --message \"Firmware upgrade in progress\"
 
 Add a health report source from raw JSON:
-    $ carbide-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --health-report '{...}'
 
 Preview the report without sending it:
-    $ carbide-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template degraded --print-only
 
 ")]

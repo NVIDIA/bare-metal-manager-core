@@ -70,6 +70,7 @@ async fn test_machine_interface_create_with_ipv4_prefix(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await
     .unwrap();
@@ -91,6 +92,7 @@ async fn test_machine_interface_create_with_ipv4_prefix(
         &MacAddress::from_str("ff:ff:ff:ff:ff:fe").unwrap(),
         false,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await
     .unwrap();
@@ -152,6 +154,7 @@ async fn test_machine_interface_create_falls_through_admin_segments(
         &MacAddress::from_str("aa:bb:cc:dd:ee:10").unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
     assert_eq!(first_interface.segment_id, first_segment.id);
@@ -167,6 +170,7 @@ async fn test_machine_interface_create_falls_through_admin_segments(
         &MacAddress::from_str("aa:bb:cc:dd:ee:11").unwrap(),
         false,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 
@@ -228,6 +232,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         &MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 
@@ -249,6 +254,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         &MacAddress::from_str("aa:bb:cc:dd:ee:02").unwrap(),
         false,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 
@@ -315,6 +321,7 @@ async fn test_machine_interface_create_dual_stack(
         &MacAddress::from_str("aa:bb:cc:00:00:01").unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 
@@ -350,6 +357,7 @@ async fn test_machine_interface_create_dual_stack(
         &MacAddress::from_str("aa:bb:cc:00:00:02").unwrap(),
         false,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 

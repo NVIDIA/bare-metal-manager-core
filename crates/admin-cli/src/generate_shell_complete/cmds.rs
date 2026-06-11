@@ -31,29 +31,39 @@ pub fn generate(shell: Shell) -> CarbideCliResult<()> {
             clap_complete::generate(
                 clap_complete::shells::Bash,
                 &mut cmd,
-                "carbide-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
-            // Make completion work for alias `fa`
+            // Register completions for the short alias and backward-compat symlinks.
             io::stdout().write_all(
-                b"complete -F _carbide-admin-cli -o nosort -o bashdefault -o default fa\n",
+                b"complete -F _nico-admin-cli -o nosort -o bashdefault -o default fa\n\
+                  complete -F _nico-admin-cli -o nosort -o bashdefault -o default carbide-admin-cli\n\
+                  complete -F _nico-admin-cli -o nosort -o bashdefault -o default forge-admin-cli\n",
             )?;
         }
         Shell::Fish => {
             clap_complete::generate(
                 clap_complete::shells::Fish,
                 &mut cmd,
-                "carbide-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
+            // Register completions for backward-compat symlinks by wrapping the canonical command.
+            io::stdout().write_all(
+                b"complete -c carbide-admin-cli --wraps nico-admin-cli\n\
+                  complete -c forge-admin-cli --wraps nico-admin-cli\n",
+            )?;
         }
         Shell::Zsh => {
             clap_complete::generate(
                 clap_complete::shells::Zsh,
                 &mut cmd,
-                "carbide-admin-cli",
+                "nico-admin-cli",
                 &mut io::stdout(),
             );
+            // Register completions for backward-compat symlinks using the same function.
+            io::stdout()
+                .write_all(b"compdef _nico-admin-cli carbide-admin-cli forge-admin-cli\n")?;
         }
     }
     Ok(())

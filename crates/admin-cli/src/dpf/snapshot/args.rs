@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Snapshot the DPF CRs for a host machine:
-    $ carbide-admin-cli dpf snapshot 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf snapshot 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -30,22 +30,23 @@ type InstanceUpdateRequest struct {
 	TriggerReboot NullableBool `json:"triggerReboot,omitempty"`
 	// When specified along with triggerReboot, the Instance will boot using the custom iPXE specified by OS. If Instance has alwaysBootWithCustomIpxe flag set then this value will be ignored.
 	RebootWithCustomIpxe NullableBool `json:"rebootWithCustomIpxe,omitempty"`
-	// When specified, any updates pending for the Instance e.g. DPU reprovisioning, will be applied on reboot
+	// When specified, pending Instance updates such as DPU reprovisioning are applied on reboot
 	ApplyUpdatesOnReboot NullableBool `json:"applyUpdatesOnReboot,omitempty"`
 	// The UUID of the desired operating system.
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
 	// The iPXE script content to be used for booting.
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// Specify a new list of SSH Key Group IDs that will provide Serial over LAN and SSH access.  This will overwrite an existing list.
-	SshKeyGroupIds         []string       `json:"sshKeyGroupIds,omitempty"`
+	SshKeyGroupIds []string `json:"sshKeyGroupIds,omitempty"`
+	// ID of the Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Any user-data to be sent to the booting OS.  For example, cloud-init data.
 	UserData NullableString `json:"userData,omitempty"`
 	// Whether the custom iPXE data should be used for every boot.
 	AlwaysBootWithCustomIpxe NullableBool `json:"alwaysBootWithCustomIpxe,omitempty"`
-	// Indicates whether the Phone Home service should be enabled or disabled for Instance
+	// Indicates whether the Phone Home service should be enabled or disabled for the Instance
 	PhoneHomeEnabled NullableBool `json:"phoneHomeEnabled,omitempty"`
-	// Update labels of the Instance. The labels will be entirely replaced by those sent in the request. Any labels not included in the request will be removed. To retain existing labels, first fetch them and include them along with this request.
+	// Update labels of the Instance. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.
 	Labels map[string]string `json:"labels,omitempty"`
 	// IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
 	SecondaryVpcIds []string `json:"secondaryVpcIds,omitempty"`
@@ -55,7 +56,7 @@ type InstanceUpdateRequest struct {
 	AutoNetwork NullableBool `json:"autoNetwork,omitempty"`
 	// Update InfiniBand Interfaces of the Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
-	// Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed, specified interfaces will delete or replace existing Interfaces. Updating is not allowed if Instance's VPC has `nvLinkLogicalPartitionId` attribute set.
+	// Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
 	NvLinkInterfaces []NVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces,omitempty"`
 	// Updated set of DPU Extension Services to deploy to the DPUs of this Instance
 	DpuExtensionServiceDeployments []DpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments,omitempty"`

@@ -24,10 +24,10 @@ use clap::Parser;
 EXAMPLES:
 
 Generate man pages into the default ./man directory:
-    $ carbide-admin-cli generate-man
+    $ nico-admin-cli generate-man
 
 Generate man pages into a specific directory:
-    $ carbide-admin-cli generate-man --out-dir /usr/local/share/man/man1
+    $ nico-admin-cli generate-man --out-dir /usr/local/share/man/man1
 
 ")]
 pub struct Cmd {

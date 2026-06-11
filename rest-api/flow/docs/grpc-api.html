@@ -959,14 +959,15 @@
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, allow the bring-up sequence (which may power-cycle hosts
 and reset rack-scoped components) to proceed even if any host in
-scope is still in the Assigned/* lifecycle state. Intended for
-operator-supervised maintenance where tenant impact has been
-acknowledged out-of-band; the bypass is recorded in the server log. </p></td>
+scope is reported as not ready for the operation by its persisted
+ComponentStatus. Intended for operator-supervised maintenance where
+tenant impact has been acknowledged out-of-band; the bypass is
+recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -2912,6 +2913,18 @@ a component not on the given rack is not an error; it yields an
 empty result. </p></td>
                 </tr>
               
+                <tr>
+                  <td>with_report</td>
+                  <td><a href="#bool">bool</a></td>
+                  <td></td>
+                  <td><p>When true, populate Task.report on each returned task. Defaults to
+false because report bodies can be several KB and would otherwise
+be persisted in every Temporal activity / workflow result payload
+along the caller&#39;s path even when the caller never reads them.
+GetTasksByIDs and CancelTask always return the report and do not
+accept this flag. </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -3400,14 +3413,15 @@ empty result. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the power-off even if one or more target
-hosts (or, for rack-scoped components, any host on the owning rack)
-are still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -3456,14 +3470,15 @@ out-of-band; the bypass is recorded in the server log. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the power-on even if one or more target
-hosts (or, for rack-scoped components, any host on the owning rack)
-are still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -3519,14 +3534,15 @@ out-of-band; the bypass is recorded in the server log. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
-                  <td><p>When true, proceed with the reset even if one or more target hosts
-(or, for rack-scoped components, any host on the owning rack) are
-still in the Assigned/* lifecycle state. Intended for operator-
-supervised maintenance where tenant impact has been acknowledged
-out-of-band; the bypass is recorded in the server log. </p></td>
+                  <td><p>When true, proceed with the reset even if one or more target
+components (or, for rack-scoped components, any host on the owning
+rack) are reported as not ready for the operation by their
+persisted ComponentStatus. Intended for operator-supervised
+maintenance where tenant impact has been acknowledged out-of-band;
+the bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>
@@ -4672,16 +4688,17 @@ downstream component manager. </p></td>
                 </tr>
               
                 <tr>
-                  <td>override_assignment_check</td>
+                  <td>override_readiness_check</td>
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>When true, proceed with the firmware update even if one or more
-target hosts (or, for rack-scoped components, any host on the
-owning rack) are still in the Assigned/* lifecycle state. The flag
-is intended for operator-supervised maintenance windows where the
-tenant impact has been acknowledged out-of-band; setting it bypasses
-the safety gate that would otherwise block disruptive operations
-against tenanted hardware. The bypass is recorded in the server log. </p></td>
+target components (or, for rack-scoped components, any host on the
+owning rack) are reported as not ready for the operation by their
+persisted ComponentStatus. The flag is intended for operator-
+supervised maintenance windows where the tenant impact has been
+acknowledged out-of-band; setting it bypasses the readiness gate
+that would otherwise block disruptive operations against tenanted
+hardware. The bypass is recorded in the server log. </p></td>
                 </tr>
               
             </tbody>

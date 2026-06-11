@@ -15,7 +15,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Change the NMX-C endpoint URL for a chassis serial:
-    $ carbide-admin-cli nvlink-nmxc-endpoints update --chassis-serial 1234567890123 \
+    $ nico-admin-cli nvlink-nmxc-endpoints update --chassis-serial 1234567890123 \
     --endpoint https://192.0.2.20:50051
 
 ")]

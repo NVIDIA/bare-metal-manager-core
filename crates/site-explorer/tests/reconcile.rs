@@ -128,6 +128,7 @@ async fn test_site_explorer_reconcile_creates_missing_preallocations(
             ip,
             model::machine_interface::InterfaceType::Bmc,
             kind,
+            None,
         )
         .await;
     }
@@ -191,6 +192,7 @@ async fn test_site_explorer_reconcile_is_idempotent(
             bmc_ip,
             model::machine_interface::InterfaceType::Bmc,
             "expected_machine BMC",
+            None,
         )
         .await;
     }
@@ -250,6 +252,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
         parsed_fixed_ip,
         model::machine_interface::InterfaceType::Data,
         "expected_machine host NIC",
+        None,
     )
     .await;
 
@@ -322,6 +325,7 @@ async fn test_site_explorer_reconcile_tolerates_per_entry_conflicts(
             ip,
             model::machine_interface::InterfaceType::Bmc,
             "expected_machine BMC",
+            None,
         )
         .await;
     }
@@ -400,6 +404,7 @@ async fn test_site_explorer_reconcile_preallocates_nvos_ip(
         nvos_ip,
         model::machine_interface::InterfaceType::Data,
         "expected_switch NVOS",
+        None,
     )
     .await;
 

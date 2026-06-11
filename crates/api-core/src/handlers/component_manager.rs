@@ -21,6 +21,9 @@ use std::net::IpAddr;
 use ::rpc::common::SystemPowerControl;
 use ::rpc::forge::{self as rpc};
 use carbide_rack::firmware_object::rms_access_token_or_noauth;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -32,9 +35,6 @@ use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use component_manager::types::FirmwareUpdateOptions;
 use db::{self, WithTransaction};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::component_manager::{

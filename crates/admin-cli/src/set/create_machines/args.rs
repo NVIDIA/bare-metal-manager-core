@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Enable automatic machine creation:
-    $ carbide-admin-cli set create-machines --enable
+    $ nico-admin-cli set create-machines --enable
 
 Disable automatic machine creation:
-    $ carbide-admin-cli set create-machines --disable
+    $ nico-admin-cli set create-machines --disable
 
 ")]
 pub struct Args {

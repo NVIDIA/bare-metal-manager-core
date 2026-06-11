@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,9 +22,13 @@ var _ MappedNullable = &MachineBMCInfo{}
 
 // MachineBMCInfo Describes BMC information of a Machine
 type MachineBMCInfo struct {
-	Ip               NullableString `json:"ip,omitempty"`
-	Mac              NullableString `json:"mac,omitempty"`
-	Version          NullableString `json:"version,omitempty"`
+	// IP address of the Machine BMC
+	Ip NullableString `json:"ip,omitempty"`
+	// MAC address of the Machine BMC
+	Mac NullableString `json:"mac,omitempty"`
+	// Version reported by the Machine BMC
+	Version NullableString `json:"version,omitempty"`
+	// Firmware revision reported by the Machine BMC
 	FirmwareRevision NullableString `json:"firmwareRevision,omitempty"`
 }
 

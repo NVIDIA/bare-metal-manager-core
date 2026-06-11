@@ -402,7 +402,7 @@ async fn test_static_bmc_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Re
     let bmc_mac = "AA:BB:CC:DD:EE:99".parse().unwrap();
 
     let mut txn = db_pool.begin().await.unwrap();
-    db::machine_interface::preallocate_machine_interface(txn.as_mut(), bmc_mac, static_ip)
+    db::machine_interface::preallocate_machine_interface(txn.as_mut(), bmc_mac, static_ip, None)
         .await
         .expect("preallocate static BMC interface");
     txn.commit().await.unwrap();

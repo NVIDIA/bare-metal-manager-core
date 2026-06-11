@@ -23,13 +23,13 @@ use clap::Parser;
 EXAMPLES:
 
 List all remediations:
-    $ carbide-admin-cli dpu-remediation show
+    $ nico-admin-cli dpu-remediation show
 
 Show details for one remediation:
-    $ carbide-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567
 
 Show a remediation including its script body:
-    $ carbide-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567 --display-script
+    $ nico-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567 --display-script
 
 ")]
 pub struct Args {

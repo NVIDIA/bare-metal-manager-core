@@ -23,13 +23,13 @@ use clap::Parser;
 EXAMPLES:
 
 List all network segments:
-    $ carbide-admin-cli network-segment show
+    $ nico-admin-cli network-segment show
 
 Show one network segment by ID:
-    $ carbide-admin-cli network-segment show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli network-segment show 12345678-1234-5678-90ab-cdef01234567
 
 Filter by tenant org:
-    $ carbide-admin-cli network-segment show --tenant-org-id fds34511233a
+    $ nico-admin-cli network-segment show --tenant-org-id fds34511233a
 
 ")]
 pub struct Args {

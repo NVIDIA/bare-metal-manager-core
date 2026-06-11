@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Pause remediation actions for an endpoint:
-    $ carbide-admin-cli site-explorer remediation 192.0.2.10 --pause
+    $ nico-admin-cli site-explorer remediation 192.0.2.10 --pause
 
 Resume remediation actions for an endpoint:
-    $ carbide-admin-cli site-explorer remediation 192.0.2.10 --resume
+    $ nico-admin-cli site-explorer remediation 192.0.2.10 --resume
 
 ")]
 pub struct Args {

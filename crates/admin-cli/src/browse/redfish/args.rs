@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Browse a Redfish resource tree via the API server (no BMC --address needed):
-    $ carbide-admin-cli browse redfish --uri /redfish/v1/Systems
+    $ nico-admin-cli browse redfish --uri /redfish/v1/Systems
 
 ")]
 pub struct Args {

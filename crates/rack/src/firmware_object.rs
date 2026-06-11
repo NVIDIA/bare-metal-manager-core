@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
+use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::rack::RackId;
-use forge_secrets::credentials::CredentialKey;
 use model::rack_type::{RackHardwareType, RackProfile};
 
 pub const ANY_RACK_HARDWARE_TYPE: &str = "any";

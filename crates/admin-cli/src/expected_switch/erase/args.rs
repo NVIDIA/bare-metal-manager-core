@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Erase all expected switch records (requires explicit confirmation):
-    $ carbide-admin-cli expected-switch erase --confirm
+    $ nico-admin-cli expected-switch erase --confirm
 
 ")]
 pub struct Args {

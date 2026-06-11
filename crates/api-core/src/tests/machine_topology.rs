@@ -75,6 +75,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &dpu.host_mac_address,
         true,
         model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await
     .unwrap();

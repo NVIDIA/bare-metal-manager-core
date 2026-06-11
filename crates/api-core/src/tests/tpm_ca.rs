@@ -82,6 +82,7 @@ pub mod tests {
             &dpu.host_mac_address,
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            None,
         )
         .await
         .unwrap();
@@ -132,6 +133,7 @@ pub mod tests {
             &dpu.host_mac_address,
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            None,
         )
         .await
         .unwrap();
@@ -1198,6 +1200,7 @@ pub mod tests {
             &dpu.host_mac_address,
             true,
             model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            None,
         )
         .await
         .unwrap();

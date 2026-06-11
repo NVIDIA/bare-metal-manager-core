@@ -492,6 +492,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish.enable_infinite_boot().await?;
             println!("BIOS changes require a system restart to take effect.");
         }
+        SetNicMode => {
+            redfish.set_nic_mode(NicMode::Nic).await?;
+        }
         SetDpuMode => {
             redfish.set_nic_mode(NicMode::Dpu).await?;
         }
