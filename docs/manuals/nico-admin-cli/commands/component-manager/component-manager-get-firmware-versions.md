@@ -1,0 +1,61 @@
+# `nico-admin-cli component-manager get-firmware-versions`
+
+_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **get-firmware-versions**_
+
+## NAME
+
+nico-admin-cli-component-manager-get-firmware-versions - List available
+component firmware versions
+
+## SYNOPSIS
+
+**nico-admin-cli component-manager get-firmware-versions**
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
+\<*subcommands*\>
+
+## DESCRIPTION
+
+List available component firmware versions
+
+## OPTIONS
+
+**--extended**  
+Extended result output.
+
+This used by measured boot, where basic output contains just what you
+probably care about, and "extended" output also dumps out all the
+internal UUIDs that are used to associate instances.
+
+**--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
+Sort output by specified field\
+
+\
+*Possible values:*
+
+- primary-id: Sort by the primary id
+
+- state: Sort by state
+
+**-h**, **--help**  
+Print help (see a summary with -h)
+
+## Examples
+
+```sh
+nico-admin-cli component-manager get-firmware-versions switch --switch-id 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli component-manager get-firmware-versions power-shelf --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli component-manager get-firmware-versions rack --rack-id 12345678-1234-5678-90ab-cdef01234567
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| [`switch`](./component-manager-get-firmware-versions-switch.md) | Target NVLink switches |
+| [`power-shelf`](./component-manager-get-firmware-versions-power-shelf.md) | Target power shelves |
+| [`compute-tray`](./component-manager-get-firmware-versions-compute-tray.md) | Target compute trays |
+| [`rack`](./component-manager-get-firmware-versions-rack.md) | Target racks |
+
+---
+
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)

@@ -50,6 +50,8 @@ use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_secrets::certificates::CertificateProvider;
+use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::SiteExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
@@ -67,8 +69,6 @@ use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -690,6 +690,7 @@ pub async fn start_api(
             flavor_name: carbide_config.dpf.flavor_name.clone(),
             deployment_name: carbide_config.dpf.deployment_name.clone(),
             services: dpf_mandatory_services,
+            proxy: carbide_config.dpf.proxy.clone(),
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
@@ -986,9 +987,9 @@ pub async fn initialize_and_start_controllers<'a>(
 
                 if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                     &config.auth,
-                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                    carbide_secrets::credentials::CredentialKey::MqttAuth {
                         credential_type:
-                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                            carbide_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
                     },
                     api_service.credential_manager.clone(),
                 )

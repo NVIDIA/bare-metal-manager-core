@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all DPA interfaces:
-    $ carbide-admin-cli dpa show
+    $ nico-admin-cli dpa show
 
 Show details for one DPA interface:
-    $ carbide-admin-cli dpa show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpa show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

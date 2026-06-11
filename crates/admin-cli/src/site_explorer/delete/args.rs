@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete an explored endpoint from the database:
-    $ carbide-admin-cli site-explorer delete --address 192.0.2.10
+    $ nico-admin-cli site-explorer delete --address 192.0.2.10
 
 ")]
 pub struct Args {

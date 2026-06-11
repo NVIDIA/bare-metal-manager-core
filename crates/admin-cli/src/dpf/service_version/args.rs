@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Compare configured vs deployed DPF service versions:
-    $ carbide-admin-cli dpf service-version
+    $ nico-admin-cli dpf service-version
 
 Same, using the short alias:
-    $ carbide-admin-cli dpf sv
+    $ nico-admin-cli dpf sv
 
 ")]
 pub struct Args {}

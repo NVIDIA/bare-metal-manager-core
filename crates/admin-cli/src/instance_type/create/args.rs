@@ -25,16 +25,16 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Create an instance type with a name and description:
-    $ carbide-admin-cli instance-type create --name dgx-h100 \
+    $ nico-admin-cli instance-type create --name dgx-h100 \
     --description \"DGX H100 640GB\"
 
 Create with labels and desired-capability filters:
-    $ carbide-admin-cli instance-type create --name dgx-h100 \
+    $ nico-admin-cli instance-type create --name dgx-h100 \
     --labels '{\"tier\":\"premium\"}' \
     --desired-capabilities '[{\"key\":\"gpu_count\",\"value\":\"8\"}]'
 
 Create with an explicit id:
-    $ carbide-admin-cli instance-type create --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance-type create --id 12345678-1234-5678-90ab-cdef01234567 \
     --name dgx-h100
 
 ")]

@@ -23,10 +23,10 @@ use rpc::forge::FindTenantRequest;
 EXAMPLES:
 
 List all tenants:
-    $ carbide-admin-cli tenant show
+    $ nico-admin-cli tenant show
 
 Show details for one tenant org:
-    $ carbide-admin-cli tenant show fds34511233a
+    $ nico-admin-cli tenant show fds34511233a
 
 ")]
 pub struct Args {

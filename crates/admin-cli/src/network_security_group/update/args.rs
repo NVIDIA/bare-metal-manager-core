@@ -22,11 +22,11 @@ use clap::Parser;
 EXAMPLES:
 
 Rename a network security group:
-    $ carbide-admin-cli network-security-group update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group update --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --name web-tier
 
 Replace its rule set from JSON (overwrites all existing rules):
-    $ carbide-admin-cli network-security-group update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli network-security-group update --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --rules '[...]'
 
 ")]

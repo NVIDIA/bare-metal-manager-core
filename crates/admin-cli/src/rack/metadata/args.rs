@@ -37,7 +37,7 @@ pub enum Args {
 EXAMPLES:
 
 Show a rack's metadata:
-    $ carbide-admin-cli rack metadata show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli rack metadata show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct RackMetadataCommandShow {
@@ -50,7 +50,7 @@ pub struct RackMetadataCommandShow {
 EXAMPLES:
 
 Set a rack's name and description:
-    $ carbide-admin-cli rack metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack metadata set 12345678-1234-5678-90ab-cdef01234567 \
     --name rack-01 --description \"Row C, position 1\"
 
 ")]
@@ -68,10 +68,10 @@ pub struct RackMetadataCommandSet {
 EXAMPLES:
 
 Add a key-only label:
-    $ carbide-admin-cli rack metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+    $ nico-admin-cli rack metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
 
 Add a key/value label:
-    $ carbide-admin-cli rack metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
     --key row --value C
 
 ")]
@@ -89,7 +89,7 @@ pub struct RackMetadataCommandAddLabel {
 EXAMPLES:
 
 Remove one or more labels by key:
-    $ carbide-admin-cli rack metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
     --keys row --keys edge
 
 ")]
@@ -105,10 +105,10 @@ pub struct RackMetadataCommandRemoveLabels {
 EXAMPLES:
 
 Fill in missing metadata from the expected-rack (leaving existing values intact):
-    $ carbide-admin-cli rack metadata from-expected-rack 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli rack metadata from-expected-rack 12345678-1234-5678-90ab-cdef01234567
 
 Overwrite the rack's metadata with the expected-rack's values:
-    $ carbide-admin-cli rack metadata from-expected-rack 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli rack metadata from-expected-rack 12345678-1234-5678-90ab-cdef01234567 \
     --replace-all
 
 ")]

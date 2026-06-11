@@ -21,14 +21,18 @@ use clap::Parser;
 #[command(after_long_help = "\
 EXAMPLES:
 
-Load bash completions into the current shell:
-    $ source <(carbide-admin-cli generate-shell-complete bash)
+Load bash completions into the current shell (also enables carbide-admin-cli and forge-admin-cli):
+    $ source <(nico-admin-cli generate-shell-complete bash)
 
-Write zsh completions to a file on the fpath:
-    $ carbide-admin-cli generate-shell-complete zsh > ~/.zfunc/_carbide-admin-cli
+Load zsh completions into the current shell (also enables carbide-admin-cli and forge-admin-cli):
+    $ source <(nico-admin-cli generate-shell-complete zsh)
 
-Generate fish completions:
-    $ carbide-admin-cli generate-shell-complete fish
+Write zsh completions to a file on the fpath (run once; re-source your shell):
+    $ nico-admin-cli generate-shell-complete zsh > ~/.zfunc/_nico-admin-cli && \
+    echo 'compdef _nico-admin-cli carbide-admin-cli forge-admin-cli' >> ~/.zshrc
+
+Write fish completions to the fish completions directory:
+    $ nico-admin-cli generate-shell-complete fish > ~/.config/fish/completions/nico-admin-cli.fish
 
 ")]
 pub struct Cmd {

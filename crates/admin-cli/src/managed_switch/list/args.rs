@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 List all managed switches:
-    $ carbide-admin-cli managed-switch list
+    $ nico-admin-cli managed-switch list
 
 ")]
 pub struct Args;

@@ -51,6 +51,11 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
+use carbide_secrets::credentials::{
+    CompositeCredentialManager, CredentialManager, CredentialReader,
+};
+use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
@@ -74,9 +79,6 @@ use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
-use forge_secrets::credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
-use forge_secrets::test_support::credentials::TestCredentialManager;
-use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
@@ -1787,7 +1789,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
             username: "root".to_string(),
             password: "hostredfish_sitedefault".to_string(),
         }),
-        machine_identity: Some(forge_secrets::MachineIdentityConfig { encryption_keys }),
+        machine_identity: Some(carbide_secrets::MachineIdentityConfig { encryption_keys }),
         ..Default::default()
     }
 }

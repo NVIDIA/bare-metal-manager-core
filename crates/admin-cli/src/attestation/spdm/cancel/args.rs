@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Cancel in-progress SPDM attestation for a machine:
-    $ carbide-admin-cli attestation spdm cancel 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli attestation spdm cancel 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

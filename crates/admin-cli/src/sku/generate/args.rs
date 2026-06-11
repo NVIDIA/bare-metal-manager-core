@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Generate SKU data from an existing machine:
-    $ carbide-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567
 
 Generate and override the resulting SKU ID:
-    $ carbide-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567 --id DGX-H100-640GB
+    $ nico-admin-cli sku generate 12345678-1234-5678-90ab-cdef01234567 --id DGX-H100-640GB
 
 ")]
 pub struct Args {

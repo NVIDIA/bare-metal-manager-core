@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show firmware versions for all DPUs:
-    $ carbide-admin-cli dpu versions
+    $ nico-admin-cli dpu versions
 
 Show only DPUs that need a firmware upgrade:
-    $ carbide-admin-cli dpu versions --updates-only
+    $ nico-admin-cli dpu versions --updates-only
 
 ")]
 pub struct Args {

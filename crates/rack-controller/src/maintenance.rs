@@ -33,12 +33,12 @@ use carbide_rack_controller::fabric_manager::{
     persist_primary_switch, select_primary_switch, validate_switch_inventory_for_nmx_cluster,
 };
 use carbide_rack_controller::validating::strip_rv_labels;
+use carbide_secrets::credentials::{CredentialManager, Credentials};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{CredentialManager, Credentials};
 use librms::protos::rack_manager as rms;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus,

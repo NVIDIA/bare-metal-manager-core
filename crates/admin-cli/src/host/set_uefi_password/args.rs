@@ -28,10 +28,10 @@ use crate::machine::MachineQuery;
 EXAMPLES:
 
 Set the UEFI password for a host by machine ID:
-    $ carbide-admin-cli host set-uefi-password --query 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli host set-uefi-password --query 12345678-1234-5678-90ab-cdef01234567
 
 Set the UEFI password for a host selected by MAC address:
-    $ carbide-admin-cli host set-uefi-password --query 00:11:22:33:44:55
+    $ nico-admin-cli host set-uefi-password --query 00:11:22:33:44:55
 
 ")]
 pub struct Args {

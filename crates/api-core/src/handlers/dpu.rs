@@ -23,6 +23,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::vpc_prefix::VpcId;
@@ -30,7 +31,6 @@ use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
-use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -1284,8 +1284,8 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 
 /// Get the configured BGP password.
 pub(crate) async fn get_bgp_password(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
-    credential_key: forge_secrets::credentials::CredentialKey,
+    credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
+    credential_key: carbide_secrets::credentials::CredentialKey,
 ) -> Result<String, CarbideError> {
     let credential = credential_reader
         .get_credentials(&credential_key)

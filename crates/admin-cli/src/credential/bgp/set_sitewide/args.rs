@@ -26,7 +26,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Set the site-wide leaf BGP session password:
-    $ carbide-admin-cli credential bgp set-sitewide --password mynewpassword
+    $ nico-admin-cli credential bgp set-sitewide --password mynewpassword
 
 ")]
 pub struct Args {

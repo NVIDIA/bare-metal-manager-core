@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{machine as db_machine, machine_topology as db_machine_topology, switch as db_switch};
 use eyre::{Result, eyre};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use librms::protos::rack_manager as rms;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::FirmwareUpgradeDeviceInfo;

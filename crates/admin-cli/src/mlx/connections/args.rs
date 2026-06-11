@@ -28,10 +28,10 @@ use rpc::protos::forge as forge_pb;
 EXAMPLES:
 
 Show all active scout stream connections:
-    $ carbide-admin-cli mlx connections show
+    $ nico-admin-cli mlx connections show
 
 Disconnect a machine's scout stream connection:
-    $ carbide-admin-cli mlx connections disconnect 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli mlx connections disconnect 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub enum ConnectionsCommand {

@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Browse a UFM fabric path via the API server (no BMC --address needed):
-    $ carbide-admin-cli browse ufm --fabric-id default --path /ufmRest/resources/systems
+    $ nico-admin-cli browse ufm --fabric-id default --path /ufmRest/resources/systems
 
 ")]
 pub struct Args {

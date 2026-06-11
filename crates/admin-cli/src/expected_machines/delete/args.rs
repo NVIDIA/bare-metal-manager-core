@@ -26,10 +26,10 @@ use crate::errors::CarbideCliError;
 EXAMPLES:
 
 Delete an expected machine by BMC MAC address:
-    $ carbide-admin-cli expected-machine delete 00:11:22:33:44:55
+    $ nico-admin-cli expected-machine delete 00:11:22:33:44:55
 
 Delete an expected machine by id:
-    $ carbide-admin-cli expected-machine delete --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli expected-machine delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

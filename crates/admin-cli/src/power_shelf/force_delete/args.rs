@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Force delete a power shelf:
-    $ carbide-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567
 
 Force delete a power shelf and its machine interfaces:
-    $ carbide-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
+    $ nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
 
 ")]
 pub struct Args {

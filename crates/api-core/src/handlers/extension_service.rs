@@ -16,10 +16,10 @@
  */
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{WithTransaction, extension_service, instance};
-use forge_secrets::credentials::{CredentialKey, Credentials};
 use futures_util::FutureExt;
 use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
 use model::tenant::TenantOrganizationId;
@@ -984,7 +984,7 @@ pub(crate) fn create_extension_service_credential_key(
 /// Create the extension service credential in the vault based on the credential type
 async fn create_extension_service_credential(
     service_type: &ExtensionServiceType,
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn carbide_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
     credential: &rpc::DpuExtensionServiceCredential,
 ) -> Result<(), CarbideError> {
@@ -1001,7 +1001,7 @@ async fn create_extension_service_credential(
                         credential.registry_url, up.username
                     );
 
-                    let cred = forge_secrets::credentials::Credentials::UsernamePassword {
+                    let cred = carbide_secrets::credentials::Credentials::UsernamePassword {
                         username: cred_username,
                         password: up.password.clone(),
                     };
@@ -1025,7 +1025,7 @@ async fn create_extension_service_credential(
 
 /// Delete the extension service credential from the vault using the credential key
 async fn delete_extension_service_credential(
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn carbide_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
 ) -> Result<(), eyre::Report> {
     credential_writer
@@ -1036,7 +1036,7 @@ async fn delete_extension_service_credential(
 
 /// Get the extension service credential from the vault using the credential key
 pub(crate) async fn get_extension_service_credential(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
 ) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
     let credential = credential_reader

@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_dpf::types::DpfProxyDetails;
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -826,9 +827,13 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
-    /// Additional Helm services to deploy alongside DPF.
+    /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
+    /// configured to route outbound HTTPS traffic through the specified proxy.
+    #[serde(default)]
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for DpfConfig {
@@ -841,6 +846,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             docker_image_pull_secret: None,
             services: Box::default(),
+            proxy: None,
         }
     }
 }

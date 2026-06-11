@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Update metadata for many SKUs from a CSV file:
-    $ carbide-admin-cli sku bulk-update-metadata ./sku-metadata.csv
+    $ nico-admin-cli sku bulk-update-metadata ./sku-metadata.csv
 
 ")]
 pub struct Args {
