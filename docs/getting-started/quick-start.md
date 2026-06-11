@@ -59,24 +59,23 @@ Everything in this step must be done **before** running `setup.sh`. Skipping any
 ```bash
 export KUBECONFIG=/path/to/kubeconfig          # your cluster kubeconfig
 export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>  # your registry pull credential
-export NCX_IMAGE_REGISTRY=my-registry.example.com/ncx  # base registry for all NCX images
-export NCX_CORE_IMAGE_TAG=<ncx-core-image-tag>  # e.g. v2025.12.30-rc1
-export NCX_REST_IMAGE_TAG=<ncx-rest-image-tag>      # e.g. v1.0.4
+export NICO_IMAGE_REGISTRY=my-registry.example.com/nico  # base registry for all NICo images
+export NICO_CORE_IMAGE_TAG=<nico-core-image-tag>  # e.g. v2025.12.30-rc1
+export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>      # e.g. v1.0.4
 ```
 
-`NCX_IMAGE_REGISTRY` is used for both NCX Core (`<registry>/nvmetal-nico`) and NCX REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup.
+`NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup.
 
 Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `REGISTRY_PULL_SECRET` | **Yes** | Pull secret and API key for your image registry. Used to create the image pull secret for both Infra Controller Core and Infra Controller REST. |
-| `NCX_IMAGE_REGISTRY` | **Yes** | Base image registry for all Infra Controller images (e.g. `my-registry.example.com/ncx`). Used for Infra Controller Core (`<registry>/nvmetal-nico`) and Infra Controller REST (`<registry>/nico-rest-*`). |
-| `NCX_CORE_IMAGE_TAG` | **Yes** | Infra Controller Core (infra-controller-core) image tag (e.g. `v2025.12.30`). |
-| `NCX_REST_IMAGE_TAG` | **Yes** | Infra Controller REST (infra-controller-rest) image tag (e.g. `v1.0.4`). |
+| `REGISTRY_PULL_SECRET` | **Yes** | Pull secret and API key for your image registry. Used to create the image pull secret for both NICo Core and NICo REST. |
+| `NICO_IMAGE_REGISTRY` | **Yes** | Base image registry for all NICo images (e.g. `my-registry.example.com/nico`). Used for NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). |
+| `NICO_CORE_IMAGE_TAG` | **Yes** | NICo Core image tag (e.g. `v2025.12.30`). |
+| `NICO_REST_IMAGE_TAG` | **Yes** | NICo REST image tag (e.g. `v1.0.4`). |
 | `KUBECONFIG` | **Yes** | Path to your cluster kubeconfig. |
-| `NCX_REPO` | No | Path to a local clone of `infra-controller-rest`. Auto-detected from sibling directories; `preflight.sh` offers to clone it if not found. |
-| `NCX_SITE_UUID` | No | Stable UUID for this site. Defaults to `a1b2c3d4-e5f6-4000-8000-000000000001`. |
+| `NICO_SITE_UUID` | No | Stable UUID for this site. Defaults to `a1b2c3d4-e5f6-4000-8000-000000000001`. |
 
 ### 3b. Set your Site Name
 
@@ -86,7 +85,7 @@ Open `helm-prereqs/values.yaml` and change `siteName` from the placeholder to yo
 siteName: "mysite"   # ← replace "TMP_SITE" with your site name (e.g. "examplesite", "prod-us-east")
 ```
 
-This value is injected into every postgres pod as the `TMP_SITE` environment variable. It must match the `sitename` in the NCX Core `siteConfig` block below.
+This value is injected into every postgres pod as the `TMP_SITE` environment variable. It must match the `sitename` in the NICo Core `siteConfig` block below.
 
 To tune PostgreSQL resources for your node capacity (the defaults are conservative for dev), edit the following values:
 ```yaml
@@ -102,9 +101,9 @@ postgresql:
       memory: "1Gi"
 ```
 
-### 3c. Configure NCX Core Site Deployment
+### 3c. Configure NICo Core Site Deployment
 
-Open `helm-prereqs/values/ncx-core.yaml` and update the following values:
+Open `helm-prereqs/values/nico-core.yaml` and update the following values:
 
 - **API hostname**: The external DNS name for the Infra Controller Core API:
 
@@ -134,41 +133,15 @@ All fields are documented with inline comments in the file.
  
   These fields are safe to leave as empty arrays: `dhcp_servers`, `site_fabric_prefixes`, `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
 
-### 3d. Get the NCX REST Repository
+### 3d. NICo REST source tree
 
-NCX REST (`infra-controller-rest`) is a separate repository that contains the Helm chart, kustomize bases, and helper scripts that `setup.sh` uses for [Phase 7](#setup-script-phases). It is *not* bundled inside this repo--you need a local clone before running setup.
+NICo REST lives in this repository under `rest-api/`. The Helm charts, kustomize bases, and helper scripts that `setup.sh` uses for [Phase 7](#setup-script-phases) are resolved in-tree automatically--there is no separate repository to clone and no `NCX_REPO` to set. `preflight.sh` errors out only if `rest-api/` is missing from the checkout.
 
-**Option 1: Let `setup.sh` handle it automatically (recommended)**
-
-`setup.sh` looks for the repo in these locations in order:
-
-1. `NCX_REPO` env var (explicit path--use this if you cloned it somewhere non-standard)
-2. Sibling directories next to this repo: `../nico-rest`, `../ncx-infra-controller-rest`, `../ncx`
-3. If not found anywhere, `preflight.sh` offers to clone it for you before setup proceeds
-
-If you place the clone next to this repo (the recommended layout), no env var is needed:
-
-```
-your-workspace/
-  ncx-infra-controller-core/   ← this repo
-  ncx-infra-controller-rest/   ← NCX REST repo (clone here)
-```
-
-**Option 2: Clone it manually**
-
-Use the following commands to clone the repository:
-
-```bash
-git clone https://github.com/NVIDIA/infra-controller-rest.git
-# Then either place it as a sibling, or:
-export NCX_REPO=/path/to/infra-controller-rest
-```
-
-### 3e. Configure NCX REST Authentication
+### 3e. Configure NICo REST Authentication
 
 The default configuration uses the *dev Keycloak instance* that `setup.sh` deploys automatically. No changes are needed if you're running a dev/test environment.
 
-For *production*, or if you are using your own IdP, edit the `helm-prereqs/values/ncx-rest.yaml` file as follows:
+For *production*, or if you are using your own IdP, edit the `helm-prereqs/values/nico-rest.yaml` file as follows:
 
 **Option 1: Use your own Keycloak or OIDC-compatible IdP**
 
@@ -199,7 +172,7 @@ When `keycloak.enabled: false`, the Keycloak deployment is still created by `set
 
 ### 3f. Review site-agent Config
 
-The defaults in `helm-prereqs/values/ncx-site-agent.yaml` should match the dev postgres instance deployed by `setup.sh`.
+The defaults in `helm-prereqs/values/nico-site-agent.yaml` should match the dev postgres instance deployed by `setup.sh`.
 
 `DB_USER` and `DB_PASSWORD` are injected at runtime from the `db-creds` Kubernetes Secret (created by the `nico-rest-common` sub-chart during Phase 7g). The Secret is referenced via `secrets.dbCreds` in the site-agent values.
 
@@ -216,7 +189,7 @@ envConfig:
 
 ### 3g. Configure MetalLB
 
-MetalLB provides LoadBalancer IPs for NCX Core services (nico-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
+MetalLB provides LoadBalancer IPs for NICo Core services (nico-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
 
 > **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42--configured in the `nico-dhcp` chart Kea hook parameters (`nico-ntpserver`). Point this to your enterprise NTP servers.
 
@@ -237,9 +210,9 @@ Add or remove `BGPPeer` blocks to match your node count, with one block per work
 
 ### 3h. Assign Service VIPs
 
-Each NCX Core service that exposes a LoadBalancer needs a **specific, stable IP** from your MetalLB pool. Without explicit assignments, MetalLB picks IPs randomly on each install, which means your DHCP relay, DNS records, PXE config, and API hostname cannot be pre-configured and will break on redeploy.
+Each NICo Core service that exposes a LoadBalancer needs a **specific, stable IP** from your MetalLB pool. Without explicit assignments, MetalLB picks IPs randomly on each install, which means your DHCP relay, DNS records, PXE config, and API hostname cannot be pre-configured and will break on redeploy.
 
-Open `helm-prereqs/values/ncx-core.yaml` and update the VIP for each service:
+Open `helm-prereqs/values/nico-core.yaml` and update the VIP for each service:
 
 | Service | Values key | Pool to use |
 |---------|-----------|-------------|
@@ -258,10 +231,10 @@ All IPs must be within the `IPAddressPool` ranges you defined in `values/metallb
 
 ### 3i. (Optional) Set a Stable Site UUID
 
-If you want a specific site UUID instead of the default placeholder, set the `NCX_SITE_UUID` environment variable:
+If you want a specific site UUID instead of the default placeholder, set the `NICO_SITE_UUID` environment variable:
 
 ```bash
-export NCX_SITE_UUID=<your-uuid>   # must be a valid UUID v4
+export NICO_SITE_UUID=<your-uuid>   # must be a valid UUID v4
 ```
 
 This UUID is used as the Temporal namespace for the site and as the `CLUSTER_ID` passed to the site-agent. Once set and deployed, changing it requires redeploying the site-agent and re-registering the site.
@@ -289,7 +262,7 @@ The `preflight.sh` script checks the following:
 | Per-node: kernel parameters | `net.bridge.bridge-nf-call-iptables=1` and `net.ipv4.ip_forward=1` on every node |
 | Per-node: DNS | `kubernetes.default.svc.cluster.local` resolves on every node. |
 | Registry connectivity | The registry host responds to an HTTPS probe. |
-| NCX REST repo | Resolves the repo from `NCX_REPO` env var, sibling directories, or offers to clone from GitHub |
+| NICo REST source tree | Verifies `rest-api/` is present in the checkout (REST is in-tree; no separate clone) |
 
 For air-gapped clusters, the per-node checks pull `busybox:1.36` by default. If your cluster cannot reach Docker Hub, set `PREFLIGHT_CHECK_IMAGE` to a local mirror:
 
@@ -303,7 +276,7 @@ Run the `setup.sh` script as follows:
 
 ```bash
 cd helm-prereqs/
-./setup.sh        # interactive — prompts before deploying NCX Core and NCX REST
+./setup.sh        # interactive — prompts before deploying NICo Core and NICo REST
 ./setup.sh -y     # non-interactive — deploys everything
 ```
 
@@ -321,8 +294,8 @@ The `setup.sh` script installs all prerequisites and NICo components in sequenti
 | 3 | HashiCorp Vault (3-node HA Raft) |
 | 4 | Vault init + unseal + SSH host key |
 | 5 | external-secrets + nico-prereqs + nico-pg-cluster |
-| 6 | **NCX Core** (nico helm release) |
-| 7a-7h | **NCX REST** full stack (postgres, Keycloak, Temporal, nico-rest, site-agent) |
+| 6 | **NICo Core** (nico helm release) |
+| 7a-7h | **NICo REST** full stack (postgres, Keycloak, Temporal, nico-rest, site-agent) |
 
 The following components are deployed:
 
@@ -334,10 +307,10 @@ cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
 nico-prereqs            (this Helm chart - nico-system namespace)
-NCX Core                   (../helm - ncx-core.yaml values)
-NCX REST                   (ncx-infra-controller-rest/helm/charts/nico-rest)
+NICo Core                  (../helm - nico-core.yaml values)
+NICo REST                  (rest-api/helm/charts/nico-rest)
   ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
-  ├── postgres StatefulSet  (temporal + keycloak + NCX databases)
+  ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
   ├── nico-rest          (API, cert-manager, workflow, site-manager)
@@ -353,8 +326,8 @@ Before ingesting hosts, verify that all site controller components are healthy.
 ### Check That All Pods Are Running
 
 ```bash
-kubectl get pods -n nico-system        # NCX Core
-kubectl get pods -n nico-rest        # NCX REST
+kubectl get pods -n nico-system        # NICo Core
+kubectl get pods -n nico-rest          # NICo REST
 kubectl get pods -n temporal            # Temporal
 ```
 
@@ -385,7 +358,7 @@ Both external IPs should be within your internal VIP pool range.
 
 ### Acquire a Keycloak Access Token
 
-This section only applies if `keycloak.enabled: true` in `values/ncx-rest.yaml` (the default). If you disabled the bundled Keycloak and pointed `nico-rest-api` at your own IdP, obtain tokens from that IdP instead.
+This section only applies if `keycloak.enabled: true` in `values/nico-rest.yaml` (the default). If you disabled the bundled Keycloak and pointed `nico-rest-api` at your own IdP, obtain tokens from that IdP instead.
 
 The `setup.sh` script deploys a dev Keycloak instance with a `nico` realm pre-loaded with the `ncx-service` client (M2M / `client_credentials`).
 
@@ -422,12 +395,12 @@ NICo has two CLIs that serve different purposes:
 | `nicocli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
 | `nico-admin-cli` | NICo Core (gRPC API) | Host ingestion, credentials, expected machines, TPM approval |
 
-`nicocli` is built from the NCX REST repo. `nico-admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
+`nicocli` is built from the `rest-api/` directory. `nico-admin-cli` is built from `crates/admin-cli`.
 
 #### 1. Build and Install the CLI
 
 ```bash
-cd "$NCX_REPO"
+cd rest-api
 make nico-cli           # installs to $(go env GOPATH)/bin/nicocli
 ```
 
@@ -517,17 +490,17 @@ For detailed OOB network requirements, refer to the [BMC and Out-of-Band Setup](
 
 ## Step 7 — Discover Your First Host
 
-This step uses `nico-admin-cli`, the gRPC CLI for NICo Core. Build it from the NCX Core repo:
+This step uses `nico-admin-cli`, the gRPC CLI for NICo Core. Build it from the `infra-controller` repo:
 
 ```bash
-cd ncx-infra-controller-core/
+cd infra-controller/
 cargo build --release -p nico-admin-cli
 # Binary: target/release/nico-admin-cli
 ```
 
 Alternatively, use the containerized version bundled in the `nico-api` pod (available at `/opt/nico/nico-admin-cli` inside the container).
 
-The `<api-url>` in the commands below is the NICo Core gRPC API endpoint. This is the `nico-api` hostname configured in [Step 3c](#3c-configure-ncx-core-site-deployment), not the REST API used in Step 5. The format is typically `https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. You can also retrieve it from the LoadBalancer VIP:
+The `<api-url>` in the commands below is the NICo Core gRPC API endpoint. This is the `nico-api` hostname configured in [Step 3c](#3c-configure-nico-core-site-deployment), not the REST API used in Step 5. The format is typically `https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. You can also retrieve it from the LoadBalancer VIP:
 
 ```bash
 kubectl get svc nico-api -n nico-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
@@ -592,4 +565,4 @@ cd helm-prereqs/
 ./clean.sh
 ```
 
-This removes NCX REST, NCX Core, all helmfile releases, cluster-scoped resources, namespaces, and released PersistentVolumes. For details on what `clean.sh` does and the removal order, refer to the [Reference Installation](installation-options/reference-install.md) guide.
+This removes NICo REST, NICo Core, all helmfile releases, cluster-scoped resources, namespaces, and released PersistentVolumes. For details on what `clean.sh` does and the removal order, refer to the [Reference Installation](installation-options/reference-install.md) guide.

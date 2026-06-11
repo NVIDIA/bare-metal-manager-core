@@ -487,20 +487,17 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-tenant-account
       description: |-
-        Retrieve all Tenant Accounts.
+        Retrieve all Tenant Accounts for the org.
 
-        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
-
-        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter Tenant Accounts by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
@@ -599,7 +596,7 @@ paths:
       description: |-
         Create a Tenant Account.
 
-        Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have authorization role with `PROVIDER_ADMIN` suffix
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. The Infrastructure Provider is inferred from the caller's org; the deprecated `infrastructureProviderId` request body field is optional and, when provided, must match the org's Infrastructure Provider.
 
         Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
       requestBody:
@@ -672,26 +669,24 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-tenant-account
       description: |-
-        Retrieve a Tenant Account by ID
+        Retrieve a Tenant Account by ID.
 
-        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
-
-        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter Tenant Accounts by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter Tenant Accounts by Tenant ID
+          deprecated: true
+          description: "Filter Tenant Accounts by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
             enum:
@@ -1177,7 +1172,7 @@ paths:
       description: |-
         Retrieve all Allocations for the org.
 
-        Provider and Tenant roles are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
         Results are returned from both Provider and Tenant perspectives when the org has both roles.
       parameters:
@@ -1422,7 +1417,7 @@ paths:
       description: |-
         Retrieve Allocation by ID
 
-        Provider and Tenant roles are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
+        The Infrastructure Provider and Tenant are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
 
         User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
       parameters:
@@ -5320,7 +5315,7 @@ paths:
       description: |
         Get all Instance Types for the org.
 
-        Provider and Tenant roles are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
         Results are returned from both Provider and Tenant perspectives when the org has both roles.
       parameters:
@@ -13350,15 +13345,18 @@ components:
       properties:
         infrastructureProviderId:
           type: string
-          description: 'ID of the Infrastructure Provider in the organization'
           format: uuid
+          deprecated: true
+          description: |-
+            Deprecated; inferred from the caller's org Infrastructure Provider
+            when omitted. When provided, the value must match the org's
+            Infrastructure Provider — mismatched values are rejected with 400.
         tenantOrg:
           type: string
-          pattern: '^[A-Za-z0-9-_]+$'
+          pattern: '^[A-Za-z0-9_-]+$'
           minLength: 1
           description: Must be a valid Org name
       required:
-        - infrastructureProviderId
         - tenantOrg
     TenantAccountUpdateRequest:
       title: TenantAccountUpdateRequest

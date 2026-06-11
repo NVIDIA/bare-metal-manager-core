@@ -15,7 +15,7 @@ assume an `apt`-based distribution such as Ubuntu 24.04.
 2. [Add the correct hook for your shell](https://direnv.net/docs/hook.html)
 3. Install rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (select Option 1)
 4. Start a new shell to pick up changes made from direnv and rustup.
-5. Clone NICo - `git clone git@github.com:NVIDIA/infra-controller-core.git infra-controller`
+5. Clone NICo - `git clone git@github.com:NVIDIA/infra-controller.git infra-controller`
 6. `cd infra-controller`
 7. `direnv allow`
 8. `cd $REPO_ROOT/pxe`

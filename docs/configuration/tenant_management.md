@@ -12,7 +12,7 @@ This guide assumes you have completed the [Quick Start Guide](../getting-started
 
 - A running NICo deployment with healthy REST API, database, Temporal workflow engine, and at least one site controller.
 - At least one site registered and in `Registered` status, with machines discovered and available for allocation.
-- `nicocli` installed (`make nico-cli` from the infra-controller-rest repo) and reachable on `$PATH`.
+- `nicocli` installed (`make nico-cli` from the `rest-api/` directory of the `infra-controller` repo) and reachable on `$PATH`.
 
 If you plan to enable SPIFFE JWT-SVID **machine identity**, complete [Day 0 Machine Identity](../getting-started/installation-options/day0-machine-identity.md) before provisioning instances, then configure per-org identity after tenants exist — see [Machine Identity](machine_identity.md).
 
