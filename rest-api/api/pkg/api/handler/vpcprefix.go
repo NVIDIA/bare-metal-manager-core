@@ -224,16 +224,17 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 		logger.Info().Str("childCidr", childPrefix.Cidr).Msg("created child cidr for VPC prefix")
 
-		// Create VPC prefix in DB
-		vpcPrefix, derr := vpcPrefixDAO.Create(ctx, tx, cdbm.VpcPrefixCreateInput{Name: apiRequest.Name, TenantOrg: org, SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, IpBlockID: &ipBlock.ID, Prefix: childPrefix.Cidr, PrefixLength: apiRequest.PrefixLength, Status: cdbm.VpcPrefixStatusReady, CreatedBy: dbUser.ID})
+		// Create VPC prefix in DB with the initial Core lifecycle state.
+		status := cdbm.VpcPrefixStatusProvisioning
+		statusMsg := "VPC Prefix is being provisioned on Site"
+		vpcPrefix, derr := vpcPrefixDAO.Create(ctx, tx, cdbm.VpcPrefixCreateInput{Name: apiRequest.Name, TenantOrg: org, SiteID: site.ID, VpcID: vpc.ID, TenantID: tenant.ID, IpBlockID: &ipBlock.ID, Prefix: childPrefix.Cidr, PrefixLength: apiRequest.PrefixLength, Status: status, CreatedBy: dbUser.ID})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("unable to create VPC prefix record in DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed creating VPC prefix record", nil)
 		}
 
 		// create the status detail record
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), *cutil.GetPtr(cdbm.VpcPrefixStatusReady),
-			cutil.GetPtr("Received VPC prefix creation request, ready"))
+		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), status, &statusMsg)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC prefix", nil)

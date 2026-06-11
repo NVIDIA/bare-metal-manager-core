@@ -14651,8 +14651,10 @@ components:
       type: string
       description: Status values for VPC Prefix objects
       enum:
+        - Provisioning
         - Ready
         - Deleting
+        - Deleted
         - Error
     VpcPrefixCreateRequest:
       title: VpcPrefixCreateRequest

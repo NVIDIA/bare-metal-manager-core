@@ -172,7 +172,9 @@ func (mvpi *ManageVpcPrefixInventory) DiscoverVpcPrefixInventory(ctx context.Con
 
 func vpcPrefixFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.VpcPrefixId, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	idList, err := grpcServiceClient.SearchVpcPrefixes(ctx, &cwssaws.VpcPrefixSearchQuery{})
+	idList, err := grpcServiceClient.SearchVpcPrefixes(ctx, &cwssaws.VpcPrefixSearchQuery{
+		Deleted: cwssaws.DeletedFilter_DELETED_FILTER_INCLUDE,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +185,7 @@ func vpcPrefixFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient,
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 	list, err := grpcServiceClient.GetVpcPrefixes(ctx, &cwssaws.VpcPrefixGetRequest{
 		VpcPrefixIds: ids,
+		Deleted:      cwssaws.DeletedFilter_DELETED_FILTER_INCLUDE,
 	})
 
 	if err != nil {
@@ -215,7 +218,9 @@ func vpcPrefixPagedInventory(allItemIDs []*cwssaws.VpcPrefixId, pagedItems []*cw
 
 func vpcPrefixFindFallback(ctx context.Context, coreGrpcClient *cClient.CoreGrpcClient) ([]*cwssaws.VpcPrefixId, []*cwssaws.VpcPrefix, error) {
 	grpcServiceClient := coreGrpcClient.GrpcServiceClient()
-	request := &cwssaws.VpcPrefixGetRequest{}
+	request := &cwssaws.VpcPrefixGetRequest{
+		Deleted: cwssaws.DeletedFilter_DELETED_FILTER_INCLUDE,
+	}
 	items, err := grpcServiceClient.GetVpcPrefixes(ctx, request)
 	if err != nil {
 		return nil, nil, err
