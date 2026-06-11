@@ -296,11 +296,11 @@ func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
 	assert.Contains(t, err.Error(), "Assigned state")
 }
 
-// TestPowerControl_OverrideBypassesAssignmentCheck verifies that
-// OverrideAssignmentCheck short-circuits the assignment-state gate on
+// TestPowerControl_OverrideBypassesReadinessCheck verifies that
+// OverrideReadinessCheck short-circuits the readiness gate on
 // PowerControl. The host is in Assigned/* — which would otherwise block
 // the call — yet the operation is expected to proceed past the gate.
-func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
+func TestPowerControl_OverrideBypassesReadinessCheck(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
 
@@ -311,8 +311,8 @@ func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
-		Operation:               operations.PowerOperationPowerOn,
-		OverrideAssignmentCheck: true,
+		Operation:              operations.PowerOperationPowerOn,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }
@@ -333,7 +333,7 @@ func TestBringUpControl_RefusesAssignedMachine(t *testing.T) {
 	assert.Contains(t, err.Error(), "Assigned state")
 }
 
-func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
+func TestBringUpControl_OverrideBypassesReadinessCheck(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
 
@@ -344,7 +344,7 @@ func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
 	}
 
 	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{
-		OverrideAssignmentCheck: true,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }

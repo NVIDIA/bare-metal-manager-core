@@ -3462,15 +3462,16 @@ type UpgradeFirmwareRequest struct {
 	// downstream component manager.
 	SubTargets []string `protobuf:"bytes,8,rep,name=sub_targets,json=subTargets,proto3" json:"sub_targets,omitempty"`
 	// When true, proceed with the firmware update even if one or more
-	// target hosts (or, for rack-scoped components, any host on the
-	// owning rack) are still in the Assigned/* lifecycle state. The flag
-	// is intended for operator-supervised maintenance windows where the
-	// tenant impact has been acknowledged out-of-band; setting it bypasses
-	// the safety gate that would otherwise block disruptive operations
-	// against tenanted hardware. The bypass is recorded in the server log.
-	OverrideAssignmentCheck bool `protobuf:"varint,9,opt,name=override_assignment_check,json=overrideAssignmentCheck,proto3" json:"override_assignment_check,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// target components (or, for rack-scoped components, any host on the
+	// owning rack) are reported as not ready for the operation by their
+	// persisted ComponentStatus. The flag is intended for operator-
+	// supervised maintenance windows where the tenant impact has been
+	// acknowledged out-of-band; setting it bypasses the readiness gate
+	// that would otherwise block disruptive operations against tenanted
+	// hardware. The bypass is recorded in the server log.
+	OverrideReadinessCheck bool `protobuf:"varint,9,opt,name=override_readiness_check,json=overrideReadinessCheck,proto3" json:"override_readiness_check,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *UpgradeFirmwareRequest) Reset() {
@@ -3559,9 +3560,9 @@ func (x *UpgradeFirmwareRequest) GetSubTargets() []string {
 	return nil
 }
 
-func (x *UpgradeFirmwareRequest) GetOverrideAssignmentCheck() bool {
+func (x *UpgradeFirmwareRequest) GetOverrideReadinessCheck() bool {
 	if x != nil {
-		return x.OverrideAssignmentCheck
+		return x.OverrideReadinessCheck
 	}
 	return false
 }
@@ -4638,13 +4639,14 @@ type PowerOnRackRequest struct {
 	QueueOptions *QueueOptions          `protobuf:"bytes,3,opt,name=queue_options,json=queueOptions,proto3,oneof" json:"queue_options,omitempty"`
 	RuleId       *UUID                  `protobuf:"bytes,4,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"` // optional: override rule resolution with a specific rule
 	// When true, proceed with the power-on even if one or more target
-	// hosts (or, for rack-scoped components, any host on the owning rack)
-	// are still in the Assigned/* lifecycle state. Intended for operator-
-	// supervised maintenance where tenant impact has been acknowledged
-	// out-of-band; the bypass is recorded in the server log.
-	OverrideAssignmentCheck bool `protobuf:"varint,5,opt,name=override_assignment_check,json=overrideAssignmentCheck,proto3" json:"override_assignment_check,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// components (or, for rack-scoped components, any host on the owning
+	// rack) are reported as not ready for the operation by their
+	// persisted ComponentStatus. Intended for operator-supervised
+	// maintenance where tenant impact has been acknowledged out-of-band;
+	// the bypass is recorded in the server log.
+	OverrideReadinessCheck bool `protobuf:"varint,5,opt,name=override_readiness_check,json=overrideReadinessCheck,proto3" json:"override_readiness_check,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *PowerOnRackRequest) Reset() {
@@ -4705,9 +4707,9 @@ func (x *PowerOnRackRequest) GetRuleId() *UUID {
 	return nil
 }
 
-func (x *PowerOnRackRequest) GetOverrideAssignmentCheck() bool {
+func (x *PowerOnRackRequest) GetOverrideReadinessCheck() bool {
 	if x != nil {
-		return x.OverrideAssignmentCheck
+		return x.OverrideReadinessCheck
 	}
 	return false
 }
@@ -4720,13 +4722,14 @@ type PowerOffRackRequest struct {
 	QueueOptions *QueueOptions          `protobuf:"bytes,4,opt,name=queue_options,json=queueOptions,proto3,oneof" json:"queue_options,omitempty"`
 	RuleId       *UUID                  `protobuf:"bytes,5,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"` // optional: override rule resolution with a specific rule
 	// When true, proceed with the power-off even if one or more target
-	// hosts (or, for rack-scoped components, any host on the owning rack)
-	// are still in the Assigned/* lifecycle state. Intended for operator-
-	// supervised maintenance where tenant impact has been acknowledged
-	// out-of-band; the bypass is recorded in the server log.
-	OverrideAssignmentCheck bool `protobuf:"varint,6,opt,name=override_assignment_check,json=overrideAssignmentCheck,proto3" json:"override_assignment_check,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// components (or, for rack-scoped components, any host on the owning
+	// rack) are reported as not ready for the operation by their
+	// persisted ComponentStatus. Intended for operator-supervised
+	// maintenance where tenant impact has been acknowledged out-of-band;
+	// the bypass is recorded in the server log.
+	OverrideReadinessCheck bool `protobuf:"varint,6,opt,name=override_readiness_check,json=overrideReadinessCheck,proto3" json:"override_readiness_check,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *PowerOffRackRequest) Reset() {
@@ -4794,9 +4797,9 @@ func (x *PowerOffRackRequest) GetRuleId() *UUID {
 	return nil
 }
 
-func (x *PowerOffRackRequest) GetOverrideAssignmentCheck() bool {
+func (x *PowerOffRackRequest) GetOverrideReadinessCheck() bool {
 	if x != nil {
-		return x.OverrideAssignmentCheck
+		return x.OverrideReadinessCheck
 	}
 	return false
 }
@@ -4808,14 +4811,15 @@ type PowerResetRackRequest struct {
 	Description  string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"` // optional task description
 	QueueOptions *QueueOptions          `protobuf:"bytes,4,opt,name=queue_options,json=queueOptions,proto3,oneof" json:"queue_options,omitempty"`
 	RuleId       *UUID                  `protobuf:"bytes,5,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"` // optional: override rule resolution with a specific rule
-	// When true, proceed with the reset even if one or more target hosts
-	// (or, for rack-scoped components, any host on the owning rack) are
-	// still in the Assigned/* lifecycle state. Intended for operator-
-	// supervised maintenance where tenant impact has been acknowledged
-	// out-of-band; the bypass is recorded in the server log.
-	OverrideAssignmentCheck bool `protobuf:"varint,6,opt,name=override_assignment_check,json=overrideAssignmentCheck,proto3" json:"override_assignment_check,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// When true, proceed with the reset even if one or more target
+	// components (or, for rack-scoped components, any host on the owning
+	// rack) are reported as not ready for the operation by their
+	// persisted ComponentStatus. Intended for operator-supervised
+	// maintenance where tenant impact has been acknowledged out-of-band;
+	// the bypass is recorded in the server log.
+	OverrideReadinessCheck bool `protobuf:"varint,6,opt,name=override_readiness_check,json=overrideReadinessCheck,proto3" json:"override_readiness_check,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *PowerResetRackRequest) Reset() {
@@ -4883,9 +4887,9 @@ func (x *PowerResetRackRequest) GetRuleId() *UUID {
 	return nil
 }
 
-func (x *PowerResetRackRequest) GetOverrideAssignmentCheck() bool {
+func (x *PowerResetRackRequest) GetOverrideReadinessCheck() bool {
 	if x != nil {
-		return x.OverrideAssignmentCheck
+		return x.OverrideReadinessCheck
 	}
 	return false
 }
@@ -4897,12 +4901,13 @@ type BringUpRackRequest struct {
 	RuleId      *UUID                  `protobuf:"bytes,3,opt,name=rule_id,json=ruleId,proto3,oneof" json:"rule_id,omitempty"`       // optional: override rule resolution with a specific rule
 	// When true, allow the bring-up sequence (which may power-cycle hosts
 	// and reset rack-scoped components) to proceed even if any host in
-	// scope is still in the Assigned/* lifecycle state. Intended for
-	// operator-supervised maintenance where tenant impact has been
-	// acknowledged out-of-band; the bypass is recorded in the server log.
-	OverrideAssignmentCheck bool `protobuf:"varint,4,opt,name=override_assignment_check,json=overrideAssignmentCheck,proto3" json:"override_assignment_check,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// scope is reported as not ready for the operation by its persisted
+	// ComponentStatus. Intended for operator-supervised maintenance where
+	// tenant impact has been acknowledged out-of-band; the bypass is
+	// recorded in the server log.
+	OverrideReadinessCheck bool `protobuf:"varint,4,opt,name=override_readiness_check,json=overrideReadinessCheck,proto3" json:"override_readiness_check,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *BringUpRackRequest) Reset() {
@@ -4956,9 +4961,9 @@ func (x *BringUpRackRequest) GetRuleId() *UUID {
 	return nil
 }
 
-func (x *BringUpRackRequest) GetOverrideAssignmentCheck() bool {
+func (x *BringUpRackRequest) GetOverrideReadinessCheck() bool {
 	if x != nil {
-		return x.OverrideAssignmentCheck
+		return x.OverrideReadinessCheck
 	}
 	return false
 }
@@ -8093,7 +8098,7 @@ const file_flow_proto_rawDesc = "" +
 	"\x1bGetRacksForNVLDomainRequest\x12B\n" +
 	"\x15nvl_domain_identifier\x18\x01 \x01(\v2\x0e.v1.IdentifierR\x13nvlDomainIdentifier\">\n" +
 	"\x1cGetRacksForNVLDomainResponse\x12\x1e\n" +
-	"\x05racks\x18\x01 \x03(\v2\b.v1.RackR\x05racks\"\xaa\x04\n" +
+	"\x05racks\x18\x01 \x03(\v2\b.v1.RackR\x05racks\"\xa8\x04\n" +
 	"\x16UpgradeFirmwareRequest\x128\n" +
 	"\vtarget_spec\x18\x01 \x01(\v2\x17.v1.OperationTargetSpecR\n" +
 	"targetSpec\x12*\n" +
@@ -8105,8 +8110,8 @@ const file_flow_proto_rawDesc = "" +
 	"\rqueue_options\x18\x06 \x01(\v2\x10.v1.QueueOptionsH\x03R\fqueueOptions\x88\x01\x01\x12&\n" +
 	"\arule_id\x18\a \x01(\v2\b.v1.UUIDH\x04R\x06ruleId\x88\x01\x01\x12\x1f\n" +
 	"\vsub_targets\x18\b \x03(\tR\n" +
-	"subTargets\x12:\n" +
-	"\x19override_assignment_check\x18\t \x01(\bR\x17overrideAssignmentCheckB\x11\n" +
+	"subTargets\x128\n" +
+	"\x18override_readiness_check\x18\t \x01(\bR\x16overrideReadinessCheckB\x11\n" +
 	"\x0f_target_versionB\r\n" +
 	"\v_start_timeB\v\n" +
 	"\t_end_timeB\x10\n" +
@@ -8198,45 +8203,45 @@ const file_flow_proto_rawDesc = "" +
 	"\btask_ids\x18\x01 \x03(\v2\b.v1.UUIDR\ataskIds\"\x85\x01\n" +
 	"\fQueueOptions\x12A\n" +
 	"\x11conflict_strategy\x18\x01 \x01(\x0e2\x14.v1.ConflictStrategyR\x10conflictStrategy\x122\n" +
-	"\x15queue_timeout_seconds\x18\x02 \x01(\x05R\x13queueTimeoutSeconds\"\xae\x02\n" +
+	"\x15queue_timeout_seconds\x18\x02 \x01(\x05R\x13queueTimeoutSeconds\"\xac\x02\n" +
 	"\x12PowerOnRackRequest\x128\n" +
 	"\vtarget_spec\x18\x01 \x01(\v2\x17.v1.OperationTargetSpecR\n" +
 	"targetSpec\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12:\n" +
 	"\rqueue_options\x18\x03 \x01(\v2\x10.v1.QueueOptionsH\x00R\fqueueOptions\x88\x01\x01\x12&\n" +
-	"\arule_id\x18\x04 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x12:\n" +
-	"\x19override_assignment_check\x18\x05 \x01(\bR\x17overrideAssignmentCheckB\x10\n" +
+	"\arule_id\x18\x04 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x128\n" +
+	"\x18override_readiness_check\x18\x05 \x01(\bR\x16overrideReadinessCheckB\x10\n" +
 	"\x0e_queue_optionsB\n" +
 	"\n" +
-	"\b_rule_id\"\xc7\x02\n" +
+	"\b_rule_id\"\xc5\x02\n" +
 	"\x13PowerOffRackRequest\x128\n" +
 	"\vtarget_spec\x18\x01 \x01(\v2\x17.v1.OperationTargetSpecR\n" +
 	"targetSpec\x12\x16\n" +
 	"\x06forced\x18\x02 \x01(\bR\x06forced\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12:\n" +
 	"\rqueue_options\x18\x04 \x01(\v2\x10.v1.QueueOptionsH\x00R\fqueueOptions\x88\x01\x01\x12&\n" +
-	"\arule_id\x18\x05 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x12:\n" +
-	"\x19override_assignment_check\x18\x06 \x01(\bR\x17overrideAssignmentCheckB\x10\n" +
+	"\arule_id\x18\x05 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x128\n" +
+	"\x18override_readiness_check\x18\x06 \x01(\bR\x16overrideReadinessCheckB\x10\n" +
 	"\x0e_queue_optionsB\n" +
 	"\n" +
-	"\b_rule_id\"\xc9\x02\n" +
+	"\b_rule_id\"\xc7\x02\n" +
 	"\x15PowerResetRackRequest\x128\n" +
 	"\vtarget_spec\x18\x01 \x01(\v2\x17.v1.OperationTargetSpecR\n" +
 	"targetSpec\x12\x16\n" +
 	"\x06forced\x18\x02 \x01(\bR\x06forced\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12:\n" +
 	"\rqueue_options\x18\x04 \x01(\v2\x10.v1.QueueOptionsH\x00R\fqueueOptions\x88\x01\x01\x12&\n" +
-	"\arule_id\x18\x05 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x12:\n" +
-	"\x19override_assignment_check\x18\x06 \x01(\bR\x17overrideAssignmentCheckB\x10\n" +
+	"\arule_id\x18\x05 \x01(\v2\b.v1.UUIDH\x01R\x06ruleId\x88\x01\x01\x128\n" +
+	"\x18override_readiness_check\x18\x06 \x01(\bR\x16overrideReadinessCheckB\x10\n" +
 	"\x0e_queue_optionsB\n" +
 	"\n" +
-	"\b_rule_id\"\xe0\x01\n" +
+	"\b_rule_id\"\xde\x01\n" +
 	"\x12BringUpRackRequest\x128\n" +
 	"\vtarget_spec\x18\x01 \x01(\v2\x17.v1.OperationTargetSpecR\n" +
 	"targetSpec\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12&\n" +
-	"\arule_id\x18\x03 \x01(\v2\b.v1.UUIDH\x00R\x06ruleId\x88\x01\x01\x12:\n" +
-	"\x19override_assignment_check\x18\x04 \x01(\bR\x17overrideAssignmentCheckB\n" +
+	"\arule_id\x18\x03 \x01(\v2\b.v1.UUIDH\x00R\x06ruleId\x88\x01\x01\x128\n" +
+	"\x18override_readiness_check\x18\x04 \x01(\bR\x16overrideReadinessCheckB\n" +
 	"\n" +
 	"\b_rule_id\"\xc9\x01\n" +
 	"\x11IngestRackRequest\x128\n" +

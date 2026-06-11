@@ -129,20 +129,21 @@ func machineIDsProto(ids []string) *pb.MachineIdList {
 
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
-// while any target host is still in Core's Assigned/* lifecycle state.
+// while any target host is reported as not ready for the operation by its
+// persisted ComponentStatus.
 //
-// When overrideAssignmentCheck is true the gate is short-circuited and
+// When overrideReadinessCheck is true the gate is short-circuited and
 // the operation runs unconditionally; the bypass is logged so it remains
 // auditable from the worker log alone.
 func (m *Manager) ensureMachinesOperable(
 	ctx context.Context,
 	machineIDs []string,
-	overrideAssignmentCheck bool,
+	overrideReadinessCheck bool,
 ) error {
-	if overrideAssignmentCheck {
+	if overrideReadinessCheck {
 		log.Warn().
 			Strs("machine_ids", machineIDs).
-			Msg("Assignment safety check bypassed by override_assignment_check on compute operation")
+			Msg("Readiness check bypassed by override_readiness_check on compute operation")
 		return nil
 	}
 	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)
@@ -196,7 +197,7 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -303,7 +304,7 @@ func (m *Manager) FirmwareControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -467,7 +468,7 @@ func (m *Manager) BringUpControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 

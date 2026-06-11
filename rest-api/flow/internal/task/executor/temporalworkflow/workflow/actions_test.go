@@ -11,57 +11,57 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
-// TestExtractOverrideAssignmentCheck covers every branch of the
-// extractOverrideAssignmentCheck helper. The helper bridges the parent /
+// TestExtractOverrideReadinessCheck covers every branch of the
+// extractOverrideReadinessCheck helper. The helper bridges the parent /
 // sub-action boundary inside the rule engine: a parent task carries its
-// OverrideAssignmentCheck flag through to dynamically synthesised
+// OverrideReadinessCheck flag through to dynamically synthesised
 // PowerControl, FirmwareControl, and BringUp sub-actions. The helper is
 // intentionally type-agnostic — the workflow runtime hands it either a
 // concrete TaskInfo, a pointer to one, or a JSON-deserialised
 // map[string]any from a child-workflow boundary — so all of those shapes
 // must extract the flag, and an unrecognised or nil input must fall back
-// to false to keep the safety gate engaged by default.
-func TestExtractOverrideAssignmentCheck(t *testing.T) {
+// to false to keep the readiness gate engaged by default.
+func TestExtractOverrideReadinessCheck(t *testing.T) {
 	t.Run("nil returns false", func(t *testing.T) {
-		assert.False(t, extractOverrideAssignmentCheck(nil))
+		assert.False(t, extractOverrideReadinessCheck(nil))
 	})
 
 	t.Run("nil typed pointers return false", func(t *testing.T) {
 		var pc *operations.PowerControlTaskInfo
 		var fw *operations.FirmwareControlTaskInfo
 		var bu *operations.BringUpTaskInfo
-		assert.False(t, extractOverrideAssignmentCheck(pc))
-		assert.False(t, extractOverrideAssignmentCheck(fw))
-		assert.False(t, extractOverrideAssignmentCheck(bu))
+		assert.False(t, extractOverrideReadinessCheck(pc))
+		assert.False(t, extractOverrideReadinessCheck(fw))
+		assert.False(t, extractOverrideReadinessCheck(bu))
 	})
 
 	t.Run("PowerControlTaskInfo pointer", func(t *testing.T) {
-		info := &operations.PowerControlTaskInfo{OverrideAssignmentCheck: true}
-		assert.True(t, extractOverrideAssignmentCheck(info))
-		info.OverrideAssignmentCheck = false
-		assert.False(t, extractOverrideAssignmentCheck(info))
+		info := &operations.PowerControlTaskInfo{OverrideReadinessCheck: true}
+		assert.True(t, extractOverrideReadinessCheck(info))
+		info.OverrideReadinessCheck = false
+		assert.False(t, extractOverrideReadinessCheck(info))
 	})
 
 	t.Run("PowerControlTaskInfo value", func(t *testing.T) {
-		info := operations.PowerControlTaskInfo{OverrideAssignmentCheck: true}
-		assert.True(t, extractOverrideAssignmentCheck(info))
+		info := operations.PowerControlTaskInfo{OverrideReadinessCheck: true}
+		assert.True(t, extractOverrideReadinessCheck(info))
 	})
 
 	t.Run("FirmwareControlTaskInfo pointer and value", func(t *testing.T) {
-		assert.True(t, extractOverrideAssignmentCheck(&operations.FirmwareControlTaskInfo{
-			OverrideAssignmentCheck: true,
+		assert.True(t, extractOverrideReadinessCheck(&operations.FirmwareControlTaskInfo{
+			OverrideReadinessCheck: true,
 		}))
-		assert.True(t, extractOverrideAssignmentCheck(operations.FirmwareControlTaskInfo{
-			OverrideAssignmentCheck: true,
+		assert.True(t, extractOverrideReadinessCheck(operations.FirmwareControlTaskInfo{
+			OverrideReadinessCheck: true,
 		}))
 	})
 
 	t.Run("BringUpTaskInfo pointer and value", func(t *testing.T) {
-		assert.True(t, extractOverrideAssignmentCheck(&operations.BringUpTaskInfo{
-			OverrideAssignmentCheck: true,
+		assert.True(t, extractOverrideReadinessCheck(&operations.BringUpTaskInfo{
+			OverrideReadinessCheck: true,
 		}))
-		assert.True(t, extractOverrideAssignmentCheck(operations.BringUpTaskInfo{
-			OverrideAssignmentCheck: true,
+		assert.True(t, extractOverrideReadinessCheck(operations.BringUpTaskInfo{
+			OverrideReadinessCheck: true,
 		}))
 	})
 
@@ -69,13 +69,13 @@ func TestExtractOverrideAssignmentCheck(t *testing.T) {
 		// Temporal serialises child-workflow arguments through JSON; on
 		// receipt the typed TaskInfo struct degrades to a map[string]any
 		// keyed by JSON tag. The helper must still recover the flag.
-		assert.True(t, extractOverrideAssignmentCheck(map[string]any{
-			"override_assignment_check": true,
+		assert.True(t, extractOverrideReadinessCheck(map[string]any{
+			"override_readiness_check": true,
 		}))
-		assert.False(t, extractOverrideAssignmentCheck(map[string]any{
-			"override_assignment_check": false,
+		assert.False(t, extractOverrideReadinessCheck(map[string]any{
+			"override_readiness_check": false,
 		}))
-		assert.False(t, extractOverrideAssignmentCheck(map[string]any{
+		assert.False(t, extractOverrideReadinessCheck(map[string]any{
 			"some_other_key": "value",
 		}))
 	})
@@ -84,14 +84,14 @@ func TestExtractOverrideAssignmentCheck(t *testing.T) {
 		// Anonymous struct with the matching JSON tag should still
 		// be readable via the marshal/unmarshal fallback.
 		type customInfo struct {
-			OverrideAssignmentCheck bool `json:"override_assignment_check"`
+			OverrideReadinessCheck bool `json:"override_readiness_check"`
 		}
-		assert.True(t, extractOverrideAssignmentCheck(customInfo{OverrideAssignmentCheck: true}))
+		assert.True(t, extractOverrideReadinessCheck(customInfo{OverrideReadinessCheck: true}))
 	})
 
 	t.Run("non-marshalable value returns false", func(t *testing.T) {
 		// A channel is not JSON-marshalable; the helper must return
 		// false rather than panic.
-		assert.False(t, extractOverrideAssignmentCheck(make(chan int)))
+		assert.False(t, extractOverrideReadinessCheck(make(chan int)))
 	})
 }

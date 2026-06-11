@@ -167,12 +167,12 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	// Refuse to power-cycle a host that is currently attached to an
-	// instance. The poll blocks until Core reports the host has left the
-	// Assigned state, or returns an error at the deadline. The operator
-	// may set OverrideAssignmentCheck to bypass this gate for supervised
+	// Refuse to power-cycle a host that is not ready for the operation.
+	// The poll blocks until the persisted ComponentStatus reports the host
+	// as ready, or returns an error at the deadline. The operator may set
+	// OverrideReadinessCheck to bypass this gate for supervised
 	// maintenance; the bypass is logged inside ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -348,12 +348,12 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	// Block firmware upgrade while any target host is still attached to an
-	// instance: BMC/host firmware updates power-cycle the machine. The
-	// operator may set OverrideAssignmentCheck to bypass this gate for
+	// Block firmware upgrade while any target host is not ready for the
+	// operation: BMC/host firmware updates power-cycle the machine. The
+	// operator may set OverrideReadinessCheck to bypass this gate for
 	// supervised maintenance; the bypass is logged inside
 	// ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -782,11 +782,11 @@ func (m *Manager) BringUpControl(
 	}
 
 	// Opening the power-on gate can trigger an actual power transition,
-	// so the same assignment-state safety check that guards PowerControl
-	// applies here. OverrideAssignmentCheck propagates from the parent
-	// BringUp request when the operator elects to bypass; the bypass is
-	// logged inside ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	// so the same readiness check that guards PowerControl applies here.
+	// OverrideReadinessCheck propagates from the parent BringUp request
+	// when the operator elects to bypass; the bypass is logged inside
+	// ensureMachinesOperable.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -862,9 +862,10 @@ func nicoToBringUpState(
 
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
-// while any target host is still in Core's Assigned/* lifecycle state.
+// while any target host is reported as not ready for the operation by
+// its persisted ComponentStatus.
 //
-// When overrideAssignmentCheck is true the gate is short-circuited and the
+// When overrideReadinessCheck is true the gate is short-circuited and the
 // operation runs against the current set of machines unconditionally. The
 // override is intended for operator-supervised maintenance windows where
 // tenant impact has been acknowledged out-of-band; authorisation is
@@ -873,12 +874,12 @@ func nicoToBringUpState(
 func (m *Manager) ensureMachinesOperable(
 	ctx context.Context,
 	machineIDs []string,
-	overrideAssignmentCheck bool,
+	overrideReadinessCheck bool,
 ) error {
-	if overrideAssignmentCheck {
+	if overrideReadinessCheck {
 		log.Warn().
 			Strs("machine_ids", machineIDs).
-			Msg("Assignment safety check bypassed by override_assignment_check on compute operation")
+			Msg("Readiness check bypassed by override_readiness_check on compute operation")
 		return nil
 	}
 	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)

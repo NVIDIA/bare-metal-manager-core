@@ -98,10 +98,11 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 // ensureRackOperable is the per-Manager policy gate for disruptive
 // operations on the racks that own the given power shelves. The default
 // policy refuses to proceed while any host on the resolved rack(s) is
-// still in Core's Assigned/* lifecycle state, because a shelf reset
-// power-cycles every host downstream of it.
+// reported as not ready for the operation by its persisted
+// ComponentStatus, because a shelf reset power-cycles every host
+// downstream of it.
 //
-// When overrideAssignmentCheck is true the gate is short-circuited
+// When overrideReadinessCheck is true the gate is short-circuited
 // without performing the rack lookup. The override is intended for
 // operator-supervised maintenance windows; authorisation is enforced
 // upstream and is not re-checked here. A warning is emitted so the
@@ -112,16 +113,16 @@ func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
 func (m *Manager) ensureRackOperable(
 	ctx context.Context,
 	shelfIDs []string,
-	overrideAssignmentCheck bool,
+	overrideReadinessCheck bool,
 ) error {
 	if len(shelfIDs) == 0 {
 		return nil
 	}
 
-	if overrideAssignmentCheck {
+	if overrideReadinessCheck {
 		log.Warn().
 			Strs("power_shelf_ids", shelfIDs).
-			Msg("Assignment safety check bypassed by override_assignment_check on PowerShelf operation")
+			Msg("Readiness check bypassed by override_readiness_check on PowerShelf operation")
 		return nil
 	}
 
@@ -144,7 +145,7 @@ func (m *Manager) ensureRackOperable(
 	if len(orphan) > 0 {
 		log.Warn().
 			Strs("power_shelf_ids", orphan).
-			Msg("PowerShelf has no rack assignment; assignment safety check cannot be applied")
+			Msg("PowerShelf has no rack assignment; readiness check cannot be applied")
 	}
 
 	return m.assignment.WaitForRacksUnassigned(ctx, rackIDs)
@@ -190,7 +191,7 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -282,7 +283,7 @@ func (m *Manager) FirmwareControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 

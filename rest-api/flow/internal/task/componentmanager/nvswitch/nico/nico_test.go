@@ -275,14 +275,14 @@ func TestFirmwareControl_RefusesWhenRackHostAssigned(t *testing.T) {
 	assert.Contains(t, err.Error(), "Assigned state")
 }
 
-// TestPowerControl_OverrideBypassesRackAssignmentCheck verifies that
-// OverrideAssignmentCheck short-circuits the rack-scoped gate on
+// TestPowerControl_OverrideBypassesReadinessCheck verifies that
+// OverrideReadinessCheck short-circuits the rack-scoped gate on
 // NVSwitch PowerControl. The host on the resolved rack is in
 // Assigned/* — which would otherwise block the call — yet the
 // operation is expected to proceed past the gate. The switch is left
 // without an explicit rack mapping to confirm the override path skips
 // the rack lookup entirely.
-func TestPowerControl_OverrideBypassesRackAssignmentCheck(t *testing.T) {
+func TestPowerControl_OverrideBypassesReadinessCheck(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.SetSwitchRackID("sw-1", "rack-A")
 	client.SetRackHostMachineIDs("rack-A", []string{"host-1"})
@@ -295,8 +295,8 @@ func TestPowerControl_OverrideBypassesRackAssignmentCheck(t *testing.T) {
 	}
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
-		Operation:               operations.PowerOperationPowerOn,
-		OverrideAssignmentCheck: true,
+		Operation:              operations.PowerOperationPowerOn,
+		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
 }

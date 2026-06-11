@@ -281,7 +281,7 @@ AddTaskScheduleScopeResponse returns the newly created scope entries.
 | target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) |  | Target racks for bring-up |
 | description | [string](#string) |  | optional task description |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
-| override_assignment_check | [bool](#bool) |  | When true, allow the bring-up sequence (which may power-cycle hosts and reset rack-scoped components) to proceed even if any host in scope is still in the Assigned/* lifecycle state. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
+| override_readiness_check | [bool](#bool) |  | When true, allow the bring-up sequence (which may power-cycle hosts and reset rack-scoped components) to proceed even if any host in scope is reported as not ready for the operation by its persisted ComponentStatus. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1298,6 +1298,7 @@ every Task is returned subject to pagination.
 | active_only | [bool](#bool) |  | Restrict to non-terminal Tasks (Waiting, Pending, Running). |
 | pagination | [Pagination](#v1-Pagination) | optional |  |
 | component_id | [UUID](#v1-UUID) | optional | Restrict to Tasks that target this component UUID, regardless of component type. A rack_id &#43; component_id combination that references a component not on the given rack is not an error; it yields an empty result. |
+| with_report | [bool](#bool) |  | When true, populate Task.report on each returned task. Defaults to false because report bodies can be several KB and would otherwise be persisted in every Temporal activity / workflow result payload along the caller&#39;s path even when the caller never reads them. GetTasksByIDs and CancelTask always return the report and do not accept this flag. |
 
 
 
@@ -1522,7 +1523,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
-| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-off even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
+| override_readiness_check | [bool](#bool) |  | When true, proceed with the power-off even if one or more target components (or, for rack-scoped components, any host on the owning rack) are reported as not ready for the operation by their persisted ComponentStatus. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1541,7 +1542,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
-| override_assignment_check | [bool](#bool) |  | When true, proceed with the power-on even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
+| override_readiness_check | [bool](#bool) |  | When true, proceed with the power-on even if one or more target components (or, for rack-scoped components, any host on the owning rack) are reported as not ready for the operation by their persisted ComponentStatus. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -1561,7 +1562,7 @@ Returns an error for a one-time schedule that has already fired.
 | description | [string](#string) |  | optional task description |
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
-| override_assignment_check | [bool](#bool) |  | When true, proceed with the reset even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. Intended for operator- supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
+| override_readiness_check | [bool](#bool) |  | When true, proceed with the reset even if one or more target components (or, for rack-scoped components, any host on the owning rack) are reported as not ready for the operation by their persisted ComponentStatus. Intended for operator-supervised maintenance where tenant impact has been acknowledged out-of-band; the bypass is recorded in the server log. |
 
 
 
@@ -2075,7 +2076,7 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 | queue_options | [QueueOptions](#v1-QueueOptions) | optional |  |
 | rule_id | [UUID](#v1-UUID) | optional | optional: override rule resolution with a specific rule |
 | sub_targets | [string](#string) | repeated | Optional subset of firmware sub-parts to update within each tray selected by target_spec, e.g. [&#34;bmc&#34;, &#34;nvos&#34;] for switch trays or [&#34;psu&#34;] for powershelf trays. Named &#34;sub_targets&#34; (not &#34;components&#34;) to avoid colliding with OperationTargetSpec.components, which selects tray INSTANCES rather than sub-parts of a tray. Names are lowercase. Empty or omitted means update everything in the bundle (current default behavior). Unknown names are rejected by the downstream component manager. |
-| override_assignment_check | [bool](#bool) |  | When true, proceed with the firmware update even if one or more target hosts (or, for rack-scoped components, any host on the owning rack) are still in the Assigned/* lifecycle state. The flag is intended for operator-supervised maintenance windows where the tenant impact has been acknowledged out-of-band; setting it bypasses the safety gate that would otherwise block disruptive operations against tenanted hardware. The bypass is recorded in the server log. |
+| override_readiness_check | [bool](#bool) |  | When true, proceed with the firmware update even if one or more target components (or, for rack-scoped components, any host on the owning rack) are reported as not ready for the operation by their persisted ComponentStatus. The flag is intended for operator- supervised maintenance windows where the tenant impact has been acknowledged out-of-band; setting it bypasses the readiness gate that would otherwise block disruptive operations against tenanted hardware. The bypass is recorded in the server log. |
 
 
 
