@@ -229,7 +229,8 @@ func (m *Manager) PowerControl(
 		Target: &pb.ComponentPowerControlRequest_PowerShelfIds{
 			PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 		},
-		Action: action,
+		Action:                action,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.ComponentPowerControl(ctx, req)
@@ -319,7 +320,8 @@ func (m *Manager) FirmwareControl(
 				Components:    subComponents,
 			},
 		},
-		TargetVersion: info.TargetVersion,
+		TargetVersion:         info.TargetVersion,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)

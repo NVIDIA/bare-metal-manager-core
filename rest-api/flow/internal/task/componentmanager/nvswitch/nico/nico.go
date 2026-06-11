@@ -237,7 +237,8 @@ func (m *Manager) PowerControl(
 		Target: &pb.ComponentPowerControlRequest_SwitchIds{
 			SwitchIds: switchIDsProto(target.ComponentIDs),
 		},
-		Action: action,
+		Action:                action,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.ComponentPowerControl(ctx, req)
@@ -352,7 +353,8 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 				Components: subComponents,
 			},
 		},
-		TargetVersion: info.TargetVersion,
+		TargetVersion:         info.TargetVersion,
+		BypassStateController: info.OverrideReadinessCheck,
 	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)
