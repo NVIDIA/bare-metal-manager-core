@@ -298,6 +298,7 @@ async fn test_create_initialization_objects() {
     assert_eq!(bfbs.len(), 1);
 
     let expected_flavor_name = crate::flavor::default_flavor(TEST_NS, &config.proxy)
+        .unwrap()
         .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
         .unwrap();
     let flavor = DpuFlavorRepository::get(&mock, &expected_flavor_name, TEST_NS)

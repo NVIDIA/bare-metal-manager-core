@@ -454,7 +454,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
 ) -> Result<String, DpfError> {
-    let mut flavor = crate::flavor::default_flavor(namespace, proxy);
+    let mut flavor = crate::flavor::default_flavor(namespace, proxy)?;
     let name = flavor.unique_name(default_flavor_name)?;
     flavor.metadata.name = Some(name.clone());
 
@@ -479,7 +479,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
                     )))
                 }
                 Some(_) => {
-                    tracing::debug!("DPU flavor already exists");
+                    tracing::debug!(flavor = %name, "DPU flavor already exists");
                     Ok(name)
                 }
             }
@@ -2910,7 +2910,7 @@ mod tests {
 
         // Proxy flavor must get a different hash than the no-proxy flavor.
         let name_no_proxy = {
-            let f = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
+            let f = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
             f.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME).unwrap()
         };
         assert_ne!(
@@ -2968,7 +2968,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_fails_when_terminating() {
         let mock = SdkMock::new();
-        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
+        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
         // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
         let hash_name = flavor
             .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
@@ -2998,7 +2998,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_ok_when_existing_not_terminating() {
         let mock = SdkMock::new();
-        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None);
+        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
         // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
         flavor.metadata.name = Some(
             flavor
