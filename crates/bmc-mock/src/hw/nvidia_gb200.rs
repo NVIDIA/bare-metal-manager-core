@@ -77,11 +77,36 @@ impl BiancaBoard<'_> {
         }
     }
 
-    pub fn hgx_gpu_chassis(
-        &self,
-        ids: [GpuChassisIds; 2],
-    ) -> [redfish::chassis::SingleChassisConfig; 2] {
-        ids.map(|ids| {
+    fn gpu_base_index(&self) -> usize {
+        match self.index {
+            BoardIndex::Board0 => 0,
+            BoardIndex::Board1 => 2,
+        }
+    }
+
+    pub fn gpu_chassis_ids(&self) -> [GpuChassisIds; 2] {
+        let base = self.gpu_base_index();
+        [0, 1].map(|local| {
+            let n = base + local;
+            GpuChassisIds {
+                chassis_id: format!("HGX_GPU_{n}").into(),
+                pcie_device_id: format!("GPU_{n}").into(),
+            }
+        })
+    }
+
+    pub fn hgx_gpu_processors(&self, system_id: &str) -> [redfish::processor::Processor; 2] {
+        self.gpu_chassis_ids().map(|ids| {
+            redfish::processor::gpu(
+                system_id,
+                &ids.pcie_device_id,
+                &format!("/redfish/v1/Chassis/{}/Sensors/Voltage_1", ids.chassis_id),
+            )
+        })
+    }
+
+    pub fn hgx_gpu_chassis(&self) -> [redfish::chassis::SingleChassisConfig; 2] {
+        self.gpu_chassis_ids().map(|ids| {
             let sensors = redfish::sensor::generate_chassis_sensors(
                 &ids.chassis_id,
                 redfish::sensor::Layout {
