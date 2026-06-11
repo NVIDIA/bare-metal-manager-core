@@ -100,7 +100,12 @@ impl BiancaBoard<'_> {
             redfish::processor::gpu(
                 system_id,
                 &ids.pcie_device_id,
-                &format!("/redfish/v1/Chassis/{}/Sensors/Voltage_1", ids.chassis_id),
+                redfish::sensor::chassis_resource(
+                    &ids.chassis_id,
+                    redfish::processor::VOLTAGE_SENSOR_NAME,
+                )
+                .odata_id
+                .as_ref(),
             )
         })
     }

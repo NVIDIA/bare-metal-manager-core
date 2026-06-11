@@ -23,6 +23,8 @@ use crate::json::{JsonExt, JsonPatch};
 use crate::redfish;
 use crate::redfish::Builder;
 
+pub(crate) const VOLTAGE_SENSOR_NAME: &str = "Voltage_0";
+
 pub fn system_collection(system_id: &str) -> redfish::Collection<'static> {
     let odata_id = format!("/redfish/v1/Systems/{system_id}/Processors");
     redfish::Collection {
