@@ -5,8 +5,8 @@ openapi: 3.1.0
 info:
   title: NVIDIA Infra Controller REST API
   version: 1.6.0
-  summary: NVIDIA Infra Controller REST API is the centralized RESTful gateway to access NVIDIA Infra Controller service
-  description: 'NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.'
+  summary: NVIDIA Infra Controller REST API is the RESTful gateway for accessing the NVIDIA Infra Controller service
+  description: 'NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.'
   license:
     name: Apache-2.0
     url: 'https://www.apache.org/licenses/LICENSE-2.0'
@@ -41,8 +41,8 @@ tags:
 
       Once the Provider and the Tenant are initialized, the user can create resources by making calls to the appropriate endpoints.
 
-      ### Creating Site Level IP Blocks
-      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in the Site configuration toml file.
+      ### Creating Site-Level IP Blocks
+      To use a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in the Site configuration TOML file.
 
       To create an IP Block, the user must make a call to the [Create IP Block endpoint](#tag/IP-Block/operation/create-ipblock).
 
@@ -52,30 +52,30 @@ tags:
 
       - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in. For _Disconnected_ NICo installations where NICo
       REST is deployed alongside NICo Core, typically there will be a single Site available.
-      - For each Site IP Block, create a Network Allocation for the Tenant entity using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) using the full prefix length.
+      - For each Site IP Block, create a Network Allocation for the Tenant entity with the full prefix length using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation).
       This will create a Tenant IP Block for each Site IP Block.
         - Creating an Allocation will create the Tenant in NICo Core.
       - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
-      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
-        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix). Otherwise the user should create a Subnet
-        using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block.
+        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix).
+        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
       - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
-      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
-      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Machine
+      - Retrieve available Machines on the Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine).
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Machine.
 
       ### Typical API Call Flow for Provider
 
       - Create a Tenant Account using the [Create Tenant Account endpoint](#tag/Tenant-Account/operation/create-tenant-account). Provider must know the Tenant org name.
       - Once the Tenant has accepted the Tenant Account, the Provider can allocate resources to the Tenant.
       - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in.
-      - Create an Instance Type using the [Create Instance Type endpoint](#tag/Instance-Type/operation/create-instance-type)
-      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
+      - Create an Instance Type using the [Create Instance Type endpoint](#tag/Instance-Type/operation/create-instance-type).
+      - Retrieve available Machines on the Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine).
       - Update a Machine's Instance Type using the [Update Machine endpoint](#tag/Machine/operation/update-machine) or assign multiple Machines to an Instance Type using the
       [Create Instance Type/Machine Association endpoint](#tag/Instance-Type/operation/create-instance-type-machine-association)
-      - Create a Compute Allocation for Tenant using the [Create Compute Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing the Instance Type
+      - Create a Compute Allocation for Tenant using the [Create Compute Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing the Instance Type.
         - Creating any type of Allocation for a Tenant will create the Tenant in NICo Core.
-      - Create a Network Allocation for Tenant using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing a Site IP Block
-        - Creating a Network Allocation will create a Tenant IP Block
+      - Create a Network Allocation for Tenant using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing a Site IP Block.
+        - Creating a Network Allocation will create a Tenant IP Block.
 
       ### Typical API Call Flow for Tenant
 
@@ -85,17 +85,17 @@ tags:
       - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
       - Retrieve available Site IP Blocks using the [Retrieve All IP Blocks endpoint](#tag/IP-Block/operation/get-all-ipblock). Any IP Block for which the Tenant has received
       a Network Allocation from the Provider will be returned.
-      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
-        - Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix)
-        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet)
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block.
+        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix).
+        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
       - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
       - Retrieve available Instance Types using the [Retrieve All Instance Types endpoint](#tag/Instance-Type/operation/get-all-instance-type). Any Instance Type for which
       the Tenant has received a Compute Allocation from the Provider will be returned.
-      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Instance Type
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Instance Type.
 
   - name: Service Account
     description: |-
-      When API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
+      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
       privileged Tenant with `targetedInstanceCreation` capability enabled.
   - name: Infrastructure Provider
     description: |-
@@ -230,7 +230,7 @@ tags:
       Audit is a record of actions taken by users on the API.
   - name: Metadata
     description: |-
-      Metadata describes various system level attributes of the API service.
+      Metadata describes various system-level attributes of the API service.
   - name: Tenant Identity
     description: |-
       Tenant identity (JWT-SVID issuance) and RFC 8693 token delegation.
@@ -489,24 +489,24 @@ paths:
       description: |-
         Retrieve all Tenant Accounts.
 
-        Either `infrastructureProviderId` or `tenantId` query param must be specified.
+        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter TenantAccounts by Infrastructure Provider ID
+          description: Filter Tenant Accounts by Infrastructure Provider ID
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter TenantAccounts by Tenant ID
+          description: Filter Tenant Accounts by Tenant ID
         - schema:
             type: string
           in: query
@@ -601,7 +601,7 @@ paths:
 
         Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have authorization role with `PROVIDER_ADMIN` suffix
 
-        Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This will set the status of the Tenant Account to "Invited". Then the Tenant can view this account information and are able to confirm/accept the account by updating the Tenant Account.
+        Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
       requestBody:
         content:
           application/json:
@@ -674,11 +674,11 @@ paths:
       description: |-
         Retrieve a Tenant Account by ID
 
-        Either `infrastructureProviderId` or `tenantId` query param must be specified.
+        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
@@ -747,9 +747,9 @@ paths:
       description: |-
         Update a Tenant Account.
 
-        Can be used to accept an invitation sent by Infrastructure Provider.
+        Can be used to accept an invitation sent by an Infrastructure Provider.
 
-        Org must have a tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a TenantAccount that has `Invited` status.
+        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
       requestBody:
         content:
           application/json:
@@ -758,7 +758,7 @@ paths:
             examples:
               example-1:
                 value: {}
-        description: 'No params needed, an empty request body will suffice.'
+        description: 'No parameters are required; an empty request body is sufficient.'
     delete:
       summary: Delete Tenant Account
       operationId: delete-tenant-account
@@ -770,7 +770,7 @@ paths:
       description: |-
         Delete a Tenant Account by ID.
 
-        Org must have an Infrastructure Provider entity, specified Tenant Account must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, and the specified Tenant Account must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
         Tenant cannot delete a Tenant Account.
       tags:
@@ -808,7 +808,7 @@ paths:
       description: |-
         Retrieve all Sites for org.
 
-        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -851,7 +851,7 @@ paths:
             type: boolean
           in: query
           name: includeMachineStats
-          description: Include a breakdown of Machine counts by life-cycle status and health. Requires Provider Admin role.
+          description: Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
         - schema:
             type: string
           in: query
@@ -998,7 +998,7 @@ paths:
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site specific configurations modifiable by Tenant.
+        Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
       requestBody:
         content:
           application/json:
@@ -1199,12 +1199,12 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: Filter Allocations by Site ID.  Can be specified multiple times to filter on more than one Site ID.
+          description: Filter Allocations by Site ID. Can be specified multiple times to filter on more than one Site ID.
         - schema:
             type: string
           in: query
           name: id
-          description: Filter Allocations by ID.  Can be specified multiple times to filter on more than one ID.
+          description: Filter Allocations by ID. Can be specified multiple times to filter on more than one ID.
         - schema:
             type: string
             enum:
@@ -1212,17 +1212,17 @@ paths:
               - IPBlock
           in: query
           name: resourceType
-          description: Filter Allocations by Constraint Resource Type.  Can be specified multiple times to filter on more than one Constraint Resource Type.
+          description: Filter Allocations by Constraint Resource Type. Can be specified multiple times to filter on more than one Constraint Resource Type.
         - schema:
             type: string
           in: query
           name: status
-          description: Filter Allocations by Status.  Can be specified multiple times to filter on more than one Status.
+          description: Filter Allocations by Status. Can be specified multiple times to filter on more than one Status.
         - schema:
             type: string
           in: query
           name: resourceTypeId
-          description: Filter Allocations by Constraint Resource Type ID.  Can be specified multiple times to filter on more than one Constraint Resource Type ID.
+          description: Filter Allocations by Constraint Resource Type ID. Can be specified multiple times to filter on more than one Constraint Resource Type ID.
         - schema:
             type: string
             enum:
@@ -1231,17 +1231,17 @@ paths:
               - Preemptible
           in: query
           name: constraintType
-          description: Filter Allocations by Constraint Type.  Can be specified multiple times to filter on more than one Constraint Type.
+          description: Filter Allocations by Constraint Type. Can be specified multiple times to filter on more than one Constraint Type.
         - schema:
             type: integer
           in: query
           name: constraintValue
-          description: Filter Allocations by Constraint Value.  Can be specified multiple times to filter on more than one Constraint Value.
+          description: Filter Allocations by Constraint Value. Can be specified multiple times to filter on more than one Constraint Value.
         - schema:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Allocations. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -1338,7 +1338,7 @@ paths:
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         To successfully create a compute Allocation, there must be enough unallocated Machines associated with the Instance Type to satisfy the constraint value.
-        For network Allocation, the source site-level IP Block must have an available prefix with length equal to constraint value.
+        For network Allocation, the source site-level IP Block must have an available prefix with length equal to the constraint value.
       requestBody:
         content:
           application/json:
@@ -1460,7 +1460,7 @@ paths:
       description: |-
         Delete an Allocation by ID.
 
-        Org must have an Infrastructure Provider entity, specified Allocation must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, and the specified Allocation must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
         Tenant management of Allocation is not supported in MVP.
       tags:
@@ -1583,9 +1583,9 @@ paths:
 
         Modifying allocations may not be possible if Tenant has started utilizing resources from this allocation.
 
-        In case of InstanceType resource, `constraintValue` can be incremented anytime, but not decremented if it requires decommissioning Tenant resources.
+        For an InstanceType resource, `constraintValue` can be incremented at any time, but not decremented if doing so requires decommissioning Tenant resources.
 
-        In case of IPBlock resource, `constraintValue` can not be modified if Tenant resources are using IPs from the block.
+        For an IPBlock resource, `constraintValue` cannot be modified if Tenant resources, e.g., Subnets or VPC Prefixes, reference the block.
       requestBody:
         content:
           application/json:
@@ -1651,7 +1651,7 @@ paths:
       description: |-
         Retrieve all IP blocks for the org.
 
-        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -1685,7 +1685,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all IP Blocks. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -1887,7 +1887,7 @@ paths:
       description: |-
         Delete an IP block
 
-        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with it.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with them.
 
         Tenant IP Blocks are managed via Allocation.
       tags:
@@ -2018,7 +2018,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all derived IP Blocks. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -2111,7 +2111,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: Ready
-                          message: Vpc has been successfully provisioned on Site
+                          message: VPC has been successfully provisioned on Site
                           created: '2019-08-24T16:02:00Z'
                           updated: '2019-08-24T16:02:00Z'
                         - status: Pending
@@ -2160,7 +2160,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all VPCs. Input will be matched against name, description, labels and status fields'
+          description: 'Search for matches across all VPCs. Input will be matched against name, description, labels, and status fields'
         - schema:
             type: string
             enum:
@@ -2321,7 +2321,7 @@ paths:
                         - 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     statusHistory:
                       - status: Ready
-                        message: Vpc has been successfully provisioned on Site
+                        message: VPC has been successfully provisioned on Site
                         created: '2019-08-24T16:02:00Z'
                         updated: '2019-08-24T16:02:00Z'
                       - status: Pending
@@ -2482,7 +2482,7 @@ paths:
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
 
         Tenant must own the VPC
-        Request is rejected if the VPC already has Subnets or Instances
+        Request is rejected if the VPC already has Subnets or Instances.
       requestBody:
         content:
           application/json:
@@ -2723,7 +2723,7 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: 'Filter VPC Prefixes by Site, required if vpcId query param is not specified'
+          description: 'Filter VPC Prefixes by Site, required if the vpcId query parameter is not specified'
         - schema:
             type: string
             format: uuid
@@ -2739,7 +2739,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name and status fields
+          description: Search for matches across all VPC Prefixes. Input will be matched against name and status fields
         - schema:
             type: string
             enum:
@@ -2754,7 +2754,7 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage.
+            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
         - schema:
             type: integer
@@ -2859,7 +2859,7 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage.
+            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
     delete:
       summary: Delete VPC Prefix
@@ -2968,7 +2968,7 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: 'Filter subnets by Site, required if vpcId query param is not specified'
+          description: 'Filter subnets by Site, required if the vpcId query parameter is not specified'
         - schema:
             type: string
             format: uuid
@@ -2984,7 +2984,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Subnets. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -3000,8 +3000,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each Subnet object includes usage statistic using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            When true, each Subnet object includes usage statistics using the same structure as IP Block usage.
+            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
         - schema:
             type: integer
             example: 1
@@ -3075,7 +3075,7 @@ paths:
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-        At least 1 IPv4 IP block or 1 IPv6 IP block must be specified.
+        At least one IPv4 IP block or one IPv6 IP block must be specified.
       requestBody:
         content:
           application/json:
@@ -3167,8 +3167,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each Subnet object includes usage statistic using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            When true, each Subnet object includes usage statistics using the same structure as IP Block usage.
+            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
     delete:
       summary: Delete Subnet
       operationId: delete-subnet
@@ -3468,7 +3468,7 @@ paths:
       parameters: []
       responses:
         '204':
-          description: ExpectedMachine deleted successfully
+          description: Expected Machine deleted successfully
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -4682,7 +4682,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all InfiniBand Partitions. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -4994,7 +4994,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all NVLink Logical Partitions. Input will be matched against name, description, and status fields'
         - schema:
             type: boolean
           in: query
@@ -5353,7 +5353,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, display name, description, labels and status fields'
+          description: 'Search for matches across all Instance Types. Input will be matched against name, display name, description, labels, and status fields'
         - schema:
             type: string
             enum:
@@ -5376,7 +5376,7 @@ paths:
             type: boolean
           in: query
           name: excludeUnallocated
-          description: Excludes InstanceType records that have no allocations from being returned in the result set. Currently can only be requested by Tenant.
+          description: Excludes Instance Type records that have no allocations from being returned in the result set. Currently can only be requested by Tenant.
         - schema:
             type: integer
             example: 1
@@ -5989,7 +5989,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6080,7 +6080,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6164,7 +6164,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6242,7 +6242,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description, status, and labels fields'
+          description: 'Search for matches across all Instances. Input will be matched against name, description, status, and labels fields'
         - schema:
             type: string
             enum:
@@ -6300,7 +6300,7 @@ paths:
             type: string
           in: query
           name: networkSecurityGroupId
-          description: Filter by NetworkSecurityGroup ID.  Can be specified multiple times to filter on more than one Network Security Group.
+          description: Filter by Network Security Group ID. Can be specified multiple times to filter on more than one Network Security Group.
     post:
       summary: Create an Instance
       operationId: create-instance
@@ -7987,9 +7987,9 @@ paths:
 
         Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
 
         Only Tenants are allowed to create Operating System for MVP.
       requestBody:
@@ -8069,7 +8069,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OperatingSystem'
               examples:
-                Image Based OS:
+                Image-based OS:
                   value:
                     id: 42b0f982-5c61-4d2f-a018-41ece61f4641
                     name: debian-12-amd64
@@ -9354,7 +9354,7 @@ paths:
             type: string
           in: query
           name: inactiveDevices
-          description: 'Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query params should be specified in correct order in order to filter. For example, to filter for [1, 3], specify inactiveDevices=1&inactiveDevices=3'
+          description: 'Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query parameters should be specified in the correct order. For example, to filter for [1, 3], specify inactiveDevices=1&inactiveDevices=3'
         - schema:
             type: string
           in: query
@@ -11229,7 +11229,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Network Security Groups. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -11483,7 +11483,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status'
+          description: 'Search for matches across all DPU Extension Services. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -11780,7 +11780,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name field
+          description: Search for matches across all SSH Key Groups. Input will be matched against the name field
         - schema:
             type: string
             enum:
@@ -12135,7 +12135,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name field
+          description: Search for matches across all SSH Keys. Input will be matched against the name field
         - schema:
             type: string
             enum:
@@ -14294,7 +14294,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing VPC labels
+          description: String key-value pairs describing VPC labels
         status:
           $ref: '#/components/schemas/VpcStatus'
           readOnly: true
@@ -14408,7 +14408,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing VPC labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing VPC labels. Up to 10 key-value pairs can be specified
       required:
         - name
         - siteId
@@ -14445,7 +14445,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Update labels of the VPC. Up to 10 key value pairs can be specified. The labels will be entirely replaced by those sent in the request. Any labels not included in the request will be removed. To retain existing labels, first fetch them and include them along with this request.'
+          description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
     VpcVirtualizationUpdateRequest:
       title: VpcVirtualizationUpdateRequest
       type: object
@@ -14631,7 +14631,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
         statusHistory:
           type: array
           items:
@@ -14853,7 +14853,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
         statusHistory:
           type: array
           items:
@@ -15057,7 +15057,7 @@ components:
           readOnly: true
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing InfiniBand Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing InfiniBand Partition labels. Up to 10 key-value pairs can be specified
         status:
           $ref: '#/components/schemas/InfiniBandPartitionStatus'
           description: 'Status of the InfiniBand Partition'
@@ -15113,7 +15113,7 @@ components:
           description: ID of the Site the Partition should belong to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
       required:
         - name
         - siteId
@@ -15137,7 +15137,7 @@ components:
           description: 'Description of the InfiniBand Partition'
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
       required:
         - name
     NVLinkLogicalPartition:
@@ -15194,7 +15194,7 @@ components:
           readOnly: true
         nvLinkLogicalPartitionStats:
           $ref: '#/components/schemas/NVLinkLogicalPartitionStats'
-          description: GPU and Instance usage counts for the NVLink Logical Partition. Returned if `includeStats` query param is set to true in retrieval endpoints
+          description: GPU and Instance usage counts for the NVLink Logical Partition. Returned if the `includeStats` query parameter is set to true in retrieval endpoints
         created:
           type: string
           format: date-time
@@ -15463,17 +15463,17 @@ components:
             - string
             - 'null'
           format: uri
-          description: Original URL from where the Operating System image can be retrieved
+          description: Original URL from which the Operating System image can be retrieved
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, only present for image based OS'
+          description: 'SHA hash of the image file, only present for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: Authentication type for image URL e.g. 'Basic' or 'Bearer'
+          description: Authentication type for image URL, e.g., 'Basic' or 'Bearer'
         imageAuthToken:
           type:
             - string
@@ -15483,22 +15483,22 @@ components:
           type:
             - string
             - 'null'
-          description: Disk path where the image should be monuted
+          description: Disk path where the image should be mounted
         rootFsId:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, only applicable for image based Operating System'
+          description: 'Root filesystem UUID, only applicable for image-based Operating System'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, only applicable for image based Operating System'
+          description: 'Root filesystem label, only applicable for image-based Operating System'
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based Operating System'
+          description: 'iPXE script or URL, only applicable for iPXE-based Operating System'
         userData:
           type:
             - string
@@ -15506,7 +15506,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         phoneHomeEnabled:
           type: boolean
           description: Indicates whether the Phone Home service should be enabled or disabled for Operating System
@@ -15672,28 +15672,28 @@ components:
           items:
             type: string
             format: uuid
-          description: 'Specified only one Site if an Operating System is Image based, more than one Site is not supported"'
+          description: 'Specify only one Site if an Operating System is image-based; more than one Site is not supported.'
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based OS. Cannot be specified if imageUrl is specified'
+          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
         imageUrl:
           type:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from where the Operating System image can be retreived from, required for image based OS. Cannot be specified if ipxeScript is specified'
+          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS. Cannot be specified if ipxeScript is specified'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image based OS'
+          description: 'SHA hash of the image file, required for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL if needed e.g. basic/bearer/token, required is imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
         imageAuthToken:
           type:
             - string
@@ -15708,12 +15708,12 @@ components:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, this or `rootFsLabel` required for image based OS'
+          description: 'Root filesystem UUID; this or `rootFsLabel` is required for image-based OS'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, this or `rootFsId` required for image based OS'
+          description: 'Root filesystem label; this or `rootFsId` is required for image-based OS'
         phoneHomeEnabled:
           type:
             - boolean
@@ -15726,7 +15726,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
@@ -15752,7 +15752,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: Request data to update an OperatingSystem. Only image related attributes can be updated for image based OS and only iPXE attributes can be updated for iPXE based OS
+      description: Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
       properties:
         name:
           type:
@@ -15770,23 +15770,23 @@ components:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based OS. Cannot be specified if imageUrl is specified'
+          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
         imageUrl:
           type:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from where the Operating System image can be retreived from, required for image based OS'
+          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image based OS'
+          description: 'SHA hash of the image file, required for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL if needed e.g. basic/bearer/token, required is imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
         imageAuthToken:
           type:
             - string
@@ -15801,12 +15801,12 @@ components:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, this or `rootFsLabel` required for image based OS'
+          description: 'Root filesystem UUID; this or `rootFsLabel` is required for image-based OS'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, this or `rootFsId` required for image based OS'
+          description: 'Root filesystem label; this or `rootFsId` is required for image-based OS'
         phoneHomeEnabled:
           type:
             - boolean
@@ -15821,7 +15821,7 @@ components:
           type:
             - boolean
             - 'null'
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         allowOverride:
           type:
             - boolean
@@ -16456,7 +16456,7 @@ components:
           description: Indicates whether the Instance should always execute custom iPXE script when rebooting
         phoneHomeEnabled:
           type: boolean
-          description: Indicates whether the Phone Home service should be enabled or disabled for Instance
+          description: Indicates whether the Phone Home service should be enabled or disabled for the Instance
         userData:
           type:
             - string
@@ -16464,7 +16464,7 @@ components:
           description: 'UserData is inherited from Operating System or specified by user if allowed'
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Labels is Instance labels specified by user'
+          description: 'User-specified Instance labels'
         isUpdatePending:
           type: boolean
           description: Indicates whether an update is available for the Instance. Updates can be applied on reboot
@@ -17067,10 +17067,10 @@ components:
           type:
             - boolean
             - 'null'
-          description: Indicates whether the Phone Home service should be enabled or disabled for Instance
+          description: Indicates whether the Phone Home service should be enabled or disabled for the Instance
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Update labels of the Instance. The labels will be entirely replaced by those sent in the request. Any labels not included in the request will be removed. To retain existing labels, first fetch them and include them along with this request.'
+          description: 'Update labels of the Instance. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
         secondaryVpcIds:
           type: array
           uniqueItems: true
@@ -17095,7 +17095,7 @@ components:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
         nvLinkInterfaces:
           type: array
-          description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed, specified interfaces will delete or replace existing Interfaces. Updating is not allowed if Instance's VPC has `nvLinkLogicalPartitionId` attribute set.
+          description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
           items:
             $ref: '#/components/schemas/NVLinkInterfaceCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
@@ -18932,10 +18932,10 @@ components:
           description: 'Health information about the machine'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
-          description: Only available to Providers. Returned if includeMetadata query param is specified. Otherwise attribute is omitted from response.
+          description: Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Labels is VPC labels specified by user'
+          description: 'User-specified Machine labels'
         status:
           $ref: '#/components/schemas/MachineStatus'
           description: 'Status represents the status of the machine'
@@ -21534,7 +21534,7 @@ components:
           description: Number of rules in the Network Security Group
         attachmentStats:
           $ref: '#/components/schemas/NetworkSecurityGroupStats'
-          description: Attachment statistics for the Network Security Group. Returned when `includeAttachmentStats` query param is set to true in retrieval endpoints.
+          description: Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Set of labels/tags for the Network Security Group'
@@ -21657,7 +21657,7 @@ components:
           description: Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
         rules:
           type: array
-          description: 'Update rules of the NetworkSecurityGroup. The rules will be entirely replaced by those sent in the request. Any rules not included in the request will be removed. To retain existing rules, first fetch them and include them. '
+          description: 'Update rules of the Network Security Group. The rules will be replaced with the rules sent in the request. Any rules not included in the request will be removed. To retain existing rules, fetch them first and include them.'
           items:
             $ref: '#/components/schemas/NetworkSecurityGroupRule'
         labels:
@@ -22388,7 +22388,7 @@ components:
     DpuExtensionServiceCredentials:
       title: DpuExtensionServiceCredentials
       type: object
-      description: Credentials for retreiving resources specified in DPU Extension Service data
+      description: Credentials for retrieving resources specified in DPU Extension Service data
       examples:
         - registryUrl: 'https://registry.hub.docker.com'
           username: johndoe
