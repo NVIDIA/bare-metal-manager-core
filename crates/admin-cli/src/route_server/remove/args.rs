@@ -27,10 +27,10 @@ use crate::route_server::common::AddressArgs;
 EXAMPLES:
 
 Remove one or more route server addresses:
-    $ carbide-admin-cli route-server remove 10.0.0.1,10.0.0.2
+    $ nico-admin-cli route-server remove 10.0.0.1,10.0.0.2
 
 Remove ephemerally against config-file entries (break-glass):
-    $ carbide-admin-cli route-server remove 10.0.0.1 --source-type config_file
+    $ nico-admin-cli route-server remove 10.0.0.1 --source-type config_file
 
 ")]
 pub struct Args {

@@ -395,7 +395,7 @@ jobs:
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
               EXPECTED_FILES=(
                 "pxe/static/blobs/internal/x86_64/ipxe.efi"
-                "target/debug/carbide-admin-cli"
+                "target/debug/nico-admin-cli"
                 # target/debs/* checked separately
               )
             else
@@ -494,7 +494,7 @@ jobs:
           # so missing files (like BFB artifacts when disabled) won't fail the build
           if [[ "${{ inputs.build_type }}" == "boot" ]]; then
             if [[ "${{ inputs.arch }}" == "x86_64" ]]; then
-              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/carbide-admin-cli", "target/debs/*"]'
+              ARTIFACTS='["pxe/static/blobs/internal/x86_64/ipxe.efi", "target/debug/nico-admin-cli", "target/debs/*"]'
             else
               # Lists all expected BFB artifacts even though some may not be generated (BFB build is disabled)
               # This matches GitLab CI behavior where artifact paths are listed but upload succeeds if files don't exist
@@ -518,7 +518,7 @@ jobs:
           name: ${{ inputs.build_type }}-artifacts-${{ inputs.arch }}-${{ github.run_id }}
           path: |
             pxe/static/blobs/
-            target/debug/carbide-admin-cli
+            target/debug/nico-admin-cli
             target/debs/
             target/aarch64-unknown-linux-gnu/
             pxe/mkosi.profiles/

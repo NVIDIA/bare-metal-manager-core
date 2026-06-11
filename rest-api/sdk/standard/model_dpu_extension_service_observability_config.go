@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,9 +23,11 @@ var _ MappedNullable = &DpuExtensionServiceObservabilityConfig{}
 // DpuExtensionServiceObservabilityConfig A single observability configuration for a DPU Extension Service version
 type DpuExtensionServiceObservabilityConfig struct {
 	// Optional name of the service or component being monitored
-	Name       NullableString
+	Name NullableString
+	// Prometheus scrape configuration
 	Prometheus *DpuExtensionServiceObservabilityPrometheus
-	Logging    *DpuExtensionServiceObservabilityLogging
+	// Logging configuration
+	Logging *DpuExtensionServiceObservabilityLogging
 }
 
 // NewDpuExtensionServiceObservabilityConfig instantiates a new DpuExtensionServiceObservabilityConfig object

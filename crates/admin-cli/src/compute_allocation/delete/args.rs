@@ -24,7 +24,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a compute allocation:
-    $ carbide-admin-cli compute-allocation delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli compute-allocation delete --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a
 
 ")]

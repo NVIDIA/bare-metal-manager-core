@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,20 +23,30 @@ var _ MappedNullable = &InfiniBandInterface{}
 
 // InfiniBandInterface Defines an interface created by associating an Instance with an InfiniBand Partition
 type InfiniBandInterface struct {
-	Id         *string `json:"id,omitempty"`
+	// Unique UUID v4 identifier for the InfiniBandInterface
+	Id *string `json:"id,omitempty"`
+	// ID of the associated Instance
 	InstanceId *string `json:"instanceId,omitempty"`
 	// ID of the InfiniBand Partition associated with this interface
 	PartitionId *string `json:"partitionId,omitempty"`
 	// Name of the InfiniBand device associated with this interface
-	Device         *string `json:"device,omitempty"`
-	DeviceInstance *int32  `json:"deviceInstance,omitempty"`
+	Device *string `json:"device,omitempty"`
+	// Name of the InfiniBand device vendor associated with this interface
+	Vendor NullableString `json:"vendor,omitempty"`
+	// Index of the device where partition attach to
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 	// Indicates whether this is a physical interface
-	IsPhysical        *bool                      `json:"isPhysical,omitempty"`
-	VirtualFunctionId NullableInt32              `json:"virtualFunctionId,omitempty"`
-	Guid              NullableString             `json:"guid,omitempty"`
-	Status            *InfiniBandInterfaceStatus `json:"status,omitempty"`
-	Created           *time.Time                 `json:"created,omitempty"`
-	Updated           *time.Time                 `json:"updated,omitempty"`
+	IsPhysical *bool `json:"isPhysical,omitempty"`
+	// Must be specified if isPhysical is false
+	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
+	// Must be specified if isPhysical is false
+	Guid NullableString `json:"guid,omitempty"`
+	// Status of the InfiniBandInterface
+	Status *InfiniBandInterfaceStatus `json:"status,omitempty"`
+	// Date/time when the InfiniBandInterface was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the InfiniBandInterface was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewInfiniBandInterface instantiates a new InfiniBandInterface object
@@ -182,6 +192,49 @@ func (o *InfiniBandInterface) HasDevice() bool {
 // SetDevice gets a reference to the given string and assigns it to the Device field.
 func (o *InfiniBandInterface) SetDevice(v string) {
 	o.Device = &v
+}
+
+// GetVendor returns the Vendor field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *InfiniBandInterface) GetVendor() string {
+	if o == nil || IsNil(o.Vendor.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.Vendor.Get()
+}
+
+// GetVendorOk returns a tuple with the Vendor field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *InfiniBandInterface) GetVendorOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Vendor.Get(), o.Vendor.IsSet()
+}
+
+// HasVendor returns a boolean if a field has been set.
+func (o *InfiniBandInterface) HasVendor() bool {
+	if o != nil && o.Vendor.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetVendor gets a reference to the given NullableString and assigns it to the Vendor field.
+func (o *InfiniBandInterface) SetVendor(v string) {
+	o.Vendor.Set(&v)
+}
+
+// SetVendorNil sets the value for Vendor to be an explicit nil
+func (o *InfiniBandInterface) SetVendorNil() {
+	o.Vendor.Set(nil)
+}
+
+// UnsetVendor ensures that no value is present for Vendor, not even an explicit nil
+func (o *InfiniBandInterface) UnsetVendor() {
+	o.Vendor.Unset()
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
@@ -451,6 +504,9 @@ func (o InfiniBandInterface) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Device) {
 		toSerialize["device"] = o.Device
+	}
+	if o.Vendor.IsSet() {
+		toSerialize["vendor"] = o.Vendor.Get()
 	}
 	if !IsNil(o.DeviceInstance) {
 		toSerialize["deviceInstance"] = o.DeviceInstance

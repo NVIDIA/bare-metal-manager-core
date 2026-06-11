@@ -19,6 +19,9 @@ use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
 use carbide_rack_controller::metrics::RackMetrics;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialReader, Credentials,
+};
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
@@ -26,7 +29,6 @@ use db::db_read::DbReader;
 use db::{
     ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;

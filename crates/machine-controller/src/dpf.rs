@@ -174,7 +174,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
             (CONTROLLED_DEVICE_LABEL.to_string(), "true".to_string()),
             (
                 "carbide.nvidia.com/host-bmc-ip".to_string(),
-                info.host_bmc_ip.clone(),
+                info.host_bmc_ip.to_string(),
             ),
             (
                 "carbide.nvidia.com/is-primary-dpu".to_string(),
@@ -200,7 +200,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
         BTreeMap::from([(
             "carbide.nvidia.com/host-bmc-ip".to_string(),
-            info.host_bmc_ip.clone(),
+            info.host_bmc_ip.to_string(),
         )])
     }
 
@@ -210,10 +210,10 @@ impl ResourceLabeler for CarbideDPFLabeler {
 }
 
 /// BMC password provider backed by the Carbide credential manager.
-pub struct CarbideBmcPasswordProvider(Arc<dyn forge_secrets::credentials::CredentialReader>);
+pub struct CarbideBmcPasswordProvider(Arc<dyn carbide_secrets::credentials::CredentialReader>);
 
 impl CarbideBmcPasswordProvider {
-    pub fn new(credential_reader: Arc<dyn forge_secrets::credentials::CredentialReader>) -> Self {
+    pub fn new(credential_reader: Arc<dyn carbide_secrets::credentials::CredentialReader>) -> Self {
         Self(credential_reader)
     }
 }
@@ -221,7 +221,7 @@ impl CarbideBmcPasswordProvider {
 #[async_trait]
 impl BmcPasswordProvider for CarbideBmcPasswordProvider {
     async fn get_bmc_password(&self) -> Result<String, DpfError> {
-        use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+        use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
         let key = CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRoot,
         };

@@ -41,13 +41,13 @@ use carbide_power_shelf_controller::context::{
 };
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
+use carbide_secrets::credentials::Credentials;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use component_manager::compute_tray_manager::Backend;
 use component_manager::config::ComponentManagerConfig;
 use db::{expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf};
-use forge_secrets::credentials::Credentials;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;

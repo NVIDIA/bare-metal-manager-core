@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,17 +23,28 @@ var _ MappedNullable = &TenantAccount{}
 
 // TenantAccount Associates a Tenant with an Infrastructure Provider
 type TenantAccount struct {
-	Id                        *string              `json:"id,omitempty"`
-	InfrastructureProviderId  *string              `json:"infrastructureProviderId,omitempty"`
-	InfrastructureProviderOrg *string              `json:"infrastructureProviderOrg,omitempty"`
-	TenantId                  NullableString       `json:"tenantId,omitempty"`
-	TenantOrg                 NullableString       `json:"tenantOrg,omitempty"`
-	TenantContact             *User                `json:"tenantContact,omitempty"`
-	AllocationCount           *int32               `json:"allocationCount,omitempty"`
-	Status                    *TenantAccountStatus `json:"status,omitempty"`
-	StatusHistory             []StatusDetail       `json:"statusHistory,omitempty"`
-	Created                   *time.Time           `json:"created,omitempty"`
-	Updated                   *time.Time           `json:"updated,omitempty"`
+	// Unique UUID v4 identifier for the Tenant Account
+	Id *string `json:"id,omitempty"`
+	// ID of the Infrastructure Provider
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
+	// Organization name of the Infrastructure Provider
+	InfrastructureProviderOrg *string `json:"infrastructureProviderOrg,omitempty"`
+	// ID of the Tenant
+	TenantId NullableString `json:"tenantId,omitempty"`
+	// Org of the Tenant
+	TenantOrg NullableString `json:"tenantOrg,omitempty"`
+	// Contact user for the Tenant
+	TenantContact *User `json:"tenantContact,omitempty"`
+	// Number of Allocations for the Tenant Account
+	AllocationCount *int32 `json:"allocationCount,omitempty"`
+	// Status of the Tenant Account
+	Status *TenantAccountStatus `json:"status,omitempty"`
+	// Chronological status history for the Tenant Account
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the Tenant Account was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Tenant Account was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewTenantAccount instantiates a new TenantAccount object

@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
@@ -118,10 +119,10 @@ pub struct NvueOptions {
     pub uplinks: Vec<String>,
 
     #[clap(long, use_value_delimiter = true, help = "Comma separated")]
-    pub route_servers: Vec<String>,
+    pub route_servers: Vec<IpAddr>,
 
     #[clap(long, use_value_delimiter = true, help = "Comma separated")]
-    pub dhcp_servers: Vec<String>,
+    pub dhcp_servers: Vec<IpAddr>,
 
     #[clap(
         long,
@@ -176,13 +177,13 @@ pub struct NvueOptions {
         long,
         help = "IP to be used for a local VTEP when configuring an additional overlay network"
     )]
-    pub secondary_overlay_vtep_ip: Option<String>,
+    pub secondary_overlay_vtep_ip: Option<IpAddr>,
 
     #[clap(
         long,
         help = "Prefix to be used for configuring a set of internal bridges to be used with advanced routing for traffic interception.  Prefix length is expected to be /29 or smaller (i.e., 8 or more IP addresses)."
     )]
-    pub internal_bridge_routing_prefix: Option<String>,
+    pub internal_bridge_routing_prefix: Option<Ipv4Net>,
 
     #[clap(
         long,

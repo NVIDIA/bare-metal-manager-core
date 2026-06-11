@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -34,35 +34,47 @@ type Instance struct {
 	// ID of the Infrastructure Provider that owns the Site where the Instance is located
 	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
 	// ID of the Site where the Instance is located
-	SiteId         *string        `json:"siteId,omitempty"`
+	SiteId *string `json:"siteId,omitempty"`
+	// ID of the Instance Type
 	InstanceTypeId NullableString `json:"instanceTypeId,omitempty"`
-	VpcId          *string        `json:"vpcId,omitempty"`
+	// ID of the VPC
+	VpcId *string `json:"vpcId,omitempty"`
 	// IDs of VPCs attached to the Instance through non-primary interfaces
-	SecondaryVpcIds        []string       `json:"secondaryVpcIds,omitempty"`
-	MachineId              NullableString `json:"machineId,omitempty"`
-	OperatingSystemId      NullableString `json:"operatingSystemId,omitempty"`
+	SecondaryVpcIds []string `json:"secondaryVpcIds,omitempty"`
+	// ID of the Machine
+	MachineId NullableString `json:"machineId,omitempty"`
+	// ID of the Operating System
+	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
+	// ID of the attached Network Security Group, if any
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Propagation details for the attached Network Security Group
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails,omitempty"`
 	// Indicates if the Network Security Group is inherited from VPC
-	NetworkSecurityGroupInherited *bool          `json:"networkSecurityGroupInherited,omitempty"`
-	ControllerInstanceId          NullableString `json:"controllerInstanceId,omitempty"`
-	IpxeScript                    NullableString `json:"ipxeScript,omitempty"`
+	NetworkSecurityGroupInherited *bool `json:"networkSecurityGroupInherited,omitempty"`
+	// ID of the Instance in Site Controller
+	ControllerInstanceId NullableString `json:"controllerInstanceId,omitempty"`
+	// Attribute which is inherited from Operating System
+	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// Indicates whether the Instance should always execute custom iPXE script when rebooting
 	AlwaysBootWithCustomIpxe *bool `json:"alwaysBootWithCustomIpxe,omitempty"`
-	// Indicates whether the Phone Home service should be enabled or disabled for Instance
-	PhoneHomeEnabled *bool             `json:"phoneHomeEnabled,omitempty"`
-	UserData         NullableString    `json:"userData,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"`
+	// Indicates whether the Phone Home service should be enabled or disabled for the Instance
+	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`
+	// UserData is inherited from Operating System or specified by user if allowed
+	UserData NullableString `json:"userData,omitempty"`
+	// User-specified Instance labels
+	Labels map[string]string `json:"labels,omitempty"`
 	// Indicates whether an update is available for the Instance. Updates can be applied on reboot
 	IsUpdatePending *bool `json:"isUpdatePending,omitempty"`
 	// Serial Console URL for the Instance. Format: ssh://<id>@siteSerialConsoleHostname
 	SerialConsoleUrl NullableString `json:"serialConsoleUrl,omitempty"`
 	// True when this Instance uses NICo auto-resolved networking from the host's underlay (HostInband) network segments. When true, the caller's request `interfaces` list was empty, this `interfaces` field remains empty on readback, and the resolved per-interface details surface under `status.network.interfaces`.
-	AutoNetwork          *bool                 `json:"autoNetwork,omitempty"`
-	Interfaces           []Interface           `json:"interfaces,omitempty"`
+	AutoNetwork *bool `json:"autoNetwork,omitempty"`
+	// Interfaces are list of the subnet associated with the Instance
+	Interfaces []Interface `json:"interfaces,omitempty"`
+	// InfiniBandInterfaces are list of the InfiniBandInterface associated with the Instance
 	InfinibandInterfaces []InfiniBandInterface `json:"infinibandInterfaces,omitempty"`
-	NvLinkInterfaces     []NVLinkInterface     `json:"nvLinkInterfaces,omitempty"`
+	// NVLinkInterfaces are list of the NVLinkInterface associated with the Instance
+	NvLinkInterfaces []NVLinkInterface `json:"nvLinkInterfaces,omitempty"`
 	// DPU Extension Services deployed on DPUs of this Instance
 	DpuExtensionServiceDeployments []DpuExtensionServiceDeployment `json:"dpuExtensionServiceDeployments,omitempty"`
 	// IDs of SSH Key Groups associated with this Instance
@@ -70,12 +82,17 @@ type Instance struct {
 	// IDs of SSH Key Groups associated with this Instance
 	SshKeyGroups []SshKeyGroup `json:"sshKeyGroups,omitempty"`
 	// base64 encoded TPM EK Certificate associated with this Instance
-	TpmEkCertificate NullableString  `json:"tpmEkCertificate,omitempty"`
-	Status           *InstanceStatus `json:"status,omitempty"`
-	StatusHistory    []StatusDetail  `json:"statusHistory,omitempty"`
-	Deprecations     []Deprecation   `json:"deprecations,omitempty"`
-	Created          *time.Time      `json:"created,omitempty"`
-	Updated          *time.Time      `json:"updated,omitempty"`
+	TpmEkCertificate NullableString `json:"tpmEkCertificate,omitempty"`
+	// Status of the Instance
+	Status *InstanceStatus `json:"status,omitempty"`
+	// Chronological status history for the Instance
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Deprecation notices for fields returned by this resource
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
+	// Date/time when the Instance was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Instance was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewInstance instantiates a new Instance object

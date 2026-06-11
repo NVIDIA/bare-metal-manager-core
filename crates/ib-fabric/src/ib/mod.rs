@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use carbide_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 pub use iface::{
     Filter, GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
 };

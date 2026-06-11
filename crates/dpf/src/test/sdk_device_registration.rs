@@ -195,8 +195,8 @@ async fn test_register_devices_node_and_force_delete() {
     for i in 1..=2 {
         let info = DpuDeviceInfo {
             device_id: format!("dpu-{}", i),
-            dpu_bmc_ip: format!("192.168.1.{}", 100 + i),
-            host_bmc_ip: "192.168.1.1".to_string(),
+            dpu_bmc_ip: format!("192.168.1.{}", 100 + i).parse().unwrap(),
+            host_bmc_ip: "192.168.1.1".parse().unwrap(),
             serial_number: format!("SN-{}", i),
             dpu_machine_id: format!("dpu-{}-id", i),
             is_primary: true,
@@ -207,7 +207,7 @@ async fn test_register_devices_node_and_force_delete() {
     // Register node
     let node_info = DpuNodeInfo {
         node_id: "host-001".to_string(),
-        host_bmc_ip: "192.168.1.1".to_string(),
+        host_bmc_ip: "192.168.1.1".parse().unwrap(),
         device_ids: vec!["dpu-1".to_string(), "dpu-2".to_string()],
     };
     sdk.register_dpu_node(node_info).await.unwrap();

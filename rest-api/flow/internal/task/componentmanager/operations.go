@@ -70,8 +70,8 @@ type FirmwareStatusReader interface {
 type BringUpController interface {
 	// BringUpControl opens the power-on gate for the target components, allowing
 	// them to proceed through the bring-up sequence. The info argument carries
-	// the parent BringUp task settings — notably OverrideAssignmentCheck —
-	// because bring-up can power-cycle hosts and must consult the same safety
+	// the parent BringUp task settings — notably OverrideReadinessCheck —
+	// because bring-up can power-cycle hosts and must consult the same readiness
 	// gate as PowerControl / FirmwareControl.
 	BringUpControl(ctx context.Context, target common.Target, info operations.BringUpTaskInfo) error //nolint
 }

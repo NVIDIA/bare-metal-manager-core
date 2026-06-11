@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,11 +22,16 @@ var _ MappedNullable = &SiteMachineStats{}
 
 // SiteMachineStats Machine stats for a Site
 type SiteMachineStats struct {
-	Total                  *int32                             `json:"total,omitempty"`
-	TotalByStatus          *SiteMachineStatsByStatus          `json:"totalByStatus,omitempty"`
-	TotalByHealth          *SiteMachineStatsByHealth          `json:"totalByHealth,omitempty"`
+	// Total number of Machines at the Site
+	Total *int32 `json:"total,omitempty"`
+	// Machine counts grouped by Machine status
+	TotalByStatus *SiteMachineStatsByStatus `json:"totalByStatus,omitempty"`
+	// Machine counts grouped by health state
+	TotalByHealth *SiteMachineStatsByHealth `json:"totalByHealth,omitempty"`
+	// Machine health counts grouped by Machine status
 	TotalByStatusAndHealth *SiteMachineStatsByStatusAndHealth `json:"totalByStatusAndHealth,omitempty"`
-	TotalByAllocation      *SiteMachineStatsByAllocation      `json:"totalByAllocation,omitempty"`
+	// Machine counts grouped by allocation and usage state
+	TotalByAllocation *SiteMachineStatsByAllocation `json:"totalByAllocation,omitempty"`
 }
 
 // NewSiteMachineStats instantiates a new SiteMachineStats object

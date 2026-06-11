@@ -24,13 +24,13 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Force-enable firmware auto-update for a host:
-    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --enable
+    $ nico-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --enable
 
 Force-disable it:
-    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --disable
+    $ nico-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --disable
 
 Clear the per-machine override (fall back to global/config):
-    $ carbide-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --clear
+    $ nico-admin-cli machine auto-update --machine 12345678-1234-5678-90ab-cdef01234567 --clear
 
 ")]
 pub struct Args {

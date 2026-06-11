@@ -27,7 +27,7 @@ use super::super::common::ShowSkuOptions;
 EXAMPLES:
 
 Show the machines assigned to a SKU:
-    $ carbide-admin-cli sku show-machines DGX-H100-640GB
+    $ nico-admin-cli sku show-machines DGX-H100-640GB
 
 ")]
 pub struct Args {

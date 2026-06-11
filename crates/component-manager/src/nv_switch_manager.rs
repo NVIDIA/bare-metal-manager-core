@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 

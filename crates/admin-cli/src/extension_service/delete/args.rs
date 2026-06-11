@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Delete an entire extension service (all versions):
-    $ carbide-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567
 
 Delete only specific versions, keeping the rest:
-    $ carbide-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli extension-service delete --id 12345678-1234-5678-90ab-cdef01234567 \
     --versions 1.0,1.1
 
 ")]

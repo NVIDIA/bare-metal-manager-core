@@ -26,7 +26,7 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Add capacity to resource pools from a TOML file:
-    $ carbide-admin-cli resource-pool grow --filename ./grow-pools.toml
+    $ nico-admin-cli resource-pool grow --filename ./grow-pools.toml
 
 ")]
 pub struct Args {

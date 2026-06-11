@@ -18,8 +18,8 @@
 use std::sync::Arc;
 
 use carbide_health_metrics::PerObjectMetricsRegistry;
+use carbide_secrets::credentials::CredentialManager;
 use component_manager::component_manager::ComponentManager;
-use forge_secrets::credentials::CredentialManager;
 use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
 

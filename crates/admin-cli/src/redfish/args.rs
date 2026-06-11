@@ -28,24 +28,20 @@ Every redfish command targets a BMC: --address is required, --username
 and --password are optional, and all are given before the subcommand:
 
 Read the current power state:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword get-power-state
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword get-power-state
 
 Power a machine on:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword on
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword on
 
 Force a machine off (alias: off):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
 
 Set PXE first in the boot order:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword boot-pxe
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword boot-pxe
 
 Update host firmware from a local package:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     update-firmware-multipart --filename ./host-fw.bin
-
-Browse an arbitrary Redfish URI:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
-    browse --uri /redfish/v1/Systems
 
 ")]
 pub struct RedfishAction {
@@ -113,7 +109,7 @@ pub enum Cmd {
 EXAMPLES:
 
 Force a machine off (also accepted as the alias `off`):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-off
 
 ")]
     ForceOff,
@@ -125,7 +121,7 @@ Force a machine off (also accepted as the alias `off`):
 EXAMPLES:
 
 Force-restart a machine (also accepted as the alias `reset`):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-restart
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword force-restart
 
 ")]
     ForceRestart,
@@ -137,7 +133,7 @@ Force-restart a machine (also accepted as the alias `reset`):
 EXAMPLES:
 
 Gracefully restart a machine (also accepted as the alias `restart`):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-restart
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-restart
 
 ")]
     GracefulRestart,
@@ -147,7 +143,7 @@ Gracefully restart a machine (also accepted as the alias `restart`):
 EXAMPLES:
 
 Gracefully shut a machine down (also accepted as the alias `shutdown`):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-shutdown
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword graceful-shutdown
 
 ")]
     GracefulShutdown,
@@ -198,7 +194,7 @@ Gracefully shut a machine down (also accepted as the alias `shutdown`):
 EXAMPLES:
 
 Change the UEFI password (supply the current and new values):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     change-uefi-password --current-password mycurrentpassword --new-password mynewpassword
 
 ")]
@@ -218,7 +214,7 @@ Change the UEFI password (supply the current and new values):
 EXAMPLES:
 
 Clear the UEFI password (supply the current one):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     clear-uefi-password --current-password mycurrentpassword --new-password ''
 
 ")]
@@ -241,8 +237,9 @@ Clear the UEFI password (supply the current one):
     IsInfiniteBootEnabled,
     /// Enable infinite boot
     EnableInfiniteBoot,
-    /// Set DPU NIC mode
-    #[clap(visible_alias = "set-nic-mode")]
+    /// Set NIC mode (host networking via the NIC)
+    SetNicMode,
+    /// Set DPU mode (host networking via the DPU)
     SetDpuMode,
     /// Power cycle a machine
     ChassisResetCard1Powercycle,
@@ -252,7 +249,7 @@ Clear the UEFI password (supply the current one):
 EXAMPLES:
 
 Set the boot order so the DPU boots first:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     set-boot-order-dpu-first --boot-interface-mac 00:11:22:33:44:55
 
 ")]
@@ -275,7 +272,7 @@ Set the boot order so the DPU boots first:
 EXAMPLES:
 
 Check whether the DPU-first boot order is already configured:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     is-boot-order-setup --boot-interface-mac 00:11:22:33:44:55
 
 ")]
@@ -288,11 +285,11 @@ Check whether the DPU-first boot order is already configured:
 EXAMPLES:
 
 List all BIOS boot options:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     get-boot-option --all
 
 Show one boot option by ID:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     get-boot-option --id Boot0001
 
 ")]
@@ -308,11 +305,11 @@ pub struct BootOptionSelector {
 EXAMPLES:
 
 Show DPU firmware versions:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware show --all
 
 Show DPU port information:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu ports
 
 ")]
@@ -329,15 +326,15 @@ pub enum DpuOperations {
 EXAMPLES:
 
 Print the DPU firmware update status:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware status
 
 Update the DPU BMC firmware from a package:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware update --package ./bmc-fw.fwpkg
 
 Show all discovered firmware versions:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware show --all
 
 ")]
@@ -355,7 +352,7 @@ pub enum FwCommand {
 EXAMPLES:
 
 Install a DPU BMC firmware package:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware update --package ./bmc-fw.fwpkg
 
 ")]
@@ -377,7 +374,7 @@ pub struct UefiPassword {
 EXAMPLES:
 
 Rename a BMC account:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     change-bmc-username --old-user svc-ops --new-user svc-platform
 
 ")]
@@ -393,7 +390,7 @@ pub struct BmcUsername {
 EXAMPLES:
 
 Change a BMC user's password:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     change-bmc-password --user svc-ops --new-password 'mynewpassword'
 
 ")]
@@ -409,11 +406,11 @@ pub struct BmcPassword {
 EXAMPLES:
 
 Update host firmware from a local file:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     update-firmware-multipart --filename ./host-fw.bin
 
 Update firmware and specify the component type:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     update-firmware-multipart --filename ./uefi.bin --component-type uefi
 
 ")]
@@ -432,7 +429,7 @@ pub struct Multipart {
 EXAMPLES:
 
 Get details for a Redfish task:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     get-task --taskid JID_123456789012
 
 ")]
@@ -446,7 +443,7 @@ pub struct Task {
 EXAMPLES:
 
 Show one chassis subsystem by ID:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     get-chassis --chassis-id Chassis-1
 
 ")]
@@ -460,11 +457,11 @@ pub struct Chassis {
 EXAMPLES:
 
 Create a BMC user (defaults to the administrator role):
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     create-bmc-user --user svc-ops --new-password 'mynewpassword'
 
 Create a read-only BMC user:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     create-bmc-user --user auditor --new-password 'mynewpassword' --role-id readonly
 
 ")]
@@ -486,7 +483,7 @@ pub struct BmcUser {
 EXAMPLES:
 
 Delete a BMC user by name:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     delete-bmc-user --user svc-ops
 
 ")]
@@ -500,7 +497,7 @@ pub struct DeleteBmcUser {
 EXAMPLES:
 
 Run the standard machine setup:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     machine-setup --boot-interface-mac 00:11:22:33:44:55
 
 ")]
@@ -518,7 +515,7 @@ pub struct MachineSetupArgs {
 EXAMPLES:
 
 Check what machine-setup steps remain:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     machine-setup-status --boot-interface-mac 00:11:22:33:44:55
 
 ")]
@@ -538,8 +535,8 @@ pub struct SetBootOrderDpuFirstArgs {
 EXAMPLES:
 
 Decommission a storage controller:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
-    decomission-controller --controller-id RAID.Slot.1-1
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    decommission-controller --controller-id RAID.Slot.1-1
 
 ")]
 pub struct DecomissionControllerArgs {
@@ -552,7 +549,7 @@ pub struct DecomissionControllerArgs {
 EXAMPLES:
 
 Create a volume on a storage controller:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     create-volume --controller-id RAID.Slot.1-1 --volume-name data0
 
 ")]
@@ -572,15 +569,15 @@ pub struct CreateVolumeArgs {
 EXAMPLES:
 
 Show all discovered firmware key/values:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware show --all
 
 Show just the DPU OS version:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware show --dpu-os
 
 Show a specific firmware type by name:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu firmware show DPU_NIC
 
 ")]
@@ -625,11 +622,11 @@ pub struct ShowFw {
 EXAMPLES:
 
 Show all DPU ports:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu ports
 
 Show a single port by name:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     dpu ports eth0
 
 ")]
@@ -655,7 +652,7 @@ pub struct ShowPort {
 EXAMPLES:
 
 Set one or more BIOS attributes from JSON:
-    $ carbide-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     set-bios --attributes '{\"OperatingModes_ChooseOperatingMode\": \"MaximumPerformance\"}'
 
 ")]

@@ -26,10 +26,10 @@ use crate::credential::common::BmcCredentialType;
 EXAMPLES:
 
 Delete the site-wide BMC root credential:
-    $ carbide-admin-cli credential delete-bmc --kind=site-wide-root
+    $ nico-admin-cli credential delete-bmc --kind=site-wide-root
 
 Delete a per-BMC root credential for a specific MAC address:
-    $ carbide-admin-cli credential delete-bmc --kind=bmc-root --mac-address 00:11:22:33:44:55
+    $ nico-admin-cli credential delete-bmc --kind=bmc-root --mac-address 00:11:22:33:44:55
 
 ")]
 pub struct Args {

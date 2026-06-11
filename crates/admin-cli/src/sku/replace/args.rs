@@ -27,7 +27,7 @@ use super::super::common::CreateSkuOptions;
 EXAMPLES:
 
 Replace a SKU's component list from a file:
-    $ carbide-admin-cli sku replace ./skus.json --id DGX-H100-640GB
+    $ nico-admin-cli sku replace ./skus.json --id DGX-H100-640GB
 
 ")]
 pub struct Args {

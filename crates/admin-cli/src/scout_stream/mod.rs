@@ -47,7 +47,7 @@ pub enum ScoutStreamAction {
 EXAMPLES:
 
 Show all active scout stream connections:
-    $ carbide-admin-cli scout-stream show
+    $ nico-admin-cli scout-stream show
 
 ")]
 pub struct ConnectionsShowCommand {}
@@ -58,7 +58,7 @@ pub struct ConnectionsShowCommand {}
 EXAMPLES:
 
 Disconnect a machine's scout stream connection:
-    $ carbide-admin-cli scout-stream disconnect 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli scout-stream disconnect 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct ConnectionsDisconnectCommand {
@@ -71,7 +71,7 @@ pub struct ConnectionsDisconnectCommand {
 EXAMPLES:
 
 Ping-test a machine's scout stream connection:
-    $ carbide-admin-cli scout-stream ping 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli scout-stream ping 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct ConnectionsPingCommand {

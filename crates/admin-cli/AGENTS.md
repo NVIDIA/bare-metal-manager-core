@@ -1,7 +1,7 @@
 # AGENTS.md — admin-cli
 
 Guidance for AI coding agents (and humans) working on the admin CLI
-(`carbide-admin-cli`). This file is symlinked to `CLAUDE.md`; edit
+(`nico-admin-cli`). This file is symlinked to `CLAUDE.md`; edit
 `AGENTS.md` and the other name follows.
 
 See the repo-root [`AGENTS.md`](../../AGENTS.md) for build/test/lint
@@ -14,7 +14,7 @@ and how we surface **errors** to the user ("Error messages" at the end).
 Every leaf subcommand carries a worked `EXAMPLES:` section, rendered by
 clap's `after_long_help`. It appears at the bottom of `--help` (the long
 help; `-h` shows only the summary). The goal is that a reader who runs
-`carbide-admin-cli <path> --help` sees concrete, copy-pasteable
+`nico-admin-cli <path> --help` sees concrete, copy-pasteable
 invocations covering the realistic ways to use that command — not just a
 list of flags.
 
@@ -29,10 +29,10 @@ struct (or enum) that backs the subcommand:
 EXAMPLES:
 
 List all VPCs:
-    $ carbide-admin-cli vpc show
+    $ nico-admin-cli vpc show
 
 Show details for one VPC:
-    $ carbide-admin-cli vpc show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli vpc show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {
@@ -49,7 +49,7 @@ Formatting rules, all load-bearing:
   closing `"`.
 - The leading `\` after the opening quote swallows the first newline so
   the block starts cleanly at `EXAMPLES:`.
-- Always use the real binary name `carbide-admin-cli` and the **kebab-case
+- Always use the real binary name `nico-admin-cli` and the **kebab-case
   command path** as clap renders it (see "Getting the command path"
   below).
 - For commands too long for one source line, break with a trailing `\`
@@ -65,7 +65,7 @@ Formatting rules, all load-bearing:
   EXAMPLES:
 
   Peer two VPCs:
-      $ carbide-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
+      $ nico-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
       abcdef01-2345-6789-abcd-ef0123456789
 
   ")]
@@ -180,7 +180,7 @@ variant itself:
 EXAMPLES:
 
 Change the UEFI password:
-    $ carbide-admin-cli redfish ... change-uefi-password --current-password X --new-password Y
+    $ nico-admin-cli redfish ... change-uefi-password --current-password X --new-password Y
 
 \")]
     ChangeUefiPassword(UefiPassword),
@@ -216,17 +216,17 @@ the common trivial case.
 Build, then render the long help and read the bottom:
 
 ```bash
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 # Capture to a file — the sandbox has a pipe-drop bug, so `... | grep`
 # may silently show nothing even when the block is present.
-cargo run -q -p carbide-admin-cli -- <command path> --help > tmp/help.txt 2>&1
+cargo run -q -p nico-admin-cli -- <command path> --help > tmp/help.txt 2>&1
 sed -n '/EXAMPLES/,$p' tmp/help.txt
 ```
 
 Confirm the wrapped (`\`-continued) commands collapsed to single lines
 and that the command path matches the real subcommand name.
 
-## Generated reference docs (man pages and `docs/cli`)
+## Generated reference docs (man pages and `docs/manuals/nico-admin-cli`)
 
 Two hidden subcommands turn the live clap tree into documentation, so the
 reference can't drift from the code. Both are `hide = true` (they don't show
@@ -234,18 +234,20 @@ in `--help`) and write to a directory you pass with `--out-dir`:
 
 - `generate-man` renders a roff man page per command/subcommand via
   `clap_mangen` (one file each, named by the full path, e.g.
-  `carbide-admin-cli-vpc-show.1`). Run it with `cargo make gen-man`.
-- `generate-cli-docs` builds the `docs/cli` markdown reference. It renders the
-  same man pages, converts each to GitHub-flavored markdown with **pandoc**
-  (the `pandoc` *binary* must be on `PATH` — it's installed in the CI build
-  images), and reorganizes them into one directory per top-level command
-  (`docs/cli/commands/<command>/<command>.md`, with each descendant beside it
-  as `<command>-<sub>.md`). The man page's OPTIONS/SYNOPSIS give each page its
-  per-flag detail; the `EXAMPLES:` block you write becomes that page's
-  `## Examples`. Run it with `cargo make gen-cli-docs`.
+  `nico-admin-cli-vpc-show.1`). Run it with `cargo make gen-man`.
+- `generate-cli-docs` builds the `docs/manuals/nico-admin-cli` markdown
+  reference. It renders the same man pages, converts each to GitHub-flavored
+  markdown with **pandoc** (the `pandoc` *binary* must be on `PATH` — it's
+  installed in the CI build images), and reorganizes them into one directory per
+  top-level command
+  (`docs/manuals/nico-admin-cli/commands/<command>/<command>.md`, with each
+  descendant beside it as `<command>-<sub>.md`). The man page's OPTIONS/SYNOPSIS
+  give each page its per-flag detail; the `EXAMPLES:` block you write becomes
+  that page's `## Examples`. Run it with `cargo make gen-cli-docs`.
 
-The hand-authored pages (`docs/cli/README.md`, `setup.md`, `workflows.md`,
-`rest-cli-parity.md`) are editorial and are **not** regenerated — leave them be.
+The hand-authored pages (`docs/manuals/nico-admin-cli/README.md`, `setup.md`,
+`workflows.md`, `rest-cli-parity.md`) are editorial and are **not** regenerated
+— leave them be.
 
 ### Categorizing a new command
 
@@ -261,18 +263,18 @@ Two tests keep the YAML honest:
 - `no_unknown_commands_in_domain_map` fails if the YAML names a command that no
   longer exists.
 
-### Keeping `docs/cli` in sync
+### Keeping `docs/manuals/nico-admin-cli` in sync
 
-`docs/cli` is committed, so regenerate and commit it whenever you change a
-command's help, examples, structure, or domain:
+`docs/manuals/nico-admin-cli` is committed, so regenerate and commit it
+whenever you change a command's help, examples, structure, or domain:
 
 ```bash
-cargo make gen-cli-docs   # regenerate docs/cli (needs the pandoc binary)
+cargo make gen-cli-docs   # regenerate docs/manuals/nico-admin-cli (needs the pandoc binary)
 ```
 
 CI runs `cargo make check-cli-docs`, which runs the two domain tests, then
-regenerates and fails on any `git diff` in `docs/cli` — so a forgotten
-regeneration (or an uncategorized command) is caught there.
+regenerates and fails on any `git diff` in `docs/manuals/nico-admin-cli` —
+so a forgotten regeneration (or an uncategorized command) is caught there.
 
 ## Error messages
 
@@ -341,7 +343,7 @@ can live with its constraints:
 pub address: String,
 ```
 ```
-Usage: carbide-admin-cli redfish [OPTIONS] --address <ADDRESS> <COMMAND>
+Usage: nico-admin-cli redfish [OPTIONS] --address <ADDRESS> <COMMAND>
 ```
 
 With the first row clap does the work — no validation code in `main.rs`, and

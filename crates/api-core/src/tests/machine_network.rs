@@ -23,11 +23,11 @@ use ::rpc::forge::{
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
+use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use common::api_fixtures::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_network_segment, create_tenant_network_segment,
 };
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
-use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
@@ -991,6 +991,7 @@ async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(p
         &active_mac,
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await
     .unwrap();

@@ -42,6 +42,7 @@ async fn test_expire_releases_allocation(
         MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
         std::slice::from_ref(&relay),
         None,
+        None,
     )
     .await?;
     let ip = interface.addresses[0];
@@ -213,6 +214,7 @@ async fn test_expire_does_not_delete_static_allocation(
         &MacAddress::from_str("aa:bb:cc:dd:ee:08").unwrap(),
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
+        None,
     )
     .await?;
     txn.commit().await?;
@@ -264,6 +266,7 @@ async fn test_static_address_survives_expiration_and_rediscover(
         &mac,
         true,
         AddressSelectionStrategy::StaticAddress(static_ip),
+        None,
     )
     .await?;
     txn.commit().await?;
@@ -321,6 +324,7 @@ async fn test_expire_with_matching_mac_releases(
         &mut txn,
         mac,
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -434,6 +438,7 @@ async fn test_expire_with_mismatched_mac_is_no_op(
         &mut txn,
         mac_b,
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;

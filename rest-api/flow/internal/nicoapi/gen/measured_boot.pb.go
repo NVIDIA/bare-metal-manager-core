@@ -10,15 +10,14 @@
 package nicoapigrpc
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	_ "google.golang.org/protobuf/types/known/durationpb"
 	_ "google.golang.org/protobuf/types/known/emptypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -6805,8 +6804,8 @@ const file_measured_boot_proto_rawDesc = "" +
 	"Discovered\x10\x00\x12\x11\n" +
 	"\rPendingBundle\x10\x01\x12\f\n" +
 	"\bMeasured\x10\x02\x12\x13\n" +
-	"\x0fMeasuringFailed\x10\x03B\xb9\x01\n" +
-	"\x11com.measured_bootB\x11MeasuredBootProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\fMeasuredBoot\xca\x02\fMeasuredBoot\xe2\x02\x18MeasuredBoot\\GPBMetadata\xea\x02\fMeasuredBootb\x06proto3"
+	"\x0fMeasuringFailed\x10\x03B\xbd\x01\n" +
+	"\x11com.measured_bootB\x11MeasuredBootProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\fMeasuredBoot\xca\x02\fMeasuredBoot\xe2\x02\x18MeasuredBoot\\GPBMetadata\xea\x02\fMeasuredBootb\x06proto3"
 
 var (
 	file_measured_boot_proto_rawDescOnce sync.Once

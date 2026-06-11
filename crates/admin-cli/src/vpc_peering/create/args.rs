@@ -25,11 +25,11 @@ use rpc::forge::VpcPeeringCreationRequest;
 EXAMPLES:
 
 Peer two VPCs:
-    $ carbide-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
 Peer two VPCs with a chosen peering ID:
-    $ carbide-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789 --id 0fedcba9-8765-4321-0fed-cba987654321
 
 ")]

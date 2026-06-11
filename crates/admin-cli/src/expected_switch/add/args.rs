@@ -29,22 +29,22 @@ use crate::metadata::parse_rpc_labels;
 EXAMPLES:
 
 Add an expected switch with its BMC credentials and serial number:
-    $ carbide-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
+    $ nico-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --switch-serial-number DGX-H100-640GB
 
 Add an expected switch and associate it with a rack:
-    $ carbide-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
+    $ nico-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --switch-serial-number DGX-H100-640GB \
     --rack_id 12345678-1234-5678-90ab-cdef01234567
 
 Add an expected switch with NVOS credentials and a static NVOS IP:
-    $ carbide-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
+    $ nico-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --switch-serial-number DGX-H100-640GB \
     --nvos-mac-address aa:bb:cc:dd:ee:ff --nvos-username admin --nvos-password mypassword \
     --nvos-ip-address 192.0.2.10
 
 Add an expected switch with metadata name and a label:
-    $ carbide-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
+    $ nico-admin-cli expected-switch add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --switch-serial-number DGX-H100-640GB \
     --meta-name spine-01 --label DATACENTER:XYZ
 

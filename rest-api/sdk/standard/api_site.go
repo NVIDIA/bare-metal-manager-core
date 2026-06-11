@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -343,7 +343,7 @@ func (r ApiGetAllSiteRequest) IsFlowEnabled(isFlowEnabled bool) ApiGetAllSiteReq
 	return r
 }
 
-// Include a breakdown of Machine counts by life-cycle status and health. Requires Provider Admin role.
+// Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
 func (r ApiGetAllSiteRequest) IncludeMachineStats(includeMachineStats bool) ApiGetAllSiteRequest {
 	r.includeMachineStats = &includeMachineStats
 	return r
@@ -388,7 +388,7 @@ GetAllSite Retrieve all Sites
 
 Retrieve all Sites for org.
 
-User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -836,7 +836,7 @@ UpdateSite Update Site
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site specific configurations modifiable by Tenant.
+Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

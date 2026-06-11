@@ -50,6 +50,15 @@ sedi -e '/dns\.Domain/d' nicoproto/nico.proto
 # Remove comments referencing dns.proto
 sedi -e '/dns\.proto/d' nicoproto/nico.proto
 
+# scout_firmware_upgrade.proto is unused by Flow (Core-side reporting RPC).
+# Strip it and the few nico.proto references so we don't carry dead generated code.
+rm -f nicoproto/scout_firmware_upgrade.proto
+sedi -e '/^import.*scout_firmware_upgrade\.proto/d' nicoproto/nico.proto
+sedi -e '/rpc ReportScoutFirmwareUpgradeStatus/d' nicoproto/nico.proto
+# Drop the FirmwareUpgrade.task field whose type lives in the scout namespace;
+# the empty nested FirmwareUpgrade message that remains is valid proto3.
+sedi -e '/scout_firmware_upgrade\./d' nicoproto/nico.proto
+
 # Both site explorer and main nico have a PowerState enum
 sedi -e 's/ PowerState/ ComputerSystemPowerState/g' nicoproto/site_explorer.proto
 

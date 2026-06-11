@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchTrayFirmwareUpdateRequest{}
 // BatchTrayFirmwareUpdateRequest Request body for batch tray firmware update operations
 type BatchTrayFirmwareUpdateRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Trays targeted for firmware update
 	Filter *TrayFilter `json:"filter,omitempty"`
 	// Target firmware version.
 	Version NullableString `json:"version,omitempty"`

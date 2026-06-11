@@ -27,10 +27,10 @@ use crate::dpf::common::DpfQuery;
 EXAMPLES:
 
 Show DPF status for all hosts:
-    $ carbide-admin-cli dpf show
+    $ nico-admin-cli dpf show
 
 Show DPF status for one host machine:
-    $ carbide-admin-cli dpf show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

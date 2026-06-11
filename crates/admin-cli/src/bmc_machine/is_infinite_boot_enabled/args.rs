@@ -28,7 +28,7 @@ use crate::bmc_machine::common::InfiniteBootArgs;
 EXAMPLES:
 
 Check whether infinite boot is enabled on a machine:
-    $ carbide-admin-cli bmc-machine is-infinite-boot-enabled \
+    $ nico-admin-cli bmc-machine is-infinite-boot-enabled \
     --machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]

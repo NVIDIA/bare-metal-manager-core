@@ -26,7 +26,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Delete a UFM credential by its URL:
-    $ carbide-admin-cli credential delete-ufm --url https://192.0.2.10
+    $ nico-admin-cli credential delete-ufm --url https://192.0.2.10
 
 ")]
 pub struct Args {

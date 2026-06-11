@@ -50,3 +50,13 @@ where
 {
     serializer.serialize_str(&format!("{}s", d.as_secs()))
 }
+
+pub fn as_option_duration<S>(d: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match d {
+        Some(d) => serializer.serialize_some(&format!("{}s", d.num_seconds())),
+        None => serializer.serialize_none(),
+    }
+}

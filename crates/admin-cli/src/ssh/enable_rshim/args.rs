@@ -27,7 +27,7 @@ use super::super::common::SshArgs;
 EXAMPLES:
 
 Enable the RSHIM interface on a DPU BMC:
-    $ carbide-admin-cli ssh enable-rshim 192.0.2.10:22 admin mypassword
+    $ nico-admin-cli ssh enable-rshim 192.0.2.10:22 admin mypassword
 
 ")]
 pub struct Args {

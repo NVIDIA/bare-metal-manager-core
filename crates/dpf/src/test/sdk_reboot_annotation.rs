@@ -145,7 +145,7 @@ async fn test_reboot_annotation_set_check_clear() {
     // Register a DPU node
     let node_info = DpuNodeInfo {
         node_id: "host-001".to_string(),
-        host_bmc_ip: "192.168.1.1".to_string(),
+        host_bmc_ip: "192.168.1.1".parse().unwrap(),
         device_ids: vec!["dpu-001".to_string()],
     };
     sdk.register_dpu_node(node_info).await.unwrap();

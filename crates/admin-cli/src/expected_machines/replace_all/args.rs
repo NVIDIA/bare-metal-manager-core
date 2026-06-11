@@ -49,7 +49,7 @@ use clap::Parser;
 EXAMPLES:
 
 Replace the entire expected machines table from a JSON file:
-    $ carbide-admin-cli expected-machine replace-all --filename ./expected-machines.json
+    $ nico-admin-cli expected-machine replace-all --filename ./expected-machines.json
 
 ")]
 pub struct Args {

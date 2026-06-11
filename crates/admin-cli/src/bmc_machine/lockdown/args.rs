@@ -23,15 +23,15 @@ use clap::Parser;
 EXAMPLES:
 
 Enable lockdown on a machine:
-    $ carbide-admin-cli bmc-machine lockdown \
+    $ nico-admin-cli bmc-machine lockdown \
     --machine 12345678-1234-5678-90ab-cdef01234567 --enable
 
 Disable lockdown on a machine:
-    $ carbide-admin-cli bmc-machine lockdown \
+    $ nico-admin-cli bmc-machine lockdown \
     --machine 12345678-1234-5678-90ab-cdef01234567 --disable
 
 Enable lockdown and reboot to apply the change:
-    $ carbide-admin-cli bmc-machine lockdown \
+    $ nico-admin-cli bmc-machine lockdown \
     --machine 12345678-1234-5678-90ab-cdef01234567 --enable --reboot
 
 ")]

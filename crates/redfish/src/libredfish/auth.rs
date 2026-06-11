@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use mac_address::MacAddress;
 
 pub enum RedfishAuth {

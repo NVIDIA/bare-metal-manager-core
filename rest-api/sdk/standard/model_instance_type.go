@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,23 +23,36 @@ var _ MappedNullable = &InstanceType{}
 
 // InstanceType Instance types describe a set of machines that match a certain criteria
 type InstanceType struct {
-	Id                       *string             `json:"id,omitempty"`
-	Name                     *string             `json:"name,omitempty"`
-	Description              NullableString      `json:"description,omitempty"`
-	ControllerMachineType    NullableString      `json:"controllerMachineType,omitempty"`
-	InfrastructureProviderId *string             `json:"infrastructureProviderId,omitempty"`
-	SiteId                   *string             `json:"siteId,omitempty"`
-	Labels                   map[string]string   `json:"labels,omitempty"`
-	MachineCapabilities      []MachineCapability `json:"machineCapabilities,omitempty"`
+	// Unique UUID v4 identifier for the Instance Type
+	Id *string `json:"id,omitempty"`
+	// Name of the Instance Type
+	Name *string `json:"name,omitempty"`
+	// Description of the Instance Type
+	Description NullableString `json:"description,omitempty"`
+	// Machine type assigned by Site Controller
+	ControllerMachineType NullableString `json:"controllerMachineType,omitempty"`
+	// ID of the Infrastructure Provider that owns the Instance Type
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
+	// ID of the Site that owns the Instance Type
+	SiteId *string `json:"siteId,omitempty"`
+	// User-defined key-value labels for the Instance Type
+	Labels map[string]string `json:"labels,omitempty"`
+	// List of capabilities that are supported by the Machine's of this Instance Type
+	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`
 	// Available only for Providers
 	MachineInstanceTypes []MachineInstanceType `json:"machineInstanceTypes,omitempty"`
 	// summary of machine counts by allocation status
 	AllocationStats *InstanceTypeAllocationStats `json:"allocationStats,omitempty"`
-	Status          *InstanceTypeStatus          `json:"status,omitempty"`
-	StatusHistory   []StatusDetail               `json:"statusHistory,omitempty"`
-	Deprecations    []Deprecation                `json:"deprecations,omitempty"`
-	Created         *time.Time                   `json:"created,omitempty"`
-	Updated         *time.Time                   `json:"updated,omitempty"`
+	// Status of the Instance Type
+	Status *InstanceTypeStatus `json:"status,omitempty"`
+	// Chronological status history for the Instance Type
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Deprecation notices for fields returned by this resource
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
+	// Date/time when the InstanceType was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the InstanceType was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewInstanceType instantiates a new InstanceType object

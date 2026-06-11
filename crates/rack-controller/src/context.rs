@@ -21,7 +21,7 @@ use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::metrics::RackMetrics;
-use forge_secrets::credentials::CredentialManager;
+use carbide_secrets::credentials::CredentialManager;
 use librms::RmsApi;
 use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;

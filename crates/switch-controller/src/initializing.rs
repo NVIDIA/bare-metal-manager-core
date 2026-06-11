@@ -17,9 +17,9 @@
 
 //! Handler for SwitchControllerState::Initializing.
 
+use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
 use component_manager::nv_switch_manager::SwitchEndpoint;
-use forge_secrets::credentials::{CredentialKey, Credentials};
 use mac_address::MacAddress;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};

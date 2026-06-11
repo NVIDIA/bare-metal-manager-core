@@ -973,6 +973,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
         bmc_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_power_shelf BMC",
+        None,
     )
     .await;
 
@@ -1072,6 +1073,7 @@ async fn test_add_with_external_bmc_ip_uses_static_assignments(
         external_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_power_shelf BMC",
+        None,
     )
     .await;
 
@@ -1168,6 +1170,7 @@ async fn test_update_with_different_bmc_ip_leaves_interface_alone(
         original_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_power_shelf BMC",
+        None,
     )
     .await;
 
@@ -1219,6 +1222,7 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
         &mut txn,
         bmc_mac,
         std::slice::from_ref(&relay),
+        None,
         None,
     )
     .await?;
@@ -1356,6 +1360,7 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
         bmc_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_power_shelf BMC",
+        None,
     )
     .await;
 

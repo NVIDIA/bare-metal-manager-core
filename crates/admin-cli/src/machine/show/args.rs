@@ -24,14 +24,14 @@ use clap::Parser;
 EXAMPLES:
 
 List all machines:
-    $ carbide-admin-cli machine show
+    $ nico-admin-cli machine show
 
 Show one machine by ID:
-    $ carbide-admin-cli machine show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine show 12345678-1234-5678-90ab-cdef01234567
 
 Show only DPUs (or only hosts):
-    $ carbide-admin-cli machine show --dpus
-    $ carbide-admin-cli machine show --hosts
+    $ nico-admin-cli machine show --dpus
+    $ nico-admin-cli machine show --hosts
 
 ")]
 pub struct Args {

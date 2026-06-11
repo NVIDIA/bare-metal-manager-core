@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,19 +23,30 @@ var _ MappedNullable = &MachineInterface{}
 
 // MachineInterface Describes an interface attached to a machine
 type MachineInterface struct {
-	Id                    *string        `json:"id,omitempty"`
-	MachineId             *string        `json:"machineId,omitempty"`
+	// Unique UUID v4 identifier for the Machine Interface
+	Id *string `json:"id,omitempty"`
+	// ID of the Machine
+	MachineId *string `json:"machineId,omitempty"`
+	// ID of the interface in Site Controller
 	ControllerInterfaceId NullableString `json:"controllerInterfaceId,omitempty"`
-	ControllerSegmentId   NullableString `json:"controllerSegmentId,omitempty"`
-	AttachedDpuMachineID  NullableString `json:"attachedDpuMachineID,omitempty"`
-	SubnetId              NullableString `json:"subnetId,omitempty"`
-	Hostname              NullableString `json:"hostname,omitempty"`
-	IsPrimary             *bool          `json:"isPrimary,omitempty"`
-	MacAddress            NullableString `json:"macAddress,omitempty"`
+	// ID of the network segment in Site Controller
+	ControllerSegmentId NullableString `json:"controllerSegmentId,omitempty"`
+	// ID of the DPU attached to this interface in the Site Controller
+	AttachedDpuMachineID NullableString `json:"attachedDpuMachineID,omitempty"`
+	// ID of the Subnet
+	SubnetId NullableString `json:"subnetId,omitempty"`
+	// Hostname of the Machine Interface
+	Hostname NullableString `json:"hostname,omitempty"`
+	// Boolean which indicates if the Machine Interface is primary
+	IsPrimary *bool `json:"isPrimary,omitempty"`
+	// Mac address of the Machine Interface
+	MacAddress NullableString `json:"macAddress,omitempty"`
 	// Array of IP addresses
-	IpAddresses []string   `json:"ipAddresses,omitempty"`
-	Created     *time.Time `json:"created,omitempty"`
-	Updated     *time.Time `json:"updated,omitempty"`
+	IpAddresses []string `json:"ipAddresses,omitempty"`
+	// Date/time when the Machine Interface was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Machine Interface was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewMachineInterface instantiates a new MachineInterface object

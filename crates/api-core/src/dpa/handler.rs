@@ -268,8 +268,8 @@ pub async fn start_dpa_handler(
         if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
             && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                 &dpa_config.auth,
-                forge_secrets::credentials::CredentialKey::MqttAuth {
-                    credential_type: forge_secrets::credentials::MqttCredentialType::Dpa,
+                carbide_secrets::credentials::CredentialKey::MqttAuth {
+                    credential_type: carbide_secrets::credentials::MqttCredentialType::Dpa,
                 },
                 api_service.credential_manager.clone(),
             )

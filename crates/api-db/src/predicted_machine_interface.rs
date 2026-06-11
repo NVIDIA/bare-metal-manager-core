@@ -54,6 +54,26 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = PredictedMachineInterface
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
+/// Records the vendor-named Redfish `EthernetInterface.Id` on the predicted
+/// row(s) with the given MAC, keeping pending predictions as current as the
+/// live report -- the same per-exploration refresh `machine_interfaces`
+/// rows get.
+pub async fn set_boot_interface_id(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+    boot_interface_id: &str,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE predicted_machine_interfaces SET boot_interface_id = $1 WHERE mac_address = $2";
+    sqlx::query(query)
+        .bind(boot_interface_id)
+        .bind(mac_address)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn delete(
     value: &PredictedMachineInterface,
     txn: &mut PgConnection,
@@ -83,11 +103,12 @@ pub async fn create(
     value: NewPredictedMachineInterface<'_>,
     txn: &mut PgConnection,
 ) -> Result<PredictedMachineInterface, DatabaseError> {
-    let query = "INSERT INTO predicted_machine_interfaces (machine_id, mac_address, expected_network_segment_type) VALUES ($1, $2, $3) RETURNING *";
+    let query = "INSERT INTO predicted_machine_interfaces (machine_id, mac_address, expected_network_segment_type, boot_interface_id) VALUES ($1, $2, $3, $4) RETURNING *";
     sqlx::query_as(query)
         .bind(value.machine_id)
         .bind(value.mac_address)
         .bind(value.expected_network_segment_type)
+        .bind(&value.boot_interface_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))

@@ -21,6 +21,9 @@ use std::net::IpAddr;
 use ::rpc::common::SystemPowerControl;
 use ::rpc::forge::{self as rpc};
 use carbide_rack::firmware_object::rms_access_token_or_noauth;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -32,15 +35,13 @@ use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use component_manager::types::FirmwareUpdateOptions;
 use db::{self, WithTransaction};
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::component_manager::{
     ComputeTrayComponent as ModelComputeTrayComponent, NvSwitchComponent, PowerAction,
     PowerShelfComponent,
 };
+use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
@@ -579,6 +580,95 @@ async fn group_machine_ids_by_rack(
     }
 
     Ok(targets)
+}
+
+/// Returns whether the machine is a rack-scale server (today just GB200, but will later include other SKUs)
+fn is_rack_scale_server(machine: &Machine) -> bool {
+    machine
+        .hardware_info
+        .as_ref()
+        .is_some_and(|hw| hw.is_gbx00())
+}
+
+/// Splits the requested compute machines into two lists: rack-scale and standalone servers.
+/// Rack-scale systems go through the rack-level state controller maintenance flow
+//  Standalone servers use the existing host reprovisioning firmware path.
+async fn partition_compute_machines_by_rack_scale(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Result<(Vec<MachineId>, Vec<MachineId>), Status> {
+    let machines = db::machine::find(
+        api.db_reader().as_mut(),
+        db::ObjectFilter::List(machine_ids),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
+    let machines_by_id: HashMap<_, _> = machines
+        .into_iter()
+        .map(|machine| (machine.id, machine))
+        .collect();
+
+    let mut rack_scale = Vec::new();
+    let mut standalone = Vec::new();
+    for machine_id in machine_ids {
+        let machine = machines_by_id
+            .get(machine_id)
+            .ok_or_else(|| Status::not_found(format!("machine {machine_id} not found")))?;
+        if is_rack_scale_server(machine) {
+            rack_scale.push(*machine_id);
+        } else {
+            standalone.push(*machine_id);
+        }
+    }
+
+    Ok((rack_scale, standalone))
+}
+
+/// Initiate a firmware upgrade for standalone (non rack-scale) servers
+async fn schedule_host_reprovisioning_firmware_update(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Vec<rpc::ComponentResult> {
+    let mut results = Vec::with_capacity(machine_ids.len());
+    for machine_id in machine_ids {
+        match schedule_one_host_reprovisioning_firmware_update(api, machine_id).await {
+            Ok(()) => results.push(success_result(&machine_id.to_string())),
+            Err(error) => results.push(error_result(&machine_id.to_string(), error)),
+        }
+    }
+    results
+}
+
+async fn schedule_one_host_reprovisioning_firmware_update(
+    api: &Api,
+    machine_id: &MachineId,
+) -> Result<(), String> {
+    let mut txn = api
+        .txn_begin()
+        .await
+        .map_err(|e| format!("failed to begin transaction: {e}"))?;
+
+    db::machine::set_firmware_autoupdate(&mut txn, machine_id, Some(true))
+        .await
+        .map_err(|e| format!("failed to enable firmware auto-update: {e}"))?;
+
+    let start = chrono::Utc::now();
+    let end = start + chrono::Duration::hours(24);
+    db::machine::update_firmware_update_time_window_start_end(
+        std::slice::from_ref(machine_id),
+        start,
+        end,
+        &mut txn,
+    )
+    .await
+    .map_err(|e| format!("failed to set firmware update time window: {e}"))?;
+
+    txn.commit()
+        .await
+        .map_err(|e| format!("failed to commit transaction: {e}"))?;
+
+    Ok(())
 }
 
 async fn group_switch_ids_by_rack(
@@ -1649,20 +1739,44 @@ pub(crate) async fn update_component_firmware(
 
             let cm = require_component_manager(api)?;
             if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                let token = require_firmware_object_json_for_rack_maintenance(
-                    "compute tray",
-                    &access_token,
-                    &req.target_version,
-                )?;
-                let component_names = map_compute_tray_component_names(&t.components)?;
-                maintenance_activities = vec![firmware_upgrade_activity(
-                    req.target_version.clone(),
-                    component_names,
-                    Some(token),
-                    force_update,
-                )];
-                rack_maintenance_targets =
-                    group_machine_ids_by_rack(api, &list.machine_ids).await?;
+                // Only rack-scale systems (currently GB200 NVL) can be driven
+                // through the rack-level state controller maintenance flow.
+                // Standalone servers fall back to the legacy host
+                // reprovisioning firmware path.
+                let (rack_scale_ids, standalone_ids) =
+                    partition_compute_machines_by_rack_scale(api, &list.machine_ids).await?;
+
+                let mut results = Vec::new();
+
+                if !standalone_ids.is_empty() {
+                    // Use the host reprovisioning firmware flow for non-rack servers
+                    results.extend(
+                        schedule_host_reprovisioning_firmware_update(api, &standalone_ids).await,
+                    );
+                }
+
+                if !rack_scale_ids.is_empty() {
+                    let token = require_firmware_object_json_for_rack_maintenance(
+                        "compute tray",
+                        &access_token,
+                        &req.target_version,
+                    )?;
+                    let component_names = map_compute_tray_component_names(&t.components)?;
+                    let activities = vec![firmware_upgrade_activity(
+                        req.target_version.clone(),
+                        component_names,
+                        Some(token),
+                        force_update,
+                    )];
+                    let targets = group_machine_ids_by_rack(api, &rack_scale_ids).await?;
+                    results.extend(
+                        submit_rack_firmware_maintenance_requests(api, targets, activities).await?,
+                    );
+                }
+
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             } else {
                 reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
                 let components = map_compute_tray_components(&t.components)?;

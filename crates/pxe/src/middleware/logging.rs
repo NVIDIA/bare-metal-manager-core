@@ -50,16 +50,6 @@ pub(crate) async fn logger(
     {
         props.insert("request_headers_content-length", content_length.to_string());
     }
-    if let Some(x_forwarded_for) = request
-        .headers()
-        .get("X-Forwarded-For")
-        .and_then(|h| h.to_str().ok())
-    {
-        props.insert(
-            "request_headers_x-forwarded-for",
-            x_forwarded_for.to_string(),
-        );
-    }
     if let Some(user_agent) = request
         .headers()
         .get("User-Agent")
