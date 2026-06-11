@@ -49,6 +49,11 @@ service Forge {
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
 
+  rpc CreateSpxPartition(SpxPartitionCreationRequest) returns (SpxPartition);
+  rpc DeleteSpxPartition(SpxPartitionDeletionRequest) returns (SpxPartitionDeletionResult);
+  rpc FindSpxPartitionIds(SpxPartitionSearchFilter) returns (SpxPartitionIdList);
+  rpc FindSpxPartitionsByIds(SpxPartitionsByIdsRequest) returns (SpxPartitionList);
+
   // VPC prefixes
   rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
   rpc SearchVpcPrefixes(VpcPrefixSearchQuery) returns (VpcPrefixIdList);
@@ -159,6 +164,12 @@ service Forge {
   rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   // Removes a health report source for a Power Shelf
   rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for an NVLink domain
+  rpc ListNVLinkDomainHealthReports(ListNVLinkDomainHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for an NVLink domain
+  rpc InsertNVLinkDomainHealthReport(InsertNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for an NVLink domain
+  rpc RemoveNVLinkDomainHealthReport(RemoveNVLinkDomainHealthReportRequest) returns (google.protobuf.Empty);
 
   // Deprecated aliases for the machine health report RPCs.
   // These exist so older clients (admin-cli binaries, scripts pinned to the
@@ -178,12 +189,6 @@ service Forge {
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
-
-  // DEPRECATED DNS Lookup RPC - for backward compatibility
-  // Use LookupRecord with DnsResourceRecordLookupRequest instead
-  rpc LookupRecordLegacy(DNSMessage.DNSQuestion)returns (DNSMessage.DNSResponse) {
-    option deprecated = true;
-  }
 
   // Get all DNS domains
   // Get metadata for a specific DNS domain
@@ -222,11 +227,13 @@ service Forge {
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
+  rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
+  rpc FindBmcIps(FindBmcIpsRequest) returns (BmcIpList);
   rpc IdentifyUuid(IdentifyUuidRequest) returns (IdentifyUuidResponse);
   rpc IdentifyMac(IdentifyMacRequest) returns (IdentifyMacResponse);
   rpc IdentifySerial(IdentifySerialRequest) returns (IdentifySerialResponse);
@@ -256,6 +263,7 @@ service Forge {
 
   // Query for BMC Credentials
   rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
+  rpc GetSwitchNvosCredentials(GetSwitchNvosCredentialsRequest) returns (GetBmcCredentialsResponse);
 
   // Admin CLI actions
 
@@ -349,7 +357,6 @@ service Forge {
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
   // Report the result of a scout-based firmware upgrade
-  rpc ReportScoutFirmwareUpgradeStatus(ScoutFirmwareUpgradeStatusRequest) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -394,23 +401,6 @@ service Forge {
   rpc GetExpectedMachine(ExpectedMachineRequest) returns (ExpectedMachine);
   // Get the BMC credentials for all expected machines
   rpc GetAllExpectedMachines(google.protobuf.Empty) returns (ExpectedMachineList);
-
-  // Rack Firmware Management
-  // Create or update a Rack firmware configuration
-  rpc CreateRackFirmware(RackFirmwareCreateRequest) returns (RackFirmware);
-  // Get a Rack firmware configuration by ID
-  rpc GetRackFirmware(RackFirmwareGetRequest) returns (RackFirmware);
-  // List all Rack firmware configurations
-  rpc ListRackFirmware(RackFirmwareSearchFilter) returns (RackFirmwareList);
-  // Delete a Rack firmware configuration
-  rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
-  // Apply firmware to all devices in a rack
-  rpc ApplyRackFirmware(RackFirmwareApplyRequest) returns (RackFirmwareApplyResponse);
-  // Check the status of an async firmware update job
-  rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
-  // Get the history of rack firmware apply operations
-  rpc GetRackFirmwareHistory(RackFirmwareHistoryRequest) returns (RackFirmwareHistoryResponse);
-  rpc RackFirmwareSetDefault(RackFirmwareSetDefaultRequest) returns (google.protobuf.Empty);
 
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
@@ -705,7 +695,6 @@ service Forge {
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
-  rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
@@ -719,6 +708,8 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  // Force deletes a Rack from the database.
+  rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
@@ -767,6 +758,9 @@ service Forge {
   // end DPU Remediation APIs
 
   rpc SetPrimaryDpu(SetPrimaryDpuRequest) returns (google.protobuf.Empty);
+  // Make any host interface (DPU or not) the primary / boot interface. This is
+  // the generic form of SetPrimaryDpu, which it deprecates.
+  rpc SetPrimaryInterface(SetPrimaryInterfaceRequest) returns (google.protobuf.Empty);
 
   // Extension service version management
   rpc CreateDpuExtensionService(CreateDpuExtensionServiceRequest) returns (DpuExtensionService);
@@ -781,9 +775,9 @@ service Forge {
   // SPDM attestation APIs start
   rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
   rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
-  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
-  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
+
+  rpc ListAttestationMachines(SpdmListAttestationMachinesRequest) returns (SpdmListAttestationMachinesResponse);
+  rpc GetAttestationMachine(common.MachineId) returns (SpdmGetAttestationMachineResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -797,6 +791,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Site-operator: re-wrap tenant_identity_config ciphertext with a new master encryption key.
+  rpc ReencryptTenantIdentitySecrets(ReencryptTenantIdentitySecretsRequest)
+      returns (ReencryptTenantIdentitySecretsResponse);
   // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
   rpc GetJWKS(JwksRequest) returns (Jwks);
   rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
@@ -957,11 +954,7 @@ enum SpdmAttestationStatus{
   SPDM_ATT_FAILED = 3;
 }
 
-message AttestationIdsRequest {
-
-}
-
-message SpdmMachineAttestationStatusResponse {
+message SpdmMachineAttestationStatus {
   common.MachineId machine_id = 1;
   SpdmAttestationStatus attestation_status = 2;
 }
@@ -981,13 +974,29 @@ message SpdmAttestationDetails{
   optional google.protobuf.Timestamp completed_at = 9;
 }
 
-message SpdmListAttestationsResponse {
+message SpdmGetAttestationMachineResponse {
   repeated SpdmAttestationDetails attestations_details = 1;
 }
 
 message SpdmMachineAttestationTriggerRequest {
   common.MachineId machine_id = 1;
   uint32 redfish_timeout_secs = 2;
+}
+
+enum SpdmListAttestationMachinesRequestSelector {
+  SPDM_LIST_IN_PROGRESS = 0;
+  SPDM_LIST_UNSUCCESSFUL = 1;
+}
+
+message SpdmListAttestationMachinesRequest {
+  oneof variant {
+    common.MachineId machine_id = 1;
+    SpdmListAttestationMachinesRequestSelector selector = 2;
+  }
+}
+
+message SpdmListAttestationMachinesResponse {
+  repeated SpdmMachineAttestationStatus statuses = 1;
 }
 
 // Machine Identity - JWT-SVID token signing
@@ -1093,6 +1102,31 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+message ReencryptTenantIdentitySecretsRequest {
+  // If set, only this org; otherwise all rows in tenant_identity_config.
+  optional string organization_id = 1;
+  // Decrypt and validate only; no DB writes.
+  bool dry_run = 2;
+}
+
+message ReencryptTenantIdentityFailure {
+  string organization_id = 1;
+  string field = 2;
+  string error = 3;
+}
+
+message ReencryptTenantIdentitySecretsResponse {
+  uint32 rows_examined = 1;
+  uint32 rows_updated = 2;
+  uint32 rows_skipped_all_on_target = 3;
+  uint32 fields_reencrypted = 4;
+  uint32 fields_skipped_on_target = 5;
+  uint32 rows_failed = 6;
+  repeated ReencryptTenantIdentityFailure failures = 7;
+  // Site [machine_identity].current_encryption_key_id used as the re-wrap target.
+  string current_encryption_key_id = 8;
 }
 
 // Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
@@ -1542,6 +1576,14 @@ enum VpcVirtualizationType {
   FNN_CLASSIC = 3;
   FNN_L3 = 4;
   FNN = 5;
+  // FLAT is for VPCs whose tenant instances live directly on the underlay
+  // (zero-DPU hosts, or hosts with their DPU in NIC mode). Their interfaces
+  // are bound to `HostInband` network segments rather than a Carbide-managed
+  // overlay. Flat VPCs are still real tenant VPCs with a VNI and NSGs, but
+  // Carbide doesn't drive their data plane -- routing and ACL enforcement
+  // between Flat VPCs and other VPCs is the network operator's
+  // responsibility.
+  FLAT = 6;
 }
 
 message VpcUpdateRequest {
@@ -1642,7 +1684,8 @@ message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
-  uint64 available_linknet_segments = 4; 
+  uint64 available_linknet_segments = 4;
+  LifecycleStatus lifecycle = 5;
 }
 
 message VpcPrefixCreationRequest {
@@ -1666,10 +1709,14 @@ message VpcPrefixSearchQuery {
   // for its semantics.)
   optional string prefix_match = 4;
   optional PrefixMatchType prefix_match_type = 5;
+  // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 6;
 }
 
 message VpcPrefixGetRequest {
   repeated common.VpcPrefixId vpc_prefix_ids = 1;
+  // Controls whether soft-deleted VPC prefixes are returned. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
 }
 
 message VpcPrefixIdList {
@@ -1697,6 +1744,10 @@ message VpcPrefixDeletionRequest {
 }
 
 message VpcPrefixDeletionResult {
+}
+
+message VpcPrefixStateHistoriesRequest {
+  repeated common.VpcPrefixId vpc_prefix_ids = 1;
 }
 
 message VpcPeering {
@@ -1770,6 +1821,8 @@ enum TenantState {
 
   // Something Wrong happened at carbide. Check logs for more info.
   INVALID = 9;
+  // Instance is undergoing online repair (health override active).
+  REPAIRING = 10;
 }
 
 // Describe the desired configuration of an IBPartition
@@ -2127,6 +2180,9 @@ message Switch {
   optional PlacementInRack placement_in_rack = 11;
   reserved 12, 13;
   bool is_primary = 14;
+
+  // NVOS host endpoint
+  SwitchNvosInfo nvos_info = 15;
 }
 
 message SwitchList {
@@ -2210,6 +2266,9 @@ message ExpectedSwitch {
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
   optional bool bmc_retain_credentials = 12;
+  // Static IP reservation for the single wired NVOS port. Only meaningful
+  // when `nvos_mac_addresses` has exactly one entry.
+  optional string nvos_ip_address = 13;
 }
 
 message ExpectedSwitchRequest {
@@ -2662,6 +2721,7 @@ message InstanceConfig {
   // Configures instance nvlink partitions
   InstanceNVLinkConfig nvlink = 24;
 
+  InstanceSpxConfig spxconfig = 25;
 }
 
 // Desired network configuration for an instance
@@ -2709,6 +2769,24 @@ message InstanceDpuExtensionServicesConfig {
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
   repeated InstanceNVLinkGpuConfig gpu_configs = 1;
+}
+
+message InstanceSpxConfig {
+  repeated InstanceSpxAttachment spx_attachments = 1;
+}
+
+enum SpxAttachmentType {
+  Physical = 0;
+  Virtual = 1;
+  Ovn = 2; // This is WIP. Specification for this not yet finalized in Astra Spec
+}
+
+message InstanceSpxAttachment {
+  string device = 1;
+  uint32 device_instance = 2;
+  common.SpxPartitionId spx_partition_id = 3;
+  SpxAttachmentType attachment_type = 4;
+  optional uint32 virtual_function_id = 5; // Needed only if AttachmentType is Virtual
 }
 
 // New configuration for the instances network interfaces
@@ -2797,6 +2875,21 @@ message InstanceStatus {
   optional InstanceUpdateStatus update = 102;
 
   InstanceNVLinkStatus nvlink = 103;
+
+  InstanceSpxStatus spx_status = 104;
+}
+
+message InstanceSpxStatus {
+  repeated InstanceSpxAttachmentStatus attachment_statuses = 1;
+  SyncState configs_synced = 101;
+}
+
+message InstanceSpxAttachmentStatus {
+  optional string mac_addr = 1;
+  uint32 virtual_function_id = 2;
+  optional string ip_address = 3;
+  SpxAttachmentType attachment_type = 4;
+  common.SpxPartitionId spx_partition_id = 5;
 }
 
 // State of the networking subsystem of an instance
@@ -2993,6 +3086,11 @@ message InstanceInterfaceConfig {
   // Optional IPv6 configuration for dual-stack interfaces. When set alongside
   // vpc_prefix_id (field 6), both prefixes are allocated to a single network segment.
   optional InstanceInterfaceIpv6Config ipv6_interface_config = 11;
+
+  // Optional per-interface routing profile overrides. API callers can only
+  // narrow prefix-list options that are already allowed by the owning VPC's
+  // routing profile.
+  optional InstanceInterfaceRoutingProfile routing_profile = 12;
 }
 
 // IPv6 configuration for a dual-stack instance interface.
@@ -3002,6 +3100,14 @@ message InstanceInterfaceIpv6Config {
   common.VpcPrefixId vpc_prefix_id = 1;
   // Explicit host IPv6 address requested for this interface.
   optional string ip_address = 2;
+}
+
+// Routing-profile options API callers may narrow on an instance interface.
+message InstanceInterfaceRoutingProfile {
+  // IP prefixes this interface is allowed to announce as anycast routes.
+  // Every entry must be contained by an allowed_anycast_prefixes entry on the
+  // owning VPC's routing profile.
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -3309,6 +3415,12 @@ message BmcInfo {
   optional common.MachineInterfaceId machine_interface_id = 6;
 }
 
+message SwitchNvosInfo {
+  optional string ip = 1;
+  optional string mac = 2;
+  optional uint32 port = 3;
+}
+
 message Machine {
   // Uniquely identifies a Forge machine.
   // The value of this field is globally unique.
@@ -3413,6 +3525,11 @@ message Machine {
   optional common.RackId rack_id = 45;
 
   optional PlacementInRack placement_in_rack = 46;
+
+  optional MachineSpxStatusObservation spx_status_observation = 47;
+
+  // Build version of forge-scout last observed during machine discovery registration.
+  optional string last_scout_observed_version = 48;
 }
 
 message InstanceNetworkRestrictions {
@@ -3741,6 +3858,10 @@ message GetBmcCredentialsRequest {
   string mac_addr = 1;
 }
 
+message GetSwitchNvosCredentialsRequest {
+  common.SwitchId switch_id = 1;
+}
+
 message GetBmcCredentialsResponse {
   BmcCredentials credentials = 1;
 }
@@ -3964,7 +4085,7 @@ message ManagedHostNetworkConfigResponse {
 
   // Route imports and tagging details for exports
   // used by FNN configs.
-  // Deprecated: use FlatInterfaceConfig.routing_profile for per-VPC routing.
+  // Deprecated: use FlatInterfaceConfig.vpc_routing_profile for per-VPC routing.
   // NOTE: This will replace internet_l3_vni and common_internal_route_target but could allow
   //       common_internal_route_target to be renamed/repurposed as a site-level RT.
   //       to become a site-level common route target.
@@ -4016,24 +4137,18 @@ message TrafficInterceptConfig {
   repeated string secondary_vtep_aggregate_prefixes = 4;
 }
 
-
 message TrafficInterceptBridging {
+  reserved 2, 4;
+  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
+
   // Prefix to be used for assigning gateway IPs
   // to bridges used for VMaaS routing within the DPU.
   string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the last hop before the PF
-  // on the host.
-  string host_intercept_bridge_name      = 2;
 
   // Name of the bridge acting as the gateway for packets
   // leaving VMaaS pods and destined for the outside.
   // (E.g., internet or pods on other hosts)
   string vf_intercept_bridge_name        = 3;
-
-  // The name of the patch-port on the intercept bridge side
-  // that connects to the host_intercept_bridge.
-  string host_intercept_bridge_port      = 4;
 
   // Name of the patch-port on the intercept bridge side
   // of the vf_intercept_bridge that connects to the HBN pod
@@ -4043,6 +4158,12 @@ message TrafficInterceptBridging {
   // Name of SF used for routing VMaaS VF traffic into
   // the HBN pod.
   string vf_intercept_bridge_sf          = 6;
+
+  // Host-owned PF/VF representor bridging layout keyed by representor name.
+  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
+
+  // Bridge that intercept patch ports attach to during provisioning.
+  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -4191,7 +4312,11 @@ message FlatInterfaceConfig {
 
   // Route imports and tagging details for exports used by FNN configs.
   // This is scoped to the VPC that owns this interface.
-  optional RoutingProfile routing_profile = 20;
+  optional RoutingProfile vpc_routing_profile = 20;
+
+  // Interface-local routing profile details. These narrow the VPC routing
+  // profile for this interface.
+  optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
 
   // The details of the network security group associated with
   // either the instance or its parent VPC.
@@ -4205,6 +4330,10 @@ message FlatInterfaceConfig {
 
   // A UUID used to associate a network status with an interface config.
   optional common.UUID internal_uuid = 108;
+}
+
+message FlatInterfaceRoutingProfile {
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // IPv6 configuration for a dual-stack FNN interface, sent from the API to
@@ -4277,6 +4406,9 @@ message AdminForceDeleteMachineRequest {
   // Should we delete the BMC credentials? Please note, this will depend on if site explore configured
   // credentials for this machine.
   bool delete_bmc_credentials = 4;
+
+  // Allow force delete of machine with orphaned dpf crds
+  bool allow_delete_with_orphaned_dpf_crds = 5;
 }
 
 // Response to AdminForceDeleteMachine call
@@ -4554,23 +4686,8 @@ message ForgeAgentControlResponse {
   }
 
   message FirmwareUpgrade {
-    ScoutFirmwareUpgradeTask task = 1;
   }
 
-  message ScoutFirmwareUpgradeTask {
-    string upgrade_task_id = 1;
-    string component_type = 2;
-    string target_version = 3;
-    FileArtifact script = 4;
-    uint32 execution_timeout_seconds = 5;
-    uint32 artifact_download_timeout_seconds = 6;
-    repeated FileArtifact file_artifacts = 7;
-  }
-
-  message FileArtifact {
-    string url = 1;
-    string sha256 = 2;
-  }
 
   oneof action {
     Noop noop = 3;
@@ -4586,12 +4703,20 @@ message ForgeAgentControlResponse {
   }
 }
 
+enum MachineDiscoveryReporter {
+  MACHINE_DISCOVERY_REPORTER_UNSPECIFIED = 0;
+  MACHINE_DISCOVERY_REPORTER_SCOUT = 1;
+  MACHINE_DISCOVERY_REPORTER_DPU_AGENT = 2;
+}
+
 message MachineDiscoveryInfo {
   common.MachineInterfaceId machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
   }
   bool create_machine = 3;
+  MachineDiscoveryReporter discovery_reporter = 4;
+  optional string discovery_reporter_version = 5;
 }
 
 message MachineDiscoveryCompletedRequest {
@@ -4701,14 +4826,16 @@ message CloudInitDiscoveryInstructions {
   optional string hbn_reps = 3;
   optional string hbn_sfs = 4;
   optional string vf_intercept_bridge_name = 5;
-  optional string host_intercept_bridge_name = 6;
+
+  reserved 6;
+  reserved "host_intercept_bridge_name";
+
   // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
   // This will be the side owned by the <vf_intercept_bridge_name> bridge
   optional string vf_intercept_bridge_port   = 7;
 
-  // The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <host_intercept_bridge_name> bridge.
-  optional string host_intercept_bridge_port = 8;
+  reserved 8;
+  reserved "host_intercept_bridge_port";
 
   // The representor that will plug into the HBN container to connect it to br-hbn
   // to open connectivity between all the VFs.
@@ -4717,6 +4844,13 @@ message CloudInitDiscoveryInstructions {
   // Number of VFs to configure per DPU PF during BlueField provisioning.
   // If absent, carbide-pxe uses the legacy default of 16 for rolling upgrades.
   optional uint32 num_of_vfs = 10;
+
+  // The layout for any desired additional bridging between
+  // host PF/VFs and HBN.
+  optional string host_representor_intercept_bridging = 11;
+
+  // Bridge that intercept patch ports attach to during BlueField provisioning.
+  optional string hbn_bridge = 12;
 }
 
 message CloudInitMetaData {
@@ -4883,6 +5017,23 @@ message ListHealthReportResponse {
 // Request to remove a health report source from a host or DPU Machine.
 message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a NVLink domain.
+message ListNVLinkDomainHealthReportsRequest {
+  optional common.NVLinkDomainId domain_id = 1;
+}
+
+// Request to insert a health report source for a NVLink domain.
+message InsertNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a NVLink domain.
+message RemoveNVLinkDomainHealthReportRequest {
+  common.NVLinkDomainId domain_id = 1;
   string source = 2;
 }
 
@@ -5180,6 +5331,13 @@ enum UuidType {
   UuidTypeComputeAllocationId = 6;
 }
 
+message FindBmcIpsRequest {
+  oneof lookup_by {
+    string mac_address = 1;
+    string serial = 2;
+  }
+}
+
 message IdentifyMacRequest {
   string mac_address = 1;
 }
@@ -5269,9 +5427,27 @@ message HostReprovisioningListResponse {
   repeated HostReprovisioningListItem hosts = 1;
 }
 
+message DpuOsOperationalState {
+  string state_detail = 1;
+}
+
+message DpuRepresentorStatus {
+  string name = 1;
+  optional bool carrier_up = 2;
+  optional string state = 3;
+}
+
+message DpuInfoStatusObservation {
+  optional DpuOsOperationalState os_operational_state = 1;
+  optional string firmware_version = 2;
+  repeated DpuRepresentorStatus representors = 3;
+  optional google.protobuf.Timestamp last_heartbeat = 4;
+}
+
 message DpuInfo {
   string id = 1;
   string loopback_ip = 2;
+  optional DpuInfoStatusObservation observed_status = 3;
 }
 
 message GetDpuInfoListRequest {
@@ -5540,18 +5716,19 @@ message ExpectedHostNic {
   optional bool primary = 6;
 }
 
-// Per-host DPU operating mode. Ultimately replaces the site-wide
-// `force_dpu_nic_mode` config flag, so site operators can mix DPU-mode,
+// Per-host DPU operating mode. Lets site operators mix DPU-mode,
 // NIC-mode, and no-DPU hosts within a single site.
 //
 // - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
 //   overlay networking, etc).
 // - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
-//   explorer skips DPU ingest; the host is tracked as if it had no DPUs.
+//   explorer reconfigures them to NIC mode if needed; the host is then
+//   tracked as if it had no DPUs.
 // - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
 //
-// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default," which
-// is DPU_MODE unless the site-wide `force_dpu_nic_mode` config flag is on.
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default,"
+// which comes from `[site_explorer] dpu_mode` (and falls back to
+// DPU_MODE when that's unset).
 enum DpuMode {
   DPU_MODE_UNSPECIFIED = 0;
   DPU_MODE = 1;
@@ -5591,9 +5768,9 @@ message ExpectedMachine {
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
   optional bool bmc_retain_credentials = 15;
-  // Per-host DPU operating mode. See `DpuMode` above. Unset means "site
-  // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
-  // when no per-host override is set, so existing deployments keep working.
+  // Per-host DPU operating mode. See `DpuMode` above. Unset means "use
+  // the site-wide `[site_explorer] dpu_mode` default" (which itself
+  // defaults to DPU_MODE when unset).
   optional DpuMode dpu_mode = 16;
   // Per-host lifecycle profile. When unset in a patch/update request, the
   // existing DB value is preserved via COALESCE.
@@ -5819,17 +5996,30 @@ message MachineValidationOnDemandResponse {
 }
 
 message FirmwareUpgradeActivity {
-  // Target firmware version. When empty, RMS uses its default/latest version.
+  // SOT JSON string passed to the backend.
+  // Explicit firmware-upgrade maintenance requests must set this.
+  // Implicit all-activity maintenance skips firmware update when no JSON is configured.
   string firmware_version = 1;
   // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
   // When empty, all components are updated.
   repeated string components = 2;
+  // Used only by the backend for artifact download when firmware_version contains SOT JSON.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
+  // NICo stores it as a maintenance credential, not in rack maintenance state.
+  optional string access_token = 3;
+  bool force_update = 4;
 }
 
 message NvosUpdateActivity {
-  // Rack firmware entry containing the switch system image to install.
-  // When empty, the default rack firmware for the rack hardware type is used.
-  string rack_firmware_id = 1;
+  reserved 1;
+  reserved "firmware_object_id";
+  // SOT JSON string passed to RMS ApplySwitchSystemImage.
+  // Required for nvos-update activity.
+  string config_json = 2;
+  // Used only by the backend for artifact download when config_json is set.
+  // Optional. Omitted or empty values are passed to RMS as "NOAUTH".
+  // NICo stores it as a maintenance credential, not in rack maintenance state.
+  optional string access_token = 3;
 }
 
 message ConfigureNmxClusterActivity {
@@ -6709,7 +6899,8 @@ message DpaInterface {
   string controller_state = 7;
   string controller_state_version = 8;
   string controller_state_outcome = 9;
-  string network_status_observation = 10;
+
+  reserved 10;
 
   string network_config = 11;
   string network_config_version = 12;
@@ -6734,14 +6925,24 @@ message DpaInterface {
   // back to its default values before allocating to the
   // next tenant.
   optional string mlxconfig_profile = 19;
+
+  optional string device_description = 20;
+
+  DpaInterfaceType interface_type = 21;
 }
 
+enum DpaInterfaceType {
+  DPA_INTERFACE_TYPE_SVPC = 0;
+  DPA_INTERFACE_TYPE_ASTRA = 1;
+}
 
 message DpaInterfaceCreationRequest {
   common.MachineId machine_id = 1;
   string mac_addr = 2;
   string device_type = 3;
   string pci_name = 4;
+  optional string device_description = 5;
+  DpaInterfaceType interface_type = 6;
 }
 
 message DpaInterfaceIdList {
@@ -6978,6 +7179,17 @@ message DeleteRackRequest {
   string id = 1;
 }
 
+// Force deletes a Rack from the database.
+message AdminForceDeleteRackRequest {
+  // The Rack ID to force delete.
+  common.RackId rack_id = 1;
+}
+
+message AdminForceDeleteRackResponse {
+  // The ID of the rack that was deleted.
+  string rack_id = 1;
+}
+
 // Rack Capabilities
 
 
@@ -7070,6 +7282,19 @@ message MachineNVLinkInfo {
 message UpdateMachineNvLinkInfoRequest {
   common.MachineId machine_id = 1;
   MachineNVLinkInfo nvlink_info = 2;
+}
+
+message MachineSpxStatusObservation {
+  repeated MachineSpxAttachmentStatusObservation attachment_status = 1;
+  optional google.protobuf.Timestamp observed_at = 2;
+}
+
+message MachineSpxAttachmentStatusObservation {
+  string mac_address = 1;
+  optional common.SpxPartitionId partition_id = 2;
+  optional SpxAttachmentType attachment_type = 3;
+  optional uint32 virtual_function_id = 4;
+  optional google.protobuf.Timestamp observed_at = 5;
 }
 
 message NVLinkGpu {
@@ -7387,6 +7612,12 @@ message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
   bool reboot=3;
+}
+
+message SetPrimaryInterfaceRequest {
+  common.MachineId host_machine_id = 1;
+  common.MachineInterfaceId interface_id = 2;
+  bool reboot = 3;
 }
 
 // DPU Extension Service Types and Messages
@@ -7816,118 +8047,6 @@ message MachinePositionInfo {
   optional common.PowerShelfId power_shelf_id = 7;
 }
 
-// Rack Firmware Management Messages
-
-message RackFirmware {
-  string id = 1;
-  string config_json = 2;
-  bool available = 3;
-  string created = 4;
-  string updated = 5;
-  string parsed_components = 6; // JSON string of firmware lookup table
-  common.RackHardwareType rack_hardware_type = 7;
-  bool is_default = 8;
-}
-
-message RackFirmwareSetDefaultRequest {
-  string firmware_id = 1;
-}
-
-message FirmwareComponentInfo {
-  string device_type = 1;
-  string component = 2;
-  string bundle = 3;
-  string filename = 4;
-  string target = 5;
-  string firmware_type = 6; // "prod" or "dev"
-}
-
-message RackFirmwareCreateRequest {
-  string config_json = 1;
-  string artifactory_token = 2;
-  common.RackHardwareType rack_hardware_type = 3;
-}
-
-message RackFirmwareGetRequest {
-  string id = 1;
-}
-
-message RackFirmwareSearchFilter {
-  bool only_available = 1;
-  common.RackHardwareType rack_hardware_type = 2; // Optional: filter by rack hardware type. Unspecified means no filter.
-}
-
-message RackFirmwareList {
-  repeated RackFirmware configs = 1;
-}
-
-message RackFirmwareDeleteRequest {
-  string id = 1;
-}
-
-message RackFirmwareApplyRequest {
-  common.RackId rack_id = 1;
-  string firmware_id = 2;
-  string firmware_type = 3; // "dev" or "prod"
-}
-
-message RackFirmwareApplyResponse {
-  int32 total_updates = 1;
-  int32 successful_updates = 2;
-  int32 failed_updates = 3;
-  repeated DeviceUpdateResult device_results = 4;
-}
-
-message DeviceUpdateResult {
-  string device_id = 1;
-  string device_type = 2;
-  bool success = 3;
-  string message = 4;
-  string job_id = 5; // Parent job ID for async firmware updates (use with RMS GetFirmwareJobStatus)
-  repeated NodeJobInfo node_jobs = 6; // Per-node job IDs for tracking individual node progress
-}
-
-message NodeJobInfo {
-  string node_id = 1;
-  string job_id = 2;
-}
-
-message RackFirmwareJobStatusRequest {
-  string job_id = 1;
-}
-
-message RackFirmwareJobStatusResponse {
-  string job_id = 1;
-  string state = 2; // QUEUED, RUNNING, COMPLETED, FAILED
-  string state_description = 3; // Human-readable description
-  string rack_id = 4;
-  string node_id = 5;
-  string error_message = 6; // Populated if state is FAILED
-  string result_json = 7; // Detailed result data on completion
-}
-
-message RackFirmwareHistoryRequest {
-  string firmware_id = 1; // Optional: filter by firmware ID. Empty string means no filter.
-  repeated string rack_ids = 2; // Optional: filter by rack IDs. Empty list returns all racks.
-}
-
-message RackFirmwareHistoryResponse {
-  map<string, RackFirmwareHistoryRecords> histories = 1; // Keyed by rack ID
-}
-
-message RackFirmwareHistoryRecords {
-  repeated RackFirmwareHistoryRecord records = 1;
-}
-
-message RackFirmwareHistoryRecord {
-  string firmware_id = 1;
-  string rack_id = 2;
-  string firmware_type = 3;
-  string applied_at = 4;
-  bool firmware_available = 5; // Whether the firmware ID still exists and is available
-  common.RackHardwareType rack_hardware_type = 6;
-}
-
 message ModifyDPFStateRequest {
   common.MachineId machine_id = 1;
   bool dpf_enabled = 2;
@@ -8039,6 +8158,9 @@ message ComponentPowerControlRequest {
     PowerShelfIdList power_shelf_ids = 3;
   }
   common.SystemPowerControl action = 4;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  bool bypass_state_controller = 5;
 }
 
 message ComponentPowerControlResponse {
@@ -8107,9 +8229,9 @@ message UpdatePowerShelfFirmwareTarget {
   repeated PowerShelfComponent components = 2;
 }
 
-// Whole-rack firmware update target. All eligible devices in each listed
-// rack are updated according to the SOT identified by `target_version`.
-message UpdateRackFirmwareTarget {
+// Whole-rack firmware update target. All eligible compute and switch devices
+// in each listed rack are updated.
+message UpdateFirmwareObjectTarget {
   RackIdList rack_ids = 1;
 }
 
@@ -8117,10 +8239,23 @@ message UpdateComponentFirmwareRequest {
   oneof target {
     UpdateComputeTrayFirmwareTarget compute_trays = 1;
     UpdateSwitchFirmwareTarget switches = 2;
+    // powershelf firmware update currently not implemented by state machine and backend
     UpdatePowerShelfFirmwareTarget power_shelves = 3;
-    UpdateRackFirmwareTarget racks = 5;
+    UpdateFirmwareObjectTarget racks = 5;
   }
+
+  // Target firmware version for direct component-manager dispatch.
+  // For targets routed through rack maintenance, this carries SOT JSON for
+  // the backend firmware apply path.
   string target_version = 4;
+  // Optional for firmware targets routed to RMS.
+  // Omitted or empty values are passed to RMS as "NOAUTH".
+  optional string access_token = 6;
+  bool force_update = 7;
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
+  // Not supported for rack-level firmware updates.
+  bool bypass_state_controller = 8;
 }
 
 message UpdateComponentFirmwareResponse {
@@ -8167,6 +8302,45 @@ message DeviceFirmwareVersions {
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+message SpxPartitionCreationRequest {
+  Metadata metadata = 1;
+  optional common.SpxPartitionId id = 2;
+  optional uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartition {
+  Metadata metadata = 1;
+  common.SpxPartitionId id = 2;
+  uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartitionIdList {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
+}
+
+message SpxPartitionDeletionRequest {
+  common.SpxPartitionId id = 1;
+}
+
+message SpxPartitionDeletionResult {
+}
+
+message SpxPartitionSearchFilter {
+  optional string name = 1;
+  optional string tenant_org_id = 2;
+  optional Label label = 3;
+}
+
+message SpxPartitionList {
+  repeated SpxPartition spx_partitions = 1;
+}
+
+message SpxPartitionsByIdsRequest {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
 }
 
 // Force deletes a Switch and optionally its associated interfaces.
@@ -8319,4 +8493,9 @@ message IpxeTemplateArtifactUpdateRequest {
 message UpdateOperatingSystemIpxeTemplateArtifactRequest {
   common.OperatingSystemId id = 1;
   repeated IpxeTemplateArtifactUpdateRequest updates = 2;
+}
+
+message HostRepresentorInterceptBridging {
+  string bridge     = 1;
+  string patch_port = 2;
 }
