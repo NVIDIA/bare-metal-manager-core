@@ -44,10 +44,12 @@ import (
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 // ImplementationName is the name used to identify this implementation in
@@ -57,33 +59,40 @@ const ImplementationName = "nico"
 // Manager manages compute trays via NICo Core's Component Manager RPCs.
 type Manager struct {
 	nicoClient nicoapi.Client
-	// assignment guards mutating operations from running while any target
-	// machine still has an instance attached (ManagedHostState::Assigned).
-	// Identical safety contract to compute/nicolegacy: the gate runs in
-	// Flow because Core's Component Manager dispatch does not (yet) check
-	// host assignment state on its own.
-	assignment *nicoprovider.AssignmentChecker
+	// readiness guards mutating operations from running while any target
+	// machine is reported as not ready for the operation by its persisted
+	// ComponentStatus. Identical safety contract to compute/nicolegacy:
+	// the gate runs in Flow because Core's Component Manager dispatch
+	// does not (yet) check host readiness state on its own.
+	readiness readiness.Gate
 }
 
 // New creates a new compute Manager that drives Core's Component Manager
-// dispatch.
-func New(nicoClient nicoapi.Client) *Manager {
+// dispatch. gate is used to gate disruptive operations on hosts that are
+// not ready for them; a nil gate short-circuits to permissive in tests.
+func New(nicoClient nicoapi.Client, gate readiness.Gate) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
-		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+		readiness:  gate,
 	}
 }
 
-// Factory creates a new Manager from the provided providers.
-func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.ComponentManager, error) {
-	provider, err := providerapi.GetTyped[*nicoprovider.Provider](
-		providerRegistry,
-		nicoprovider.ProviderName,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("compute/nico requires nico provider: %w", err)
+// Factory returns a factory that closes over the shared readiness gate.
+// The gate is built once at service startup from the live DB session so
+// every manager shares the same StatusReader.
+func Factory(gate readiness.Gate) componentmanager.ManagerFactory {
+	return func(
+		providerRegistry *providerapi.ProviderRegistry,
+	) (componentmanager.ComponentManager, error) {
+		provider, err := providerapi.GetTyped[*nicoprovider.Provider](
+			providerRegistry,
+			nicoprovider.ProviderName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("compute/nico requires nico provider: %w", err)
+		}
+		return New(provider.Client(), gate), nil
 	}
-	return New(provider.Client()), nil
 }
 
 // Descriptor returns the compute/nico manager descriptor.
@@ -107,10 +116,10 @@ func Descriptor() cmcatalog.Descriptor {
 }
 
 // FactorySpec returns the compute/nico runtime factory spec.
-func FactorySpec() componentmanager.FactorySpec {
+func FactorySpec(gate readiness.Gate) componentmanager.FactorySpec {
 	return componentmanager.FactorySpec{
 		Descriptor: Descriptor(),
-		Factory:    Factory,
+		Factory:    Factory(gate),
 	}
 }
 
@@ -129,8 +138,8 @@ func machineIDsProto(ids []string) *pb.MachineIdList {
 
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
-// while any target host is reported as not ready for the operation by its
-// persisted ComponentStatus.
+// while any target host is reported as not ready for op by its persisted
+// ComponentStatus.
 //
 // When overrideReadinessCheck is true the gate is short-circuited and
 // the operation runs unconditionally; the bypass is logged so it remains
@@ -138,15 +147,17 @@ func machineIDsProto(ids []string) *pb.MachineIdList {
 func (m *Manager) ensureMachinesOperable(
 	ctx context.Context,
 	machineIDs []string,
+	op types.OperationType,
 	overrideReadinessCheck bool,
 ) error {
 	if overrideReadinessCheck {
 		log.Warn().
 			Strs("machine_ids", machineIDs).
+			Str("operation", string(op)).
 			Msg("Readiness check bypassed by override_readiness_check on compute operation")
 		return nil
 	}
-	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)
+	return m.readiness.WaitForComponentsReady(ctx, machineIDs, op)
 }
 
 // InjectExpectation registers an expected machine with NICo via
@@ -197,7 +208,7 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -304,7 +315,7 @@ func (m *Manager) FirmwareControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypeFirmwareControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -468,7 +479,9 @@ func (m *Manager) BringUpControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
+	// BringUpControl can trigger a power-on, so we gate on the same
+	// readiness signal that PowerControl would consult.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 

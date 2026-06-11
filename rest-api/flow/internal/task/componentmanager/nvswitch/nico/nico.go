@@ -18,10 +18,12 @@ import (
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 const (
@@ -32,33 +34,40 @@ const (
 // Manager manages NVLink switch components via the NICo API.
 type Manager struct {
 	nicoClient nicoapi.Client
-	// assignment guards power/firmware operations on a switch from running
-	// while any host on the switch's rack is still attached to an instance.
-	// A switch reset typically disrupts NVLink traffic for the whole rack,
-	// so this safety check is rack-scoped rather than component-scoped.
-	assignment *nicoprovider.AssignmentChecker
+	// readiness guards power/firmware operations on a switch from running
+	// while any host on the switch's rack is reported as not ready for
+	// the operation by its persisted ComponentStatus. A switch reset
+	// typically disrupts NVLink traffic for the whole rack, so this check
+	// is rack-scoped rather than component-scoped.
+	readiness readiness.Gate
 }
 
-// New creates a new NICo-based NVSwitch Manager instance.
-func New(nicoClient nicoapi.Client) *Manager {
+// New creates a new NICo-based NVSwitch Manager instance. A nil gate
+// short-circuits to permissive in tests; production callers wire the
+// shared DB-backed gate.
+func New(nicoClient nicoapi.Client, gate readiness.Gate) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
-		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+		readiness:  gate,
 	}
 }
 
-// Factory creates a new Manager from the provided providers.
-// It retrieves the NICoProvider from the registry and uses its client.
-func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.ComponentManager, error) {
-	provider, err := providerapi.GetTyped[*nicoprovider.Provider](
-		providerRegistry,
-		nicoprovider.ProviderName,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("nvswitch/nico requires nico provider: %w", err)
+// Factory returns a factory that closes over the shared readiness gate.
+// The factory retrieves the NICo provider from the registry and pairs it
+// with the gate.
+func Factory(gate readiness.Gate) componentmanager.ManagerFactory {
+	return func(
+		providerRegistry *providerapi.ProviderRegistry,
+	) (componentmanager.ComponentManager, error) {
+		provider, err := providerapi.GetTyped[*nicoprovider.Provider](
+			providerRegistry,
+			nicoprovider.ProviderName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("nvswitch/nico requires nico provider: %w", err)
+		}
+		return New(provider.Client(), gate), nil
 	}
-
-	return New(provider.Client()), nil
 }
 
 // Descriptor returns the NICo NVSwitch manager descriptor.
@@ -81,10 +90,10 @@ func Descriptor() cmcatalog.Descriptor {
 }
 
 // FactorySpec returns the NICo NVSwitch manager runtime factory spec.
-func FactorySpec() componentmanager.FactorySpec {
+func FactorySpec(gate readiness.Gate) componentmanager.FactorySpec {
 	return componentmanager.FactorySpec{
 		Descriptor: Descriptor(),
-		Factory:    Factory,
+		Factory:    Factory(gate),
 	}
 }
 
@@ -147,6 +156,7 @@ func switchIDsProto(ids []string) *pb.SwitchIdList {
 func (m *Manager) ensureRackOperable(
 	ctx context.Context,
 	switchIDs []string,
+	op types.OperationType,
 	overrideReadinessCheck bool,
 ) error {
 	if len(switchIDs) == 0 {
@@ -156,6 +166,7 @@ func (m *Manager) ensureRackOperable(
 	if overrideReadinessCheck {
 		log.Warn().
 			Strs("switch_ids", switchIDs).
+			Str("operation", string(op)).
 			Msg("Readiness check bypassed by override_readiness_check on NVSwitch operation")
 		return nil
 	}
@@ -182,7 +193,7 @@ func (m *Manager) ensureRackOperable(
 			Msg("NVSwitch has no rack assignment; readiness check cannot be applied")
 	}
 
-	return m.assignment.WaitForRacksUnassigned(ctx, rackIDs)
+	return m.readiness.WaitForRackHostsReady(ctx, rackIDs, op)
 }
 
 // PowerControl performs power operations on NVLink switches via NICo's
@@ -202,7 +213,7 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -313,7 +324,7 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideReadinessCheck); err != nil {
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, types.OperationTypeFirmwareControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
