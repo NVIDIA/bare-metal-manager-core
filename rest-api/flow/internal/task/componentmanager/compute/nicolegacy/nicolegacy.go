@@ -883,6 +883,11 @@ func (m *Manager) ensureMachinesOperable(
 	op types.OperationType,
 	overrideReadinessCheck bool,
 ) error {
+	// A nil gate is the documented permissive mode: skip rather than
+	// dispatch on a nil interface.
+	if m.readiness == nil {
+		return nil
+	}
 	if overrideReadinessCheck {
 		log.Warn().
 			Strs("machine_ids", machineIDs).

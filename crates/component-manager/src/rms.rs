@@ -2077,7 +2077,7 @@ mod tests {
     }
 
     fn make_ct_endpoint(bmc_ip: &str) -> ComputeTrayEndpoint {
-        use forge_secrets::credentials::Credentials;
+        use carbide_secrets::credentials::Credentials;
         ComputeTrayEndpoint {
             vendor: ComputeTrayVendor::Nvidia,
             bmc_ip: bmc_ip.parse().unwrap(),
