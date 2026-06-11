@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // Well-known label keys Core writes on ExpectedRack.metadata.labels. Mirrored
@@ -59,29 +61,95 @@ func (r mirrorResult) log() {
 		Msgf("Expected-inventory mirror: %s", r.resource)
 }
 
-// syncExpectedFromCore pulls Core's expected inventory and reconciles the
-// Flow-side tables to mirror it. Today it only mirrors racks; the component
-// (machine / switch / power shelf) mirror lives behind nicoapi's
-// GetAllExpected*Details RPCs and lands in a follow-up commit alongside the
-// component.expected_id schema migration and BMC handling.
+// syncExpectedFromCore pulls Core's expected inventory and reconciles each
+// of Flow's tables to mirror it. Racks are reconciled first so a per-cycle
+// rack_id → Rack.UUID map is available to resolve every component's
+// RackExternalID into the FK Flow needs. Each resource type is independent:
+// an RPC failure on machines doesn't stop switches from being reconciled.
 //
-// The function is meant to run immediately before runInventoryOne's drift
-// detection so the drift loop sees a Flow inventory that's already aligned
-// with Core's expected view.
+// Runs immediately before runInventoryOne's drift detection so the drift
+// loop sees a Flow inventory that's already aligned with Core's expected
+// view.
 func syncExpectedFromCore(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
 ) {
-	racks, rpcOK, hasRows := pullExpectedRacks(ctx, nicoClient)
-	if !rpcOK {
-		// pullExpectedRacks already logged the underlying RPC error; bail out
-		// so we don't risk treating "RPC failed" as "Core has zero racks" and
-		// soft-deleting Flow's entire rack table.
+	racks, rackOK, rackHasRows := pullExpectedRacks(ctx, nicoClient)
+	if rackOK {
+		result := mirrorExpectedRacks(ctx, pool, racks, !rackHasRows)
+		result.log()
+	}
+
+	// Build the cross-reference map after rack mirror so component specs
+	// referencing rack_id strings can resolve them to Flow Rack.UUIDs. Done
+	// via a fresh DB read instead of returning the map from
+	// mirrorExpectedRacks so the rack mirror's signature stays focused; the
+	// read is cheap (rack count is small) and includes adoptions / inserts
+	// the mirror just made.
+	rackIDByExtID, err := loadRackIDByExternalID(ctx, pool.DB)
+	if err != nil {
+		log.Error().Err(err).Msg("Expected-inventory mirror: loading rack external_id map failed; skipping component mirror this cycle")
 		return
 	}
-	result := mirrorExpectedRacks(ctx, pool, racks, !hasRows)
-	result.log()
+
+	if machines, ok, hasRows := pullExpectedMachines(ctx, nicoClient); ok {
+		specs := make([]expectedComponentSpec, 0, len(machines))
+		for _, m := range machines {
+			specs = append(specs, machineDetailToSpec(m))
+		}
+		result := mirrorExpectedComponents(ctx, pool,
+			devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
+			specs, rackIDByExtID, !hasRows)
+		result.log()
+	}
+
+	if switches, ok, hasRows := pullExpectedSwitches(ctx, nicoClient); ok {
+		specs := make([]expectedComponentSpec, 0, len(switches))
+		for _, s := range switches {
+			specs = append(specs, switchDetailToSpec(s))
+		}
+		result := mirrorExpectedComponents(ctx, pool,
+			devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch),
+			specs, rackIDByExtID, !hasRows)
+		result.log()
+	}
+
+	if shelves, ok, hasRows := pullExpectedPowerShelves(ctx, nicoClient); ok {
+		specs := make([]expectedComponentSpec, 0, len(shelves))
+		for _, ps := range shelves {
+			specs = append(specs, powerShelfDetailToSpec(ps))
+		}
+		result := mirrorExpectedComponents(ctx, pool,
+			devicetypes.ComponentTypeToString(devicetypes.ComponentTypePowerShelf),
+			specs, rackIDByExtID, !hasRows)
+		result.log()
+	}
+}
+
+// loadRackIDByExternalID returns a map keyed by rack.external_id (Core's
+// rack_id string) of the matching Flow Rack.UUID. Soft-deleted rows are
+// excluded because component specs that reference a deleted rack would
+// inherit a stale FK; better to skip the component spec with a warn.
+func loadRackIDByExternalID(ctx context.Context, idb bun.IDB) (map[string]uuid.UUID, error) {
+	var rows []struct {
+		ID         uuid.UUID `bun:"id"`
+		ExternalID *string   `bun:"external_id"`
+	}
+	if err := idb.NewSelect().
+		Model((*model.Rack)(nil)).
+		Column("id", "external_id").
+		Where("external_id IS NOT NULL AND external_id <> ''").
+		Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := make(map[string]uuid.UUID, len(rows))
+	for _, r := range rows {
+		if r.ExternalID != nil && *r.ExternalID != "" {
+			out[*r.ExternalID] = r.ID
+		}
+	}
+	return out, nil
 }
 
 // pullExpectedRacks wraps the nicoapi RPC with the two safety guards the
