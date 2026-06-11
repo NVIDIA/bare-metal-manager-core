@@ -1012,8 +1012,6 @@ impl Machine {
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
         self.bmc_info
             .ip
-            .as_ref()
-            .and_then(|ip| ip.parse().ok())
             .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
     }
 

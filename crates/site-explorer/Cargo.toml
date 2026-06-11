@@ -52,9 +52,13 @@ version-compare = { workspace = true }
 [dev-dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-core = { path = "../api-core", features = ["test-support"] }
+carbide-api-model = { path = "../api-model", default-features = false, features = [
+  "test-support",
+] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-rpc = { path = "../rpc", features = ["test-support"] }
+nico-test-support = { path = "../test-support" }
 
 tokio = { workspace = true, features = ["macros", "rt"] }
 tonic = { workspace = true }

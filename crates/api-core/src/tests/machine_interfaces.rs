@@ -799,7 +799,7 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
         .addresses
         .first()
         .expect("host BMC interface must have an address")
-        .to_string();
+        .to_owned();
     assert_eq!(host_bmc_interface_mac, host_bmc_mac);
 
     let dpu_bmc_interface = interfaces
@@ -815,7 +815,7 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
         .addresses
         .first()
         .expect("DPU BMC interface must have an address")
-        .to_string();
+        .to_owned();
     assert_eq!(dpu_bmc_interface_mac, dpu_bmc_mac);
 
     assert_eq!(
@@ -823,10 +823,7 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
         Some(host_bmc_interface_id)
     );
     assert_eq!(host_machine.bmc_info.mac, Some(host_bmc_interface_mac));
-    assert_eq!(
-        host_machine.bmc_info.ip.as_deref(),
-        Some(host_bmc_interface_ip.as_str())
-    );
+    assert_eq!(host_machine.bmc_info.ip, Some(host_bmc_interface_ip));
     assert!(
         host_machine
             .interfaces
@@ -840,10 +837,7 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
         Some(dpu_bmc_interface_id)
     );
     assert_eq!(dpu_machine.bmc_info.mac, Some(dpu_bmc_interface_mac));
-    assert_eq!(
-        dpu_machine.bmc_info.ip.as_deref(),
-        Some(dpu_bmc_interface_ip.as_str())
-    );
+    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_interface_ip));
     assert!(
         dpu_machine
             .interfaces
@@ -859,6 +853,8 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     let rpc_bmc_type = rpc::forge::InterfaceType::Bmc as i32;
     let host_bmc_interface_mac = host_bmc_interface_mac.to_string();
     let dpu_bmc_interface_mac = dpu_bmc_interface_mac.to_string();
+    let host_bmc_interface_ip = host_bmc_interface_ip.to_string();
+    let dpu_bmc_interface_ip = dpu_bmc_interface_ip.to_string();
 
     let host_bmc_info = host_rpc_machine
         .bmc_info

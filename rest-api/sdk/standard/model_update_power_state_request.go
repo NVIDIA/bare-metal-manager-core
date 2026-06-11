@@ -28,6 +28,8 @@ type UpdatePowerStateRequest struct {
 	SiteId string `json:"siteId"`
 	// Power control state to apply: - `on`: Power on the target(s) - `off`: Graceful power off - `cycle`: Graceful power cycle (restart) - `forceoff`: Forced power off (immediate) - `forcecycle`: Forced power cycle (immediate restart)
 	State string `json:"state"`
+	// Optional Operation Rule UUID. When set, pins this operation to the named rule and overrides Flow's default rule resolution.
+	RuleId *string `json:"ruleId,omitempty"`
 }
 
 type _UpdatePowerStateRequest UpdatePowerStateRequest
@@ -99,6 +101,38 @@ func (o *UpdatePowerStateRequest) SetState(v string) {
 	o.State = v
 }
 
+// GetRuleId returns the RuleId field value if set, zero value otherwise.
+func (o *UpdatePowerStateRequest) GetRuleId() string {
+	if o == nil || IsNil(o.RuleId) {
+		var ret string
+		return ret
+	}
+	return *o.RuleId
+}
+
+// GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *UpdatePowerStateRequest) GetRuleIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RuleId) {
+		return nil, false
+	}
+	return o.RuleId, true
+}
+
+// HasRuleId returns a boolean if a field has been set.
+func (o *UpdatePowerStateRequest) HasRuleId() bool {
+	if o != nil && !IsNil(o.RuleId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleId gets a reference to the given string and assigns it to the RuleId field.
+func (o *UpdatePowerStateRequest) SetRuleId(v string) {
+	o.RuleId = &v
+}
+
 func (o UpdatePowerStateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -111,6 +145,9 @@ func (o UpdatePowerStateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["siteId"] = o.SiteId
 	toSerialize["state"] = o.State
+	if !IsNil(o.RuleId) {
+		toSerialize["ruleId"] = o.RuleId
+	}
 	return toSerialize, nil
 }
 

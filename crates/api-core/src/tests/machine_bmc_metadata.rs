@@ -23,6 +23,28 @@ use sqlx::PgPool;
 
 use crate::tests::common;
 
+#[test]
+fn bmc_info_accepts_ipv6_from_proto() {
+    let bmc_info = model::bmc_info::BmcInfo::try_from(rpc::forge::BmcInfo {
+        ip: Some("2001:db8::1".into()),
+        ..Default::default()
+    })
+    .unwrap();
+
+    assert_eq!(bmc_info.ip, Some("2001:db8::1".parse().unwrap()));
+}
+
+#[test]
+fn bmc_info_rejects_invalid_proto_ip() {
+    let err = model::bmc_info::BmcInfo::try_from(rpc::forge::BmcInfo {
+        ip: Some("not-an-ip".into()),
+        ..Default::default()
+    })
+    .unwrap_err();
+
+    assert!(err.to_string().contains("Invalid BMC IP"));
+}
+
 #[crate::sqlx_test]
 async fn fetch_bmc_credentials(pool: PgPool) {
     let env = create_test_env(pool).await;

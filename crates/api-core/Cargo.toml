@@ -223,6 +223,7 @@ carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-rpc = { path = "../rpc", features = ["model", "sqlx", "test-support"] }
 carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+nico-test-support = { path = "../test-support" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 state-controller = { path = "../state-controller", features = ["test-support"] }

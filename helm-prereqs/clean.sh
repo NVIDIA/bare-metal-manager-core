@@ -130,6 +130,14 @@ kubectl get clusterrole,clusterrolebinding -o name \
 kubectl delete validatingwebhookconfiguration externalsecret-validate secretstore-validate \
     --ignore-not-found 2>/dev/null || true
 
+# Prometheus Operator CRDs that setup.sh applies from operators/crds/ (servicemonitors,
+# podmonitors, prometheusrules, scrapeconfigs). Helm/kubectl-apply leave these behind, so
+# remove them for a complete wipe. NOTE: skip this if the cluster has its own cluster-level
+# Prometheus Operator that owns these CRDs.
+echo "Removing Prometheus Operator (monitoring.coreos.com) CRDs..."
+kubectl get crd -o name | grep monitoring.coreos.com \
+    | xargs kubectl delete --ignore-not-found 2>/dev/null || true
+
 # vault cluster-scoped RBAC and webhooks
 echo "Removing vault cluster-scoped RBAC and webhooks..."
 kubectl get clusterrole,clusterrolebinding -o name \

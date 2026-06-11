@@ -209,10 +209,7 @@ async fn test_site_explorer_creates_managed_host(
         dpu_machine.hardware_info.as_ref().unwrap().machine_type,
         CpuArchitecture::Aarch64,
     );
-    assert_eq!(
-        dpu_machine.bmc_info.ip.clone().unwrap(),
-        dpu_bmc_ip.to_string()
-    );
+    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_ip));
 
     assert_eq!(
         format!(

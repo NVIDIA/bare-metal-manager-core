@@ -94,7 +94,7 @@ pub struct ExpectedHostNic {
     pub mac_address: MacAddress,
     // something to help the dhcp code select the right ip subnet, eg: bf3, onboard, cx8, oob, etc.
     pub nic_type: Option<String>,
-    pub fixed_ip: Option<String>,
+    pub fixed_ip: Option<IpAddr>,
     pub fixed_mask: Option<String>,
     pub fixed_gateway: Option<String>,
     /// When true, `primary` flags this NIC as the host's boot (primary)

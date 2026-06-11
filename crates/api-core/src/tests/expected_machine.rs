@@ -2126,6 +2126,94 @@ async fn test_add_expected_machine_with_invalid_static_ip(pool: sqlx::PgPool) {
     );
 }
 
+#[test]
+fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_ip() {
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "IPV6-HOST-NIC-FIXED-IP".into(),
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
+            fixed_ip: Some("2001:db8::66".to_string()),
+            ..Default::default()
+        }],
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
+
+    assert_eq!(
+        data.host_nics[0].fixed_ip,
+        Some("2001:db8::66".parse().unwrap())
+    );
+}
+
+#[test]
+fn test_expected_machine_data_rejects_invalid_host_nic_fixed_ip() {
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "INVALID-HOST-NIC-FIXED-IP".into(),
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
+            fixed_ip: Some("not-a-valid-ip".to_string()),
+            ..Default::default()
+        }],
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let err = match ExpectedMachineData::try_from(expected_machine) {
+        Ok(_) => panic!("invalid host NIC fixed IP should fail conversion"),
+        Err(err) => err,
+    };
+
+    assert!(err.to_string().contains("Invalid fixed IP"));
+}
+
+#[test]
+fn test_expected_machine_data_rejects_invalid_host_nic_mac_address() {
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "INVALID-HOST-NIC-MAC".into(),
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: "not-a-mac".to_string(),
+            fixed_ip: Some("192.0.2.66".to_string()),
+            ..Default::default()
+        }],
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let err = match ExpectedMachineData::try_from(expected_machine) {
+        Ok(_) => panic!("invalid host NIC MAC should fail conversion"),
+        Err(err) => err,
+    };
+
+    assert!(
+        matches!(
+            &err,
+            ::rpc::errors::RpcDataConversionError::InvalidMacAddress(mac)
+                if mac == "not-a-mac"
+        ),
+        "got: {err}"
+    );
+}
+
 /// Adding an expected machine with `host_nics[].fixed_ip` should result in a static
 /// `machine_interface` for that NIC. The materialization is deferred: site-explorer's
 /// reconciliation pass (or the DHCP discover hook) is what creates the row. The test
@@ -3005,7 +3093,7 @@ async fn test_create_missing_from_preallocates_interfaces(
             host_nics: vec![model::expected_machine::ExpectedHostNic {
                 mac_address: nic_mac,
                 nic_type: Some("onboard".into()),
-                fixed_ip: Some(host_ip.to_string()),
+                fixed_ip: Some(host_ip),
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: Some(true),

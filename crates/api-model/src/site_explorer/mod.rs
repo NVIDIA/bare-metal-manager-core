@@ -567,7 +567,7 @@ impl ExploredDpu {
 
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             mac: self
                 .report
                 .managers
@@ -657,7 +657,7 @@ pub struct ExploredManagedHost {
 impl ExploredManagedHost {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.host_bmc_ip.to_string()),
+            ip: Some(self.host_bmc_ip),
             ..Default::default()
         }
     }
@@ -677,7 +677,7 @@ pub struct ExploredManagedSwitch {
 impl ExploredManagedSwitch {
     pub fn bmc_info(&self) -> BmcInfo {
         BmcInfo {
-            ip: Some(self.bmc_ip.to_string()),
+            ip: Some(self.bmc_ip),
             ..Default::default()
         }
     }

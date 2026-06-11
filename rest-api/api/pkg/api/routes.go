@@ -898,6 +898,33 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskHandler(dbSession, tc, scp, cfg),
 		},
+		// Operation Rule endpoints (Flow). Rules govern how tasks execute, so
+		// they live under the /task namespace.
+		{
+			Path:    apiPathPrefix + "/task/rule",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/rule/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
 		{
 			Path:    apiPathPrefix + "/rack",
 			Method:  http.MethodGet,

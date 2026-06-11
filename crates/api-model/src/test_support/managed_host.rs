@@ -55,6 +55,10 @@ pub struct ManagedHostConfig {
     /// - bmc username/password are not required
     /// - serial number is copied from ManagedHostConfig
     pub expected_machine_data: Option<ExpectedMachineData>,
+    /// The BMC vendor the host's exploration report presents.
+    /// Default: Dell. Override to exercise vendor-dependent paths
+    /// (e.g. the post-`set_nic_mode` host power cycle).
+    pub vendor: Option<bmc_vendor::BMCVendor>,
 }
 
 impl ManagedHostConfig {
@@ -207,7 +211,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             endpoint_type: EndpointType::Bmc,
             last_exploration_error: None,
             last_exploration_latency: None,
-            vendor: Some(bmc_vendor::BMCVendor::Dell),
+            vendor: value.vendor,
             managers: vec![Manager {
                 id: "iDRAC.Embedded.1".to_string(),
                 ethernet_interfaces: vec![EthernetInterface {

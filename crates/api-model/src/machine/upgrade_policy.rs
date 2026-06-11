@@ -286,82 +286,96 @@ impl PartialOrd for BuildVersion<'_> {
 }
 
 #[test]
-fn test_parse_version() -> eyre::Result<()> {
-    // Date-based versions
-    assert_eq!(
-        BuildVersion::try_from("v2023.08-92-g1b48e8b6")?,
-        BuildVersion {
-            version: "2023.08",
-            rc: "",
-            hotfix: 0,
-            commits: 92,
-            git_hash: "g1b48e8b6",
-        }
+fn test_parse_version() {
+    use nico_test_support::Outcome::*;
+    use nico_test_support::{Case, check_cases};
+
+    check_cases(
+        [
+            // Date-based versions
+            Case {
+                scenario: "date tag with commits and hash",
+                input: "v2023.08-92-g1b48e8b6",
+                expect: Yields(BuildVersion {
+                    version: "2023.08",
+                    rc: "",
+                    hotfix: 0,
+                    commits: 92,
+                    git_hash: "g1b48e8b6",
+                }),
+            },
+            Case {
+                scenario: "date tag with rc, commits and hash",
+                input: "v2023.09-rc1-27-gc3ce4d5d",
+                expect: Yields(BuildVersion {
+                    version: "2023.09",
+                    rc: "rc1",
+                    hotfix: 0,
+                    commits: 27,
+                    git_hash: "gc3ce4d5d",
+                }),
+            },
+            Case {
+                scenario: "bare date tag",
+                input: "v2023.08",
+                expect: Yields(BuildVersion {
+                    version: "2023.08",
+                    rc: "",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            // Semver versions
+            Case {
+                scenario: "semver tag with rc, hotfix and hash",
+                input: "v0.0.4-rc4-0-g2a3c98cac",
+                expect: Yields(BuildVersion {
+                    version: "0.0.4",
+                    rc: "rc4",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "g2a3c98cac",
+                }),
+            },
+            Case {
+                scenario: "bare semver tag",
+                input: "v1.2.3",
+                expect: Yields(BuildVersion {
+                    version: "1.2.3",
+                    rc: "",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            Case {
+                scenario: "semver tag with rc and hotfix",
+                input: "v0.0.4-rc1-0",
+                expect: Yields(BuildVersion {
+                    version: "0.0.4",
+                    rc: "rc1",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            Case {
+                scenario: "too many dash-separated parts",
+                input: "v2023.08-rc1-0-3-g123eff-x",
+                expect: Fails,
+            },
+            Case {
+                scenario: "no version number after the 'v'",
+                input: "v-rc1",
+                expect: Fails,
+            },
+        ],
+        // The operation under test: parse a build-version string. The error type
+        // (eyre::Report) is not PartialEq, so failing rows assert only that it
+        // errors; we discard the report to keep the outcome comparable.
+        |s| BuildVersion::try_from(s).map_err(|_| ()),
     );
-
-    assert_eq!(
-        BuildVersion::try_from("v2023.09-rc1-27-gc3ce4d5d")?,
-        BuildVersion {
-            version: "2023.09",
-            rc: "rc1",
-            hotfix: 0,
-            commits: 27,
-            git_hash: "gc3ce4d5d",
-        }
-    );
-
-    assert_eq!(
-        BuildVersion::try_from("v2023.08")?,
-        BuildVersion {
-            version: "2023.08",
-            rc: "",
-            hotfix: 0,
-            commits: 0,
-            git_hash: "",
-        }
-    );
-
-    // Semver versions
-    assert_eq!(
-        BuildVersion::try_from("v0.0.4-rc4-0-g2a3c98cac")?,
-        BuildVersion {
-            version: "0.0.4",
-            rc: "rc4",
-            hotfix: 0,
-            commits: 0,
-            git_hash: "g2a3c98cac",
-        }
-    );
-
-    assert_eq!(
-        BuildVersion::try_from("v1.2.3")?,
-        BuildVersion {
-            version: "1.2.3",
-            rc: "",
-            hotfix: 0,
-            commits: 0,
-            git_hash: "",
-        }
-    );
-
-    assert_eq!(
-        BuildVersion::try_from("v0.0.4-rc1-0")?,
-        BuildVersion {
-            version: "0.0.4",
-            rc: "rc1",
-            hotfix: 0,
-            commits: 0,
-            git_hash: "",
-        }
-    );
-
-    // Too many dashes
-    assert!(BuildVersion::try_from("v2023.08-rc1-0-3-g123eff-x").is_err());
-
-    // No version
-    assert!(BuildVersion::try_from("v-rc1").is_err());
-
-    Ok(())
 }
 
 #[cfg(test)]

@@ -315,7 +315,7 @@ mod tests {
                 forge_root_ca_path: String::new(),
                 server_cert_path: String::new(),
                 server_key_path: String::new(),
-                bind_address: "0.0.0.0".to_string(),
+                bind_address: "0.0.0.0".parse().unwrap(),
                 bind_port: 8080,
                 template_directory: String::new(),
             },

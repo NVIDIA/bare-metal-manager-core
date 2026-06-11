@@ -16,21 +16,16 @@
  */
 
 use super::args::Args;
-use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::instance::common::GlobalOptions;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn update_os(
     api_client: &ApiClient,
     update_request: Args,
-    opts: GlobalOptions<'_>,
+    ctx: &RuntimeContext,
 ) -> CarbideCliResult<()> {
-    if opts.cloud_unsafe_op.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Operation not allowed due to potential inconsistencies with cloud database."
-                .to_owned(),
-        ));
-    }
+    let unsafe_op_msg = ctx.assert_cloud_unsafe_op_message()?;
 
     match api_client
         .update_instance_config_with(
@@ -39,7 +34,7 @@ pub async fn update_os(
                 config.os = Some(update_request.os);
             },
             |_metadata| {},
-            opts.cloud_unsafe_op,
+            Some(unsafe_op_msg.to_string()),
         )
         .await
     {

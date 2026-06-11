@@ -194,6 +194,8 @@ navigation:
               path: observability/core_metrics.md
             - page: Traces
               path: observability/tracing.md
+        - page: NICo Debug WebUI
+          path: operations/debug_webui.md
         - section: Playbooks
           contents:
             - page: Azure OIDC for Infra Controller Web UI
@@ -261,7 +263,10 @@ navigation:
   - tab: api
     layout:
     - page: Getting Started
-      path: openapi/getting_started.md
-      icon: flower
+      path: ../rest-api/openapi/getting-started.md
+      icon: circle-play
+    - page: Deprecations
+      path: ../rest-api/openapi/deprecations.md
+      icon: bell
     - api: API Reference
       tag-description-pages: true

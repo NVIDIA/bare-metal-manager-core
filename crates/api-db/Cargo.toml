@@ -87,6 +87,7 @@ carbide-version = { path = "../version" }
 [dev-dependencies]
 base64 = { workspace = true }
 carbide-secrets = { path = "../secrets" }
+nico-test-support = { path = "../test-support" }
 lazy_static = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }

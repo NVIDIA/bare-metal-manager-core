@@ -15,8 +15,7 @@
  * limitations under the License.
  */
 
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
+use std::net::SocketAddr;
 
 use ::rpc::forge as rpc;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
@@ -236,7 +235,7 @@ async fn set_primary_interface_core(
             id: host_machine_id.to_string(),
         })?;
 
-    let bmc_addr_str = machine
+    let bmc_addr = machine
         .bmc_info
         .ip
         .ok_or_else(|| CarbideError::NotFoundError {
@@ -244,7 +243,6 @@ async fn set_primary_interface_core(
             id: host_machine_id.to_string(),
         })?;
 
-    let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(CarbideError::AddressParseError)?;
     let bmc_socket_addr = SocketAddr::new(bmc_addr, 443);
 
     let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_addr)

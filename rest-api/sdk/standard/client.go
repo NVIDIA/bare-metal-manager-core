@@ -87,6 +87,8 @@ type APIClient struct {
 
 	RackAPI *RackAPIService
 
+	RuleAPI *RuleAPIService
+
 	SKUAPI *SKUAPIService
 
 	SSHKeyAPI *SSHKeyAPIService
@@ -152,6 +154,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.NetworkSecurityGroupAPI = (*NetworkSecurityGroupAPIService)(&c.common)
 	c.OperatingSystemAPI = (*OperatingSystemAPIService)(&c.common)
 	c.RackAPI = (*RackAPIService)(&c.common)
+	c.RuleAPI = (*RuleAPIService)(&c.common)
 	c.SKUAPI = (*SKUAPIService)(&c.common)
 	c.SSHKeyAPI = (*SSHKeyAPIService)(&c.common)
 	c.SSHKeyGroupAPI = (*SSHKeyGroupAPIService)(&c.common)

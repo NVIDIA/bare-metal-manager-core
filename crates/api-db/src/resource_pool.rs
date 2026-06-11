@@ -1030,6 +1030,9 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
+    use nico_test_support::Outcome::*;
+    use nico_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
@@ -1203,19 +1206,30 @@ mod tests {
 
     #[test]
     fn test_expand_ipv6_prefix_boundary() {
-        // A /111 == 2^17 = 131,072 addresses — under MAX_POOL_SIZE
-        // (which is currently 250k as of this writing).
-        let addrs = expand_ipv6_prefix("fd00::/111").unwrap();
-        assert_eq!(addrs.len(), 131_072);
-
-        // A /110 == 262,144 addresses — over MAX_POOL_SIZE, which
-        // is currently 250k as of this writing.
-        let result = expand_ipv6_prefix("fd00::/110");
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            DefineResourcePoolError::TooBig(_, _)
-        ));
+        // MAX_POOL_SIZE (currently 250k) is the dividing line: a prefix
+        // expands when its address count fits, and is rejected when it
+        // doesn't. We assert on that count; the rejection error
+        // (DefineResourcePoolError) isn't PartialEq, so the operation
+        // discards it and we only assert that the case `Fails`.
+        check_cases(
+            [
+                Case {
+                    scenario: "/111 fits: 2^17 = 131,072 addresses",
+                    input: "fd00::/111",
+                    expect: Yields(131_072),
+                },
+                Case {
+                    scenario: "/110 is too big: 2^18 = 262,144 addresses",
+                    input: "fd00::/110",
+                    expect: Fails,
+                },
+            ],
+            |network| {
+                expand_ipv6_prefix(network)
+                    .map(|addrs| addrs.len())
+                    .map_err(|_| ())
+            },
+        );
     }
 
     #[test]
