@@ -19,11 +19,12 @@ use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use model::metadata::Metadata;
 use model::vpc_prefix::{
-    DeleteVpcPrefix, NewVpcPrefix, UpdateVpcPrefix, VpcPrefix, VpcPrefixConfig, VpcPrefixStatus,
-    state_sla,
+    DeleteVpcPrefix, NewVpcPrefix, UpdateVpcPrefix, VpcPrefix, VpcPrefixConfig,
+    VpcPrefixControllerState, state_sla,
 };
 
 use crate as rpc;
+use crate::TenantState;
 use crate::errors::RpcDataConversionError;
 
 impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
@@ -135,34 +136,21 @@ impl TryFrom<rpc::forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
     }
 }
 
-impl From<VpcPrefixStatus> for rpc::forge::VpcPrefixStatus {
-    fn from(db_status: VpcPrefixStatus) -> Self {
-        // Lifecycle state is the JSON serialization of the controller's
-        // internal state, matching other state-controller-backed resources.
-        let lifecycle_state =
-            serde_json::to_string(&db_status.controller_state.value).unwrap_or_default();
-        let lifecycle_sla = state_sla(
-            &db_status.controller_state.value,
-            &db_status.controller_state.version,
-        );
-
-        Self {
-            total_31_segments: db_status.total_31_segments,
-            available_31_segments: db_status.available_31_segments,
-            total_linknet_segments: db_status.total_linknet_segments,
-            available_linknet_segments: db_status.available_linknet_segments,
-            lifecycle: Some(rpc::forge::LifecycleStatus {
-                state: lifecycle_state,
-                version: db_status.controller_state.version.version_string(),
-                state_reason: db_status.controller_state_outcome.map(Into::into),
-                sla: Some(lifecycle_sla.into()),
-            }),
-        }
-    }
-}
-
 impl From<VpcPrefix> for rpc::forge::VpcPrefix {
     fn from(db_vpc_prefix: VpcPrefix) -> Self {
+        // Derive the coarse tenant-facing state from the internal controller state.
+        let tenant_state = match &db_vpc_prefix.status.controller_state.value {
+            VpcPrefixControllerState::Provisioning => TenantState::Provisioning,
+            VpcPrefixControllerState::Ready => TenantState::Ready,
+            VpcPrefixControllerState::Deleting { .. } => TenantState::Terminating,
+        };
+        // Surface soft-deleted prefixes as terminating before the controller catches up.
+        let tenant_state = if db_vpc_prefix.is_marked_as_deleted() {
+            TenantState::Terminating
+        } else {
+            tenant_state
+        };
+
         let VpcPrefix {
             id,
             config,
@@ -176,15 +164,115 @@ impl From<VpcPrefix> for rpc::forge::VpcPrefix {
         let prefix = config.prefix.to_string();
         let vpc_id = Some(vpc_id);
 
+        // Lifecycle state remains the JSON serialization of the internal controller state.
+        let lifecycle_state =
+            serde_json::to_string(&status.controller_state.value).unwrap_or_default();
+        let lifecycle_sla = state_sla(
+            &status.controller_state.value,
+            &status.controller_state.version,
+        );
+
         Self {
             id,
             prefix: prefix.clone(), // Deprecated
             vpc_id,
             total_31_segments: status.total_31_segments, // Deprecated
             available_31_segments: status.available_31_segments, // Deprecated
-            status: Some(status.into()),
+            status: Some(rpc::forge::VpcPrefixStatus {
+                total_31_segments: status.total_31_segments,
+                available_31_segments: status.available_31_segments,
+                total_linknet_segments: status.total_linknet_segments,
+                available_linknet_segments: status.available_linknet_segments,
+                lifecycle: Some(rpc::forge::LifecycleStatus {
+                    state: lifecycle_state,
+                    version: status.controller_state.version.version_string(),
+                    state_reason: status.controller_state_outcome.map(Into::into),
+                    sla: Some(lifecycle_sla.into()),
+                }),
+                tenant_state: tenant_state as i32,
+            }),
             metadata: Some(metadata.into()),
             config: Some(rpc::forge::VpcPrefixConfig { prefix }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::vpc::VpcId;
+    use chrono::{DateTime, Utc};
+    use config_version::{ConfigVersion, Versioned};
+    use model::vpc_prefix::{VpcPrefixDeletionState, VpcPrefixStatus};
+
+    use super::*;
+
+    /// Builds a minimal VPC prefix for status conversion tests.
+    fn test_vpc_prefix(
+        controller_state: VpcPrefixControllerState,
+        deleted: Option<DateTime<Utc>>,
+    ) -> VpcPrefix {
+        VpcPrefix {
+            id: VpcPrefixId::new(),
+            vpc_id: VpcId::new(),
+            config: VpcPrefixConfig {
+                prefix: "10.0.0.0/24".parse().unwrap(),
+            },
+            metadata: Metadata::default(),
+            status: VpcPrefixStatus {
+                controller_state: Versioned::new(controller_state, ConfigVersion::initial()),
+                controller_state_outcome: None,
+                last_used_prefix: None,
+                total_31_segments: 0,
+                available_31_segments: 0,
+                total_linknet_segments: 0,
+                available_linknet_segments: 0,
+            },
+            deleted,
+        }
+    }
+
+    #[test]
+    fn vpc_prefix_status_derives_tenant_state_from_controller_state() {
+        let cases = [
+            (
+                VpcPrefixControllerState::Provisioning,
+                TenantState::Provisioning,
+            ),
+            (VpcPrefixControllerState::Ready, TenantState::Ready),
+            (
+                VpcPrefixControllerState::Deleting {
+                    deletion_state: VpcPrefixDeletionState::DBDelete,
+                },
+                TenantState::Terminating,
+            ),
+        ];
+
+        for (controller_state, expected_tenant_state) in cases {
+            // Convert each controller state without any soft-delete marker.
+            let status = rpc::forge::VpcPrefix::from(test_vpc_prefix(controller_state, None))
+                .status
+                .expect("VPC prefix status should be populated");
+
+            // Report the coarse tenant-facing enum independently from lifecycle JSON.
+            assert_eq!(status.tenant_state, expected_tenant_state as i32);
+        }
+    }
+
+    #[test]
+    fn vpc_prefix_status_reports_soft_deleted_ready_prefix_as_terminating() {
+        // Convert a ready prefix with the durable soft-delete marker set.
+        let status = rpc::forge::VpcPrefix::from(test_vpc_prefix(
+            VpcPrefixControllerState::Ready,
+            Some(Utc::now()),
+        ))
+        .status
+        .expect("VPC prefix status should be populated");
+
+        // Keep lifecycle state as controller JSON while overriding tenant_state.
+        let lifecycle = status
+            .lifecycle
+            .expect("VPC prefix lifecycle should be populated");
+        assert_eq!(lifecycle.state, r#"{"state":"ready"}"#);
+        assert_eq!(status.tenant_state, TenantState::Terminating as i32);
     }
 }
