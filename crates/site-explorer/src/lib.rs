@@ -3144,6 +3144,8 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
 mod tests {
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
+    use nico_test_support::Outcome::*;
+    use nico_test_support::{Case, check_cases};
 
     use super::*;
 
@@ -3272,10 +3274,11 @@ mod tests {
 
     #[test]
     fn test_find_host_pf_mac_address() {
-        let ep_report: EndpointExplorationReport = load_bf2_ep_report();
-        let ep = ExploredEndpoint {
+        // A freshly-loaded BF2 endpoint; each case starts from one of these and
+        // perturbs the firmware inventory the legacy MAC lookup reads from.
+        let endpoint = || ExploredEndpoint {
             address: "10.217.132.202".parse().unwrap(),
-            report: ep_report,
+            report: load_bf2_ep_report(),
             report_version: ConfigVersion::initial(),
             preingestion_state: PreingestionState::Initial,
             waiting_for_explorer_refresh: false,
@@ -3290,73 +3293,72 @@ mod tests {
             boot_interface_id: None,
         };
 
-        assert_eq!(
-            find_host_pf_mac_address(&ep).unwrap(),
-            "B8:3F:D2:90:95:F4".parse().unwrap()
-        );
+        // Override the `DPU_SYS_IMAGE` firmware version the legacy path parses.
+        let with_sys_image = |version: &str| {
+            let mut ep = endpoint();
+            let inv = ep
+                .report
+                .service
+                .iter_mut()
+                .find(|s| s.id == "FirmwareInventory")
+                .unwrap()
+                .inventories
+                .iter_mut()
+                .find(|inv| inv.id == "DPU_SYS_IMAGE")
+                .unwrap();
+            inv.version = Some(version.to_string());
+            ep
+        };
 
-        // Invalid DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        let inv = update_service
-            .inventories
-            .iter_mut()
-            .find(|inv| inv.id == "DPU_SYS_IMAGE")
-            .unwrap();
-        inv.version = Some("b83f:d203:0090:95fz".to_string());
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string())
-        );
+        // Drop the firmware-inventory entry whose `id` matches `inventory_id`.
+        let without_inventory = |inventory_id: &str| {
+            let mut ep = endpoint();
+            ep.report
+                .service
+                .iter_mut()
+                .find(|s| s.id == "FirmwareInventory")
+                .unwrap()
+                .inventories
+                .retain(|inv| inv.id != inventory_id);
+            ep
+        };
 
-        // Invalid DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        let inv = update_service
-            .inventories
-            .iter_mut()
-            .find(|inv| inv.id == "DPU_SYS_IMAGE")
-            .unwrap();
-        inv.version = Some("abc".to_string());
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Invalid sys_image_version length: 3 (abc)".to_string())
-        );
+        // Drop the whole `FirmwareInventory` service.
+        let without_firmware_inventory = || {
+            let mut ep = endpoint();
+            ep.report.service.retain(|s| s.id != "FirmwareInventory");
+            ep
+        };
 
-        // Missing DPU_SYS_IMAGE field
-        let mut ep1 = ep.clone();
-        let update_service = ep1
-            .report
-            .service
-            .iter_mut()
-            .find(|s| s.id == "FirmwareInventory")
-            .unwrap();
-        update_service
-            .inventories
-            .retain_mut(|inv| inv.id != "DPU_SYS_IMAGE");
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Missing DPU_SYS_IMAGE".to_string())
-        );
-
-        // Missing FirmwareInventory field
-        let mut ep1 = ep;
-        ep1.report
-            .service
-            .retain_mut(|inv| inv.id != "FirmwareInventory");
-        assert_eq!(
-            find_host_pf_mac_address(&ep1),
-            Err("Missing FirmwareInventory".to_string())
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy sys-image MAC, sanitized",
+                    input: endpoint(),
+                    expect: Yields("B8:3F:D2:90:95:F4".parse().unwrap()),
+                },
+                Case {
+                    scenario: "legacy sys-image MAC fails sanitization",
+                    input: with_sys_image("b83f:d203:0090:95fz"),
+                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
+                },
+                Case {
+                    scenario: "legacy sys-image is too short",
+                    input: with_sys_image("abc"),
+                    expect: FailsWith("Invalid sys_image_version length: 3 (abc)".to_string()),
+                },
+                Case {
+                    scenario: "no DPU_SYS_IMAGE inventory",
+                    input: without_inventory("DPU_SYS_IMAGE"),
+                    expect: FailsWith("Missing DPU_SYS_IMAGE".to_string()),
+                },
+                Case {
+                    scenario: "no FirmwareInventory service",
+                    input: without_firmware_inventory(),
+                    expect: FailsWith("Missing FirmwareInventory".to_string()),
+                },
+            ],
+            |ep| find_host_pf_mac_address(&ep),
         );
     }
 

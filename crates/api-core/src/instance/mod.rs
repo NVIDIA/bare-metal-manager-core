@@ -1408,41 +1408,44 @@ pub fn allocate_spx_port_mac(
 
 #[cfg(test)]
 mod tests {
+    use nico_test_support::Outcome::*;
+    use nico_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
-    fn test_build_requested_linknet_prefix_valid_v4() {
-        // Host end of a /31 (odd address) should succeed.
-        let result = build_requested_linknet_prefix("10.0.0.1".parse().unwrap(), 31);
-        assert!(result.is_ok());
-        let prefix = result.unwrap();
-        assert_eq!(prefix.prefix(), 31);
-        assert_eq!(prefix.ip().to_string(), "10.0.0.1");
-    }
-
-    #[test]
-    fn test_build_requested_linknet_prefix_valid_v6() {
-        // Host end of a /127 (::1 address) should succeed.
-        let result = build_requested_linknet_prefix("2001:db8::1".parse().unwrap(), 127);
-        assert!(result.is_ok());
-        let prefix = result.unwrap();
-        assert_eq!(prefix.prefix(), 127);
-    }
-
-    #[test]
-    fn test_build_requested_linknet_prefix_rejects_dpu_end_v4() {
-        // DPU end of a /31 (even address) should be rejected.
-        let result = build_requested_linknet_prefix("10.0.0.0".parse().unwrap(), 31);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("host bit of 0"));
-    }
-
-    #[test]
-    fn test_build_requested_linknet_prefix_rejects_dpu_end_v6() {
-        // DPU end of a /127 (::0 address) should be rejected.
-        let result = build_requested_linknet_prefix("2001:db8::0".parse().unwrap(), 127);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("host bit of 0"));
+    fn build_requested_linknet_prefix_accepts_host_end_rejects_dpu_end() {
+        // The host must take the odd (::1) end of the linknet; the even end is the
+        // DPU's and is rejected. `CarbideError` isn't `PartialEq` (so it can't be the
+        // table's error type): error rows only assert *that* it fails via `Fails`, and
+        // the closure discards the error to `()` to satisfy `check_cases`.
+        check_cases(
+            [
+                Case {
+                    scenario: "host end of a /31 (odd v4)",
+                    input: ("10.0.0.1", 31),
+                    expect: Yields("10.0.0.1/31".parse().unwrap()),
+                },
+                Case {
+                    scenario: "host end of a /127 (::1 v6)",
+                    input: ("2001:db8::1", 127),
+                    expect: Yields("2001:db8::1/127".parse().unwrap()),
+                },
+                Case {
+                    scenario: "DPU end of a /31 (even v4) is rejected",
+                    input: ("10.0.0.0", 31),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "DPU end of a /127 (::0 v6) is rejected",
+                    input: ("2001:db8::0", 127),
+                    expect: Fails,
+                },
+            ],
+            |(ip, prefix_len)| {
+                build_requested_linknet_prefix(ip.parse().unwrap(), prefix_len).map_err(|_| ())
+            },
+        );
     }
 }
 

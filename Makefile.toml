@@ -668,6 +668,19 @@ for artifact in \
 done
 '''
 
+[tasks.build-release-container-services]
+workspace = false
+dependencies = [
+  "build-release",
+  "check-aarch64-release-container-services-page-size",
+]
+
+[tasks.test-release-container-services]
+workspace = false
+dependencies = [
+  "test-flow",
+]
+
 [tasks.build-and-test-release-container-services]
 workspace = false
 # Important: We only build perform a single build task here since every additional
