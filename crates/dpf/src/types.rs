@@ -19,6 +19,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::crds::dpus_generated::DpuStatusPhase;
 
 /// Async provider for BMC passwords used to create and refresh the K8s BMC
@@ -57,6 +59,8 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -66,8 +70,28 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
+            proxy: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfProxyDetails {
+    pub https_proxy: String,
+    #[serde(default)]
+    pub no_proxy: Vec<String>,
+}
+
+/// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
+/// expected one. Returned by [`crate::DpfSdk::find_outdated_dpus_dpf`]; the
+/// labels map is the DPU CR's `metadata.labels` so callers can map back to
+/// their own identifiers.
+#[derive(Debug, Clone)]
+pub struct DpuMismatch {
+    pub dpu_cr_name: String,
+    pub dpu_labels: std::collections::BTreeMap<String, String>,
+    /// Expected BFB filename (e.g. `<namespace>-bf-bundle-<sha256>.bfb`).
+    pub target_bfb: String,
 }
 
 /// Service type for configPorts (DPUServiceConfiguration).
