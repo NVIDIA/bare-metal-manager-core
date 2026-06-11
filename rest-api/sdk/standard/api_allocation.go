@@ -387,7 +387,7 @@ GetAllAllocation Retrieve all Allocations
 
 Retrieve all Allocations for the org.
 
-Provider and Tenant roles are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 
 Results are returned from both Provider and Tenant perspectives when the org has both roles.
 
@@ -575,7 +575,7 @@ GetAllocation Retrieve Allocation
 
 # Retrieve Allocation by ID
 
-Provider and Tenant roles are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
+The Infrastructure Provider and Tenant are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
 
 User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix.
 

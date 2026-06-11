@@ -34,7 +34,7 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 ```bash
 # 1. Build and push images to your registry
 #    NICo Core image: <your-registry>/nvmetal-nico:<tag>  (this repo)
-#    NICo REST images: <your-registry>/nico-rest-api:<tag>, etc.  (infra-controller-rest)
+#    NICo REST images: <your-registry>/nico-rest-api:<tag>, etc.
 
 # 2. Set environment variables
 export KUBECONFIG=/path/to/kubeconfig
@@ -52,10 +52,7 @@ export NICO_REST_IMAGE_TAG=<nico-rest-tag>           # e.g. 2.0.0-pr-58-g38a54a3
 #    Edit helm-prereqs/values.yaml:
 #      siteName                  — short site identifier
 
-# 4. Point NICO_REST_REPO at infra-controller-rest (auto-detected if a sibling directory)
-export NICO_REST_REPO=/path/to/infra-controller-rest   # optional
-
-# 5. Run setup — installs common services, NICo Core, and NICo REST in order
+# 4. Run setup — installs common services, NICo Core, and NICo REST in order
 cd helm-prereqs
 ./setup.sh        # interactive — prompts before deploying Core and REST
 ./setup.sh -y     # non-interactive — deploys everything (CI/CD)
