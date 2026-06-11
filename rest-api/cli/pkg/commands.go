@@ -158,14 +158,19 @@ func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
 	}
 
 	// Resolve action-name collisions symmetrically: when two or more
-	// operations under the same tag collapse to the same short action (e.g.
-	// `get-current-infrastructure-provider` and
-	// `get-current-infrastructure-provider-stats` both -> `get`), expand ALL
-	// of them to their full OperationID. The previous "first one wins" pass
-	// produced a different command surface depending on the order of map
+	// operations under the same tag collapse to the same short action, expand
+	// ALL of them to their full OperationID. The previous "first one wins"
+	// pass produced a different command surface depending on the order of map
 	// iteration in collectOperations, which depended on whether the user's
 	// config file had been loaded -- the same binary exposed different
 	// commands in the two states.
+	//
+	// The formerly motivating case -- `get-current-infrastructure-provider`
+	// and `get-current-infrastructure-provider-stats` both collapsing to
+	// `get` -- no longer collides: get-current-* singletons now map to
+	// distinct `current` / `stats` actions in operationAction. This guard
+	// stays for any future tag whose operations still collide on a short
+	// action.
 	actionCounts := make(map[string]int)
 	for _, op := range primaryOps {
 		actionCounts[op.action]++
@@ -806,31 +811,44 @@ func operationAction(opID string) string {
 	patterns := []struct {
 		prefix string
 		action string
+		// bare is the action for a getter prefix (action == "") when the
+		// operation has no -stats / -status-history suffix. A plain
+		// get-<resource> is the `get` action; a get-current-<resource>
+		// singleton getter is the `current` action so the generated command
+		// matches the REST /current path and the interactive TUI command name
+		// (e.g. `tenant current`, `infrastructure-provider current`).
+		bare string
 	}{
-		{"batch-create-", "batch-create"},
-		{"batch-update-", "batch-update"},
-		{"get-all-", "list"},
-		{"get-current-", "get"},
-		{"create-", "create"},
-		{"update-", "update"},
-		{"delete-", "delete"},
-		{"get-", ""},
+		{prefix: "batch-create-", action: "batch-create"},
+		{prefix: "batch-update-", action: "batch-update"},
+		{prefix: "get-all-", action: "list"},
+		{prefix: "get-current-", bare: "current"},
+		{prefix: "create-", action: "create"},
+		{prefix: "update-", action: "update"},
+		{prefix: "delete-", action: "delete"},
+		{prefix: "get-", bare: "get"},
 	}
 
 	for _, p := range patterns {
-		if strings.HasPrefix(opID, p.prefix) {
-			if p.action != "" {
-				return p.action
-			}
-			suffix := opID[len(p.prefix):]
-			if strings.HasSuffix(suffix, "-status-history") {
-				return "status-history"
-			}
-			if strings.HasSuffix(suffix, "-stats") {
-				return "stats"
-			}
-			return "get"
+		if !strings.HasPrefix(opID, p.prefix) {
+			continue
 		}
+		if p.action != "" {
+			return p.action
+		}
+		// Getter prefix: a -stats or -status-history endpoint collapses to
+		// its own action so a resource's getter and its stats / history
+		// endpoints stay distinct commands instead of colliding on one action
+		// (which would force both to expand to their full operationId). This
+		// applies to both get- and get-current-.
+		suffix := opID[len(p.prefix):]
+		if strings.HasSuffix(suffix, "-status-history") {
+			return "status-history"
+		}
+		if strings.HasSuffix(suffix, "-stats") {
+			return "stats"
+		}
+		return p.bare
 	}
 
 	return opID
