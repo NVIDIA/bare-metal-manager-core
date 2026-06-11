@@ -177,8 +177,13 @@ nico-api:
       [ib_config]
       enabled = false
 
-      [ib_fabric_monitor]
-      enabled = false
+      # EXAMPLE - To enable Infiniband, uncomment the following ib_fabrics.default lines,
+      # replace the example endpoint with your UFM VIP address, and configure
+      # a start-end PKey range. For sharded sites, ensure the range does not
+      # overlap any other shard.
+      # [ib_fabrics.default]
+      # endpoints = ["https://10.180.126.181:443"]  # EXAMPLE - replace with your UFM endpoint
+      # pkeys = [{ start = "9000", end = "11000" }] # EXAMPLE - replace with your site PKey range
 
       # -----------------------------------------------------------------------
       # Firmware management

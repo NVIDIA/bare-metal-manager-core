@@ -489,16 +489,13 @@ the fabric ID `default` will be accepted here.
 
 Update the configmap `nico-api-site-config-files` to enable Infiniband features as follows:
 
+When `enabled = true`, NICo starts the IB fabric manager and IB fabric monitor.
+
 ```toml
 [ib_config]
 enabled = true
-```
-
-To enable the monitor of IB, update the configmap `nico-api-site-config-files`  as follows:
-
-```toml
-[ib_fabric_monitor]
-enabled = true
+# Optional: defaults to "60s"
+# fabric_monitor_run_interval = "60s"
 ```
 
 #### Restart nico-api
