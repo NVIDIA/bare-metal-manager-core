@@ -95,11 +95,6 @@ func TestAPIIPBlockCreateRequest_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			desc:      "error when neither BlockSize is specified",
-			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", BlockSize: cutil.GetPtr(28), ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
-			expectErr: true,
-		},
-		{
 			desc:      "error when prefixLength is not specified",
 			obj:       APIIPBlockCreateRequest{Name: "ab", Description: cutil.GetPtr("abc"), SiteID: uuid.New().String(), RoutingType: cdbm.IPBlockRoutingTypePublic, Prefix: "192.164.10.0", ProtocolVersion: cdbm.IPBlockProtocolVersionV4},
 			expectErr: true,

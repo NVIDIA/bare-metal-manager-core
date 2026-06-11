@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,7 +23,7 @@ var _ MappedNullable = &NVLinkInterfaceCreateOrUpdateRequest{}
 // NVLinkInterfaceCreateOrUpdateRequest Request data to create an NVLink Interface for an Instance by associating a specific GPU index with an NVLink Logical Partition.
 type NVLinkInterfaceCreateOrUpdateRequest struct {
 	// ID of the NVLink Logical Partition the Interface should attach to
-	NvLinklogicalPartitionId *string `json:"nvLinklogicalPartitionId,omitempty"`
+	NvLinkLogicalPartitionId *string `json:"nvLinkLogicalPartitionId,omitempty"`
 	// GPU index for this NVLink interface. Must be non-negative, unique within the request, and within the GPU count exposed by the selected Machine or Instance Type.
 	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 }
@@ -45,36 +45,36 @@ func NewNVLinkInterfaceCreateOrUpdateRequestWithDefaults() *NVLinkInterfaceCreat
 	return &this
 }
 
-// GetNvLinklogicalPartitionId returns the NvLinklogicalPartitionId field value if set, zero value otherwise.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) GetNvLinklogicalPartitionId() string {
-	if o == nil || IsNil(o.NvLinklogicalPartitionId) {
+// GetNvLinkLogicalPartitionId returns the NvLinkLogicalPartitionId field value if set, zero value otherwise.
+func (o *NVLinkInterfaceCreateOrUpdateRequest) GetNvLinkLogicalPartitionId() string {
+	if o == nil || IsNil(o.NvLinkLogicalPartitionId) {
 		var ret string
 		return ret
 	}
-	return *o.NvLinklogicalPartitionId
+	return *o.NvLinkLogicalPartitionId
 }
 
-// GetNvLinklogicalPartitionIdOk returns a tuple with the NvLinklogicalPartitionId field value if set, nil otherwise
+// GetNvLinkLogicalPartitionIdOk returns a tuple with the NvLinkLogicalPartitionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) GetNvLinklogicalPartitionIdOk() (*string, bool) {
-	if o == nil || IsNil(o.NvLinklogicalPartitionId) {
+func (o *NVLinkInterfaceCreateOrUpdateRequest) GetNvLinkLogicalPartitionIdOk() (*string, bool) {
+	if o == nil || IsNil(o.NvLinkLogicalPartitionId) {
 		return nil, false
 	}
-	return o.NvLinklogicalPartitionId, true
+	return o.NvLinkLogicalPartitionId, true
 }
 
-// HasNvLinklogicalPartitionId returns a boolean if a field has been set.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) HasNvLinklogicalPartitionId() bool {
-	if o != nil && !IsNil(o.NvLinklogicalPartitionId) {
+// HasNvLinkLogicalPartitionId returns a boolean if a field has been set.
+func (o *NVLinkInterfaceCreateOrUpdateRequest) HasNvLinkLogicalPartitionId() bool {
+	if o != nil && !IsNil(o.NvLinkLogicalPartitionId) {
 		return true
 	}
 
 	return false
 }
 
-// SetNvLinklogicalPartitionId gets a reference to the given string and assigns it to the NvLinklogicalPartitionId field.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) SetNvLinklogicalPartitionId(v string) {
-	o.NvLinklogicalPartitionId = &v
+// SetNvLinkLogicalPartitionId gets a reference to the given string and assigns it to the NvLinkLogicalPartitionId field.
+func (o *NVLinkInterfaceCreateOrUpdateRequest) SetNvLinkLogicalPartitionId(v string) {
+	o.NvLinkLogicalPartitionId = &v
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
@@ -119,8 +119,8 @@ func (o NVLinkInterfaceCreateOrUpdateRequest) MarshalJSON() ([]byte, error) {
 
 func (o NVLinkInterfaceCreateOrUpdateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.NvLinklogicalPartitionId) {
-		toSerialize["nvLinklogicalPartitionId"] = o.NvLinklogicalPartitionId
+	if !IsNil(o.NvLinkLogicalPartitionId) {
+		toSerialize["nvLinkLogicalPartitionId"] = o.NvLinkLogicalPartitionId
 	}
 	if !IsNil(o.DeviceInstance) {
 		toSerialize["deviceInstance"] = o.DeviceInstance

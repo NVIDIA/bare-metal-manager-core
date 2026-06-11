@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,18 +23,34 @@ var _ MappedNullable = &NetworkSecurityGroup{}
 
 // NetworkSecurityGroup Network Security Group is an aggregate of security policies
 type NetworkSecurityGroup struct {
-	Id             *string                     `json:"id,omitempty"`
-	Name           *string                     `json:"name,omitempty"`
-	Description    NullableString              `json:"description,omitempty"`
-	SiteId         *string                     `json:"siteId,omitempty"`
-	TenantId       *string                     `json:"tenantId,omitempty"`
-	Status         *NetworkSecurityGroupStatus `json:"status,omitempty"`
-	StatusHistory  []StatusDetail              `json:"statusHistory,omitempty"`
-	StatefulEgress *bool                       `json:"statefulEgress,omitempty"`
-	Rules          []NetworkSecurityGroupRule  `json:"rules,omitempty"`
-	Labels         map[string]string           `json:"labels,omitempty"`
-	Created        *time.Time                  `json:"created,omitempty"`
-	Updated        *time.Time                  `json:"updated,omitempty"`
+	// Unique UUID v4 identifier for the Network Security Group
+	Id *string `json:"id,omitempty"`
+	// Name of the Network Security Group
+	Name *string `json:"name,omitempty"`
+	// Description of the Network Security Group
+	Description NullableString `json:"description,omitempty"`
+	// ID of the Site
+	SiteId *string `json:"siteId,omitempty"`
+	// ID of the Tenant
+	TenantId *string `json:"tenantId,omitempty"`
+	// Status of the Network Security Group
+	Status *NetworkSecurityGroupStatus `json:"status,omitempty"`
+	// Chronological status history for the Network Security Group
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// StatefulEgress defines whether a Network Security Group's egress rules will be automatically stateful
+	StatefulEgress *bool `json:"statefulEgress,omitempty"`
+	// Rules that belong to the Network Security Group
+	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
+	// Number of rules in the Network Security Group
+	RuleCount *int32 `json:"ruleCount,omitempty"`
+	// Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
+	AttachmentStats *NetworkSecurityGroupStats `json:"attachmentStats,omitempty"`
+	// Set of labels/tags for the Network Security Group
+	Labels map[string]string `json:"labels,omitempty"`
+	// Date/time when the Network Security Group was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Network Security Group was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewNetworkSecurityGroup instantiates a new NetworkSecurityGroup object
@@ -353,6 +369,70 @@ func (o *NetworkSecurityGroup) SetRules(v []NetworkSecurityGroupRule) {
 	o.Rules = v
 }
 
+// GetRuleCount returns the RuleCount field value if set, zero value otherwise.
+func (o *NetworkSecurityGroup) GetRuleCount() int32 {
+	if o == nil || IsNil(o.RuleCount) {
+		var ret int32
+		return ret
+	}
+	return *o.RuleCount
+}
+
+// GetRuleCountOk returns a tuple with the RuleCount field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NetworkSecurityGroup) GetRuleCountOk() (*int32, bool) {
+	if o == nil || IsNil(o.RuleCount) {
+		return nil, false
+	}
+	return o.RuleCount, true
+}
+
+// HasRuleCount returns a boolean if a field has been set.
+func (o *NetworkSecurityGroup) HasRuleCount() bool {
+	if o != nil && !IsNil(o.RuleCount) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuleCount gets a reference to the given int32 and assigns it to the RuleCount field.
+func (o *NetworkSecurityGroup) SetRuleCount(v int32) {
+	o.RuleCount = &v
+}
+
+// GetAttachmentStats returns the AttachmentStats field value if set, zero value otherwise.
+func (o *NetworkSecurityGroup) GetAttachmentStats() NetworkSecurityGroupStats {
+	if o == nil || IsNil(o.AttachmentStats) {
+		var ret NetworkSecurityGroupStats
+		return ret
+	}
+	return *o.AttachmentStats
+}
+
+// GetAttachmentStatsOk returns a tuple with the AttachmentStats field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NetworkSecurityGroup) GetAttachmentStatsOk() (*NetworkSecurityGroupStats, bool) {
+	if o == nil || IsNil(o.AttachmentStats) {
+		return nil, false
+	}
+	return o.AttachmentStats, true
+}
+
+// HasAttachmentStats returns a boolean if a field has been set.
+func (o *NetworkSecurityGroup) HasAttachmentStats() bool {
+	if o != nil && !IsNil(o.AttachmentStats) {
+		return true
+	}
+
+	return false
+}
+
+// SetAttachmentStats gets a reference to the given NetworkSecurityGroupStats and assigns it to the AttachmentStats field.
+func (o *NetworkSecurityGroup) SetAttachmentStats(v NetworkSecurityGroupStats) {
+	o.AttachmentStats = &v
+}
+
 // GetLabels returns the Labels field value if set, zero value otherwise.
 func (o *NetworkSecurityGroup) GetLabels() map[string]string {
 	if o == nil || IsNil(o.Labels) {
@@ -485,6 +565,12 @@ func (o NetworkSecurityGroup) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Rules) {
 		toSerialize["rules"] = o.Rules
+	}
+	if !IsNil(o.RuleCount) {
+		toSerialize["ruleCount"] = o.RuleCount
+	}
+	if !IsNil(o.AttachmentStats) {
+		toSerialize["attachmentStats"] = o.AttachmentStats
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels

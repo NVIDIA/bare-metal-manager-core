@@ -5,7 +5,6 @@ package model
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
@@ -54,9 +53,14 @@ func TestNewAPINVLinkInterface(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewAPINVLinkInterface(tt.args.dbnvli); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewAPINVLinkInterface() = %v, want %v", got, tt.want)
-			}
+			got := NewAPINVLinkInterface(tt.args.dbnvli)
+			assert.Equal(t, tt.want.ID, got.ID)
+			assert.Equal(t, tt.want.InstanceID, got.InstanceID)
+			assert.Equal(t, tt.want.NVLinkLogicalPartitionID, got.NVLinkLogicalPartitionID)
+			assert.Equal(t, tt.want.DeviceInstance, got.DeviceInstance)
+			assert.Equal(t, tt.want.Status, got.Status)
+			assert.Equal(t, tt.want.Created, got.Created)
+			assert.Equal(t, tt.want.Updated, got.Updated)
 		})
 	}
 }

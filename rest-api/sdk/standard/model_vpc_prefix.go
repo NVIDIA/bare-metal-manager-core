@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,6 +23,7 @@ var _ MappedNullable = &VpcPrefix{}
 
 // VpcPrefix VPC Prefixes are network grouping constructs for baremetal machines.
 type VpcPrefix struct {
+	// Unique UUID v4 identifier for the VPCPrefix
 	Id *string `json:"id,omitempty"`
 	// Name of the VPC Prefix
 	Name *string `json:"name,omitempty"`
@@ -30,8 +31,6 @@ type VpcPrefix struct {
 	SiteId *string `json:"siteId,omitempty"`
 	// ID of the VPC the VPC Prefix belongs to
 	VpcId *string `json:"vpcId,omitempty"`
-	// ID of the Tenant the VPC Prefix belongs to
-	TenantId *string `json:"tenantId,omitempty"`
 	// ID of the IP Block that contains the prefix of the VPC Prefix
 	IpBlockId NullableString `json:"ipBlockId,omitempty"`
 	// The network prefix including prefix length in CIDR notation
@@ -40,7 +39,7 @@ type VpcPrefix struct {
 	PrefixLength *int32 `json:"prefixLength,omitempty"`
 	// Status of the VPC Prefix
 	Status *VpcPrefixStatus `json:"status,omitempty"`
-	// Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+	// Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
 	UsageStats *IpBlockUsageStats `json:"usageStats,omitempty"`
 	// Details of 20 most recent status changes
 	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
@@ -193,38 +192,6 @@ func (o *VpcPrefix) HasVpcId() bool {
 // SetVpcId gets a reference to the given string and assigns it to the VpcId field.
 func (o *VpcPrefix) SetVpcId(v string) {
 	o.VpcId = &v
-}
-
-// GetTenantId returns the TenantId field value if set, zero value otherwise.
-func (o *VpcPrefix) GetTenantId() string {
-	if o == nil || IsNil(o.TenantId) {
-		var ret string
-		return ret
-	}
-	return *o.TenantId
-}
-
-// GetTenantIdOk returns a tuple with the TenantId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VpcPrefix) GetTenantIdOk() (*string, bool) {
-	if o == nil || IsNil(o.TenantId) {
-		return nil, false
-	}
-	return o.TenantId, true
-}
-
-// HasTenantId returns a boolean if a field has been set.
-func (o *VpcPrefix) HasTenantId() bool {
-	if o != nil && !IsNil(o.TenantId) {
-		return true
-	}
-
-	return false
-}
-
-// SetTenantId gets a reference to the given string and assigns it to the TenantId field.
-func (o *VpcPrefix) SetTenantId(v string) {
-	o.TenantId = &v
 }
 
 // GetIpBlockId returns the IpBlockId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -526,9 +493,6 @@ func (o VpcPrefix) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.VpcId) {
 		toSerialize["vpcId"] = o.VpcId
-	}
-	if !IsNil(o.TenantId) {
-		toSerialize["tenantId"] = o.TenantId
 	}
 	if o.IpBlockId.IsSet() {
 		toSerialize["ipBlockId"] = o.IpBlockId.Get()

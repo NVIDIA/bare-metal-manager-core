@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,11 +22,16 @@ var _ MappedNullable = &InstanceTypeSummary{}
 
 // InstanceTypeSummary Describes a subset of core attributes of an Instance Type
 type InstanceTypeSummary struct {
-	Id                       *string             `json:"id,omitempty"`
-	Name                     *string             `json:"name,omitempty"`
-	InfrastructureProviderId *string             `json:"infrastructureProviderId,omitempty"`
-	SiteId                   *string             `json:"siteId,omitempty"`
-	Status                   *InstanceTypeStatus `json:"status,omitempty"`
+	// ID of the Instance Type
+	Id *string `json:"id,omitempty"`
+	// Name of the Instance Type, only lowercase characters, digits, hyphens and cannot begin/end with hyphen
+	Name *string `json:"name,omitempty"`
+	// ID of the Infrastructure Provider that owns the Instance Type
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
+	// ID of the Site that owns the Instance Type
+	SiteId *string `json:"siteId,omitempty"`
+	// Status of the Instance Type
+	Status *InstanceTypeStatus `json:"status,omitempty"`
 }
 
 // NewInstanceTypeSummary instantiates a new InstanceTypeSummary object

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -37,6 +37,8 @@ type NVLinkLogicalPartition struct {
 	Status *NVLinkLogicalPartitionStatus `json:"status,omitempty"`
 	// Details of status changes for the NVLink Logical Partition over time
 	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// GPU and Instance usage counts for the NVLink Logical Partition. Returned if the `includeStats` query parameter is set to true in retrieval endpoints
+	NvLinkLogicalPartitionStats *NVLinkLogicalPartitionStats `json:"nvLinkLogicalPartitionStats,omitempty"`
 	// Date and time the NVLink Logical Partition was created
 	Created *time.Time `json:"created,omitempty"`
 	// Date and time the NVLink Logical Partition was last updated
@@ -295,6 +297,38 @@ func (o *NVLinkLogicalPartition) SetStatusHistory(v []StatusDetail) {
 	o.StatusHistory = v
 }
 
+// GetNvLinkLogicalPartitionStats returns the NvLinkLogicalPartitionStats field value if set, zero value otherwise.
+func (o *NVLinkLogicalPartition) GetNvLinkLogicalPartitionStats() NVLinkLogicalPartitionStats {
+	if o == nil || IsNil(o.NvLinkLogicalPartitionStats) {
+		var ret NVLinkLogicalPartitionStats
+		return ret
+	}
+	return *o.NvLinkLogicalPartitionStats
+}
+
+// GetNvLinkLogicalPartitionStatsOk returns a tuple with the NvLinkLogicalPartitionStats field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *NVLinkLogicalPartition) GetNvLinkLogicalPartitionStatsOk() (*NVLinkLogicalPartitionStats, bool) {
+	if o == nil || IsNil(o.NvLinkLogicalPartitionStats) {
+		return nil, false
+	}
+	return o.NvLinkLogicalPartitionStats, true
+}
+
+// HasNvLinkLogicalPartitionStats returns a boolean if a field has been set.
+func (o *NVLinkLogicalPartition) HasNvLinkLogicalPartitionStats() bool {
+	if o != nil && !IsNil(o.NvLinkLogicalPartitionStats) {
+		return true
+	}
+
+	return false
+}
+
+// SetNvLinkLogicalPartitionStats gets a reference to the given NVLinkLogicalPartitionStats and assigns it to the NvLinkLogicalPartitionStats field.
+func (o *NVLinkLogicalPartition) SetNvLinkLogicalPartitionStats(v NVLinkLogicalPartitionStats) {
+	o.NvLinkLogicalPartitionStats = &v
+}
+
 // GetCreated returns the Created field value if set, zero value otherwise.
 func (o *NVLinkLogicalPartition) GetCreated() time.Time {
 	if o == nil || IsNil(o.Created) {
@@ -389,6 +423,9 @@ func (o NVLinkLogicalPartition) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.StatusHistory) {
 		toSerialize["statusHistory"] = o.StatusHistory
+	}
+	if !IsNil(o.NvLinkLogicalPartitionStats) {
+		toSerialize["nvLinkLogicalPartitionStats"] = o.NvLinkLogicalPartitionStats
 	}
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created

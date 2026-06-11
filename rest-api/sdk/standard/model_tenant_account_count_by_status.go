@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,11 +22,16 @@ var _ MappedNullable = &TenantAccountCountByStatus{}
 
 // TenantAccountCountByStatus Describes counts of Tenant Accounts in various statuses
 type TenantAccountCountByStatus struct {
-	Total   *int32 `json:"total,omitempty"`
+	// Total number of Tenant Accounts
+	Total *int32 `json:"total,omitempty"`
+	// Number of Tenant Accounts in Pending status
 	Pending *int32 `json:"pending,omitempty"`
+	// Number of Tenant Accounts in Invited status
 	Invited *int32 `json:"invited,omitempty"`
-	Ready   *int32 `json:"ready,omitempty"`
-	Error   *int32 `json:"error,omitempty"`
+	// Number of Tenant Accounts in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of Tenant Accounts in Error status
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewTenantAccountCountByStatus instantiates a new TenantAccountCountByStatus object

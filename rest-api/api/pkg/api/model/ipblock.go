@@ -46,9 +46,6 @@ type APIIPBlockCreateRequest struct {
 	RoutingType string `json:"routingType"`
 	// Prefix is the prefix of the network in CIDR notation
 	Prefix string `json:"prefix"`
-	// BlockSize is the legacy field for prefixLength
-	// NOTE: This field has been deprecated
-	BlockSize *int `json:"blockSize"`
 	// PrefixLength is the length of the prefix
 	PrefixLength int `json:"prefixLength"`
 	// ProtocolVersion is the version of the ip network ipv4 or ipv6

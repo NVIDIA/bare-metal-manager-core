@@ -36,7 +36,7 @@ type APIDeprecation struct {
 	QueryParam *string `json:"queryParam,omitempty"`
 	// Endpoint denotes the endpoint that is deprecated (optional)
 	Endpoint *string `json:"endpoint,omitempty"`
-	// ReplacedBy denotes the field that replaces the deprecated field
+	// ReplacedBy denotes the field that replaces the deprecated field (optional)
 	ReplacedBy *string `json:"replacedBy,omitempty"`
 	// TakeActionBy indicates the ISO datetime string for when the deprecated field will no longer be accepted or available in the API
 	TakeActionBy time.Time `json:"takeActionBy"`

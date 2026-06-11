@@ -19,6 +19,7 @@
 
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use base64::prelude::*;
@@ -159,10 +160,25 @@ pub struct LldpSwitchData {
     pub description: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub local_port: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ip_address: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_ip_addr_vec_lossy",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub ip_address: Vec<IpAddr>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remote_port: String,
+}
+
+fn deserialize_ip_addr_vec_lossy<'de, D>(deserializer: D) -> Result<Vec<IpAddr>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|address| address.parse::<IpAddr>().ok())
+        .collect())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,6 +423,33 @@ mod tests {
             json,
             r#"{"components":[{"name":"foo","version":"1.0","url":""},{"name":"bar","version":"2.0","url":"nvidia.com"}]}"#
         );
+    }
+
+    #[test]
+    fn lldp_switch_data_filters_invalid_management_addresses() {
+        let json = r#"{
+            "ip_address": [
+                "192.0.2.10",
+                "not-an-ip",
+                "2001:db8::1"
+            ]
+        }"#;
+        let switch: LldpSwitchData = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            switch.ip_address,
+            vec![
+                "192.0.2.10".parse::<IpAddr>().unwrap(),
+                "2001:db8::1".parse::<IpAddr>().unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn lldp_switch_data_defaults_null_management_addresses() {
+        let switch: LldpSwitchData = serde_json::from_str(r#"{"ip_address":null}"#).unwrap();
+
+        assert!(switch.ip_address.is_empty());
     }
 
     #[test]

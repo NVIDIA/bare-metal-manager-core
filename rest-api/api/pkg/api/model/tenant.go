@@ -28,7 +28,8 @@ type APITenant struct {
 	// CreatedAt indicates the ISO datetime string for when the entity was created
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
-	Updated      time.Time              `json:"updated"`
+	Updated time.Time `json:"updated"`
+	// Capabilities describes tenant-level feature flags
 	Capabilities *APITenantCapabilities `json:"capabilities"`
 }
 

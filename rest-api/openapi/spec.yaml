@@ -5,8 +5,8 @@ openapi: 3.1.0
 info:
   title: NVIDIA Infra Controller REST API
   version: 1.6.0
-  summary: NVIDIA Infra Controller REST API is the centralized RESTful gateway to access NVIDIA Infra Controller service
-  description: 'NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.'
+  summary: NVIDIA Infra Controller REST API is the RESTful gateway for accessing the NVIDIA Infra Controller service
+  description: 'NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.'
   license:
     name: Apache-2.0
     url: 'https://www.apache.org/licenses/LICENSE-2.0'
@@ -41,8 +41,8 @@ tags:
 
       Once the Provider and the Tenant are initialized, the user can create resources by making calls to the appropriate endpoints.
 
-      ### Creating Site Level IP Blocks
-      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in the Site configuration toml file.
+      ### Creating Site-Level IP Blocks
+      To use a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in the Site configuration TOML file.
 
       To create an IP Block, the user must make a call to the [Create IP Block endpoint](#tag/IP-Block/operation/create-ipblock).
 
@@ -52,30 +52,30 @@ tags:
 
       - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in. For _Disconnected_ NICo installations where NICo
       REST is deployed alongside NICo Core, typically there will be a single Site available.
-      - For each Site IP Block, create a Network Allocation for the Tenant entity using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) using the full prefix length.
+      - For each Site IP Block, create a Network Allocation for the Tenant entity with the full prefix length using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation).
       This will create a Tenant IP Block for each Site IP Block.
         - Creating an Allocation will create the Tenant in NICo Core.
       - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
-      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
-        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix). Otherwise the user should create a Subnet
-        using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block.
+        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix).
+        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
       - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
-      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
-      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Machine
+      - Retrieve available Machines on the Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine).
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Machine.
 
       ### Typical API Call Flow for Provider
 
       - Create a Tenant Account using the [Create Tenant Account endpoint](#tag/Tenant-Account/operation/create-tenant-account). Provider must know the Tenant org name.
       - Once the Tenant has accepted the Tenant Account, the Provider can allocate resources to the Tenant.
       - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in.
-      - Create an Instance Type using the [Create Instance Type endpoint](#tag/Instance-Type/operation/create-instance-type)
-      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
+      - Create an Instance Type using the [Create Instance Type endpoint](#tag/Instance-Type/operation/create-instance-type).
+      - Retrieve available Machines on the Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine).
       - Update a Machine's Instance Type using the [Update Machine endpoint](#tag/Machine/operation/update-machine) or assign multiple Machines to an Instance Type using the
       [Create Instance Type/Machine Association endpoint](#tag/Instance-Type/operation/create-instance-type-machine-association)
-      - Create a Compute Allocation for Tenant using the [Create Compute Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing the Instance Type
+      - Create a Compute Allocation for Tenant using the [Create Compute Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing the Instance Type.
         - Creating any type of Allocation for a Tenant will create the Tenant in NICo Core.
-      - Create a Network Allocation for Tenant using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing a Site IP Block
-        - Creating a Network Allocation will create a Tenant IP Block
+      - Create a Network Allocation for Tenant using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing a Site IP Block.
+        - Creating a Network Allocation will create a Tenant IP Block.
 
       ### Typical API Call Flow for Tenant
 
@@ -85,17 +85,17 @@ tags:
       - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
       - Retrieve available Site IP Blocks using the [Retrieve All IP Blocks endpoint](#tag/IP-Block/operation/get-all-ipblock). Any IP Block for which the Tenant has received
       a Network Allocation from the Provider will be returned.
-      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
-        - Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix)
-        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet)
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block.
+        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix).
+        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
       - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
       - Retrieve available Instance Types using the [Retrieve All Instance Types endpoint](#tag/Instance-Type/operation/get-all-instance-type). Any Instance Type for which
       the Tenant has received a Compute Allocation from the Provider will be returned.
-      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Instance Type
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Instance Type.
 
   - name: Service Account
     description: |-
-      When API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
+      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
       privileged Tenant with `targetedInstanceCreation` capability enabled.
   - name: Infrastructure Provider
     description: |-
@@ -104,7 +104,12 @@ tags:
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
   - name: Tenant Account
-    description: Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
+    description: |-
+      Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
+
+      Deprecation history:
+
+      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on July 9th, 2026 0:00 UTC. Please update your usage accordingly.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
@@ -116,6 +121,10 @@ tags:
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
+
+      Deprecation history:
+
+      - `ResourceTypeID` attribute on Allocation Constraint was deprecated in favor of `resourceTypeId` and will be removed on July 9th, 2026 0:00 UTC. Please use `resourceTypeId` instead.
   - name: VPC
     description: |-
       VPC defines the networking isolation boundary for Tenant's Instances.
@@ -147,8 +156,8 @@ tags:
       well-known label keys (`chassis.manufacturer`, `chassis.serial-number`, `chassis.model`, `location.region`, `location.datacenter`, `location.room`, `location.position`).
   - name: Expected Switch
     description: |-
-      Expected Switch identifies a Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NvOS credentials
-      and serial numbers to help with Switch discovery and ingestion.
+      Expected Switch identifies an NVLink Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NVOS credentials
+      and serial numbers to help with NVLink Switch discovery and ingestion.
   - name: SKU
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
@@ -161,6 +170,10 @@ tags:
   - name: NVLink Logical Partition
     description: |-
       NVLink Logical Partitions are used to group GPUs into logical partitions for shared memory and low-latency direct communication between GPUs.
+
+      Deprecation history:
+
+      - `nvLinklogicalPartitionId` attribute on NVLink Interface was deprecated in favor of `nvLinkLogicalPartitionId` and will be removed on July 9th, 2026 0:00 UTC. Please use `nvLinkLogicalPartitionId` instead.
   - name: Operating System
     description: |-
       Operating Systems in NICo are typically iPXE scripts that are used to boot Machines.
@@ -191,6 +204,10 @@ tags:
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
+
+      Deprecation history:
+
+      - `object_id` attribute on Network Security Group propagation details was deprecated in favor of `objectId` and will be removed on July 9th, 2026 0:00 UTC. Please use `objectId` instead.
   - name: IP Block
     description: |-
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
@@ -213,7 +230,7 @@ tags:
       Audit is a record of actions taken by users on the API.
   - name: Metadata
     description: |-
-      Metadata describes various system level attributes of the API service.
+      Metadata describes various system-level attributes of the API service.
   - name: Tenant Identity
     description: |-
       Tenant identity (JWT-SVID issuance) and RFC 8693 token delegation.
@@ -472,24 +489,24 @@ paths:
       description: |-
         Retrieve all Tenant Accounts.
 
-        Either `infrastructureProviderId` or `tenantId` query param must be specified.
+        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter TenantAccounts by Infrastructure Provider ID
+          description: Filter Tenant Accounts by Infrastructure Provider ID
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter TenantAccounts by Tenant ID
+          description: Filter Tenant Accounts by Tenant ID
         - schema:
             type: string
           in: query
@@ -584,7 +601,7 @@ paths:
 
         Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have authorization role with `PROVIDER_ADMIN` suffix
 
-        Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This will set the status of the Tenant Account to "Invited". Then the Tenant can view this account information and are able to confirm/accept the account by updating the Tenant Account.
+        Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
       requestBody:
         content:
           application/json:
@@ -657,11 +674,11 @@ paths:
       description: |-
         Retrieve a Tenant Account by ID
 
-        Either `infrastructureProviderId` or `tenantId` query param must be specified.
+        Either `infrastructureProviderId` or `tenantId` query parameter must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If the `infrastructureProviderId` query parameter is provided, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If the `tenantId` query parameter is provided, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
@@ -730,9 +747,9 @@ paths:
       description: |-
         Update a Tenant Account.
 
-        Can be used to accept an invitation sent by Infrastructure Provider.
+        Can be used to accept an invitation sent by an Infrastructure Provider.
 
-        Org must have a tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a TenantAccount that has `Invited` status.
+        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
       requestBody:
         content:
           application/json:
@@ -741,7 +758,7 @@ paths:
             examples:
               example-1:
                 value: {}
-        description: 'No params needed, an empty request body will suffice.'
+        description: 'No parameters are required; an empty request body is sufficient.'
     delete:
       summary: Delete Tenant Account
       operationId: delete-tenant-account
@@ -753,7 +770,7 @@ paths:
       description: |-
         Delete a Tenant Account by ID.
 
-        Org must have an Infrastructure Provider entity, specified Tenant Account must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, and the specified Tenant Account must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
         Tenant cannot delete a Tenant Account.
       tags:
@@ -791,7 +808,7 @@ paths:
       description: |-
         Retrieve all Sites for org.
 
-        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -834,7 +851,7 @@ paths:
             type: boolean
           in: query
           name: includeMachineStats
-          description: Include a breakdown of Machine counts by life-cycle status and health. Requires Provider Admin role.
+          description: Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
         - schema:
             type: string
           in: query
@@ -981,7 +998,7 @@ paths:
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site specific configurations modifiable by Tenant.
+        Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
       requestBody:
         content:
           application/json:
@@ -1182,12 +1199,12 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: Filter Allocations by Site ID.  Can be specified multiple times to filter on more than one Site ID.
+          description: Filter Allocations by Site ID. Can be specified multiple times to filter on more than one Site ID.
         - schema:
             type: string
           in: query
           name: id
-          description: Filter Allocations by ID.  Can be specified multiple times to filter on more than one ID.
+          description: Filter Allocations by ID. Can be specified multiple times to filter on more than one ID.
         - schema:
             type: string
             enum:
@@ -1195,17 +1212,17 @@ paths:
               - IPBlock
           in: query
           name: resourceType
-          description: Filter Allocations by Constraint Resource Type.  Can be specified multiple times to filter on more than one Constraint Resource Type.
+          description: Filter Allocations by Constraint Resource Type. Can be specified multiple times to filter on more than one Constraint Resource Type.
         - schema:
             type: string
           in: query
           name: status
-          description: Filter Allocations by Status.  Can be specified multiple times to filter on more than one Status.
+          description: Filter Allocations by Status. Can be specified multiple times to filter on more than one Status.
         - schema:
             type: string
           in: query
           name: resourceTypeId
-          description: Filter Allocations by Constraint Resource Type ID.  Can be specified multiple times to filter on more than one Constraint Resource Type ID.
+          description: Filter Allocations by Constraint Resource Type ID. Can be specified multiple times to filter on more than one Constraint Resource Type ID.
         - schema:
             type: string
             enum:
@@ -1214,17 +1231,17 @@ paths:
               - Preemptible
           in: query
           name: constraintType
-          description: Filter Allocations by Constraint Type.  Can be specified multiple times to filter on more than one Constraint Type.
+          description: Filter Allocations by Constraint Type. Can be specified multiple times to filter on more than one Constraint Type.
         - schema:
             type: integer
           in: query
           name: constraintValue
-          description: Filter Allocations by Constraint Value.  Can be specified multiple times to filter on more than one Constraint Value.
+          description: Filter Allocations by Constraint Value. Can be specified multiple times to filter on more than one Constraint Value.
         - schema:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Allocations. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -1321,7 +1338,7 @@ paths:
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         To successfully create a compute Allocation, there must be enough unallocated Machines associated with the Instance Type to satisfy the constraint value.
-        For network Allocation, the source site-level IP Block must have an available prefix with length equal to constraint value.
+        For network Allocation, the source site-level IP Block must have an available prefix with length equal to the constraint value.
       requestBody:
         content:
           application/json:
@@ -1443,7 +1460,7 @@ paths:
       description: |-
         Delete an Allocation by ID.
 
-        Org must have an Infrastructure Provider entity, specified Allocation must be created by said Provider. Requesting user must have `PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, and the specified Allocation must have been created by that Provider. Requesting user must have `PROVIDER_ADMIN` role.
 
         Tenant management of Allocation is not supported in MVP.
       tags:
@@ -1566,9 +1583,9 @@ paths:
 
         Modifying allocations may not be possible if Tenant has started utilizing resources from this allocation.
 
-        In case of InstanceType resource, `constraintValue` can be incremented anytime, but not decremented if it requires decommissioning Tenant resources.
+        For an InstanceType resource, `constraintValue` can be incremented at any time, but not decremented if doing so requires decommissioning Tenant resources.
 
-        In case of IPBlock resource, `constraintValue` can not be modified if Tenant resources are using IPs from the block.
+        For an IPBlock resource, `constraintValue` cannot be modified if Tenant resources, e.g., Subnets or VPC Prefixes, reference the block.
       requestBody:
         content:
           application/json:
@@ -1634,7 +1651,7 @@ paths:
       description: |-
         Retrieve all IP blocks for the org.
 
-        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have authorization role with `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix. `infrastructureProviderId` or `tenantId` query parameter may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -1668,7 +1685,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all IP Blocks. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -1870,7 +1887,7 @@ paths:
       description: |-
         Delete an IP block
 
-        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with it.
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix. Only root IP Blocks can be deleted if there are no allocations associated with them.
 
         Tenant IP Blocks are managed via Allocation.
       tags:
@@ -2001,7 +2018,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all derived IP Blocks. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -2094,7 +2111,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: Ready
-                          message: Vpc has been successfully provisioned on Site
+                          message: VPC has been successfully provisioned on Site
                           created: '2019-08-24T16:02:00Z'
                           updated: '2019-08-24T16:02:00Z'
                         - status: Pending
@@ -2143,7 +2160,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all VPCs. Input will be matched against name, description, labels and status fields'
+          description: 'Search for matches across all VPCs. Input will be matched against name, description, labels, and status fields'
         - schema:
             type: string
             enum:
@@ -2304,7 +2321,7 @@ paths:
                         - 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     statusHistory:
                       - status: Ready
-                        message: Vpc has been successfully provisioned on Site
+                        message: VPC has been successfully provisioned on Site
                         created: '2019-08-24T16:02:00Z'
                         updated: '2019-08-24T16:02:00Z'
                       - status: Pending
@@ -2465,7 +2482,7 @@ paths:
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
 
         Tenant must own the VPC
-        Request is rejected if the VPC already has Subnets or Instances
+        Request is rejected if the VPC already has Subnets or Instances.
       requestBody:
         content:
           application/json:
@@ -2706,7 +2723,7 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: 'Filter VPC Prefixes by Site, required if vpcId query param is not specified'
+          description: 'Filter VPC Prefixes by Site, required if the vpcId query parameter is not specified'
         - schema:
             type: string
             format: uuid
@@ -2722,7 +2739,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name and status fields
+          description: Search for matches across all VPC Prefixes. Input will be matched against name and status fields
         - schema:
             type: string
             enum:
@@ -2737,7 +2754,7 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage.
+            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
         - schema:
             type: integer
@@ -2842,7 +2859,7 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistic using the same structure as IP Block usage.
+            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
     delete:
       summary: Delete VPC Prefix
@@ -2911,7 +2928,6 @@ paths:
                       name: spark-gpu-net
                       siteId: ea144def-d68f-44c3-9485-4b103fa2686f
                       vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-                      tenantId: f97df110-f4de-492e-8849-4a6af68026b0
                       controllerNetworkSegmentId: abe7b0e8-67db-4e89-903e-fc4f2bd7f034
                       ipv4Prefix: 202.168.16.0
                       ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -2952,7 +2968,7 @@ paths:
             format: uuid
           in: query
           name: siteId
-          description: 'Filter subnets by Site, required if vpcId query param is not specified'
+          description: 'Filter subnets by Site, required if the vpcId query parameter is not specified'
         - schema:
             type: string
             format: uuid
@@ -2968,7 +2984,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Subnets. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -2984,8 +3000,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each Subnet object includes usage statistic using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            When true, each Subnet object includes usage statistics using the same structure as IP Block usage.
+            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
         - schema:
             type: integer
             example: 1
@@ -3033,7 +3049,6 @@ paths:
                     name: spark-gpu-net
                     siteId: ea144def-d68f-44c3-9485-4b103fa2686f
                     vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-                    tenantId: f97df110-f4de-492e-8849-4a6af68026b0
                     controllerNetworkSegmentId: null
                     ipv4Prefix: 202.168.16.0
                     ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -3060,7 +3075,7 @@ paths:
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-        At least 1 IPv4 IP block or 1 IPv6 IP block must be specified.
+        At least one IPv4 IP block or one IPv6 IP block must be specified.
       requestBody:
         content:
           application/json:
@@ -3108,7 +3123,6 @@ paths:
                     name: spark-gpu-net
                     siteId: ea144def-d68f-44c3-9485-4b103fa2686f
                     vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-                    tenantId: f97df110-f4de-492e-8849-4a6af68026b0
                     controllerNetworkSegmentId: abe7b0e8-67db-4e89-903e-fc4f2bd7f034
                     ipv4Prefix: 202.168.16.0
                     ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -3153,8 +3167,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each Subnet object includes usage statistic using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            When true, each Subnet object includes usage statistics using the same structure as IP Block usage.
+            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
     delete:
       summary: Delete Subnet
       operationId: delete-subnet
@@ -3187,7 +3201,6 @@ paths:
                     description: Subnet for dedicated GPU nodes
                     siteId: ea144def-d68f-44c3-9485-4b103fa2686f
                     vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-                    tenantId: f97df110-f4de-492e-8849-4a6af68026b0
                     controllerNetworkSegmentId: null
                     ipv4Prefix: 212.168.0.250
                     ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -3455,7 +3468,7 @@ paths:
       parameters: []
       responses:
         '204':
-          description: ExpectedMachine deleted successfully
+          description: Expected Machine deleted successfully
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -4669,7 +4682,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all InfiniBand Partitions. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -4981,7 +4994,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all NVLink Logical Partitions. Input will be matched against name, description, and status fields'
         - schema:
             type: boolean
           in: query
@@ -5340,7 +5353,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, display name, description, labels and status fields'
+          description: 'Search for matches across all Instance Types. Input will be matched against name, display name, description, labels, and status fields'
         - schema:
             type: string
             enum:
@@ -5363,7 +5376,7 @@ paths:
             type: boolean
           in: query
           name: excludeUnallocated
-          description: Excludes InstanceType records that have no allocations from being returned in the result set. Currently can only be requested by Tenant.
+          description: Excludes Instance Type records that have no allocations from being returned in the result set. Currently can only be requested by Tenant.
         - schema:
             type: integer
             example: 1
@@ -5976,7 +5989,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6067,7 +6080,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6151,7 +6164,7 @@ paths:
                       status: Ready
                       statusHistory:
                         - status: BootCompleted
-                          message: The Instance successfully completed boot up
+                          message: The Instance successfully completed boot
                           created: '2019-08-24T14:15:22Z'
                           updated: '2019-08-24T14:15:22Z'
                       deprecations:
@@ -6229,7 +6242,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description, status, and labels fields'
+          description: 'Search for matches across all Instances. Input will be matched against name, description, status, and labels fields'
         - schema:
             type: string
             enum:
@@ -6287,7 +6300,7 @@ paths:
             type: string
           in: query
           name: networkSecurityGroupId
-          description: Filter by NetworkSecurityGroup ID.  Can be specified multiple times to filter on more than one Network Security Group.
+          description: Filter by Network Security Group ID. Can be specified multiple times to filter on more than one Network Security Group.
     post:
       summary: Create an Instance
       operationId: create-instance
@@ -7974,9 +7987,9 @@ paths:
 
         Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have authorization role with `PROVIDER_ADMIN` suffix.
+        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query param value. User must have authorization role with `TENANT_ADMIN` suffix.
+        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
 
         Only Tenants are allowed to create Operating System for MVP.
       requestBody:
@@ -8056,7 +8069,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OperatingSystem'
               examples:
-                Image Based OS:
+                Image-based OS:
                   value:
                     id: 42b0f982-5c61-4d2f-a018-41ece61f4641
                     name: debian-12-amd64
@@ -9341,7 +9354,7 @@ paths:
             type: string
           in: query
           name: inactiveDevices
-          description: 'Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query params should be specified in correct order in order to filter. For example, to filter for [1, 3], specify inactiveDevices=1&inactiveDevices=3'
+          description: 'Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query parameters should be specified in the correct order. For example, to filter for [1, 3], specify inactiveDevices=1&inactiveDevices=3'
         - schema:
             type: string
           in: query
@@ -11216,7 +11229,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status fields'
+          description: 'Search for matches across all Network Security Groups. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -11470,7 +11483,7 @@ paths:
             type: string
           in: query
           name: query
-          description: 'Search for matches across all Sites. Input will be matched against name, description and status'
+          description: 'Search for matches across all DPU Extension Services. Input will be matched against name, description, and status fields'
         - schema:
             type: string
             enum:
@@ -11767,7 +11780,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name field
+          description: Search for matches across all SSH Key Groups. Input will be matched against the name field
         - schema:
             type: string
             enum:
@@ -12122,7 +12135,7 @@ paths:
             type: string
           in: query
           name: query
-          description: Search for matches across all Sites. Input will be matched against name field
+          description: Search for matches across all SSH Keys. Input will be matched against the name field
         - schema:
             type: string
             enum:
@@ -12909,20 +12922,25 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Infrastructure Provider'
           format: uuid
           readOnly: true
         org:
           type: string
+          description: 'Name of the org this Infrastructure Provider belongs to'
         orgDisplayName:
           type:
             - string
             - 'null'
+          description: 'Display name of the org this Infrastructure Provider belongs to'
         created:
           type: string
+          description: 'Date/time when the Infrastructure Provider was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Infrastructure Provider was last updated'
           format: date-time
           readOnly: true
     InfrastructureProviderStats:
@@ -12954,10 +12972,13 @@ components:
       properties:
         machine:
           $ref: '#/components/schemas/MachineCountByStatus'
+          description: 'Machine status counts for the Infrastructure Provider'
         ipBlock:
           $ref: '#/components/schemas/IpBlockCountByStatus'
+          description: 'IP Block status counts for the Infrastructure Provider'
         tenantAccount:
           $ref: '#/components/schemas/TenantAccountCountByStatus'
+          description: 'Tenant Account status counts for the Infrastructure Provider'
     MachineCountByStatus:
       title: MachineCountByStatus
       type: object
@@ -12973,20 +12994,28 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of Machines'
         initializing:
           type: integer
+          description: 'Number of Machines in Initializing status'
         reset:
           type: integer
+          description: 'Number of Machines in Reset status'
         assigned:
           type: integer
+          description: 'Number of Machines in Assigned status'
         ready:
           type: integer
+          description: 'Number of Machines in Ready status'
         error:
           type: integer
+          description: 'Number of Machines in Error status'
         decommissioned:
           type: integer
+          description: 'Number of Machines in Decommissioned status'
         unknown:
           type: integer
+          description: 'Number of Machines in Unknown status'
     IpBlockCountByStatus:
       title: IpBlockCountByStatus
       type: object
@@ -13001,16 +13030,22 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of IP Blocks'
         pending:
           type: integer
+          description: 'Number of IP Blocks in Pending status'
         provisioning:
           type: integer
+          description: 'Number of IP Blocks in Provisioning status'
         ready:
           type: integer
+          description: 'Number of IP Blocks in Ready status'
         deleting:
           type: integer
+          description: 'Number of IP Blocks in Deleting status'
         error:
           type: integer
+          description: 'Number of IP Blocks in Error status'
     TenantAccountCountByStatus:
       title: TenantAccountCountByStatus
       type: object
@@ -13024,14 +13059,19 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of Tenant Accounts'
         pending:
           type: integer
+          description: 'Number of Tenant Accounts in Pending status'
         invited:
           type: integer
+          description: 'Number of Tenant Accounts in Invited status'
         ready:
           type: integer
+          description: 'Number of Tenant Accounts in Ready status'
         error:
           type: integer
+          description: 'Number of Tenant Accounts in Error status'
     Tenant:
       title: Tenant
       type: object
@@ -13108,13 +13148,25 @@ components:
             ready: 2
             deleting: 0
             error: 0
+          tenantAccount:
+            total: 8
+            pending: 0
+            invited: 3
+            ready: 5
+            error: 0
       properties:
         instance:
           $ref: '#/components/schemas/InstanceCountByStatus'
+          description: 'Instance status counts for the Tenant'
         vpc:
           $ref: '#/components/schemas/VpcCountByStatus'
+          description: 'VPC status counts for the Tenant'
         subnet:
           $ref: '#/components/schemas/SubnetCountByStatus'
+          description: 'Subnet status counts for the Tenant'
+        tenantAccount:
+          $ref: '#/components/schemas/TenantAccountCountByStatus'
+          description: 'Tenant Account status counts for the Tenant'
     InstanceCountByStatus:
       title: InstanceCountByStatus
       type: object
@@ -13129,16 +13181,22 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of Instances'
         pending:
           type: integer
+          description: 'Number of Instances in Pending status'
         provisioning:
           type: integer
+          description: 'Number of Instances in Provisioning status'
         ready:
           type: integer
+          description: 'Number of Instances in Ready status'
         terminating:
           type: integer
+          description: 'Number of Instances in Terminating status'
         error:
           type: integer
+          description: 'Number of Instances in Error status'
     VpcCountByStatus:
       title: VpcCountByStatus
       type: object
@@ -13153,16 +13211,22 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of VPCs'
         pending:
           type: integer
+          description: 'Number of VPCs in Pending status'
         provisioning:
           type: integer
+          description: 'Number of VPCs in Provisioning status'
         ready:
           type: integer
+          description: 'Number of VPCs in Ready status'
         deleting:
           type: integer
+          description: 'Number of VPCs in Deleting status'
         error:
           type: integer
+          description: 'Number of VPCs in Error status'
     SubnetCountByStatus:
       title: SubnetCountByStatus
       type: object
@@ -13177,16 +13241,22 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of Subnets'
         pending:
           type: integer
+          description: 'Number of Subnets in Pending status'
         provisioning:
           type: integer
+          description: 'Number of Subnets in Provisioning status'
         ready:
           type: integer
+          description: 'Number of Subnets in Ready status'
         deleting:
           type: integer
+          description: 'Number of Subnets in Deleting status'
         error:
           type: integer
+          description: 'Number of Subnets in Error status'
     TenantAccount:
       title: TenantAccount
       type: object
@@ -13216,38 +13286,49 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Tenant Account'
           format: uuid
           readOnly: true
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider'
           format: uuid
         infrastructureProviderOrg:
           type: string
+          description: 'Organization name of the Infrastructure Provider'
         tenantId:
           type:
             - string
             - 'null'
+          description: 'ID of the Tenant'
           format: uuid
         tenantOrg:
           type:
             - string
             - 'null'
+          description: 'Org of the Tenant'
         tenantContact:
           $ref: '#/components/schemas/User'
+          description: 'Contact user for the Tenant'
         allocationCount:
           type: integer
+          description: 'Number of Allocations for the Tenant Account'
         status:
           $ref: '#/components/schemas/TenantAccountStatus'
+          description: 'Status of the Tenant Account'
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Tenant Account'
         created:
           type: string
+          description: 'Date/time when the Tenant Account was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Tenant Account was last updated'
           format: date-time
           readOnly: true
     TenantAccountStatus:
@@ -13269,6 +13350,7 @@ components:
       properties:
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider in the organization'
           format: uuid
         tenantOrg:
           type: string
@@ -13373,6 +13455,7 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Site in NICo Cloud'
           format: uuid
           readOnly: true
         name:
@@ -13387,8 +13470,10 @@ components:
           description: Optional description for the Site
         org:
           type: string
+          description: 'NGC organization ID of the Infrastructure Provider that owns the Site'
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider that owns the Site'
           format: uuid
         siteControllerVersion:
           type:
@@ -13416,6 +13501,7 @@ components:
           type:
             - string
             - 'null'
+          description: 'Serial console hostname of the site controller'
           format: hostname
         isSerialConsoleEnabled:
           type: boolean
@@ -13438,25 +13524,33 @@ components:
           description: Indicates if the Site is currently reachable from Cloud
         status:
           $ref: '#/components/schemas/SiteStatus'
+          description: 'Status of the Site'
           readOnly: true
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Site'
         created:
           type: string
+          description: 'Date/time when the Site was created'
           format: date-time
         updated:
           type: string
+          description: 'Date/time when the Site was last updated'
           format: date-time
         location:
           $ref: '#/components/schemas/SiteLocation'
+          description: 'Site location information'
         contact:
           $ref: '#/components/schemas/SiteContact'
+          description: 'Site contact information'
         capabilities:
           $ref: '#/components/schemas/SiteCapabilities'
+          description: 'Site capabilities used for feature availability and configuration'
         machineStats:
           $ref: '#/components/schemas/SiteMachineStats'
+          description: 'Machine counts by status for the Site'
     SiteSummary:
       title: SiteSummary
       type: object
@@ -13477,6 +13571,7 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Site'
           format: uuid
           readOnly: true
         name:
@@ -13486,6 +13581,7 @@ components:
           description: Name of the Site
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider that owns the Site'
           format: uuid
         isSerialConsoleEnabled:
           type: boolean
@@ -13495,8 +13591,10 @@ components:
           description: Indicates if the Site is currently reachable from Cloud
         capabilities:
           $ref: '#/components/schemas/SiteCapabilities'
+          description: 'Site capabilities used for feature availability and configuration'
         status:
           $ref: '#/components/schemas/SiteStatus'
+          description: 'Status of the Site'
           readOnly: true
     SiteStatus:
       title: SiteStatus
@@ -13513,14 +13611,19 @@ components:
       properties:
         nativeNetworking:
           type: boolean
+          description: 'Whether the Site supports native networking'
         networkSecurityGroup:
           type: boolean
+          description: 'Whether the Site supports Network Security Groups'
         nvLinkPartition:
           type: boolean
+          description: 'Whether the Site supports NVLink partitioning'
         flow:
           type: boolean
+          description: 'Whether the Site supports Flow-based operations'
         imageBasedOperatingSystem:
           type: boolean
+          description: 'Whether the Site supports image-based operating system provisioning'
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -13528,14 +13631,19 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of Machines at the Site'
         totalByStatus:
           $ref: '#/components/schemas/SiteMachineStatsByStatus'
+          description: 'Machine counts grouped by Machine status'
         totalByHealth:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Machine counts grouped by health state'
         totalByStatusAndHealth:
           $ref: '#/components/schemas/SiteMachineStatsByStatusAndHealth'
+          description: 'Machine health counts grouped by Machine status'
         totalByAllocation:
           $ref: '#/components/schemas/SiteMachineStatsByAllocation'
+          description: 'Machine counts grouped by allocation and usage state'
     SiteMachineStatsByAllocation:
       title: SiteMachineStatsByAllocation
       type: object
@@ -13543,10 +13651,13 @@ components:
       properties:
         allocatedInUse:
           type: integer
+          description: 'Number of allocated Machines currently in use'
         allocatedNotInUse:
           type: integer
+          description: 'Number of allocated Machines not currently in use'
         unallocated:
           type: integer
+          description: 'Number of Machines not currently allocated'
     SiteMachineStatsByHealth:
       title: SiteMachineStatsByHealth
       type: object
@@ -13554,8 +13665,10 @@ components:
       properties:
         healthy:
           type: integer
+          description: 'Number of healthy Machines'
         unhealthy:
           type: integer
+          description: 'Number of unhealthy Machines'
     SiteMachineStatsByStatus:
       title: SiteMachineStatsByStatus
       type: object
@@ -13563,20 +13676,28 @@ components:
       properties:
         Decommissioned:
           type: integer
+          description: 'Number of Machines in Decommissioned status'
         Error:
           type: integer
+          description: 'Number of Machines in Error status'
         Initializing:
           type: integer
+          description: 'Number of Machines in Initializing status'
         InUse:
           type: integer
+          description: 'Number of Machines in InUse status'
         Maintenance:
           type: integer
+          description: 'Number of Machines in Maintenance status'
         Ready:
           type: integer
+          description: 'Number of Machines in Ready status'
         Reset:
           type: integer
+          description: 'Number of Machines in Reset status'
         Unknown:
           type: integer
+          description: 'Number of Machines in Unknown status'
     SiteMachineStatsByStatusAndHealth:
       title: SiteMachineStatsByStatusAndHealth
       type: object
@@ -13584,20 +13705,28 @@ components:
       properties:
         Decommissioned:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Decommissioned status'
         Error:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Error status'
         Initializing:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Initializing status'
         InUse:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in InUse status'
         Maintenance:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Maintenance status'
         Ready:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Ready status'
         Reset:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Reset status'
         Unknown:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Unknown status'
     SiteCreateRequest:
       title: SiteCreateRequest
       type: object
@@ -13631,8 +13760,10 @@ components:
           format: hostname
         location:
           $ref: '#/components/schemas/SiteLocation'
+          description: 'Site location information'
         contact:
           $ref: '#/components/schemas/SiteContact'
+          description: 'Site contact information'
       required:
         - name
     SiteCapabilitiesUpdateRequest:
@@ -13718,8 +13849,10 @@ components:
           deprecated: true
         location:
           $ref: '#/components/schemas/SiteLocation'
+          description: 'Updated Site location information'
         contact:
           $ref: '#/components/schemas/SiteContact'
+          description: 'Updated Site contact information'
         capabilities:
           $ref: '#/components/schemas/SiteCapabilitiesUpdateRequest'
           description: Modify Site capabilities. Can only be updated by Provider. Partial update allowed, only specify capabilities that should be updated.
@@ -13810,16 +13943,19 @@ components:
           format: uuid
         status:
           $ref: '#/components/schemas/AllocationStatus'
+          description: 'Status of the Allocation'
           readOnly: true
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Allocation'
           readOnly: true
         allocationConstraints:
           type: array
           items:
             $ref: '#/components/schemas/AllocationConstraint'
+          description: 'List of Allocation Constraints for the Allocation'
         created:
           type: string
           description: Date/time when the Allocation was created
@@ -13876,6 +14012,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AllocationConstraintCreateRequest'
+          description: 'List of Allocation Constraint objects'
       required:
         - name
         - tenantId
@@ -13953,7 +14090,7 @@ components:
         resourceTypeId:
           type: string
           format: uuid
-          description: 'ID of the Resource Type that acts as the source of the Allocation. For resource type: `InstanceType`, this is the ID of the Instance Type whose associated Machines are allocated to the Tenant. For resource type `IPBlock`, this is the ID of the Site level IP Block from where a prefix is allocated to the Tenant.'
+          description: 'ID of the resource that acts as the source of the Allocation. For resource type `InstanceType`, this is the ID of the Instance Type whose associated Machines are allocated to the Tenant. For resource type `IPBlock`, this is the ID of the Site-level IP Block from which a prefix is allocated to the Tenant.'
         constraintType:
           type: string
           description: 'Type of the Allocation Constraint. `Reserved` is the only constraint type supported by current implementation.'
@@ -13972,8 +14109,10 @@ components:
           description: ID of the allocated Tenant IP Block when resource type is IPBlock
         instanceType:
           $ref: '#/components/schemas/InstanceTypeSummary'
+          description: 'Summary of the Instance Type'
         ipBlock:
           $ref: '#/components/schemas/IpBlockSummary'
+          description: 'Summary of the IP Block'
         created:
           type: string
           description: Date/time when the Allocation Constraint was created
@@ -14155,7 +14294,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing VPC labels
+          description: String key-value pairs describing VPC labels
         status:
           $ref: '#/components/schemas/VpcStatus'
           readOnly: true
@@ -14269,7 +14408,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing VPC labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing VPC labels. Up to 10 key-value pairs can be specified
       required:
         - name
         - siteId
@@ -14306,7 +14445,7 @@ components:
           description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to. Can only be updated if VPC currently has no active Instances
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Update labels of the VPC. Up to 10 key value pairs can be specified. The labels will be entirely replaced by those sent in the request. Any labels not included in the request will be removed. To retain existing labels, first fetch them and include them along with this request.'
+          description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
     VpcVirtualizationUpdateRequest:
       title: VpcVirtualizationUpdateRequest
       type: object
@@ -14403,7 +14542,6 @@ components:
           name: east-vpc-traffic-net
           siteId: ea144def-d68f-44c3-9485-4b103fa2686f
           vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-          tenantId: f97df110-f4de-492e-8849-4a6af68026b0
           prefix: 192.168.1.0/24
           ipBlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
           prefixLength: 24
@@ -14431,7 +14569,6 @@ components:
           name: northern-vpc-traffic-net
           siteId: ea144def-d68f-44c3-9485-4b103fa2686f
           vpcId: 4ea05fc4-2be8-4823-b574-e633b5ad3c4c
-          tenantId: f97df110-f4de-492e-8849-4a6af68026b0
           prefix: 10.217.98.100/30
           ipBlockId: 65e14c37-5a8f-4c41-9b1c-f2e162bee11c
           prefixLength: 30
@@ -14453,6 +14590,7 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the VPCPrefix'
           format: uuid
           readOnly: true
         name:
@@ -14468,10 +14606,6 @@ components:
           type: string
           format: uuid
           description: ID of the VPC the VPC Prefix belongs to
-        tenantId:
-          type: string
-          format: uuid
-          description: ID of the Tenant the VPC Prefix belongs to
         ipBlockId:
           type:
             - string
@@ -14497,7 +14631,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
         statusHistory:
           type: array
           items:
@@ -14564,6 +14698,7 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the VPCPrefix'
           minLength: 2
           maxLength: 256
       required:
@@ -14578,7 +14713,6 @@ components:
           description: Subnet for GPU nodes
           siteId: ea144def-d68f-44c3-9485-4b103fa2686f
           vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-          tenantId: f97df110-f4de-492e-8849-4a6af68026b0
           controllerNetworkSegmentId: abe7b0e8-67db-4e89-903e-fc4f2bd7f034
           ipv4Prefix: 204.168.0.250
           ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -14601,7 +14735,6 @@ components:
           description: Provisioned subnet with IPv4 usage (includeUsageStats=true)
           siteId: ea144def-d68f-44c3-9485-4b103fa2686f
           vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
-          tenantId: f97df110-f4de-492e-8849-4a6af68026b0
           controllerNetworkSegmentId: abe7b0e8-67db-4e89-903e-fc4f2bd7f034
           ipv4Prefix: 10.217.98.64
           ipv4BlockId: 8c1d1a06-90a2-4863-8ee1-6029265b9f0a
@@ -14633,29 +14766,32 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Subnet'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the Subnet'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Subnet'
         siteId:
           type: string
+          description: 'ID of the Site containing the Subnet'
           format: uuid
         vpcId:
           type: string
-          format: uuid
-        tenantId:
-          type: string
+          description: 'ID of the VPC containing the Subnet'
           format: uuid
         controllerNetworkSegmentId:
           type:
             - string
             - 'null'
+          description: 'ID of the Site Controller network segment corresponding to the Subnet'
           format: uuid
         ipv4Prefix:
           type:
@@ -14667,26 +14803,31 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the derived Tenant IPv4 Block from an Allocation'
           format: uuid
         ipv4Gateway:
           type:
             - string
             - 'null'
+          description: 'Address of the IPv4 gateway in the Subnet'
           format: ipv4
         ipv6Prefix:
           type:
             - string
             - 'null'
+          description: 'Prefix of the network in CIDR notation'
           format: ipv6
         ipv6BlockId:
           type:
             - string
             - 'null'
+          description: 'ID of the derived Tenant IPv6 Block from an Allocation'
           format: uuid
         ipv6Gateway:
           type:
             - string
             - 'null'
+          description: 'Address of the IPv6 gateway in the Subnet'
           format: ipv6
         mtu:
           type: integer
@@ -14700,34 +14841,35 @@ components:
           type:
             - string
             - 'null'
+          description: 'Routing type of the Subnet'
           enum:
             - Public
             - DatacenterOnly
         status:
           $ref: '#/components/schemas/SubnetStatus'
+          description: 'Status of the Subnet'
           readOnly: true
         usageStats:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Subnet'
           readOnly: true
         created:
           type: string
+          description: 'Date/time when the Subnet was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Subnet was last updated'
           format: date-time
           readOnly: true
-        deprecations:
-          type: array
-          items:
-            $ref: '#/components/schemas/Deprecation'
     SubnetStatus:
       title: SubnetStatus
       type: string
@@ -14750,27 +14892,33 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the Subnet'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Subnet'
         vpcId:
           type: string
+          description: 'ID of the VPC containing the Subnet'
           format: uuid
         ipv4BlockId:
           type:
             - string
             - 'null'
+          description: 'ID of the derived Tenant IPv4 Block from an Allocation'
           format: uuid
         ipv6BlockId:
           type:
             - string
             - 'null'
+          description: 'ID of the derived Tenant IPv6 Block from an Allocation'
           format: uuid
         prefixLength:
           type: integer
+          description: 'Length of the prefix'
       required:
         - name
         - vpcId
@@ -14785,12 +14933,14 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the Subnet'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Subnet'
       required:
         - name
     InfiniBandPartition:
@@ -14821,41 +14971,50 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the InfiniBand Partition'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the InfiniBand Partition'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the InfiniBand Partition'
         siteId:
           type: string
+          description: 'ID of the Site'
           format: uuid
         tenantId:
           type: string
+          description: 'ID of the Tenant'
           format: uuid
         controllerIBPartitionId:
           type:
             - string
             - 'null'
+          description: 'ID of the Site Controller InfiniBand partition corresponding to this InfiniBand Partition'
           format: uuid
         partitionKey:
           type:
             - string
             - 'null'
+          description: 'Partition key assigned to the InfiniBand Partition'
           readOnly: true
         partitionName:
           type:
             - string
             - 'null'
+          description: 'Partition name assigned to the InfiniBand Partition'
           readOnly: true
         serviceLevel:
           type:
             - integer
             - 'null'
+          description: 'Service level configured for the InfiniBand Partition'
           minimum: 0
           maximum: 15
           readOnly: true
@@ -14863,6 +15022,7 @@ components:
           type:
             - number
             - 'null'
+          description: 'Rate limit configured for the InfiniBand Partition'
           enum:
             - 2
             - 5
@@ -14886,30 +15046,36 @@ components:
           type:
             - integer
             - 'null'
+          description: 'MTU configured for the InfiniBand Partition'
           enum:
             - 4000
             - 8000
           readOnly: true
         enableSharp:
           type: boolean
+          description: 'Whether SHARP is enabled for the InfiniBand Partition'
           readOnly: true
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing InfiniBand Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing InfiniBand Partition labels. Up to 10 key-value pairs can be specified
         status:
           $ref: '#/components/schemas/InfiniBandPartitionStatus'
+          description: 'Status of the InfiniBand Partition'
           readOnly: true
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the InfiniBand Partition'
           readOnly: true
         created:
           type: string
+          description: 'Date/time when the InfiniBand Partition was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the InfiniBand Partition was last updated'
           format: date-time
           readOnly: true
     InfiniBandPartitionStatus:
@@ -14947,7 +15113,7 @@ components:
           description: ID of the Site the Partition should belong to
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
       required:
         - name
         - siteId
@@ -14961,15 +15127,17 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the InfiniBand Partition'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the InfiniBand Partition'
         labels:
           $ref: '#/components/schemas/Labels'
-          description: String key value pairs describing Partition labels. Up to 10 key value pairs can be specified
+          description: String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
       required:
         - name
     NVLinkLogicalPartition:
@@ -15024,6 +15192,9 @@ components:
             $ref: '#/components/schemas/StatusDetail'
           description: Details of status changes for the NVLink Logical Partition over time
           readOnly: true
+        nvLinkLogicalPartitionStats:
+          $ref: '#/components/schemas/NVLinkLogicalPartitionStats'
+          description: GPU and Instance usage counts for the NVLink Logical Partition. Returned if the `includeStats` query parameter is set to true in retrieval endpoints
         created:
           type: string
           format: date-time
@@ -15034,6 +15205,17 @@ components:
           format: date-time
           readOnly: true
           description: Date and time the NVLink Logical Partition was last updated
+    NVLinkLogicalPartitionStats:
+      title: NVLinkLogicalPartitionStats
+      type: object
+      description: GPU and Instance counts for an NVLink Logical Partition
+      properties:
+        totalGpus:
+          type: integer
+          description: Total number of GPUs associated with the NVLink Logical Partition
+        totalDistinctInstances:
+          type: integer
+          description: Total number of distinct Instances associated with the NVLink Logical Partition
     NVLinkLogicalPartitionStatus:
       title: NVLinkLogicalPartitionStatus
       type: string
@@ -15281,17 +15463,17 @@ components:
             - string
             - 'null'
           format: uri
-          description: Original URL from where the Operating System image can be retrieved
+          description: Original URL from which the Operating System image can be retrieved
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, only present for image based OS'
+          description: 'SHA hash of the image file, only present for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: Authentication type for image URL e.g. 'Basic' or 'Bearer'
+          description: Authentication type for image URL, e.g., 'Basic' or 'Bearer'
         imageAuthToken:
           type:
             - string
@@ -15301,22 +15483,22 @@ components:
           type:
             - string
             - 'null'
-          description: Disk path where the image should be monuted
+          description: Disk path where the image should be mounted
         rootFsId:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, only applicable for image based Operating System'
+          description: 'Root filesystem UUID, only applicable for image-based Operating System'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, only applicable for image based Operating System'
+          description: 'Root filesystem label, only applicable for image-based Operating System'
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based Operating System'
+          description: 'iPXE script or URL, only applicable for iPXE-based Operating System'
         userData:
           type:
             - string
@@ -15324,7 +15506,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         phoneHomeEnabled:
           type: boolean
           description: Indicates whether the Phone Home service should be enabled or disabled for Operating System
@@ -15399,8 +15581,10 @@ components:
       properties:
         site:
           $ref: '#/components/schemas/SiteSummary'
+          description: 'Summary of the Site'
         status:
           $ref: '#/components/schemas/SshKeyGroupStatus'
+          description: 'Status of the Operating SystemSiteAssociation'
         version:
           type:
             - string
@@ -15409,10 +15593,12 @@ components:
           example: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
         created:
           type: string
+          description: 'Date/time when the Site was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Site was last updated'
           format: date-time
           readOnly: true
     OperatingSystemCreateRequest:
@@ -15486,28 +15672,28 @@ components:
           items:
             type: string
             format: uuid
-          description: 'Specified only one Site if an Operating System is Image based, more than one Site is not supported"'
+          description: 'Specify only one Site if an Operating System is image-based; more than one Site is not supported.'
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based OS. Cannot be specified if imageUrl is specified'
+          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
         imageUrl:
           type:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from where the Operating System image can be retreived from, required for image based OS. Cannot be specified if ipxeScript is specified'
+          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS. Cannot be specified if ipxeScript is specified'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image based OS'
+          description: 'SHA hash of the image file, required for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL if needed e.g. basic/bearer/token, required is imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
         imageAuthToken:
           type:
             - string
@@ -15522,12 +15708,12 @@ components:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, this or `rootFsLabel` required for image based OS'
+          description: 'Root filesystem UUID; this or `rootFsLabel` is required for image-based OS'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, this or `rootFsId` required for image based OS'
+          description: 'Root filesystem label; this or `rootFsId` is required for image-based OS'
         phoneHomeEnabled:
           type:
             - boolean
@@ -15540,7 +15726,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
@@ -15566,7 +15752,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: Request data to update an OperatingSystem. Only image related attributes can be updated for image based OS and only iPXE attributes can be updated for iPXE based OS
+      description: Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
       properties:
         name:
           type:
@@ -15584,23 +15770,23 @@ components:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE based OS. Cannot be specified if imageUrl is specified'
+          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
         imageUrl:
           type:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from where the Operating System image can be retreived from, required for image based OS'
+          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image based OS'
+          description: 'SHA hash of the image file, required for image-based OS'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL if needed e.g. basic/bearer/token, required is imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
         imageAuthToken:
           type:
             - string
@@ -15615,12 +15801,12 @@ components:
           type:
             - string
             - 'null'
-          description: 'Root filesystem UUID, this or `rootFsLabel` required for image based OS'
+          description: 'Root filesystem UUID; this or `rootFsLabel` is required for image-based OS'
         rootFsLabel:
           type:
             - string
             - 'null'
-          description: 'Root filesystem label, this or `rootFsId` required for image based OS'
+          description: 'Root filesystem label; this or `rootFsId` is required for image-based OS'
         phoneHomeEnabled:
           type:
             - boolean
@@ -15635,7 +15821,7 @@ components:
           type:
             - boolean
             - 'null'
-          description: Specified when the Operating System is Cloud Init based
+          description: Specified when the Operating System is cloud-init based
         allowOverride:
           type:
             - boolean
@@ -15696,32 +15882,40 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Instance Type'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the Instance Type'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Instance Type'
         controllerMachineType:
           type:
             - string
             - 'null'
+          description: 'Machine type assigned by Site Controller'
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider that owns the Instance Type'
           format: uuid
         siteId:
           type: string
+          description: 'ID of the Site that owns the Instance Type'
           format: uuid
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels for the Instance Type'
         machineCapabilities:
           type: array
           items:
             $ref: '#/components/schemas/MachineCapability'
+          description: 'List of capabilities that are supported by the Machine''s of this Instance Type'
         machineInstanceTypes:
           type: array
           description: Available only for Providers
@@ -15732,20 +15926,25 @@ components:
           description: summary of machine counts by allocation status
         status:
           $ref: '#/components/schemas/InstanceTypeStatus'
+          description: 'Status of the Instance Type'
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Instance Type'
         deprecations:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
+          description: 'Deprecation notices for fields returned by this resource'
         created:
           type: string
+          description: 'Date/time when the InstanceType was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the InstanceType was last updated'
           format: date-time
           readOnly: true
     InstanceTypeSummary:
@@ -15761,20 +15960,25 @@ components:
       properties:
         id:
           type: string
+          description: 'ID of the Instance Type'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the Instance Type, only lowercase characters, digits, hyphens and cannot begin/end with hyphen'
           minLength: 2
           maxLength: 256
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider that owns the Instance Type'
           format: uuid
         siteId:
           type: string
+          description: 'ID of the Site that owns the Instance Type'
           format: uuid
         status:
           $ref: '#/components/schemas/InstanceTypeStatus'
+          description: 'Status of the Instance Type'
     InstanceTypeStatus:
       title: InstanceTypeStatus
       type: string
@@ -15838,25 +16042,31 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the Instance Type'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Instance Type'
         siteId:
           type: string
+          description: 'ID of the site'
           format: uuid
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels for the Instance Type'
         controllerMachineType:
           type:
             - string
             - 'null'
+          description: 'Site Controller assigned Machine type'
         machineCapabilities:
           type: array
           items:
             $ref: '#/components/schemas/InstanceTypeCapabilityCreateRequest'
+          description: 'List of Machine Capabilities to match'
       required:
         - name
         - siteId
@@ -15871,18 +16081,22 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the Instance Type'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Instance Type'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels for the Instance Type'
         machineCapabilities:
           type: array
           items:
             $ref: '#/components/schemas/MachineCapability'
+          description: 'List of Machine Capabilities to match'
     InstanceTypeCapabilityCreateRequest:
       title: InstanceTypeCapabilityCreateRequest
       type: object
@@ -16192,9 +16406,11 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the Instance Type'
           format: uuid
         vpcId:
           type: string
+          description: 'ID of the VPC'
           format: uuid
         secondaryVpcIds:
           type: array
@@ -16206,15 +16422,18 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the Machine'
         operatingSystemId:
           type:
             - string
             - 'null'
+          description: 'ID of the Operating System'
           format: uuid
         networkSecurityGroupId:
           type:
             - string
             - 'null'
+          description: 'ID of the attached Network Security Group, if any'
         networkSecurityGroupPropagationDetails:
           $ref: '#/components/schemas/NetworkSecurityGroupPropagationDetails'
           description: Propagation details for the attached Network Security Group
@@ -16225,23 +16444,27 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the Instance in Site Controller'
           format: uuid
         ipxeScript:
           type:
             - string
             - 'null'
+          description: 'Attribute which is inherited from Operating System'
         alwaysBootWithCustomIpxe:
           type: boolean
           description: Indicates whether the Instance should always execute custom iPXE script when rebooting
         phoneHomeEnabled:
           type: boolean
-          description: Indicates whether the Phone Home service should be enabled or disabled for Instance
+          description: Indicates whether the Phone Home service should be enabled or disabled for the Instance
         userData:
           type:
             - string
             - 'null'
+          description: 'UserData is inherited from Operating System or specified by user if allowed'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-specified Instance labels'
         isUpdatePending:
           type: boolean
           description: Indicates whether an update is available for the Instance. Updates can be applied on reboot
@@ -16257,14 +16480,17 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Interface'
+          description: 'Interfaces are list of the subnet associated with the Instance'
         infinibandInterfaces:
           type: array
           items:
             $ref: '#/components/schemas/InfiniBandInterface'
+          description: 'InfiniBandInterfaces are list of the InfiniBandInterface associated with the Instance'
         nvLinkInterfaces:
           type: array
           items:
             $ref: '#/components/schemas/NVLinkInterface'
+          description: 'NVLinkInterfaces are list of the NVLinkInterface associated with the Instance'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services deployed on DPUs of this Instance
@@ -16288,21 +16514,26 @@ components:
           description: base64 encoded TPM EK Certificate associated with this Instance
         status:
           $ref: '#/components/schemas/InstanceStatus'
+          description: 'Status of the Instance'
           readOnly: true
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Instance'
         deprecations:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
+          description: 'Deprecation notices for fields returned by this resource'
         created:
           type: string
+          description: 'Date/time when the Instance was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Instance was last updated'
           format: date-time
           readOnly: true
     InstanceStatus:
@@ -16500,6 +16731,7 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the desired Network Security Group to attach to the Instance'
         ipxeScript:
           type:
             - string
@@ -16513,6 +16745,7 @@ components:
           description: 'When set to true, the Instance will be enabled with the Phone Home service.'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels'
         interfaces:
           type: array
           description: 'At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed. Only one of the Subnets or VPC Prefixes can be attached over Physical interface. If only one Subnet is specified, then it will be attached over physical interface regardless of the value of isPhysical. In case of VPC Prefix, isPhysical will always be true. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
@@ -16662,6 +16895,7 @@ components:
           description: 'When set to true, the Instances will be enabled with the Phone Home service.'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'Key-value objects to be applied to all instances (shared across all instances)'
         interfaces:
           type: array
           description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed, only one of the Subnets or VPC Prefixes can be attached over Physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
@@ -16797,7 +17031,7 @@ components:
           type:
             - boolean
             - 'null'
-          description: 'When specified, any updates pending for the Instance e.g. DPU reprovisioning, will be applied on reboot'
+          description: 'When specified, pending Instance updates such as DPU reprovisioning are applied on reboot'
         operatingSystemId:
           type:
             - string
@@ -16818,6 +17052,7 @@ components:
           type:
             - string
             - 'null'
+          description: 'ID of the Network Security Group to attach to the Instance'
         userData:
           type:
             - string
@@ -16832,10 +17067,10 @@ components:
           type:
             - boolean
             - 'null'
-          description: Indicates whether the Phone Home service should be enabled or disabled for Instance
+          description: Indicates whether the Phone Home service should be enabled or disabled for the Instance
         labels:
           $ref: '#/components/schemas/Labels'
-          description: 'Update labels of the Instance. The labels will be entirely replaced by those sent in the request. Any labels not included in the request will be removed. To retain existing labels, first fetch them and include them along with this request.'
+          description: 'Update labels of the Instance. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
         secondaryVpcIds:
           type: array
           uniqueItems: true
@@ -16860,7 +17095,7 @@ components:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
         nvLinkInterfaces:
           type: array
-          description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed, specified interfaces will delete or replace existing Interfaces. Updating is not allowed if Instance's VPC has `nvLinkLogicalPartitionId` attribute set.
+          description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
           items:
             $ref: '#/components/schemas/NVLinkInterfaceCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
@@ -16948,23 +17183,28 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Interface'
           minLength: 1
           format: uuid
         instanceId:
           type: string
+          description: 'ID of the associated Instance'
           format: uuid
         subnetId:
           type:
             - string
             - 'null'
+          description: 'ID of the associated Subnet'
           format: uuid
         vpcPrefixId:
           type:
             - string
             - 'null'
+          description: 'ID of the associated VPCPrefix'
           format: uuid
         isPhysical:
           type: boolean
+          description: 'IsPhysical indicates whether the Subnet is bound on a physical Interface'
         device:
           type:
             - string
@@ -16984,6 +17224,7 @@ components:
           type:
             - string
             - 'null'
+          description: 'MAC address of the Interface'
         ipAddresses:
           type: array
           description: A list of IPv4 or IPv6 addresses
@@ -17001,12 +17242,15 @@ components:
           description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
+          description: 'Status of the Interface'
         created:
           type: string
+          description: 'Date/time when the Interface was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Interface was last updated'
           format: date-time
           readOnly: true
     InterfaceStatus:
@@ -17049,9 +17293,11 @@ components:
       properties:
         subnetId:
           type: string
+          description: 'ID of the Subnet to attach to the Interface'
           format: uuid
         vpcPrefixId:
           type: string
+          description: 'ID of the VPC Prefix to attach to the Interface'
           format: uuid
         ipAddress:
           type:
@@ -17098,10 +17344,12 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the InfiniBandInterface'
           minLength: 1
           format: uuid
         instanceId:
           type: string
+          description: 'ID of the associated Instance'
           format: uuid
         partitionId:
           type: string
@@ -17110,8 +17358,14 @@ components:
         device:
           type: string
           description: Name of the InfiniBand device associated with this interface
+        vendor:
+          type:
+            - string
+            - 'null'
+          description: Name of the InfiniBand device vendor associated with this interface
         deviceInstance:
           type: integer
+          description: 'Index of the device where partition attach to'
         isPhysical:
           type: boolean
           description: Indicates whether this is a physical interface
@@ -17119,18 +17373,23 @@ components:
           type:
             - integer
             - 'null'
+          description: 'Must be specified if isPhysical is false'
         guid:
           type:
             - string
             - 'null'
+          description: 'Must be specified if isPhysical is false'
         status:
           $ref: '#/components/schemas/InfiniBandInterfaceStatus'
+          description: 'Status of the InfiniBandInterface'
         created:
           type: string
+          description: 'Date/time when the InfiniBandInterface was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the InfiniBandInterface was last updated'
           format: date-time
           readOnly: true
     InfiniBandInterfaceStatus:
@@ -17188,7 +17447,7 @@ components:
       examples:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           instanceId: 64d2028c-ae87-4069-a624-66089d957ef9
-          nvLinklogicalPartitionId: 05ef7e84-1d4e-4e4d-980d-38589479a0fe
+          nvLinkLogicalPartitionId: 05ef7e84-1d4e-4e4d-980d-38589479a0fe
           nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           deviceInstance: 0
           gpuGuid: 4fe82bc6-1e30-4dfd-8839-996596209883
@@ -17199,10 +17458,12 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the NVLinkInterface'
           minLength: 1
           format: uuid
         instanceId:
           type: string
+          description: 'ID of the associated Instance'
           format: uuid
         nvLinkLogicalPartitionId:
           type: string
@@ -17224,14 +17485,22 @@ components:
           description: Unique ID of the GPU
         status:
           $ref: '#/components/schemas/NVLinkInterfaceStatus'
+          description: 'Status of the NVLinkInterface'
         created:
           type: string
+          description: 'Date/time when the NVLinkInterface was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the NVLinkInterface was last updated'
           format: date-time
           readOnly: true
+        deprecations:
+          type: array
+          description: List of deprecations for NVLinkInterface API object
+          items:
+            $ref: '#/components/schemas/Deprecation'
     NVLinkInterfaceStatus:
       title: NVLinkInterfaceStatus
       type: string
@@ -17246,13 +17515,13 @@ components:
       title: NVLinkInterfaceCreateOrUpdateRequest
       type: object
       examples:
-        - nvLinklogicalPartitionId: 505e07bc-86bf-489a-807d-92dc8b80e6ff
+        - nvLinkLogicalPartitionId: 505e07bc-86bf-489a-807d-92dc8b80e6ff
           deviceInstance: 0
-        - nvLinklogicalPartitionId: 4f4decba-7d7f-46b9-9e5f-e5d71c2e0666
+        - nvLinkLogicalPartitionId: 4f4decba-7d7f-46b9-9e5f-e5d71c2e0666
           deviceInstance: 1
       description: Request data to create an NVLink Interface for an Instance by associating a specific GPU index with an NVLink Logical Partition.
       properties:
-        nvLinklogicalPartitionId:
+        nvLinkLogicalPartitionId:
           type: string
           format: uuid
           description: ID of the NVLink Logical Partition the Interface should attach to
@@ -17336,6 +17605,11 @@ components:
             - string
             - 'null'
           description: 'Vendor of the Capability component, if available'
+        hardwareRevision:
+          type:
+            - string
+            - 'null'
+          description: Hardware revision of the Capability component, if available
         inactiveDevices:
           type: array
           description: A list of inactive devices
@@ -17405,6 +17679,7 @@ components:
           description: Description of the Rack
         location:
           $ref: '#/components/schemas/RackLocation'
+          description: 'Physical or logical location of the Rack'
         components:
           type: array
           description: Components within the Rack. Only returned when includeComponents is true.
@@ -17474,8 +17749,10 @@ components:
           description: Component ID assigned by the component manager service
         expected:
           $ref: '#/components/schemas/RackComponent'
+          description: 'Expected component value'
         actual:
           $ref: '#/components/schemas/RackComponent'
+          description: 'Actual component value reported by the system'
         fieldDiffs:
           type: array
           description: List of field differences (populated when type is Mismatch)
@@ -17625,6 +17902,7 @@ components:
           description: Current power state of the tray
         position:
           $ref: '#/components/schemas/TrayPosition'
+          description: 'Position of the Tray within the Rack'
         bmcs:
           type: array
           description: BMC (Baseboard Management Controller) entries for the tray
@@ -17711,6 +17989,7 @@ components:
           description: ID of the Site
         filter:
           $ref: '#/components/schemas/RackFilter'
+          description: 'Filter that selects Racks whose power state should be updated'
         state:
           type: string
           enum:
@@ -17741,6 +18020,7 @@ components:
           description: ID of the Site
         filter:
           $ref: '#/components/schemas/TrayFilter'
+          description: 'Filter that selects Trays whose power state should be updated'
         state:
           type: string
           enum:
@@ -17770,6 +18050,7 @@ components:
           description: ID of the Site
         filter:
           $ref: '#/components/schemas/RackFilter'
+          description: 'Filter that selects Racks targeted for firmware update'
         version:
           type:
             - string
@@ -17819,6 +18100,7 @@ components:
           description: ID of the Site
         filter:
           $ref: '#/components/schemas/RackFilter'
+          description: 'Filter that selects Racks targeted for bring-up'
         description:
           type: string
           description: Optional description for the bring up operation
@@ -18305,6 +18587,7 @@ components:
           description: ID of the Site
         filter:
           $ref: '#/components/schemas/TrayFilter'
+          description: 'Filter that selects Trays targeted for firmware update'
         version:
           type:
             - string
@@ -18633,10 +18916,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MachineCapability'
+          description: 'List of capabilities of the machine'
         machineInterfaces:
           type: array
           items:
             $ref: '#/components/schemas/MachineInterface'
+          description: 'List of admin interfaces of the machine'
         maintenanceMessage:
           type:
             - string
@@ -18644,13 +18929,16 @@ components:
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
         health:
           $ref: '#/components/schemas/MachineHealth'
+          description: 'Health information about the machine'
         metadata:
           $ref: '#/components/schemas/MachineMetadata'
-          description: Only available to Providers. Returned if includeMetadata query param is specified. Otherwise attribute is omitted from response.
+          description: Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-specified Machine labels'
         status:
           $ref: '#/components/schemas/MachineStatus'
+          description: 'Status represents the status of the machine'
           readOnly: true
         isUsableByTenant:
           type: boolean
@@ -18660,12 +18948,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Machine'
         created:
           type: string
+          description: 'Date/time when the Machine was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Machine was last updated'
           format: date-time
           readOnly: true
     MachineStatus:
@@ -18729,6 +19020,7 @@ components:
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
         status:
           $ref: '#/components/schemas/MachineStatus'
+          description: 'Status represents the status of the machine'
           readOnly: true
     MachineHealthIssue:
       title: MachineHealthIssue
@@ -18805,8 +19097,10 @@ components:
             When false, exits online repair by clearing the merge-mode health override and returns the Instance to Ready status. Cannot be combined with instance type, maintenance, or label updates in the same request.
         policy:
           $ref: '#/components/schemas/MachineOnlineRepairPolicy'
+          description: 'Online repair policy to apply to the Machine'
         acknowledgments:
           $ref: '#/components/schemas/MachineOnlineRepairAcknowledgments'
+          description: 'Acknowledgments required before online repair can proceed'
     MachineUpdateRequest:
       title: MachineUpdateRequest
       type: object
@@ -18864,6 +19158,7 @@ components:
           $ref: '#/components/schemas/Labels'
         onlineRepair:
           $ref: '#/components/schemas/MachineOnlineRepair'
+          description: 'Request to enter/exit online repair'
         healthIssue:
           description: Required when `onlineRepair.enabled` is true. Must not be set when exiting online repair (`onlineRepair.enabled` false).
           $ref: '#/components/schemas/MachineHealthIssue'
@@ -18889,39 +19184,48 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Machine Interface'
           format: uuid
         machineId:
           type: string
+          description: 'ID of the Machine'
         controllerInterfaceId:
           type:
             - string
             - 'null'
+          description: 'ID of the interface in Site Controller'
           format: uuid
         controllerSegmentId:
           type:
             - string
             - 'null'
+          description: 'ID of the network segment in Site Controller'
           format: uuid
         attachedDpuMachineID:
           type:
             - string
             - 'null'
+          description: 'ID of the DPU attached to this interface in the Site Controller'
         subnetId:
           type:
             - string
             - 'null'
+          description: 'ID of the Subnet'
           format: uuid
         hostname:
           type:
             - string
             - 'null'
+          description: 'Hostname of the Machine Interface'
           format: hostname
         isPrimary:
           type: boolean
+          description: 'Boolean which indicates if the Machine Interface is primary'
         macAddress:
           type:
             - string
             - 'null'
+          description: 'Mac address of the Machine Interface'
         ipAddresses:
           type: array
           description: Array of IP addresses
@@ -18929,10 +19233,12 @@ components:
             type: string
         created:
           type: string
+          description: 'Date/time when the Machine Interface was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Machine Interface was last updated'
           format: date-time
           readOnly: true
     MachineMetadata:
@@ -18981,20 +19287,25 @@ components:
       properties:
         dmiData:
           $ref: '#/components/schemas/MachineDMIData'
+          description: 'DMI data of the machine'
         bmcInfo:
           $ref: '#/components/schemas/MachineBMCInfo'
+          description: 'BMC Info of the machine'
         gpus:
           type: array
           items:
             $ref: '#/components/schemas/MachineGPUInfo'
+          description: 'GPU inventory reported for the Machine'
         networkInterfaces:
           type: array
           items:
             $ref: '#/components/schemas/MachineNetworkInterface'
+          description: 'List of Ethernet interfaces of the machine'
         infinibandInterfaces:
           type: array
           items:
             $ref: '#/components/schemas/MachineInfiniBandInterface'
+          description: 'List of InfiniBand interfaces of the machine'
     MachineBMCInfo:
       title: MachineBMCInfo
       type: object
@@ -19009,19 +19320,23 @@ components:
           type:
             - string
             - 'null'
+          description: 'IP address of the Machine BMC'
           format: ipv4
         mac:
           type:
             - string
             - 'null'
+          description: 'MAC address of the Machine BMC'
         version:
           type:
             - string
             - 'null'
+          description: 'Version reported by the Machine BMC'
         firmwareRevision:
           type:
             - string
             - 'null'
+          description: 'Firmware revision reported by the Machine BMC'
     MachineDMIData:
       title: MachineDMIData
       type: object
@@ -19039,30 +19354,47 @@ components:
           type:
             - string
             - 'null'
+          description: 'DMI board name reported by the Machine'
         boardSerial:
           type:
             - string
             - 'null'
+          description: 'DMI board serial number reported by the Machine'
         boardVersion:
           type:
             - string
             - 'null'
+          description: 'DMI board version reported by the Machine'
         biosDate:
           type:
             - string
             - 'null'
+          description: 'DMI BIOS release date reported by the Machine'
         biosVersion:
           type:
             - string
             - 'null'
+          description: 'DMI BIOS version reported by the Machine'
+        productName:
+          type:
+            - string
+            - 'null'
+          description: 'DMI product name reported by the Machine'
         productSerial:
           type:
             - string
             - 'null'
+          description: 'DMI product serial number reported by the Machine'
         chassisSerial:
           type:
             - string
             - 'null'
+          description: 'DMI chassis serial number reported by the Machine'
+        sysVendor:
+          type:
+            - string
+            - 'null'
+          description: 'DMI system vendor reported by the Machine'
     MachineGPUInfo:
       title: MachineGPUInfo
       type: object
@@ -19081,34 +19413,42 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the Machine''s GPU'
         serial:
           type:
             - string
             - 'null'
+          description: 'Serial number of the Machine''s GPU'
         driverVersion:
           type:
             - string
             - 'null'
+          description: 'Version of the Machine''s GPU driver'
         vbiosVersion:
           type:
             - string
             - 'null'
+          description: 'Bios version of the Machine''s GPU'
         inforomVersion:
           type:
             - string
             - 'null'
+          description: 'Info rom version of the Machine''s GPU'
         totalMemory:
           type:
             - string
             - 'null'
+          description: 'Total memory of the Machine''s GPU'
         frequency:
           type:
             - string
             - 'null'
+          description: 'Frequency of the Machine''s GPU'
         pciBusId:
           type:
             - string
             - 'null'
+          description: 'PCI BusId of the Machine''s GPU'
     MachineHealth:
       title: MachineHealth
       type: object
@@ -19242,28 +19582,35 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the Machine''s NetworkInterface'
         vendor:
           type:
             - string
             - 'null'
+          description: 'Serial number of the Machine''s NetworkInterface'
         device:
           type:
             - string
             - 'null'
+          description: 'Device number of the Machine''s NetworkInterface'
         path:
           type:
             - string
             - 'null'
+          description: 'Bios path of the Machine''s NetworkInterface'
         numaNode:
           type: integer
+          description: 'Info of numa node Machine''s NetworkInterface'
         description:
           type:
             - string
             - 'null'
+          description: 'Description the Machine''s NetworkInterface'
         slot:
           type:
             - string
             - 'null'
+          description: 'Slot number of the Machine''s NetworkInterface'
     MachineInfiniBandInterface:
       title: MachineInfiniBandInterface
       description: Describes information about an Infiniband Interface of a Machine
@@ -19281,28 +19628,35 @@ components:
           type:
             - string
             - 'null'
+          description: 'Guid of the Machine''s InfiniBandInterface'
         vendor:
           type:
             - string
             - 'null'
+          description: 'Serial number of the Machine''s InfiniBandInterface'
         device:
           type:
             - string
             - 'null'
+          description: 'Device number of the Machine''s InfiniBandInterface'
         path:
           type:
             - string
             - 'null'
+          description: 'Bios path of the Machine''s InfiniBandInterface'
         numaNode:
           type: integer
+          description: 'Info of numa node Machine''s InfiniBandInterface'
         description:
           type:
             - string
             - 'null'
+          description: 'Description the Machine''s InfiniBandInterface'
         slot:
           type:
             - string
             - 'null'
+          description: 'Slot number of the Machine''s InfiniBandInterface'
     MachineInstanceType:
       title: MachineInstanceType
       type: object
@@ -19327,19 +19681,24 @@ components:
           deprecated: true
         machineId:
           type: string
+          description: 'ID of the associated Machine'
         instanceTypeId:
           type: string
+          description: 'ID of the associated Instance Type'
           format: uuid
         deprecations:
           type: array
           items:
             $ref: '#/components/schemas/Deprecation'
+          description: 'Deprecation notices for fields returned by this resource'
         created:
           type: string
+          description: 'Date and time the Machine Instance Type was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date and time the Machine Instance Type was last updated'
           format: date-time
     MachineInstanceTypeCreateRequest:
       title: MachineInstanceTypeCreateRequest
@@ -19356,6 +19715,7 @@ components:
       properties:
         machineIds:
           type: array
+          description: 'ID of the Machine'
           minItems: 1
           items:
             type: string
@@ -20846,13 +21206,9 @@ components:
         vendor:
           type: string
           description: Vendor of the TPM
-        model:
+        version:
           type: string
-          description: Model of the TPM
-        count:
-          type: integer
-          format: uint32
-          description: Number of TPMs present
+          description: Version of the TPM
     IpBlock:
       title: IpBlock
       type: object
@@ -20879,29 +21235,36 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the IP Block'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the IP Block'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the IP Block'
         siteId:
           type: string
+          description: 'ID of the Site'
           format: uuid
         infrastructureProviderId:
           type: string
+          description: 'ID of the Infrastructure Provider'
           format: uuid
         tenantId:
           type:
             - string
             - 'null'
+          description: 'ID of the Tenant'
           format: uuid
         routingType:
           type: string
+          description: 'RoutingType of the IP Block'
           enum:
             - Public
             - DatacenterOnly
@@ -20914,27 +21277,29 @@ components:
           description: 'Min: 1, Max: 32 for ipv4, 128 for ipv6'
         protocolVersion:
           type: string
+          description: 'Version of the ip network IPv4 or IPv6'
           enum:
             - IPv4
             - IPv6
         usageStats:
           $ref: '#/components/schemas/IpBlockUsageStats'
+          description: 'Usage summary from IPAM for the IP Block'
         status:
           $ref: '#/components/schemas/IpBlockStatus'
+          description: 'Status of the IP Block'
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
-        deprecations:
-          type: array
-          items:
-            $ref: '#/components/schemas/Deprecation'
+          description: 'Chronological status history for the IP Block'
         created:
           type: string
+          description: 'Date/time when the Ip Block was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Ip Block was last updated'
           format: date-time
           readOnly: true
     IpBlockSummary:
@@ -20951,14 +21316,17 @@ components:
       properties:
         id:
           type: string
+          description: 'ID of the IP Block'
           format: uuid
           readOnly: true
         name:
           type: string
+          description: 'Name of the IP Block, only lowercase characters, digits, hyphens and cannot begin/end with hyphen'
           minLength: 2
           maxLength: 256
         routingType:
           type: string
+          description: 'RoutingType of the IP Block'
           enum:
             - Public
             - DatacenterOnly
@@ -20971,6 +21339,7 @@ components:
           description: 'Min: 1, Max: 32 for ipv4, 128 for ipv6'
         status:
           $ref: '#/components/schemas/IpBlockStatus'
+          description: 'Status of the IP Block'
     IpBlockStatus:
       title: IpBlockStatus
       type: string
@@ -21036,17 +21405,21 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the IP Block'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the IP Block'
         siteId:
           type: string
+          description: 'ID of the site'
           format: uuid
         routingType:
           type: string
+          description: 'Routing type of the IP Block'
           enum:
             - Public
             - DatacenterOnly
@@ -21058,6 +21431,7 @@ components:
           description: 'Min: 1, Max: 32 for IPv4, 128 for IPv6'
         protocolVersion:
           type: string
+          description: 'Version of the ip network ipv4 or ipv6'
           enum:
             - IPv4
             - IPv6
@@ -21080,12 +21454,14 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the IP Block'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the IP Block'
     NetworkSecurityGroup:
       type: object
       examples:
@@ -21118,40 +21494,75 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Network Security Group'
         name:
           type: string
+          description: 'Name of the Network Security Group'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Network Security Group'
         siteId:
           type: string
+          description: 'ID of the Site'
           format: uuid
         tenantId:
           type: string
+          description: 'ID of the Tenant'
           format: uuid
         status:
           $ref: '#/components/schemas/NetworkSecurityGroupStatus'
+          description: 'Status of the Network Security Group'
         statusHistory:
           type: array
           items:
             $ref: '#/components/schemas/StatusDetail'
+          description: 'Chronological status history for the Network Security Group'
         statefulEgress:
           type: boolean
+          description: 'StatefulEgress defines whether a Network Security Group''s egress rules will be automatically stateful'
         rules:
           type: array
           items:
             $ref: '#/components/schemas/NetworkSecurityGroupRule'
+          description: 'Rules that belong to the Network Security Group'
+        ruleCount:
+          type: integer
+          description: Number of rules in the Network Security Group
+        attachmentStats:
+          $ref: '#/components/schemas/NetworkSecurityGroupStats'
+          description: Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'Set of labels/tags for the Network Security Group'
         created:
           type: string
+          description: 'Date/time when the Network Security Group was created'
           format: date-time
         updated:
           type: string
+          description: 'Date/time when the Network Security Group was last updated'
           format: date-time
+    NetworkSecurityGroupStats:
+      title: NetworkSecurityGroupStats
+      type: object
+      description: Detailed attachment statistics for a Network Security Group
+      properties:
+        inUse:
+          type: boolean
+          description: Whether the Network Security Group is directly attached to at least one object
+        directVpcAttachmentCount:
+          type: integer
+          description: Number of VPCs that directly attach this Network Security Group
+        directInstanceAttachmentCount:
+          type: integer
+          description: Number of Instances that directly attach this Network Security Group
+        totalDirectAttachmentCount:
+          type: integer
+          description: Total number of objects that directly attach this Network Security Group
     NetworkSecurityGroupStatus:
       title: NetworkSecurityGroupStatus
       type: string
@@ -21184,14 +21595,17 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the Network Security Group'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Network Security Group'
         siteId:
           type: string
+          description: 'ID of the Site'
           format: uuid
         statefulEgress:
           type: boolean
@@ -21200,8 +21614,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NetworkSecurityGroupRule'
+          description: 'Rules that belong to the Network Security Group'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels for the Network Security Group'
       required:
         - name
         - siteId
@@ -21228,22 +21644,25 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the Network Security Group'
           minLength: 2
           maxLength: 256
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the Network Security Group'
         statefulEgress:
           type: boolean
           description: Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
         rules:
           type: array
-          description: 'Update rules of the NetworkSecurityGroup. The rules will be entirely replaced by those sent in the request. Any rules not included in the request will be removed. To retain existing rules, first fetch them and include them. '
+          description: 'Update rules of the Network Security Group. The rules will be replaced with the rules sent in the request. Any rules not included in the request will be removed. To retain existing rules, fetch them first and include them.'
           items:
             $ref: '#/components/schemas/NetworkSecurityGroupRule'
         labels:
           $ref: '#/components/schemas/Labels'
+          description: 'User-defined key-value labels for the Network Security Group'
     NetworkSecurityGroupRule:
       title: NetworkSecurityGroupRule
       type: object
@@ -21253,8 +21672,10 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the Network Security Group rule'
         direction:
           type: string
+          description: 'Traffic direction the rule applies to'
           enum:
             - INGRESS
             - EGRESS
@@ -21263,33 +21684,41 @@ components:
           type:
             - string
             - 'null'
+          description: 'Source port or port range matched by the rule'
           example: 80-81
         destinationPortRange:
           type:
             - string
             - 'null'
+          description: 'Destination port or port range matched by the rule'
           example: 80-81
         protocol:
           type: string
+          description: 'Network protocol matched by the rule'
           enum:
             - TCP
             - UDP
             - ICMP
+            - ICMP6
             - ANY
           example: TCP
         action:
           type: string
+          description: 'Action applied when traffic matches the rule'
           enum:
             - PERMIT
             - DENY
           example: PERMIT
         priority:
           type: integer
+          description: 'Rule priority used to order evaluation'
         sourcePrefix:
           type: string
+          description: 'Source CIDR prefix matched by the rule'
           example: 10.5.44.0/24
         destinationPrefix:
           type: string
+          description: 'Destination CIDR prefix matched by the rule'
           example: 10.5.44.0/24
       required:
         - direction
@@ -21302,12 +21731,13 @@ components:
       type: object
       description: The Network Security Group propagation details for a VPC or Instance
       properties:
-        id:
+        objectId:
           type: string
           format: uuid
-          description: The VPC or Instance ID
+          description: The ID of the object (VPC/Instance etc.)
         detailedStatus:
           type: string
+          description: 'The detailed propagation status that was actually returned from NICo'
           enum:
             - None
             - Partial
@@ -21316,20 +21746,29 @@ components:
             - Error
         status:
           $ref: '#/components/schemas/NetworkSecurityGroupPropagationStatus'
+          description: 'The simplified propagation status that reduces the actual status to just a few values'
         details:
           type:
             - string
             - 'null'
+          description: 'Additional details for the status'
         unpropagatedInstanceIds:
           type: array
+          description: 'IDs of Instances associated with the object that have not yet updated their Network Security Group rules'
           items:
             type: string
             format: uuid
         relatedInstanceIds:
           type: array
+          description: 'IDs of the instances involved in determining the propagation status'
           items:
             type: string
             format: uuid
+        deprecations:
+          type: array
+          description: Deprecation notices for fields returned by this propagation detail
+          items:
+            $ref: '#/components/schemas/Deprecation'
     NetworkSecurityGroupPropagationStatus:
       title: NetworkSecurityGroupPropagationStatus
       type: string
@@ -21345,16 +21784,20 @@ components:
       properties:
         status:
           type: string
+          description: 'State of the associated entity at a particular time'
         message:
           type:
             - string
             - 'null'
+          description: 'Description of the state and cause/remedy in case of error'
         created:
           type: string
+          description: 'Date/time when the associated entity assumed the status'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the associated entity was last observed with this status'
           format: date-time
           readOnly: true
       examples:
@@ -21496,8 +21939,10 @@ components:
       properties:
         site:
           $ref: '#/components/schemas/SiteSummary'
+          description: 'Summary of the Site'
         status:
           $ref: '#/components/schemas/SshKeyGroupSiteAssociationStatus'
+          description: 'Status of the SSHKeyGroupSiteAssociation'
         version:
           type:
             - string
@@ -21506,10 +21951,12 @@ components:
           example: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
         created:
           type: string
+          description: 'Date/time when the Site was created'
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the Site was last updated'
           format: date-time
           readOnly: true
     SshKeyGroupSiteAssociationStatus:
@@ -21536,17 +21983,21 @@ components:
       properties:
         name:
           type: string
+          description: 'Name of the SSHKeyGroup'
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the SSHKeyGroup'
         siteIds:
           type: array
+          description: 'List of Site objects'
           items:
             type: string
             format: uuid
         sshKeyIds:
           type: array
+          description: 'List of SSHKeyID objects'
           items:
             type: string
             format: uuid
@@ -21571,10 +22022,12 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the SSHKeyGroup'
         description:
           type:
             - string
             - 'null'
+          description: 'Description of the SSHKeyGroup'
         siteIds:
           type: array
           description: 'When specified, replaces existing Site associations'
@@ -21612,10 +22065,13 @@ components:
           readOnly: true
         name:
           type: string
+          description: 'Name of the SSHKey'
         org:
           type: string
+          description: 'Organization the SSHKey belongs to'
         tenantId:
           type: string
+          description: 'ID of the Tenant'
           format: uuid
         fingerprint:
           type: string
@@ -21666,6 +22122,7 @@ components:
           type:
             - string
             - 'null'
+          description: 'Name of the SSHKey'
     DpuExtensionService:
       title: DpuExtensionService
       type: object
@@ -21931,7 +22388,7 @@ components:
     DpuExtensionServiceCredentials:
       title: DpuExtensionServiceCredentials
       type: object
-      description: Credentials for retreiving resources specified in DPU Extension Service data
+      description: Credentials for retrieving resources specified in DPU Extension Service data
       examples:
         - registryUrl: 'https://registry.hub.docker.com'
           username: johndoe
@@ -21982,8 +22439,10 @@ components:
           description: Optional name of the service or component being monitored
         prometheus:
           $ref: '#/components/schemas/DpuExtensionServiceObservabilityPrometheus'
+          description: 'Prometheus scrape configuration'
         logging:
           $ref: '#/components/schemas/DpuExtensionServiceObservabilityLogging'
+          description: 'Logging configuration'
       oneOf:
         - required:
             - prometheus
@@ -22101,15 +22560,18 @@ components:
           type:
             - string
             - 'null'
+          description: 'Email used by the user to register with NGC'
           format: email
         firstName:
           type:
             - string
             - 'null'
+          description: 'First name of the user'
         lastName:
           type:
             - string
             - 'null'
+          description: 'Surname of the user'
         created:
           type: string
           format: date-time
@@ -22117,6 +22579,7 @@ components:
           readOnly: true
         updated:
           type: string
+          description: 'Date/time when the user was last updated in NICo'
           format: date-time
           readOnly: true
     AuditEntry:
@@ -22266,8 +22729,8 @@ components:
           description: Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
         takeActionBy:
           type: string
+          description: 'Date/time by which clients should migrate away from the deprecated API surface'
           format: date-time
-          description: ISO datetime string for when the deprecated field will no longer be accepted or available in the API
         notice:
           type: string
           description: Message describing the deprecation
@@ -22355,18 +22818,25 @@ components:
       properties:
         total:
           type: integer
+          description: 'Total number of machines in this group'
         initializing:
           type: integer
+          description: 'Number of machines being initialized'
         ready:
           type: integer
+          description: 'Number of machines in ready state'
         inUse:
           type: integer
+          description: 'Number of machines currently in use'
         error:
           type: integer
+          description: 'Number of machines in error state'
         maintenance:
           type: integer
+          description: 'Number of machines in maintenance state'
         unknown:
           type: integer
+          description: 'Number of machines in unknown state'
     MachineInstanceTypeSummary:
       title: MachineInstanceTypeSummary
       description: Summary of machines grouped by assigned vs unassigned instance type
@@ -22392,6 +22862,7 @@ components:
           description: Name of the InstanceType
         assignedMachineStats:
           $ref: '#/components/schemas/MachineStatusBreakdown'
+          description: 'AssignedMachineStats captures the status of all Machines assigned to this Instance Type'
         allocated:
           type: integer
           description: Number of Machines of this Instance Type allocated to Tenants
@@ -22400,10 +22871,12 @@ components:
           description: Number of Ready Machines of this Instance Type available for additional allocation to Tenants
         usedMachineStats:
           $ref: '#/components/schemas/MachineStatusBreakdown'
+          description: 'UsedMachineStats captures the usage status of machines assigned to this instance type that are currently associated with Tenant Instances'
         tenants:
           type: array
           items:
             $ref: '#/components/schemas/InstanceTypeStats'
+          description: 'Per-tenant breakdown for this instance type'
     InstanceTypeStats:
       title: InstanceTypeStats
       description: Stats for an instance type including allocation details
@@ -22411,31 +22884,40 @@ components:
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Instance Type'
           format: uuid
         name:
           type: string
+          description: 'Name of the Instance Type'
         allocated:
           type: integer
+          description: 'Number of Machines allocated for this Instance Type'
         usedMachineStats:
           $ref: '#/components/schemas/MachineStatusBreakdown'
+          description: 'Usage statistics for Machines allocated to this Instance Type'
         maxAllocatable:
           type: integer
+          description: 'Maximum number of Machines of this Instance Type that can be allocated'
         allocations:
           type: array
           items:
-            $ref: '#/components/schemas/AllocationStats'
-    AllocationStats:
-      title: AllocationStats
+            $ref: '#/components/schemas/TenantInstanceTypeAllocationStats'
+          description: 'Allocation statistics for this Instance Type'
+    TenantInstanceTypeAllocationStats:
+      title: TenantInstanceTypeAllocationStats
       description: Stats for a single allocation within an instance type
       type: object
       properties:
         id:
           type: string
+          description: 'Unique UUID v4 identifier for the Allocation'
           format: uuid
         name:
           type: string
+          description: 'Name of the Allocation'
         total:
           type: integer
+          description: 'Total number of Machines allocated to different Tenants for this Instance Type'
     TenantInstanceTypeStats:
       title: TenantInstanceTypeStats
       description: Per-tenant instance type allocation stats
@@ -22455,6 +22937,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/InstanceTypeStats'
+          description: 'Instance Type statistics for this Tenant'
     TenantIdentityConfigCreateOrUpdateRequest:
       title: TenantIdentityConfigCreateOrUpdateRequest
       description: |-
@@ -22648,12 +23131,16 @@ components:
       properties:
         org:
           type: string
+          description: 'Organization that owns the Tenant identity configuration'
         enabled:
           type: boolean
+          description: 'Whether Tenant identity token delegation is enabled'
         issuer:
           type: string
+          description: 'Issuer URL for Tenant identity tokens'
         defaultAudience:
           type: string
+          description: 'Default audience used for Tenant identity tokens'
         allowedAudiences:
           type: array
           description: |-
@@ -22665,6 +23152,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          description: 'Lifetime of issued Tenant identity tokens, in seconds'
         subjectPrefix:
           type: string
           description: |-
@@ -22685,9 +23173,11 @@ components:
             expired entry and only the current signer remains.
         created:
           type: string
+          description: 'Date/time when the Tenant identity configuration was created'
           format: date-time
         updated:
           type: string
+          description: 'Date/time when the Tenant identity configuration was last updated'
           format: date-time
     TenantIdentitySigningKey:
       title: TenantIdentitySigningKey
@@ -22732,6 +23222,7 @@ components:
       properties:
         clientId:
           type: string
+          description: 'Client identifier used for basic client-secret authentication'
         clientSecret:
           type: string
           description: |-
@@ -22746,6 +23237,7 @@ components:
       properties:
         clientId:
           type: string
+          description: 'Client identifier used for basic client-secret authentication'
         clientSecretHash:
           type: string
           description: SHA-256 hash of the raw secret.
@@ -22778,6 +23270,7 @@ components:
             need to enforce HTTPS-only must populate that allowlist.
         clientSecretBasic:
           $ref: '#/components/schemas/TenantIdentityBasicClientSecretRequest'
+          description: 'Client-secret basic authentication settings for token delegation'
         subjectTokenAudience:
           type: string
           description: Audience value placed on the intermediate JWT-SVID posted to the exchange endpoint.
@@ -22788,16 +23281,21 @@ components:
       properties:
         tokenEndpoint:
           type: string
+          description: 'Token endpoint used to exchange delegated Tenant identity tokens'
           format: uri
         clientSecretBasic:
           $ref: '#/components/schemas/TenantIdentityBasicClientSecretResponse'
+          description: 'Client-secret basic authentication settings for token delegation'
         subjectTokenAudience:
           type: string
+          description: 'Audience value expected on the subject token'
         created:
           type: string
+          description: 'Date/time when the token delegation configuration was created'
           format: date-time
         updated:
           type: string
+          description: 'Date/time when the token delegation configuration was last updated'
           format: date-time
     TenantIdentityJWKS:
       title: TenantIdentityJWKS
@@ -22851,23 +23349,29 @@ components:
       properties:
         issuer:
           type: string
+          description: 'Issuer URL for OpenID Connect discovery'
         jwks_uri:
           type: string
+          description: 'URL of the JSON Web Key Set used to verify tokens'
           format: uri
         response_types_supported:
           type: array
+          description: 'OAuth response types supported by this issuer'
           items:
             type: string
         subject_types_supported:
           type: array
+          description: 'Subject identifier types supported by this issuer'
           items:
             type: string
         id_token_signing_alg_values_supported:
           type: array
+          description: 'ID token signing algorithms supported by this issuer'
           items:
             type: string
         spiffe_jwks_uri:
           type: string
+          description: 'URL of the SPIFFE JSON Web Key Set used to verify SPIFFE JWT-SVIDs'
           format: uri
   securitySchemes:
     JWTBearerToken:
