@@ -99,6 +99,8 @@ navigation:
               path: architecture/state_machines/power_shelf.md
             - page: Rack State Machine
               path: architecture/state_machines/rack.md
+        - page: SuperNIC Lockdown Key Management
+          path: architecture/supernic_lockdown_key_management.md
 
     - section: Provisioning (Day 0)
       contents:
