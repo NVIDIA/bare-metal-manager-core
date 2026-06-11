@@ -34,6 +34,7 @@ pub mod builder;
 pub mod dns;
 pub mod network;
 pub mod prelude;
+pub mod resource_pool;
 
 pub struct TestHarness {
     api: Arc<ApiHandle>,
@@ -47,6 +48,7 @@ impl TestHarness {
             db_pool,
             api: None,
             test_meter: None,
+            pools: None,
         }
     }
 

@@ -51,16 +51,25 @@ impl Env {
         explorer_config: SiteExplorerConfig,
         endpoint_explorer: &Arc<MockEndpointExplorer>,
     ) -> SiteExplorer {
-        SiteExplorer::new(
-            self.api().database_connection.clone(),
-            explorer_config,
-            self.test_harness.test_meter.meter(),
-            endpoint_explorer.clone(),
-            Arc::new(self.api().runtime_config.get_firmware_config()),
-            self.api().common_pools().clone(),
-            self.api().work_lock_manager_handle(),
-            None,
-            self.api().credential_manager().clone(),
-        )
+        new_site_explorer(&self.test_harness, explorer_config, endpoint_explorer)
     }
+}
+
+pub fn new_site_explorer(
+    test_harness: &TestHarness,
+    explorer_config: SiteExplorerConfig,
+    endpoint_explorer: &Arc<MockEndpointExplorer>,
+) -> SiteExplorer {
+    let api = test_harness.api();
+    SiteExplorer::new(
+        api.database_connection.clone(),
+        explorer_config,
+        test_harness.test_meter.meter(),
+        endpoint_explorer.clone(),
+        Arc::new(api.runtime_config.get_firmware_config()),
+        api.common_pools().clone(),
+        api.work_lock_manager_handle(),
+        None,
+        api.credential_manager().clone(),
+    )
 }

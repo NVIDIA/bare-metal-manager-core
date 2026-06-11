@@ -149,7 +149,11 @@ impl ManagedHostRowDisplay {
                 )
             })
             .unwrap_or_default();
-        let host_bmc_ip = host_snapshot.bmc_info.ip.unwrap_or_default();
+        let host_bmc_ip = host_snapshot
+            .bmc_info
+            .ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_default();
         let host_bmc_mac = host_snapshot
             .bmc_info
             .mac
@@ -212,7 +216,11 @@ impl ManagedHostRowDisplay {
 
 impl From<model::machine::Machine> for AttachedDpuRowDisplay {
     fn from(item: Machine) -> Self {
-        let bmc_ip = item.bmc_info.ip.unwrap_or_default();
+        let bmc_ip = item
+            .bmc_info
+            .ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_default();
         let bmc_mac = item.bmc_info.mac.map(|m| m.to_string()).unwrap_or_default();
         let primary_iface = item.interfaces.iter().find(|i| i.primary_interface);
         let oob_ip = primary_iface

@@ -97,11 +97,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             label_value: None,
                             instance_type_id: None,
                         },
-                        &mut ctx.output_file,
-                        &config_format,
-                        &ctx.api_client,
-                        ctx.config.page_size,
-                        &ctx.config.sort_by,
+                        ctx,
                     )
                     .await?
                 }
@@ -228,11 +224,7 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                             label_value: None,
                             instance_type_id: None,
                         },
-                        &mut ctx.output_file,
-                        &ctx.config.format,
-                        &ctx.api_client,
-                        ctx.config.page_size,
-                        &ctx.config.sort_by,
+                        ctx,
                     )
                     .await?
                 }

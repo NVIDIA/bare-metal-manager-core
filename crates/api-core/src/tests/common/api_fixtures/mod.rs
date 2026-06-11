@@ -74,7 +74,6 @@ use db::db_read::PgPoolReader;
 use db::instance_type::create as create_instance_type;
 use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
-use dpu::DpuConfig;
 use forge_secrets::credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
 use forge_secrets::test_support::credentials::TestCredentialManager;
 use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
@@ -96,11 +95,12 @@ use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
+use model::test_support::dpu::DPU_BF3_INFO_JSON;
+use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
 };
-use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
@@ -126,6 +126,9 @@ use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
 use crate::measured_boot::convert_vec;
 use crate::test_support::builder::TestApiBuilder;
 use crate::test_support::default_config;
+use crate::test_support::fixture_config::{
+    DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
 use crate::test_support::network_segment::{
@@ -135,14 +138,12 @@ use crate::test_support::network_segment::{
 };
 pub use crate::test_support::{endpoint_explorer, network_segment};
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub mod dpu;
 pub mod host;
 pub mod ib_partition;
 pub mod instance;
-pub mod managed_host;
 pub mod nvl_logical_partition;
 pub mod rpc_instance;
 pub mod site_explorer;
@@ -1200,6 +1201,23 @@ pub async fn create_test_env_with_overrides(
     let ib_fabric_manager = ib_fabric_test_manager(&config, composite_manager.clone());
 
     let rms_sim = Arc::new(RmsSim::default());
+    let test_component_manager = component_manager::component_manager::build_component_manager(
+        &component_manager::config::ComponentManagerConfig {
+            nv_switch_backend: "rms".into(),
+            power_shelf_backend: "rms".into(),
+            compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
+            nv_switch_use_state_controller: true,
+            ..Default::default()
+        },
+        rms_sim.as_rms_client(),
+        None,
+        Some(db_pool.clone()),
+        None,
+    )
+    .await
+    .ok()
+    .map(Arc::new);
+
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
         common_pools.clone(),
@@ -1215,6 +1233,10 @@ pub async fn create_test_env_with_overrides(
 
     if let Some(rms_client) = rms_sim.as_rms_client() {
         api_builder = api_builder.with_rms_client(rms_client);
+    }
+
+    if let Some(component_manager) = test_component_manager.clone() {
+        api_builder = api_builder.with_component_manager(component_manager);
     }
 
     if let Some(dpf_sdk) = overrides.dpf_sdk.clone() {
@@ -1267,6 +1289,7 @@ pub async fn create_test_env_with_overrides(
                 .machine_validation_config(MachineValidationConfig {
                     enabled: config.machine_validation_config.enabled,
                     run_interval: config.machine_validation_config.run_interval,
+                    stale_run_timeout: config.machine_validation_config.stale_run_timeout,
                     tests: config.machine_validation_config.tests.clone(),
                     test_selection_mode: config.machine_validation_config.test_selection_mode,
                 })
@@ -1400,22 +1423,6 @@ pub async fn create_test_env_with_overrides(
         .state_handler(Arc::new(vpc_prefix_swap.clone()))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build VpcPrefixStateController");
-
-    let test_component_manager = component_manager::component_manager::build_component_manager(
-        &component_manager::config::ComponentManagerConfig {
-            nv_switch_backend: "rms".into(),
-            power_shelf_backend: "rms".into(),
-            compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
-            ..Default::default()
-        },
-        rms_sim.as_rms_client(),
-        None,
-        Some(db_pool.clone()),
-        None,
-    )
-    .await
-    .ok()
-    .map(Arc::new);
 
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
@@ -2189,9 +2196,7 @@ pub async fn create_managed_host_with_dpf_multi(
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let dpu_configs: Vec<DpuConfig> = (0..dpu_count)
         .map(|_| {
-            DpuConfig::with_hardware_info_template(managed_host::HardwareInfoTemplate::Custom(
-                dpu::DPU_BF3_INFO_JSON,
-            ))
+            DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON))
         })
         .collect();
     let mh_config = ManagedHostConfig::with_dpus(dpu_configs);
@@ -2208,7 +2213,7 @@ pub async fn create_managed_host_with_dpf_multi(
 pub async fn create_managed_host_with_ek(env: &TestEnv, ek_cert: &[u8]) -> TestManagedHost {
     let host_config = ManagedHostConfig {
         tpm_ek_cert: TpmEkCertificate::from(ek_cert.to_vec()),
-        ..Default::default()
+        ..ManagedHostConfig::default()
     };
 
     create_managed_host_with_config(env, host_config.clone()).await
@@ -2261,7 +2266,7 @@ pub async fn create_host_with_machine_validation(
 
 pub async fn create_managed_host_with_hardware_info_template(
     env: &TestEnv,
-    hardware_info_template: managed_host::HardwareInfoTemplate,
+    hardware_info_template: HardwareInfoTemplate,
 ) -> TestManagedHost {
     insert_nvlink_nmxc_endpoint_from_managed_host(env, &hardware_info_template).await;
     let config = ManagedHostConfig::with_hardware_info_template(hardware_info_template);
@@ -2274,11 +2279,11 @@ pub async fn create_managed_host_with_hardware_info_template(
 }
 
 fn hardware_info_from_hardware_info_template(
-    template: &managed_host::HardwareInfoTemplate,
+    template: &HardwareInfoTemplate,
 ) -> Option<HardwareInfo> {
     let json_bytes: &[u8] = match template {
-        managed_host::HardwareInfoTemplate::Default => host::X86_INFO_JSON,
-        managed_host::HardwareInfoTemplate::Custom(data) => data,
+        HardwareInfoTemplate::Default => model::test_support::managed_host::X86_INFO_JSON,
+        HardwareInfoTemplate::Custom(data) => data,
     };
     serde_json::from_slice::<HardwareInfo>(json_bytes).ok()
 }
@@ -2289,7 +2294,7 @@ fn hardware_info_from_hardware_info_template(
 /// `gpus[].platform_info.chassis_serial` exists. Skips if the row already exists or on DB errors.
 pub async fn insert_nvlink_nmxc_endpoint_from_managed_host(
     env: &TestEnv,
-    hardware_info_template: &managed_host::HardwareInfoTemplate,
+    hardware_info_template: &HardwareInfoTemplate,
 ) {
     let endpoint = if env.nmxc_grpc_simulator {
         NmxcSimClient::SIMULATOR_URL.to_string()
@@ -2643,12 +2648,4 @@ where
             .handle_object_state(object_id, state, controller_state, ctx)
             .await
     }
-}
-
-fn create_random_self_signed_cert() -> Vec<u8> {
-    let subject_alt_names = vec!["hello.world.example".to_string(), "localhost".to_string()];
-
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)
-        .expect("Failed to generate self-signed cert");
-    cert.der().to_vec()
 }

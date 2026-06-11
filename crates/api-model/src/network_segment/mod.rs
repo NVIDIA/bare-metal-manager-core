@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::fmt;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide_uuid::domain::DomainId;
@@ -22,6 +23,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -76,9 +78,9 @@ pub struct NetworkDefinition {
     #[serde(rename = "type")]
     pub segment_type: NetworkDefinitionSegmentType,
     /// CIDR notation
-    pub prefix: String,
+    pub prefix: IpNetwork,
     /// Usually the first IP in the prefix range
-    pub gateway: String,
+    pub gateway: IpAddr,
     /// Typically 9000 for admin network, 1500 for underlay
     pub mtu: i32,
     /// How many addresses to skip before allocating
@@ -320,12 +322,8 @@ impl NewNetworkSegment {
         value: &NetworkDefinition,
     ) -> Result<Self, ModelError> {
         let prefix = NewNetworkPrefix {
-            prefix: value.prefix.parse().map_err(|_| {
-                ModelError::InvalidArgument(format!("Invalid network prefix: {}", value.prefix))
-            })?,
-            gateway: Some(value.gateway.parse().map_err(|_| {
-                ModelError::InvalidArgument(format!("Invalid gateway address: {}", value.gateway))
-            })?),
+            prefix: value.prefix,
+            gateway: Some(value.gateway),
             num_reserved: value.reserve_first,
         };
         Ok(NewNetworkSegment {

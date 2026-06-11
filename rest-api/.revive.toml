@@ -16,4 +16,4 @@ errorCode = 0
 
 # Disable these rules
 [rule.package-comments]
-    Disabled = true
+Disabled = true

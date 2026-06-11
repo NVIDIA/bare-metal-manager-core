@@ -71,6 +71,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
 #[allow(clippy::too_many_arguments)]
 pub fn instance_status_from_config_and_observation(
     dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
+    primary_dpu_machine_id: Option<MachineId>,
     instance_config: Versioned<&InstanceConfig>,
     network_config: Versioned<&InstanceNetworkConfig>,
     ib_config: Versioned<&InstanceInfinibandConfig>,
@@ -102,9 +103,13 @@ pub fn instance_status_from_config_and_observation(
         // If observations.network.instance_config_version was None, then "ignore"
     }
 
+    let used_dpu_ids = network_config
+        .value
+        .get_used_dpus(&dpu_id_to_device_map, primary_dpu_machine_id);
+
     let network =
         model::instance::status::network::InstanceNetworkStatus::from_config_and_observations(
-            dpu_id_to_device_map.clone(),
+            dpu_id_to_device_map,
             network_config,
             &observations.network,
             is_network_config_request_pending,
@@ -117,7 +122,7 @@ pub fn instance_status_from_config_and_observation(
 
     let extension_services =
         model::instance::status::extension_service::InstanceExtensionServicesStatus::from_config_and_observations(
-            &dpu_id_to_device_map,
+            &used_dpu_ids,
             extension_services_config,
             &observations.extension_services,
         );
@@ -260,6 +265,7 @@ mod tests {
 
         let status = instance_status_from_config_and_observation(
             HashMap::new(),
+            None,
             Versioned::new(&config, version),
             Versioned::new(&config.network, version),
             Versioned::new(&config.infiniband, version),

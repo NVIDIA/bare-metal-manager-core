@@ -19,21 +19,16 @@ use ::rpc::forge::InstanceReleaseRequest;
 use carbide_uuid::instance::InstanceId;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::instance::common::GlobalOptions;
 use crate::rpc::ApiClient;
 
 pub async fn release(
     api_client: &ApiClient,
     release_request: Args,
-    opts: GlobalOptions<'_>,
+    ctx: &RuntimeContext,
 ) -> CarbideCliResult<()> {
-    if opts.cloud_unsafe_op.is_none() {
-        return Err(CarbideCliError::GenericError(
-            "Operation not allowed due to potential inconsistencies with cloud database."
-                .to_owned(),
-        ));
-    }
+    ctx.assert_cloud_unsafe_op_message()?;
 
     let mut instance_ids: Vec<InstanceId> = Vec::new();
 
@@ -64,7 +59,7 @@ pub async fn release(
                     Some(key),
                     release_request.label_value,
                     None,
-                    opts.page_size,
+                    ctx.config.page_size,
                 )
                 .await?;
             if instances.instances.is_empty() {

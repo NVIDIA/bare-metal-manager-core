@@ -173,11 +173,7 @@ pub(super) async fn advance_bios_config_job(
                 .get_job_state(job_id)
                 .await
                 .map_err(|e| redfish_error("get_job_state", e))?;
-            if matches!(
-                job_state,
-                libredfish::JobState::ScheduledWithErrors
-                    | libredfish::JobState::CompletedWithErrors
-            ) {
+            if job_state.is_error_state() {
                 let failure = format!("BIOS job {} failed with state {job_state:#?}", job_id);
                 tracing::warn!(
                     %failure,
@@ -250,8 +246,7 @@ pub(super) async fn advance_bios_config_job(
             };
             match job_state {
                 libredfish::JobState::Completed => Ok(BiosConfigJobAdvanceOutcome::Done),
-                libredfish::JobState::ScheduledWithErrors
-                | libredfish::JobState::CompletedWithErrors => {
+                _ if job_state.is_error_state() => {
                     let failure = format!(
                         "BIOS config job {} failed with state {job_state:#?}",
                         job_id

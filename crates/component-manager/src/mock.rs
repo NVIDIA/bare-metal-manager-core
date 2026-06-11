@@ -12,7 +12,7 @@ use crate::compute_tray_manager::{
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchSlotAndTrayResult,
+    SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
@@ -90,6 +90,20 @@ impl NvSwitchManager for MockNvSwitchManager {
                 bmc_mac: ep.bmc_mac,
                 slot_number: None,
                 tray_index: None,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError> {
+        Ok(endpoints
+            .iter()
+            .map(|ep| SwitchPowerStateResult {
+                bmc_mac: ep.bmc_mac,
+                power_state: None,
                 error: None,
             })
             .collect())

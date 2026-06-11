@@ -6,7 +6,8 @@
 ## Site identifier - injected into postgres pods as TMP_SITE env var via
 ## the nico-pg-cluster-env ConfigMap.
 ## Override per site: --set siteName=<sitename>
-siteName: "TMP_SITE"
+## REQUIRED: set your short site identifier (preflight fails while empty/TMP_SITE).
+siteName: ""
 
 ## Target namespace — must match the namespace used for helm install nico
 namespace: nico-system
@@ -48,8 +49,13 @@ vault:
   pkiMount: "nicoca"
   pkiRole: "nico-cluster"
   nicoCliClientRole:
-    enabled: false
+    enabled: true                # create the admin-cli PKI client role at install
     name: "nico-cli-client"
+    ## SubjectOU stamped on issued CLI client certs = the ExternalUser "group" nico-api
+    ## authorizes. Must match the group the build's ForgeAdminCLI principal expects.
+    ## Empty = use `name`. (Current builds hardcode "Invalid" — set ou: "Invalid" until the
+    ## code fix lands; pair with nico-api auth.additionalIssuerCns: ["site-root"].)
+    ou: "Invalid"                # BUILD-SPECIFIC (not site): match this build's hardcoded ForgeAdminCLI group
     organization: ""
   ## Kubernetes auth role for nico-api to read and manage Vault KV
   ## credentials used by SiteExplorer and related credential flows.
@@ -75,6 +81,20 @@ vault:
         UsernamePassword:
           username: ""
           password: "bluefield"
+    ## site_default UEFI creds — seed these so site-explorer finds them. Without these,
+    ## `credential add-uefi` only writes Vault metadata (not the value) and preingestion
+    ## logs "Missing credential machines/all_{dpus,hosts}/site_default/uefi-metadata-items/auth".
+    ## SITE-SPECIFIC SECRET: blank the passwords before committing/MR; operator populates per site.
+    - path: "machines/all_dpus/site_default/uefi-metadata-items/auth"
+      data:
+        UsernamePassword:
+          username: ""
+          password: ""          # SITE SECRET: your DPU UEFI password — populate per site
+    - path: "machines/all_hosts/site_default/uefi-metadata-items/auth"
+      data:
+        UsernamePassword:
+          username: ""
+          password: ""          # SITE SECRET: your host UEFI password — populate per site
 
 certManager:
   siteRoot:

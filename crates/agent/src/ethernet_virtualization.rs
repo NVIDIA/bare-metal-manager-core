@@ -485,6 +485,32 @@ pub async fn update_nvue(
 
     let hostname = hostname().wrap_err("gethostname error")?;
     let is_dpu_os = matches!(update_flavor, NvueUpdateFlavor::StartupFile { .. });
+    let secondary_overlay_vtep_ip = nc
+        .traffic_intercept_config
+        .as_ref()
+        .and_then(|vc| vc.additional_overlay_vtep_ip.as_deref())
+        .map(str::parse)
+        .transpose()
+        .wrap_err("invalid secondary overlay VTEP IP")?;
+    let internal_bridge_routing_prefix = nc
+        .traffic_intercept_config
+        .as_ref()
+        .and_then(|vc| vc.bridging.as_ref())
+        .map(|b| b.internal_bridge_routing_prefix.parse::<Ipv4Net>())
+        .transpose()
+        .wrap_err("invalid internal bridge routing prefix")?;
+    let dhcp_servers = nc
+        .dhcp_servers
+        .iter()
+        .map(|ip| ip.parse::<IpAddr>())
+        .collect::<Result<Vec<_>, _>>()
+        .wrap_err("invalid DHCP server IP")?;
+    let route_servers = nc
+        .route_servers
+        .iter()
+        .map(|ip| ip.parse::<IpAddr>())
+        .collect::<Result<Vec<_>, _>>()
+        .wrap_err("invalid route server IP")?;
     let conf = nvue::NvueConfig {
         is_fnn: false,
         is_dpu_os,
@@ -512,15 +538,8 @@ pub async fn update_nvue(
                 .map(|b| b.vf_intercept_bridge_sf.clone())
         }),
         host_intercept_bridge_port_name: None,
-        secondary_overlay_vtep_ip: nc
-            .traffic_intercept_config
-            .as_ref()
-            .and_then(|vc| vc.additional_overlay_vtep_ip.clone()),
-        internal_bridge_routing_prefix: nc.traffic_intercept_config.as_ref().and_then(|vc| {
-            vc.bridging
-                .as_ref()
-                .map(|b| b.internal_bridge_routing_prefix.clone())
-        }),
+        secondary_overlay_vtep_ip,
+        internal_bridge_routing_prefix,
         traffic_intercept_public_prefixes: nc
             .traffic_intercept_config
             .as_ref()
@@ -550,8 +569,8 @@ pub async fn update_nvue(
             .into_iter()
             .map(String::from)
             .collect(),
-        dhcp_servers: nc.dhcp_servers.clone(),
-        route_servers: nc.route_servers.clone(),
+        dhcp_servers,
+        route_servers,
         ct_port_configs: networks,
         ct_vrf_name: format!("vpc_{}", nc.vpc_vni.unwrap_or_default()),
         ct_access_vlans: access_vlans,
@@ -686,8 +705,11 @@ pub async fn update_traffic_intercept_bridging(
     let Some(bridge_config) = traffic_intercept_config.bridging.as_ref() else {
         eyre::bail!("traffic_intercept bridging config not provided");
     };
-    let Some(secondary_overlay_vtep_ip) =
-        traffic_intercept_config.additional_overlay_vtep_ip.as_ref()
+    let Some(secondary_overlay_vtep_ip) = traffic_intercept_config
+        .additional_overlay_vtep_ip
+        .as_deref()
+        .map(str::parse)
+        .transpose()?
     else {
         eyre::bail!("secondary_overlay_vtep_ip required by traffic_intercept bridging not found");
     };
@@ -756,7 +778,7 @@ pub async fn update_traffic_intercept_bridging(
         .collect();
 
     let conf = traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-        secondary_overlay_vtep_ip: secondary_overlay_vtep_ip.to_owned(),
+        secondary_overlay_vtep_ip,
         secondary_vtep_aggregate_prefixes: traffic_intercept_config
             .secondary_vtep_aggregate_prefixes
             .clone(),
@@ -3095,9 +3117,9 @@ mod tests {
             use_admin_network: true,
             tenancy_enabled: true,
             site_global_vpc_vni: None,
-            loopback_ip: "10.217.5.39".to_string(),
-            secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
-            internal_bridge_routing_prefix: Some("10.255.255.0/29".to_string()),
+            loopback_ip: "10.217.5.39".parse().unwrap(),
+            secondary_overlay_vtep_ip: Some("10.255.254.253".parse().unwrap()),
+            internal_bridge_routing_prefix: Some("10.255.255.0/29".parse().unwrap()),
             vf_intercept_bridge_port_name: Some("pfdpu0".to_string()),
             vf_intercept_bridge_sf: Some("pf0dpu5".to_string()),
             host_intercept_bridge_port_name: Some("pfdpu1".to_string()),
@@ -3122,8 +3144,8 @@ mod tests {
                 .into_iter()
                 .map(String::from)
                 .collect(),
-            dhcp_servers: vec!["10.217.5.197".to_string()],
-            route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
+            dhcp_servers: vec!["10.217.5.197".parse().unwrap()],
+            route_servers: vec!["172.43.0.1".parse().unwrap(), "172.43.0.2".parse().unwrap()],
             deny_prefixes: vec![],
             use_vpc_isolation: false,
             site_fabric_prefixes: vec!["10.217.4.128/26".to_string()],

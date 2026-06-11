@@ -68,32 +68,6 @@ var ValidHealthIssueCategoriesMap = map[string]string{
 	HealthIssueOther:       "OTHER",
 }
 
-var (
-	// Time when allocationId/allocation will be deprecated
-	machineHealthAttributeDeprecatedTime, _ = time.Parse(time.RFC1123, "Fri, 21 Nov 2025 00:00:00 UTC")
-
-	machineHealthAttributeDeprecations = []DeprecatedEntity{
-		{
-			OldValue:     "health.observed_at",
-			NewValue:     cutil.GetPtr("health.observedAt"),
-			Type:         DeprecationTypeAttribute,
-			TakeActionBy: machineHealthAttributeDeprecatedTime,
-		},
-		{
-			OldValue:     "health.alerts.in_alert_since",
-			NewValue:     cutil.GetPtr("health.alerts.inAlertSince"),
-			Type:         DeprecationTypeAttribute,
-			TakeActionBy: machineHealthAttributeDeprecatedTime,
-		},
-		{
-			OldValue:     "health.alerts.tenant_message",
-			NewValue:     cutil.GetPtr("health.alerts.tenantMessage"),
-			Type:         DeprecationTypeAttribute,
-			TakeActionBy: machineHealthAttributeDeprecatedTime,
-		},
-	}
-)
-
 // APIMachineHealthIssue describes the tenant-reported issue when requesting online repair.
 type APIMachineHealthIssue struct {
 	// Category is the type of the issue
@@ -503,14 +477,12 @@ type APIMachineHealthProbeSuccess struct {
 }
 
 type APIMachineHealthProbeAlert struct {
-	ID                      string   `json:"id"`
-	Target                  *string  `json:"target"`
-	InAlertSince            *string  `json:"inAlertSince"`
-	InAlertSinceDeprecated  *string  `json:"in_alert_since"`
-	Message                 string   `json:"message"`
-	TenantMessage           *string  `json:"tenantMessage"`
-	TenantMessageDeprecated *string  `json:"tenant_message"`
-	Classifications         []string `json:"classifications"`
+	ID              string   `json:"id"`
+	Target          *string  `json:"target"`
+	InAlertSince    *string  `json:"inAlertSince"`
+	Message         string   `json:"message"`
+	TenantMessage   *string  `json:"tenantMessage"`
+	Classifications []string `json:"classifications"`
 }
 
 // NewAPIMachine accepts a DB layer Machine object and returns an API object
@@ -685,14 +657,12 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 				for _, alert := range machineHealth.Alerts {
 					lcalert := alert
 					alertInfo := APIMachineHealthProbeAlert{
-						ID:                      lcalert.Id,
-						Target:                  lcalert.Target,
-						Message:                 lcalert.Message,
-						InAlertSince:            lcalert.InAlertSince,
-						InAlertSinceDeprecated:  lcalert.InAlertSince,
-						TenantMessage:           lcalert.TenantMessage,
-						TenantMessageDeprecated: lcalert.TenantMessage,
-						Classifications:         lcalert.Classifications,
+						ID:              lcalert.Id,
+						Target:          lcalert.Target,
+						Message:         lcalert.Message,
+						InAlertSince:    lcalert.InAlertSince,
+						TenantMessage:   lcalert.TenantMessage,
+						Classifications: lcalert.Classifications,
 					}
 					apim.Health.Alerts = append(apim.Health.Alerts, alertInfo)
 				}
@@ -719,10 +689,6 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	apim.StatusHistory = []APIStatusDetail{}
 	for _, dbsd := range dbsds {
 		apim.StatusHistory = append(apim.StatusHistory, NewAPIStatusDetail(dbsd))
-	}
-
-	for _, deprecation := range machineHealthAttributeDeprecations {
-		apim.Deprecations = append(apim.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return apim

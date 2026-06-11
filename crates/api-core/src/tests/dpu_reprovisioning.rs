@@ -615,6 +615,7 @@ async fn assert_reprov_tenant_state(
         instance_snapshot_derive_status(
             &db_instance,
             device_id_maps.1,
+            host.primary_attached_dpu_machine_id(),
             host.state.clone().value,
             None,
             None,

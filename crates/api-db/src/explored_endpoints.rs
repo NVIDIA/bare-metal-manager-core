@@ -432,11 +432,13 @@ pub async fn set_preingestion_initial_bmc_reset(
 pub async fn set_preingestion_time_sync_reset(
     address: IpAddr,
     phase: TimeSyncResetPhase,
+    attempt: u32,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::TimeSyncReset {
         phase,
         last_time: Utc::now(),
+        attempt,
     };
     set_preingestion(address, state, txn).await
 }
@@ -592,6 +594,26 @@ pub async fn set_preingestion_failed(
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::Failed { reason };
     set_preingestion(address, state, txn).await
+}
+
+/// If the endpoint's preingestion is in the terminal `Failed` state, reset it
+/// back to `Initial` so preingestion runs again from the top. States other than
+/// `Failed` are left untouched, so this is safe to call unconditionally when an
+/// operator clears an error. Returns true if a `Failed` state was actually reset.
+pub async fn reset_failed_preingestion(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let query = "
+UPDATE explored_endpoints
+SET preingestion_state = '{\"state\":\"initial\"}'
+WHERE address = $1 AND preingestion_state->>'state' = 'failed'";
+    let result = sqlx::query(query)
+        .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn insert(

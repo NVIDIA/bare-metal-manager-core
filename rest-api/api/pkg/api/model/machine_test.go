@@ -463,10 +463,6 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	assert.Equal(t, apimi.Labels, dbm.Labels)
 	assert.Equal(t, dbm.HwSkuDeviceType, apimi.HwSkuDeviceType)
 	assert.Equal(t, dbm.IsUsableByTenant, apimi.IsUsableByTenant)
-
-	if apimi.Deprecations != nil {
-		assert.Equal(t, len(apimi.Deprecations), len(machineHealthAttributeDeprecations))
-	}
 }
 
 func TestMachine_NewAPIMachineSummary(t *testing.T) {

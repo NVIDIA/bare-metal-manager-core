@@ -843,6 +843,7 @@ name = "bmc-explorer"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bmc-explorer",
  "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
@@ -1275,6 +1276,7 @@ dependencies = [
  "mac_address",
  "mockito",
  "mqttea",
+ "nico-test-support",
  "nras",
  "num_cpus",
  "nv-redfish",
@@ -1361,6 +1363,7 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "names",
+ "nico-test-support",
  "octseq",
  "regex",
  "rustc-hash",
@@ -1430,6 +1433,7 @@ dependencies = [
  "lazy_static",
  "libnmxm",
  "mac_address",
+ "nico-test-support",
  "nras",
  "once_cell",
  "p256 0.14.0-rc.9",
@@ -1989,6 +1993,7 @@ dependencies = [
  "humantime",
  "humantime-serde",
  "hyper",
+ "hyper-rustls",
  "hyper-util",
  "logfmt",
  "mac_address",
@@ -1998,12 +2003,15 @@ dependencies = [
  "prost-types",
  "rand 0.10.1",
  "reqwest 0.13.4",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_with",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tonic",
  "tonic-prost",
@@ -2204,6 +2212,7 @@ dependencies = [
  "hex",
  "hostname",
  "mac_address",
+ "nico-test-support",
  "once_cell",
  "prettytable-rs",
  "prost-types",
@@ -2262,6 +2271,7 @@ dependencies = [
  "carbide-network",
  "carbide-rpc",
  "carbide-tls",
+ "carbide-utils",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -2275,7 +2285,6 @@ dependencies = [
  "mac_address",
  "rand 0.10.1",
  "ratatui",
- "rcgen",
  "reqwest 0.13.4",
  "russh",
  "serde",
@@ -2591,6 +2600,7 @@ dependencies = [
  "mac_address",
  "mqttea",
  "opentelemetry",
+ "serde",
  "serde_json",
  "sqlx",
  "state-controller",
@@ -2864,6 +2874,7 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
+ "nico-test-support",
  "opentelemetry",
  "rand 0.10.1",
  "regex",
@@ -3085,6 +3096,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "prometheus",
+ "rcgen",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
@@ -6537,7 +6549,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.8#a1b98328b67394eb38fc8088273e0f84c1432ffd"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.10#3c5bd928414892355e0dd3ce4fd5120c31477857"
 dependencies = [
  "chrono",
  "clap",
@@ -6566,8 +6578,8 @@ dependencies = [
 
 [[package]]
 name = "librms"
-version = "0.0.12"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
+version = "0.0.13"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7189,6 +7201,10 @@ dependencies = [
  "log",
  "tokio",
 ]
+
+[[package]]
+name = "nico-test-support"
+version = "0.0.0"
 
 [[package]]
 name = "nix"
@@ -11477,7 +11493,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.13#a87f91da04009c62d9133e0ab4820361f3c541d1"
 dependencies = [
  "async-trait",
  "heck",

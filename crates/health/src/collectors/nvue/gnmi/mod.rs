@@ -15,12 +15,19 @@
  * limitations under the License.
  */
 
-use crate::cfg::cli_options::SortField;
+pub(crate) mod client;
+pub(crate) mod on_change_processor;
+pub(crate) mod sample_processor;
+pub(crate) mod subscriber;
 
-/// Global options passed to instance commands
-pub struct GlobalOptions<'a> {
-    pub format: rpc::admin_cli::OutputFormat,
-    pub page_size: usize,
-    pub sort_by: &'a SortField,
-    pub cloud_unsafe_op: Option<String>,
+// prost generates ExtensionId::EidUnset / EidExperimental from gnmi_ext.proto,
+// where the proto convention prefixes every value with the enum abbreviation.
+// clippy flags the shared "Eid" prefix but we can't control generated code.
+#[allow(clippy::enum_variant_names)]
+pub mod proto {
+    #[allow(clippy::enum_variant_names)]
+    pub mod gnmi_ext {
+        tonic::include_proto!("gnmi_ext");
+    }
+    tonic::include_proto!("gnmi");
 }

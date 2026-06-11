@@ -34,15 +34,17 @@ use model::machine::{
 };
 use model::resource_pool::ResourcePoolStats;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
+use crate::test_support::fixture_config::{
+    DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
-use crate::tests::common::api_fixtures::dpu::DpuConfig;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 async fn discover_dpu_bmc_ip(
@@ -207,10 +209,7 @@ async fn test_site_explorer_creates_managed_host(
         dpu_machine.hardware_info.as_ref().unwrap().machine_type,
         CpuArchitecture::Aarch64,
     );
-    assert_eq!(
-        dpu_machine.bmc_info.ip.clone().unwrap(),
-        dpu_bmc_ip.to_string()
-    );
+    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_ip));
 
     assert_eq!(
         format!(

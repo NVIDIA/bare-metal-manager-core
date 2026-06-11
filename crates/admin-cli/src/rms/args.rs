@@ -82,7 +82,6 @@ pub struct PowerOnSequence {
 impl From<PowerOnSequence> for librms::protos::rack_manager::GetRackPowerOnSequenceRequest {
     fn from(args: PowerOnSequence) -> Self {
         Self {
-            metadata: None,
             rack_id: args.rack_id,
         }
     }
@@ -106,7 +105,6 @@ pub struct PowerState {
 impl From<PowerState> for librms::protos::rack_manager::GetPowerStateRequest {
     fn from(args: PowerState) -> Self {
         Self {
-            metadata: None,
             node_id: args.node_id,
             rack_id: args.rack_id,
         }
@@ -131,7 +129,6 @@ pub struct FirmwareInventory {
 impl From<FirmwareInventory> for librms::protos::rack_manager::GetNodeFirmwareInventoryRequest {
     fn from(args: FirmwareInventory) -> Self {
         Self {
-            metadata: None,
             node_id: args.node_id,
             rack_id: args.rack_id,
         }
