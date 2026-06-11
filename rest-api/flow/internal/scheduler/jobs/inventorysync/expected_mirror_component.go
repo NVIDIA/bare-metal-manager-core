@@ -5,6 +5,8 @@ package inventorysync
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -55,6 +57,20 @@ type expectedComponentSpec struct {
 	HostID         int
 	RackExternalID string
 	BMC            expectedBMCSpec
+	// preserveFields names mirror-managed integer columns whose source Core
+	// label was malformed (non-integer string). The mirror keeps Flow's
+	// existing value for these columns on UPDATE instead of overwriting
+	// with the zero left in the field above. INSERT still writes zero —
+	// there's no existing row to preserve — but populateLabelsIntoSpec logs
+	// the malformation either way so operators see the Core data bug.
+	preserveFields map[string]bool
+}
+
+func (s *expectedComponentSpec) markPreserve(field string) {
+	if s.preserveFields == nil {
+		s.preserveFields = make(map[string]bool)
+	}
+	s.preserveFields[field] = true
 }
 
 type expectedBMCSpec struct {
@@ -120,28 +136,55 @@ func powerShelfDetailToSpec(d nicoapi.ExpectedPowerShelfDetail) expectedComponen
 	return s
 }
 
+// populateLabelsIntoSpec fills in the label-derived fields on spec. Each int
+// label parsed by parseLabelInt that turns out to be non-integer is logged
+// and marked in spec.preserveFields so the mirror's update path will keep
+// Flow's existing value for that column instead of overwriting it with the
+// zero strconv.Atoi left behind. spec.Type must already be set so the warn
+// carries the component type for log filtering.
 func populateLabelsIntoSpec(s *expectedComponentSpec, labels map[string]string) {
 	s.Manufacturer = labels[labelComponentManufacturer]
 	s.Model = labels[labelComponentModel]
-	s.SlotID = parseLabelInt(labels[labelComponentSlotID])
-	s.TrayIndex = parseLabelInt(labels[labelComponentTrayIdx])
-	s.HostID = parseLabelInt(labels[labelComponentHostID])
+
+	for _, lbl := range []struct {
+		labelKey  string
+		fieldName string
+		assign    func(int)
+	}{
+		{labelComponentSlotID, "slot_id", func(v int) { s.SlotID = v }},
+		{labelComponentTrayIdx, "tray_index", func(v int) { s.TrayIndex = v }},
+		{labelComponentHostID, "host_id", func(v int) { s.HostID = v }},
+	} {
+		raw := labels[lbl.labelKey]
+		v, ok := parseLabelInt(raw)
+		if ok {
+			lbl.assign(v)
+			continue
+		}
+		s.markPreserve(lbl.fieldName)
+		log.Warn().
+			Str("type", s.Type).
+			Str("serial", s.SerialNumber).
+			Str("label", lbl.labelKey).
+			Str("raw", raw).
+			Msg("Expected-inventory mirror: Core label is not an integer; preserving Flow's existing value on update (insert path falls back to 0)")
+	}
 }
 
-// parseLabelInt returns 0 on either empty or malformed input. Cloud REST
-// always emits these labels formatted by strconv.FormatInt, so malformed
-// inputs are a data-integrity bug worth logging — but ergo cluttering every
-// row with the same warn would be noisy, so we silently coerce and let the
-// resulting drift surface in subsequent inventorysync runs.
-func parseLabelInt(s string) int {
-	if s == "" {
-		return 0
+// parseLabelInt distinguishes "Core omitted the label" (empty input → 0,
+// ok=true) from "Core sent something that isn't an integer" (non-empty
+// non-numeric → 0, ok=false). The caller treats the first as Core
+// authoritatively saying zero, and the second as a Core-side data bug
+// worth logging + falling back on (preserve Flow's value on UPDATE).
+func parseLabelInt(raw string) (int, bool) {
+	if raw == "" {
+		return 0, true
 	}
-	n, err := strconv.Atoi(s)
+	n, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return n
+	return n, true
 }
 
 // pullExpectedMachines / Switches / PowerShelves apply the same two-step
@@ -226,16 +269,11 @@ func mirrorExpectedComponents(
 		flowBySerial[rackNaturalKey(c.Manufacturer, c.SerialNumber)] = c
 	}
 
-	type bmcOp struct {
-		insert *model.BMC
-		update *model.BMC
-		delete *model.BMC
-	}
 	type plan struct {
 		toInsert     []model.Component
 		toInsertBMCs []model.BMC // parallel to toInsert; component_id filled after insert
 		toUpdate     []model.Component
-		toUpdateBMCs []bmcOp // one per toUpdate entry (any/all of insert/update/delete may be set)
+		toUpdateBMCs []bmcOps // one per toUpdate entry (any/all of insert/update/deletes may be set)
 		toDelete     []model.Component
 	}
 	var p plan
@@ -254,19 +292,40 @@ func mirrorExpectedComponents(
 			continue
 		}
 
+		// Track this key as "Core is still reporting it" before we get to
+		// any of the conditional skips below. The delete phase consults
+		// seenKeys to decide what to soft-delete; if we forgot to track a
+		// row whose Core spec we couldn't fully apply (e.g. rack
+		// resolution failed), the delete phase would wipe the Flow row
+		// even though Core hadn't dropped it.
+		key := rackNaturalKey(s.Manufacturer, s.SerialNumber)
+		if _, dup := seenKeys[key]; dup {
+			log.Warn().
+				Str("type", componentType).
+				Str("manufacturer", s.Manufacturer).
+				Str("serial", s.SerialNumber).
+				Msg("Expected-inventory mirror: Core returned duplicate spec for this component; later occurrence overwrites earlier in this cycle's mirror plan (Cloud REST is producing duplicates)")
+		}
+		seenKeys[key] = struct{}{}
+
 		rackID, ok := resolveRackID(s, rackIDByExtID)
 		if !ok {
+			// Core references a rack Flow doesn't currently know about
+			// (rack mirror dropped it this cycle, or Core/Flow have a
+			// one-cycle skew). Per the mirror contract Core is the source
+			// of truth and the component is still expected; soft-deleting
+			// it would lose its UUID. component.rack_id is nullable and
+			// has no FK, so writing uuid.Nil (NULL) is the documented
+			// "ingested but not yet assigned to a rack" state and lets
+			// the rack association heal on a subsequent cycle.
 			log.Warn().
 				Str("type", componentType).
 				Str("serial", s.SerialNumber).
 				Str("rack_external_id", s.RackExternalID).
-				Msg("Expected-inventory mirror: skipping Core expected component whose rack is not in Flow (rack mirror dropped it or this is a Core/cycle skew)")
-			result.skippedNoIDOrKey++
-			continue
+				Msg("Expected-inventory mirror: Core's rack_id is not in Flow's rack table; mirroring component with NULL rack_id (rack association will heal next cycle once the rack reappears)")
+			rackID = uuid.Nil
 		}
 
-		key := rackNaturalKey(s.Manufacturer, s.SerialNumber)
-		seenKeys[key] = struct{}{}
 		desired := componentFromSpec(s, rackID)
 
 		if cur, ok := flowBySerial[key]; ok {
@@ -283,15 +342,15 @@ func mirrorExpectedComponents(
 					Msg("Expected-inventory mirror: resurrecting soft-deleted component")
 			}
 
-			diffs := diffComponentFields(&candidate, &desired)
+			diffs := diffComponentFields(&candidate, &desired, s)
 			if len(diffs) > 0 {
-				applyComponentChanges(&candidate, &desired)
+				applyComponentChanges(&candidate, &desired, s)
 				needUpdate = true
 				logComponentChanges(componentType, candidate.ID, candidate.SerialNumber, diffs)
 			}
 
 			bmcOps := planBMCReconciliation(&candidate, s.BMC)
-			if needUpdate || bmcOps.insert != nil || bmcOps.update != nil || bmcOps.delete != nil {
+			if needUpdate || bmcOps.insert != nil || bmcOps.update != nil || len(bmcOps.deletes) > 0 {
 				p.toUpdate = append(p.toUpdate, candidate)
 				p.toUpdateBMCs = append(p.toUpdateBMCs, bmcOps)
 			}
@@ -340,6 +399,9 @@ func mirrorExpectedComponents(
 				return fmt.Errorf("insert component %q: %w", p.toInsert[i].SerialNumber, err)
 			}
 			p.toInsertBMCs[i].ComponentID = p.toInsert[i].ID
+			if err := evictOrphanBMC(ctx, tx, p.toInsertBMCs[i].MacAddress, p.toInsert[i].ID); err != nil {
+				return err
+			}
 			if _, err := tx.NewInsert().Model(&p.toInsertBMCs[i]).Exec(ctx); err != nil {
 				return fmt.Errorf("insert BMC for component %q: %w", p.toInsert[i].SerialNumber, err)
 			}
@@ -349,13 +411,16 @@ func mirrorExpectedComponents(
 				return fmt.Errorf("update component %q: %w", p.toUpdate[i].SerialNumber, err)
 			}
 			ops := p.toUpdateBMCs[i]
-			if ops.delete != nil {
-				if _, err := tx.NewDelete().Model(ops.delete).Where("mac_address = ?", ops.delete.MacAddress).ForceDelete().Exec(ctx); err != nil {
-					return fmt.Errorf("delete BMC %q: %w", ops.delete.MacAddress, err)
+			for j := range ops.deletes {
+				if _, err := tx.NewDelete().Model(&ops.deletes[j]).Where("mac_address = ?", ops.deletes[j].MacAddress).ForceDelete().Exec(ctx); err != nil {
+					return fmt.Errorf("delete BMC %q: %w", ops.deletes[j].MacAddress, err)
 				}
 			}
 			if ops.insert != nil {
 				ops.insert.ComponentID = p.toUpdate[i].ID
+				if err := evictOrphanBMC(ctx, tx, ops.insert.MacAddress, p.toUpdate[i].ID); err != nil {
+					return err
+				}
 				if _, err := tx.NewInsert().Model(ops.insert).Exec(ctx); err != nil {
 					return fmt.Errorf("insert BMC for component %q: %w", p.toUpdate[i].SerialNumber, err)
 				}
@@ -374,6 +439,13 @@ func mirrorExpectedComponents(
 		return nil
 	}); err != nil {
 		log.Error().Err(err).Str("type", componentType).Msg("Expected-inventory mirror: component reconciliation transaction failed; mirror is no-op this cycle")
+		// Tx rolled back: every per-spec decision logged above represents
+		// intent, not committed state. Strip success-side counters so the
+		// summary log line reflects what actually landed. pulled and
+		// skippedNoIDOrKey survive: pulled is input size; skippedNoIDOrKey
+		// is decided before we ever opened the tx, so neither is
+		// invalidated by the rollback.
+		result.resurrected = 0
 		return result
 	}
 
@@ -434,22 +506,34 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 // applyComponentChanges copies mirror-managed fields from desired into
 // existing. Identity (Manufacturer/SerialNumber/Type), runtime (ComponentID,
 // PowerState, FirmwareVersion), lifecycle (Status, IngestedAt) and audit
-// (CreatedAt, UpdatedAt) are intentionally not touched.
-func applyComponentChanges(existing, desired *model.Component) {
+// (CreatedAt, UpdatedAt) are intentionally not touched. Fields named in
+// spec.preserveFields are also skipped — those are the columns whose Core
+// labels were malformed and so should keep Flow's existing value rather
+// than be overwritten with the parseLabelInt fallback zero.
+func applyComponentChanges(existing, desired *model.Component, spec expectedComponentSpec) {
 	existing.Name = desired.Name
 	existing.Model = desired.Model
-	existing.SlotID = desired.SlotID
-	existing.TrayIndex = desired.TrayIndex
-	existing.HostID = desired.HostID
 	existing.RackID = desired.RackID
+	if !spec.preserveFields["slot_id"] {
+		existing.SlotID = desired.SlotID
+	}
+	if !spec.preserveFields["tray_index"] {
+		existing.TrayIndex = desired.TrayIndex
+	}
+	if !spec.preserveFields["host_id"] {
+		existing.HostID = desired.HostID
+	}
 }
 
 // diffComponentFields returns the per-field deltas the mirror would apply.
 // Used both to decide whether an UPDATE is needed and to log what changed.
 // Fields the mirror doesn't manage (external_id / status / power_state /
 // firmware_version / timestamps) are deliberately omitted; comparing them
-// would queue UPDATE rows for state owned by other loops.
-func diffComponentFields(existing, desired *model.Component) []fieldChange {
+// would queue UPDATE rows for state owned by other loops. Fields named in
+// spec.preserveFields are also skipped so a malformed Core label can't
+// drive a spurious UPDATE that would clobber Flow's value with the
+// fallback zero.
+func diffComponentFields(existing, desired *model.Component, spec expectedComponentSpec) []fieldChange {
 	var diffs []fieldChange
 	if existing.Name != desired.Name {
 		diffs = append(diffs, fieldChange{"name", existing.Name, desired.Name})
@@ -457,13 +541,13 @@ func diffComponentFields(existing, desired *model.Component) []fieldChange {
 	if existing.Model != desired.Model {
 		diffs = append(diffs, fieldChange{"model", existing.Model, desired.Model})
 	}
-	if existing.SlotID != desired.SlotID {
+	if !spec.preserveFields["slot_id"] && existing.SlotID != desired.SlotID {
 		diffs = append(diffs, fieldChange{"slot_id", strconv.Itoa(existing.SlotID), strconv.Itoa(desired.SlotID)})
 	}
-	if existing.TrayIndex != desired.TrayIndex {
+	if !spec.preserveFields["tray_index"] && existing.TrayIndex != desired.TrayIndex {
 		diffs = append(diffs, fieldChange{"tray_index", strconv.Itoa(existing.TrayIndex), strconv.Itoa(desired.TrayIndex)})
 	}
-	if existing.HostID != desired.HostID {
+	if !spec.preserveFields["host_id"] && existing.HostID != desired.HostID {
 		diffs = append(diffs, fieldChange{"host_id", strconv.Itoa(existing.HostID), strconv.Itoa(desired.HostID)})
 	}
 	if existing.RackID != desired.RackID {
@@ -487,30 +571,35 @@ func logComponentChanges(componentType string, id uuid.UUID, serial string, diff
 	evt.Msg("Expected-inventory mirror: updating component from Core")
 }
 
-// planBMCReconciliation works out whether the component's host BMC needs an
-// insert, update or replace to match the spec. Symmetric with the
-// existing-component path: each call returns at most one insert, one update
-// and one delete; the caller applies them inside the component-update tx.
+// bmcOps captures the set of writes the mirror plans against the BMC table
+// for one component. The deletes slice can be longer than one entry: a
+// well-formed component carries exactly one type='Host' BMC, but ingestion
+// bugs and data drift can leave several, and the mirror hard-deletes the
+// stale ones so Core's "exactly one host BMC" view is enforced.
+type bmcOps struct {
+	insert  *model.BMC
+	update  *model.BMC
+	deletes []model.BMC
+}
+
+// planBMCReconciliation works out the BMC writes needed to make this
+// component's host-BMC row match the spec. Only type='Host' BMCs are
+// considered: Core's ExpectedMachine describes the host BMC only, the DPU
+// BMC's MAC/IP isn't a field there. Non-host rows are left strictly alone;
+// they're owned by the ingestion path or runtime discovery.
 //
-// Only the BMC row of type='Host' is considered. A Compute component in Flow
-// can also carry a type='DPU' BMC (and possibly others), but Core's
-// ExpectedMachine only describes the host BMC — the DPU's MAC/IP isn't a
-// field there. Touching non-host BMCs from here would hard-delete the DPU
-// BMC row whenever the bun preload order happened to put it at BMCs[0].
-//
+// Cases:
 //   - No existing host BMC: insert the spec'd one.
-//   - Existing host BMC with the same MAC: update IP if it drifted.
-//   - Existing host BMC with a different MAC: hard-delete the old (BMC has
-//     no soft-delete) and insert the new one. MAC change is rare but
-//     legal: the chassis got a new BMC board.
-//
-// Non-host BMC rows are left strictly alone; they're owned by the ingestion
-// path or runtime discovery.
-func planBMCReconciliation(component *model.Component, spec expectedBMCSpec) (ops struct {
-	insert *model.BMC
-	update *model.BMC
-	delete *model.BMC
-}) {
+//   - Exactly one existing host BMC matching the spec MAC: update its IP if
+//     it drifted.
+//   - One or more existing host BMCs and at most one matches the spec MAC:
+//     keep the matching one (IP-drift update if needed); hard-delete every
+//     non-matching host BMC. Multiple host BMCs is an ingestion bug; the
+//     mirror cleans it up since Core's authoritative view is one.
+//   - One or more existing host BMCs and none match the spec MAC: hard-delete
+//     all of them and insert the spec'd one. This is the MAC-change path
+//     (chassis got a new BMC board) generalised over an existing dirty state.
+func planBMCReconciliation(component *model.Component, spec expectedBMCSpec) (ops bmcOps) {
 	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
 	want := model.BMC{
 		MacAddress:  spec.MACAddress,
@@ -519,35 +608,91 @@ func planBMCReconciliation(component *model.Component, spec expectedBMCSpec) (op
 		ComponentID: component.ID,
 	}
 
-	var cur *model.BMC
+	var hosts []model.BMC
 	for i := range component.BMCs {
 		if component.BMCs[i].Type == hostType {
-			cur = &component.BMCs[i]
+			hosts = append(hosts, component.BMCs[i])
+		}
+	}
+
+	if len(hosts) > 1 {
+		log.Warn().
+			Str("component_id", component.ID.String()).
+			Str("serial", component.SerialNumber).
+			Int("host_bmc_count", len(hosts)).
+			Msg("Expected-inventory mirror: component has multiple type='Host' BMC rows (Flow data should have at most one); extras will be hard-deleted to match Core")
+	}
+
+	// Pick the one matching the spec MAC; that's the keeper.
+	var keeper *model.BMC
+	for i := range hosts {
+		if hosts[i].MacAddress == spec.MACAddress {
+			keeper = &hosts[i]
 			break
 		}
 	}
 
-	if cur == nil {
-		ops.insert = &want
-		return ops
-	}
-
-	if cur.MacAddress == spec.MACAddress {
-		updated := *cur
-		if !equalOptionalString(cur.IPAddress, want.IPAddress) {
+	if keeper != nil {
+		for i := range hosts {
+			if hosts[i].MacAddress == keeper.MacAddress {
+				continue
+			}
+			ops.deletes = append(ops.deletes, hosts[i])
+		}
+		if !equalOptionalString(keeper.IPAddress, want.IPAddress) {
+			updated := *keeper
 			updated.IPAddress = want.IPAddress
 			ops.update = &updated
 		}
 		return ops
 	}
 
-	// MAC changed — hard-delete the old host BMC (BMC has no soft-delete)
-	// and insert the new one. ComponentID stays the same so the FK from
-	// any downstream references continues to resolve.
-	old := *cur
-	ops.delete = &old
+	// No host BMC matches the spec MAC. Insert the new one; hard-delete
+	// any stale host rows. ComponentID stays the same so downstream FKs
+	// keep resolving.
 	ops.insert = &want
+	for i := range hosts {
+		ops.deletes = append(ops.deletes, hosts[i])
+	}
 	return ops
+}
+
+// evictOrphanBMC hard-deletes any BMC row whose mac_address collides with
+// the one about to be inserted under newOwnerID. The bmc table's PK is the
+// MAC alone, so two components claiming the same host MAC would fail the
+// INSERT and roll back the whole component-mirror tx. The collision is
+// rare — typically a physical BMC card moved to a new chassis without the
+// old row being cleaned up — but the failure mode is severe (entire type's
+// mirror frozen until manual cleanup), so the mirror clears the orphan and
+// logs loudly so operators see the data-corruption signal.
+func evictOrphanBMC(ctx context.Context, tx bun.Tx, mac string, newOwnerID uuid.UUID) error {
+	var orphan model.BMC
+	err := tx.NewSelect().
+		Model(&orphan).
+		Where("mac_address = ?", mac).
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("look up potential BMC orphan %q: %w", mac, err)
+	}
+	if orphan.ComponentID == newOwnerID {
+		return nil
+	}
+	if _, err := tx.NewDelete().
+		Model(&orphan).
+		Where("mac_address = ?", mac).
+		ForceDelete().
+		Exec(ctx); err != nil {
+		return fmt.Errorf("evict orphan BMC %q from component %s: %w", mac, orphan.ComponentID, err)
+	}
+	log.Warn().
+		Str("bmc_mac", mac).
+		Str("orphan_owner_component_id", orphan.ComponentID.String()).
+		Str("new_owner_component_id", newOwnerID.String()).
+		Msg("Expected-inventory mirror: BMC MAC already owned by a different component; evicted to honour Core's claim")
+	return nil
 }
 
 func optionalString(s string) *string {

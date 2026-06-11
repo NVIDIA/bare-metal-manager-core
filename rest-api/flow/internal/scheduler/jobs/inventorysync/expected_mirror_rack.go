@@ -267,6 +267,13 @@ func mirrorExpectedRacks(
 		return nil
 	}); err != nil {
 		log.Error().Err(err).Msg("Expected-inventory mirror: rack reconciliation transaction failed; mirror is no-op this cycle")
+		// Tx rolled back: per-spec decisions logged above describe intent,
+		// not committed state. Strip success-side counters so the summary
+		// log reflects what actually landed (nothing). pulled,
+		// skippedNoIDOrKey and legacyExempt survive: they're decided
+		// before the tx opened and aren't invalidated by the rollback.
+		result.resurrected = 0
+		result.adopted = 0
 		return result
 	}
 

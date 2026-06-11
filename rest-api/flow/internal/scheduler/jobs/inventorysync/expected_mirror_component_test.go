@@ -18,22 +18,48 @@ import (
 )
 
 func TestParseLabelInt(t *testing.T) {
+	// Empty input is "Core didn't write this label" — ok=true so callers
+	// treat it as Core authoritatively saying zero (the unset default).
+	// Non-empty unparsable input is a Core data bug — ok=false so callers
+	// can preserve Flow's existing value rather than clobber it with 0.
 	for _, tc := range []struct {
-		in   string
-		want int
+		in     string
+		want   int
+		wantOK bool
 	}{
-		{"", 0},
-		{"0", 0},
-		{"7", 7},
-		{"-3", -3},
-		{"abc", 0},   // malformed inputs coerce to 0; see parseLabelInt comment for why
-		{"3.14", 0},  // strconv.Atoi rejects floats; coerce to 0
-		{"  4  ", 0}, // strconv.Atoi rejects whitespace; coerce to 0
+		{"", 0, true},
+		{"0", 0, true},
+		{"7", 7, true},
+		{"-3", -3, true},
+		{"abc", 0, false},   // strconv.Atoi rejects non-numeric
+		{"3.14", 0, false},  // strconv.Atoi rejects floats
+		{"  4  ", 0, false}, // strconv.Atoi rejects whitespace
 	} {
 		t.Run(tc.in, func(t *testing.T) {
-			assert.Equal(t, tc.want, parseLabelInt(tc.in))
+			got, ok := parseLabelInt(tc.in)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantOK, ok)
 		})
 	}
+}
+
+func TestPopulateLabelsIntoSpec_MalformedIntMarksPreserve(t *testing.T) {
+	s := expectedComponentSpec{
+		Type:         "Compute",
+		SerialNumber: "SN-1",
+	}
+	populateLabelsIntoSpec(&s, map[string]string{
+		labelComponentManufacturer: "Foxconn",
+		labelComponentSlotID:       "abc", // malformed
+		labelComponentTrayIdx:      "1",
+		labelComponentHostID:       "",
+	})
+	assert.True(t, s.preserveFields["slot_id"], "malformed slot_id label must mark preserve so UPDATE doesn't clobber Flow's existing value with 0")
+	assert.False(t, s.preserveFields["tray_index"])
+	assert.False(t, s.preserveFields["host_id"], "empty label is Core saying zero, not a malformation")
+	assert.Equal(t, 0, s.SlotID, "malformed input still falls back to 0 for the spec field; the preserve flag is what gates the write")
+	assert.Equal(t, 1, s.TrayIndex)
+	assert.Equal(t, 0, s.HostID)
 }
 
 func TestMachineDetailToSpec(t *testing.T) {
@@ -164,23 +190,23 @@ func TestDiffComponentFields(t *testing.T) {
 	rackB := uuid.New()
 	base := func() *model.Component {
 		return &model.Component{
-			Name:       "n",
-			Model:      "m",
-			SlotID:     1,
-			TrayIndex:  2,
-			HostID:     3,
-			RackID:     rackA,
+			Name:      "n",
+			Model:     "m",
+			SlotID:    1,
+			TrayIndex: 2,
+			HostID:    3,
+			RackID:    rackA,
 		}
 	}
 
 	t.Run("identical fields produce no diffs", func(t *testing.T) {
-		assert.Empty(t, diffComponentFields(base(), base()))
+		assert.Empty(t, diffComponentFields(base(), base(), expectedComponentSpec{}))
 	})
 
 	t.Run("firmware_version drift is ignored (runtime-owned, not mirrored)", func(t *testing.T) {
 		desired := base()
 		desired.FirmwareVersion = "2.0"
-		assert.Empty(t, diffComponentFields(base(), desired))
+		assert.Empty(t, diffComponentFields(base(), desired, expectedComponentSpec{}))
 	})
 
 	for name, mutate := range map[string]func(*model.Component){
@@ -194,11 +220,23 @@ func TestDiffComponentFields(t *testing.T) {
 		t.Run("change in "+name+" is detected", func(t *testing.T) {
 			desired := base()
 			mutate(desired)
-			diffs := diffComponentFields(base(), desired)
+			diffs := diffComponentFields(base(), desired, expectedComponentSpec{})
 			require.Len(t, diffs, 1)
 			assert.Equal(t, name, diffs[0].field)
 		})
 	}
+
+	t.Run("preserved fields don't surface as drift even when desired differs", func(t *testing.T) {
+		desired := base()
+		desired.SlotID = 9
+		desired.TrayIndex = 9
+		desired.HostID = 9
+		spec := expectedComponentSpec{
+			preserveFields: map[string]bool{"slot_id": true, "tray_index": true, "host_id": true},
+		}
+		assert.Empty(t, diffComponentFields(base(), desired, spec),
+			"preserve flags suppress diffs so a malformed Core label can't drive a spurious UPDATE")
+	})
 }
 
 func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T) {
@@ -222,7 +260,7 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 		RackID: rackB,
 	}
 
-	applyComponentChanges(existing, desired)
+	applyComponentChanges(existing, desired, expectedComponentSpec{})
 
 	assert.Equal(t, "new", existing.Name)
 	assert.Equal(t, "new-model", existing.Model)
@@ -234,6 +272,30 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 	assert.Equal(t, "runtime-id", *existing.ComponentID, "external_id is runtime-owned")
 }
 
+func TestApplyComponentChanges_PreservedFieldsKeepFlowValue(t *testing.T) {
+	existing := &model.Component{
+		Name:      "n",
+		Model:     "m",
+		SlotID:    7, // Flow's existing value — must survive
+		TrayIndex: 8,
+		HostID:    9,
+	}
+	desired := &model.Component{
+		Name:      "n",
+		Model:     "m",
+		SlotID:    0, // would-be overwrite from parseLabelInt fallback
+		TrayIndex: 0,
+		HostID:    0,
+	}
+	spec := expectedComponentSpec{
+		preserveFields: map[string]bool{"slot_id": true, "tray_index": true, "host_id": true},
+	}
+	applyComponentChanges(existing, desired, spec)
+	assert.Equal(t, 7, existing.SlotID, "preserve flag must protect Flow's value from malformed-label fallback zero")
+	assert.Equal(t, 8, existing.TrayIndex)
+	assert.Equal(t, 9, existing.HostID)
+}
+
 func TestPlanBMCReconciliation(t *testing.T) {
 	compID := uuid.New()
 
@@ -242,7 +304,7 @@ func TestPlanBMCReconciliation(t *testing.T) {
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:01", IPAddress: "10.0.0.1"})
 		require.NotNil(t, ops.insert)
 		assert.Nil(t, ops.update)
-		assert.Nil(t, ops.delete)
+		assert.Empty(t, ops.deletes)
 		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.insert.MacAddress)
 		assert.Equal(t, compID, ops.insert.ComponentID)
 		require.NotNil(t, ops.insert.IPAddress)
@@ -259,7 +321,7 @@ func TestPlanBMCReconciliation(t *testing.T) {
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:01", IPAddress: "10.0.0.1"})
 		assert.Nil(t, ops.insert)
 		assert.Nil(t, ops.update)
-		assert.Nil(t, ops.delete)
+		assert.Empty(t, ops.deletes)
 	})
 
 	t.Run("same mac, different ip -> update only", func(t *testing.T) {
@@ -271,7 +333,7 @@ func TestPlanBMCReconciliation(t *testing.T) {
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:01", IPAddress: "10.0.0.2"})
 		require.NotNil(t, ops.update)
 		assert.Nil(t, ops.insert)
-		assert.Nil(t, ops.delete)
+		assert.Empty(t, ops.deletes)
 		require.NotNil(t, ops.update.IPAddress)
 		assert.Equal(t, "10.0.0.2", *ops.update.IPAddress)
 	})
@@ -283,12 +345,46 @@ func TestPlanBMCReconciliation(t *testing.T) {
 			BMCs: []model.BMC{{MacAddress: "aa:bb:cc:dd:ee:01", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), IPAddress: &ip, ComponentID: compID}},
 		}
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:99", IPAddress: "10.0.0.9"})
-		require.NotNil(t, ops.delete)
+		require.Len(t, ops.deletes, 1)
 		require.NotNil(t, ops.insert)
 		assert.Nil(t, ops.update)
-		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.delete.MacAddress)
+		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.deletes[0].MacAddress)
 		assert.Equal(t, "aa:bb:cc:dd:ee:99", ops.insert.MacAddress)
 		assert.Equal(t, compID, ops.insert.ComponentID)
+	})
+
+	t.Run("multiple host BMCs, keeper matches spec -> delete the extras", func(t *testing.T) {
+		ip1 := "10.0.0.1"
+		ip2 := "10.0.0.2"
+		c := &model.Component{
+			ID: compID,
+			BMCs: []model.BMC{
+				{MacAddress: "aa:bb:cc:dd:ee:01", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), IPAddress: &ip1, ComponentID: compID},
+				{MacAddress: "aa:bb:cc:dd:ee:02", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), IPAddress: &ip2, ComponentID: compID},
+			},
+		}
+		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:01", IPAddress: "10.0.0.1"})
+		assert.Nil(t, ops.insert, "spec MAC matches a keeper, no insert needed")
+		assert.Nil(t, ops.update, "IP on the keeper already matches")
+		require.Len(t, ops.deletes, 1)
+		assert.Equal(t, "aa:bb:cc:dd:ee:02", ops.deletes[0].MacAddress, "stale host BMC gets hard-deleted; Core says exactly one host BMC")
+	})
+
+	t.Run("multiple host BMCs, none match spec -> delete all + insert new", func(t *testing.T) {
+		ip1 := "10.0.0.1"
+		ip2 := "10.0.0.2"
+		c := &model.Component{
+			ID: compID,
+			BMCs: []model.BMC{
+				{MacAddress: "aa:bb:cc:dd:ee:01", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), IPAddress: &ip1, ComponentID: compID},
+				{MacAddress: "aa:bb:cc:dd:ee:02", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), IPAddress: &ip2, ComponentID: compID},
+			},
+		}
+		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:99", IPAddress: "10.0.0.9"})
+		require.NotNil(t, ops.insert)
+		assert.Equal(t, "aa:bb:cc:dd:ee:99", ops.insert.MacAddress)
+		assert.Nil(t, ops.update)
+		require.Len(t, ops.deletes, 2, "both stale host BMCs must go before the new one is inserted")
 	})
 
 	// The next three tests cover the DPU-coexistence case. A Compute
@@ -318,7 +414,7 @@ func TestPlanBMCReconciliation(t *testing.T) {
 		require.NotNil(t, ops.insert)
 		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.insert.MacAddress)
 		assert.Equal(t, devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), ops.insert.Type)
-		assert.Nil(t, ops.delete, "dpu BMC must not be deleted; Core has no opinion on it")
+		assert.Empty(t, ops.deletes, "dpu BMC must not be deleted; Core has no opinion on it")
 		assert.Nil(t, ops.update)
 	})
 
@@ -335,7 +431,7 @@ func TestPlanBMCReconciliation(t *testing.T) {
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:01", IPAddress: "10.0.0.1"})
 		assert.Nil(t, ops.insert)
 		assert.Nil(t, ops.update)
-		assert.Nil(t, ops.delete)
+		assert.Empty(t, ops.deletes)
 	})
 
 	t.Run("dpu BMC at index 0 + host BMC with MAC change -> swap host only", func(t *testing.T) {
@@ -349,10 +445,10 @@ func TestPlanBMCReconciliation(t *testing.T) {
 			}),
 		}
 		ops := planBMCReconciliation(c, expectedBMCSpec{MACAddress: "aa:bb:cc:dd:ee:02", IPAddress: "10.0.0.2"})
-		require.NotNil(t, ops.delete)
+		require.Len(t, ops.deletes, 1)
 		require.NotNil(t, ops.insert)
-		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.delete.MacAddress, "must delete the host BMC, never the DPU one")
-		assert.Equal(t, devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), ops.delete.Type)
+		assert.Equal(t, "aa:bb:cc:dd:ee:01", ops.deletes[0].MacAddress, "must delete the host BMC, never the DPU one")
+		assert.Equal(t, devicetypes.BMCTypeToString(devicetypes.BMCTypeHost), ops.deletes[0].Type)
 		assert.Equal(t, "aa:bb:cc:dd:ee:02", ops.insert.MacAddress)
 	})
 }
