@@ -24,12 +24,16 @@ var _ MappedNullable = &User{}
 // User Details of the user collected from authentication tokens
 type User struct {
 	// Unique identifier for the given user.
-	Id        *string        `json:"id,omitempty"`
-	Email     NullableString `json:"email,omitempty"`
+	Id *string `json:"id,omitempty"`
+	// Email used by the user to register with NGC
+	Email NullableString `json:"email,omitempty"`
+	// First name of the user
 	FirstName NullableString `json:"firstName,omitempty"`
-	LastName  NullableString `json:"lastName,omitempty"`
+	// Surname of the user
+	LastName NullableString `json:"lastName,omitempty"`
 	// The date that the user was created.
 	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the user was last updated in NICo
 	Updated *time.Time `json:"updated,omitempty"`
 }
 

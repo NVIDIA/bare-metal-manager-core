@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchUpdateTrayPowerStateRequest{}
 // BatchUpdateTrayPowerStateRequest Request body for batch tray power control operations
 type BatchUpdateTrayPowerStateRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Trays whose power state should be updated
 	Filter *TrayFilter `json:"filter,omitempty"`
 	// Target power state
 	State string `json:"state"`

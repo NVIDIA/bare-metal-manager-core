@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchRackFirmwareUpdateRequest{}
 // BatchRackFirmwareUpdateRequest Request body for batch rack firmware update operations
 type BatchRackFirmwareUpdateRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Racks targeted for firmware update
 	Filter *RackFilter `json:"filter,omitempty"`
 	// Target firmware version.
 	Version NullableString `json:"version,omitempty"`

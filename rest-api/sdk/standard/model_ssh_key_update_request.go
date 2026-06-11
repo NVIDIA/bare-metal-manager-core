@@ -22,6 +22,7 @@ var _ MappedNullable = &SshKeyUpdateRequest{}
 
 // SshKeyUpdateRequest Request data to update an SSH key
 type SshKeyUpdateRequest struct {
+	// Name of the SSHKey
 	Name NullableString `json:"name,omitempty"`
 }
 

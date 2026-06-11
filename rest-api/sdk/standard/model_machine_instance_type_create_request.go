@@ -24,6 +24,7 @@ var _ MappedNullable = &MachineInstanceTypeCreateRequest{}
 
 // MachineInstanceTypeCreateRequest Associates one or more Machines with an Instance Type.  The Machine's capabilities must be a superset of the Instance Type's required capabilities for the association to succeed.
 type MachineInstanceTypeCreateRequest struct {
+	// ID of the Machine
 	MachineIds []string `json:"machineIds"`
 }
 

@@ -22,14 +22,22 @@ var _ MappedNullable = &SiteMachineStatsByStatus{}
 
 // SiteMachineStatsByStatus Machine stats for a Site by status
 type SiteMachineStatsByStatus struct {
+	// Number of Machines in Decommissioned status
 	Decommissioned *int32 `json:"Decommissioned,omitempty"`
-	Error          *int32 `json:"Error,omitempty"`
-	Initializing   *int32 `json:"Initializing,omitempty"`
-	InUse          *int32 `json:"InUse,omitempty"`
-	Maintenance    *int32 `json:"Maintenance,omitempty"`
-	Ready          *int32 `json:"Ready,omitempty"`
-	Reset          *int32 `json:"Reset,omitempty"`
-	Unknown        *int32 `json:"Unknown,omitempty"`
+	// Number of Machines in Error status
+	Error *int32 `json:"Error,omitempty"`
+	// Number of Machines in Initializing status
+	Initializing *int32 `json:"Initializing,omitempty"`
+	// Number of Machines in InUse status
+	InUse *int32 `json:"InUse,omitempty"`
+	// Number of Machines in Maintenance status
+	Maintenance *int32 `json:"Maintenance,omitempty"`
+	// Number of Machines in Ready status
+	Ready *int32 `json:"Ready,omitempty"`
+	// Number of Machines in Reset status
+	Reset *int32 `json:"Reset,omitempty"`
+	// Number of Machines in Unknown status
+	Unknown *int32 `json:"Unknown,omitempty"`
 }
 
 // NewSiteMachineStatsByStatus instantiates a new SiteMachineStatsByStatus object

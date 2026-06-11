@@ -22,7 +22,9 @@ var _ MappedNullable = &IpBlockUpdateRequest{}
 
 // IpBlockUpdateRequest Request data for editing IP block
 type IpBlockUpdateRequest struct {
-	Name        NullableString `json:"name,omitempty"`
+	// Name of the IP Block
+	Name NullableString `json:"name,omitempty"`
+	// Description of the IP Block
 	Description NullableString `json:"description,omitempty"`
 }
 

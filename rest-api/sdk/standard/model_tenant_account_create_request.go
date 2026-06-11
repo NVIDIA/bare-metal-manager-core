@@ -24,6 +24,7 @@ var _ MappedNullable = &TenantAccountCreateRequest{}
 
 // TenantAccountCreateRequest Request data to create a TenantAccount
 type TenantAccountCreateRequest struct {
+	// ID of the Infrastructure Provider in the organization
 	InfrastructureProviderId string `json:"infrastructureProviderId"`
 	// Must be a valid Org name
 	TenantOrg string `json:"tenantOrg" validate:"regexp=^[A-Za-z0-9-_]+$"`

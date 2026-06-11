@@ -22,13 +22,20 @@ var _ MappedNullable = &MachineInfiniBandInterface{}
 
 // MachineInfiniBandInterface Describes information about an Infiniband Interface of a Machine
 type MachineInfiniBandInterface struct {
-	Guid        NullableString `json:"guid,omitempty"`
-	Vendor      NullableString `json:"vendor,omitempty"`
-	Device      NullableString `json:"device,omitempty"`
-	Path        NullableString `json:"path,omitempty"`
-	NumaNode    *int32         `json:"numaNode,omitempty"`
+	// Guid of the Machine's InfiniBandInterface
+	Guid NullableString `json:"guid,omitempty"`
+	// Serial number of the Machine's InfiniBandInterface
+	Vendor NullableString `json:"vendor,omitempty"`
+	// Device number of the Machine's InfiniBandInterface
+	Device NullableString `json:"device,omitempty"`
+	// Bios path of the Machine's InfiniBandInterface
+	Path NullableString `json:"path,omitempty"`
+	// Info of numa node Machine's InfiniBandInterface
+	NumaNode *int32 `json:"numaNode,omitempty"`
+	// Description the Machine's InfiniBandInterface
 	Description NullableString `json:"description,omitempty"`
-	Slot        NullableString `json:"slot,omitempty"`
+	// Slot number of the Machine's InfiniBandInterface
+	Slot NullableString `json:"slot,omitempty"`
 }
 
 // NewMachineInfiniBandInterface instantiates a new MachineInfiniBandInterface object

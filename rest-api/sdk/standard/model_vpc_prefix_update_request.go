@@ -24,6 +24,7 @@ var _ MappedNullable = &VpcPrefixUpdateRequest{}
 
 // VpcPrefixUpdateRequest Request data for updating a VPC Prefix
 type VpcPrefixUpdateRequest struct {
+	// Name of the VPCPrefix
 	Name string `json:"name"`
 }
 

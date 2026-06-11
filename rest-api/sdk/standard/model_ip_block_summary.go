@@ -22,14 +22,18 @@ var _ MappedNullable = &IpBlockSummary{}
 
 // IpBlockSummary Describes a subset of core attributes of an IP block
 type IpBlockSummary struct {
-	Id          *string `json:"id,omitempty"`
-	Name        *string `json:"name,omitempty"`
+	// ID of the IP Block
+	Id *string `json:"id,omitempty"`
+	// Name of the IP Block, only lowercase characters, digits, hyphens and cannot begin/end with hyphen
+	Name *string `json:"name,omitempty"`
+	// RoutingType of the IP Block
 	RoutingType *string `json:"routingType,omitempty"`
 	// Either IPv4 or IPv6 address
 	Prefix *string `json:"prefix,omitempty"`
 	// Min: 1, Max: 32 for ipv4, 128 for ipv6
-	PrefixLength *int32         `json:"prefixLength,omitempty"`
-	Status       *IpBlockStatus `json:"status,omitempty"`
+	PrefixLength *int32 `json:"prefixLength,omitempty"`
+	// Status of the IP Block
+	Status *IpBlockStatus `json:"status,omitempty"`
 }
 
 // NewIpBlockSummary instantiates a new IpBlockSummary object

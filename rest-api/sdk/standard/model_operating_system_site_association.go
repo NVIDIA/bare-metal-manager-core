@@ -23,12 +23,16 @@ var _ MappedNullable = &OperatingSystemSiteAssociation{}
 
 // OperatingSystemSiteAssociation Describes the relationship between Operating Systems and Sites
 type OperatingSystemSiteAssociation struct {
-	Site   *SiteSummary       `json:"site,omitempty"`
+	// Summary of the Site
+	Site *SiteSummary `json:"site,omitempty"`
+	// Status of the Operating SystemSiteAssociation
 	Status *SshKeyGroupStatus `json:"status,omitempty"`
 	// Version of the Key Group on Site
 	Version NullableString `json:"version,omitempty"`
-	Created *time.Time     `json:"created,omitempty"`
-	Updated *time.Time     `json:"updated,omitempty"`
+	// Date/time when the Site was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Site was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewOperatingSystemSiteAssociation instantiates a new OperatingSystemSiteAssociation object

@@ -22,16 +22,20 @@ var _ MappedNullable = &SiteSummary{}
 
 // SiteSummary SiteSummary contains a subset of data for Site object, used when nesting in other objects
 type SiteSummary struct {
+	// Unique UUID v4 identifier for the Site
 	Id *string `json:"id,omitempty"`
 	// Name of the Site
-	Name                     *string `json:"name,omitempty"`
+	Name *string `json:"name,omitempty"`
+	// ID of the Infrastructure Provider that owns the Site
 	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
 	// Indicates if Serial Console is enabled for the Site by the Provider
 	IsSerialConsoleEnabled *bool `json:"isSerialConsoleEnabled,omitempty"`
 	// Indicates if the Site is currently reachable from Cloud
-	IsOnline     *bool             `json:"isOnline,omitempty"`
+	IsOnline *bool `json:"isOnline,omitempty"`
+	// Site capabilities used for feature availability and configuration
 	Capabilities *SiteCapabilities `json:"capabilities,omitempty"`
-	Status       *SiteStatus       `json:"status,omitempty"`
+	// Status of the Site
+	Status *SiteStatus `json:"status,omitempty"`
 }
 
 // NewSiteSummary instantiates a new SiteSummary object

@@ -23,24 +23,40 @@ var _ MappedNullable = &InfiniBandPartition{}
 
 // InfiniBandPartition InfiniBand Partitions are network segments utilizing InfiniBand topology
 type InfiniBandPartition struct {
-	Id                      *string         `json:"id,omitempty"`
-	Name                    *string         `json:"name,omitempty"`
-	Description             NullableString  `json:"description,omitempty"`
-	SiteId                  *string         `json:"siteId,omitempty"`
-	TenantId                *string         `json:"tenantId,omitempty"`
-	ControllerIBPartitionId NullableString  `json:"controllerIBPartitionId,omitempty"`
-	PartitionKey            NullableString  `json:"partitionKey,omitempty"`
-	PartitionName           NullableString  `json:"partitionName,omitempty"`
-	ServiceLevel            NullableInt32   `json:"serviceLevel,omitempty"`
-	RateLimit               NullableFloat32 `json:"rateLimit,omitempty"`
-	Mtu                     NullableInt32   `json:"mtu,omitempty"`
-	EnableSharp             *bool           `json:"enableSharp,omitempty"`
+	// Unique UUID v4 identifier for the InfiniBand Partition
+	Id *string `json:"id,omitempty"`
+	// Name of the InfiniBand Partition
+	Name *string `json:"name,omitempty"`
+	// Description of the InfiniBand Partition
+	Description NullableString `json:"description,omitempty"`
+	// ID of the Site
+	SiteId *string `json:"siteId,omitempty"`
+	// ID of the Tenant
+	TenantId *string `json:"tenantId,omitempty"`
+	// ID of the Site Controller InfiniBand partition corresponding to this InfiniBand Partition
+	ControllerIBPartitionId NullableString `json:"controllerIBPartitionId,omitempty"`
+	// Partition key assigned to the InfiniBand Partition
+	PartitionKey NullableString `json:"partitionKey,omitempty"`
+	// Partition name assigned to the InfiniBand Partition
+	PartitionName NullableString `json:"partitionName,omitempty"`
+	// Service level configured for the InfiniBand Partition
+	ServiceLevel NullableInt32 `json:"serviceLevel,omitempty"`
+	// Rate limit configured for the InfiniBand Partition
+	RateLimit NullableFloat32 `json:"rateLimit,omitempty"`
+	// MTU configured for the InfiniBand Partition
+	Mtu NullableInt32 `json:"mtu,omitempty"`
+	// Whether SHARP is enabled for the InfiniBand Partition
+	EnableSharp *bool `json:"enableSharp,omitempty"`
 	// String key value pairs describing InfiniBand Partition labels. Up to 10 key value pairs can be specified
-	Labels        map[string]string          `json:"labels,omitempty"`
-	Status        *InfiniBandPartitionStatus `json:"status,omitempty"`
-	StatusHistory []StatusDetail             `json:"statusHistory,omitempty"`
-	Created       *time.Time                 `json:"created,omitempty"`
-	Updated       *time.Time                 `json:"updated,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+	// Status of the InfiniBand Partition
+	Status *InfiniBandPartitionStatus `json:"status,omitempty"`
+	// Chronological status history for the InfiniBand Partition
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the InfiniBand Partition was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the InfiniBand Partition was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewInfiniBandPartition instantiates a new InfiniBandPartition object

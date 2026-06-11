@@ -24,12 +24,18 @@ var _ MappedNullable = &SubnetCreateRequest{}
 
 // SubnetCreateRequest Request data for creating Subnet
 type SubnetCreateRequest struct {
-	Name         string         `json:"name"`
-	Description  NullableString `json:"description,omitempty"`
-	VpcId        string         `json:"vpcId"`
-	Ipv4BlockId  NullableString `json:"ipv4BlockId,omitempty"`
-	Ipv6BlockId  NullableString `json:"ipv6BlockId,omitempty"`
-	PrefixLength int32          `json:"prefixLength"`
+	// Name of the Subnet
+	Name string `json:"name"`
+	// Description of the Subnet
+	Description NullableString `json:"description,omitempty"`
+	// ID of the VPC containing the Subnet
+	VpcId string `json:"vpcId"`
+	// ID of the derived Tenant IPv4 Block from an Allocation
+	Ipv4BlockId NullableString `json:"ipv4BlockId,omitempty"`
+	// ID of the derived Tenant IPv6 Block from an Allocation
+	Ipv6BlockId NullableString `json:"ipv6BlockId,omitempty"`
+	// Length of the prefix
+	PrefixLength int32 `json:"prefixLength"`
 }
 
 type _SubnetCreateRequest SubnetCreateRequest

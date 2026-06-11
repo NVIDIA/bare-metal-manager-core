@@ -22,8 +22,11 @@ var _ MappedNullable = &InfrastructureProviderStats{}
 
 // InfrastructureProviderStats Provide operational stats for Infrastructure Provider
 type InfrastructureProviderStats struct {
-	Machine       *MachineCountByStatus       `json:"machine,omitempty"`
-	IpBlock       *IpBlockCountByStatus       `json:"ipBlock,omitempty"`
+	// Machine status counts for the Infrastructure Provider
+	Machine *MachineCountByStatus `json:"machine,omitempty"`
+	// IP Block status counts for the Infrastructure Provider
+	IpBlock *IpBlockCountByStatus `json:"ipBlock,omitempty"`
+	// Tenant Account status counts for the Infrastructure Provider
 	TenantAccount *TenantAccountCountByStatus `json:"tenantAccount,omitempty"`
 }
 

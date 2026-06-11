@@ -22,12 +22,18 @@ var _ MappedNullable = &IpBlockCountByStatus{}
 
 // IpBlockCountByStatus Describes counts of IP Blocks in various statuses
 type IpBlockCountByStatus struct {
-	Total        *int32 `json:"total,omitempty"`
-	Pending      *int32 `json:"pending,omitempty"`
+	// Total number of IP Blocks
+	Total *int32 `json:"total,omitempty"`
+	// Number of IP Blocks in Pending status
+	Pending *int32 `json:"pending,omitempty"`
+	// Number of IP Blocks in Provisioning status
 	Provisioning *int32 `json:"provisioning,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	Deleting     *int32 `json:"deleting,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
+	// Number of IP Blocks in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of IP Blocks in Deleting status
+	Deleting *int32 `json:"deleting,omitempty"`
+	// Number of IP Blocks in Error status
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewIpBlockCountByStatus instantiates a new IpBlockCountByStatus object

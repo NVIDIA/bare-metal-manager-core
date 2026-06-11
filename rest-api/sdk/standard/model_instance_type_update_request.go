@@ -22,9 +22,13 @@ var _ MappedNullable = &InstanceTypeUpdateRequest{}
 
 // InstanceTypeUpdateRequest Request data to update an Instance Type
 type InstanceTypeUpdateRequest struct {
-	Name                NullableString      `json:"name,omitempty"`
-	Description         NullableString      `json:"description,omitempty"`
-	Labels              map[string]string   `json:"labels,omitempty"`
+	// Name of the Instance Type
+	Name NullableString `json:"name,omitempty"`
+	// Description of the Instance Type
+	Description NullableString `json:"description,omitempty"`
+	// User-defined key-value labels for the Instance Type
+	Labels map[string]string `json:"labels,omitempty"`
+	// List of Machine Capabilities to match
 	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`
 }
 

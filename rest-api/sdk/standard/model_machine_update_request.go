@@ -31,7 +31,8 @@ type MachineUpdateRequest struct {
 	// Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or Privileged Tenant.
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
 	// Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or Privileged Tenant.
-	Labels       map[string]string    `json:"labels,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+	// Request to enter/exit online repair
 	OnlineRepair *MachineOnlineRepair `json:"onlineRepair,omitempty"`
 	// Required when `onlineRepair.enabled` is true. Must not be set when exiting online repair (`onlineRepair.enabled` false).
 	HealthIssue *MachineHealthIssue `json:"healthIssue,omitempty"`

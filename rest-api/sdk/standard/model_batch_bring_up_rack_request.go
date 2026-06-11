@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchBringUpRackRequest{}
 // BatchBringUpRackRequest Request body for batch rack bring up operations
 type BatchBringUpRackRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Racks targeted for bring-up
 	Filter *RackFilter `json:"filter,omitempty"`
 	// Optional description for the bring up operation
 	Description *string `json:"description,omitempty"`

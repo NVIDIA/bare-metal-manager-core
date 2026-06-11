@@ -22,13 +22,20 @@ var _ MappedNullable = &MachineStatusBreakdown{}
 
 // MachineStatusBreakdown Machine counts broken down by status
 type MachineStatusBreakdown struct {
-	Total        *int32 `json:"total,omitempty"`
+	// Total number of machines in this group
+	Total *int32 `json:"total,omitempty"`
+	// Number of machines being initialized
 	Initializing *int32 `json:"initializing,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	InUse        *int32 `json:"inUse,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
-	Maintenance  *int32 `json:"maintenance,omitempty"`
-	Unknown      *int32 `json:"unknown,omitempty"`
+	// Number of machines in ready state
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of machines currently in use
+	InUse *int32 `json:"inUse,omitempty"`
+	// Number of machines in error state
+	Error *int32 `json:"error,omitempty"`
+	// Number of machines in maintenance state
+	Maintenance *int32 `json:"maintenance,omitempty"`
+	// Number of machines in unknown state
+	Unknown *int32 `json:"unknown,omitempty"`
 }
 
 // NewMachineStatusBreakdown instantiates a new MachineStatusBreakdown object

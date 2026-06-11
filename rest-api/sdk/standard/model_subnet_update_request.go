@@ -24,7 +24,9 @@ var _ MappedNullable = &SubnetUpdateRequest{}
 
 // SubnetUpdateRequest Request data for updating a Subnet
 type SubnetUpdateRequest struct {
-	Name        string         `json:"name"`
+	// Name of the Subnet
+	Name string `json:"name"`
+	// Description of the Subnet
 	Description NullableString `json:"description,omitempty"`
 }
 

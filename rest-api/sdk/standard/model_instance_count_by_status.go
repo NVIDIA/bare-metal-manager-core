@@ -22,12 +22,18 @@ var _ MappedNullable = &InstanceCountByStatus{}
 
 // InstanceCountByStatus Describes count of Instances in various statuses
 type InstanceCountByStatus struct {
-	Total        *int32 `json:"total,omitempty"`
-	Pending      *int32 `json:"pending,omitempty"`
+	// Total number of Instances
+	Total *int32 `json:"total,omitempty"`
+	// Number of Instances in Pending status
+	Pending *int32 `json:"pending,omitempty"`
+	// Number of Instances in Provisioning status
 	Provisioning *int32 `json:"provisioning,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	Terminating  *int32 `json:"terminating,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
+	// Number of Instances in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of Instances in Terminating status
+	Terminating *int32 `json:"terminating,omitempty"`
+	// Number of Instances in Error status
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewInstanceCountByStatus instantiates a new InstanceCountByStatus object

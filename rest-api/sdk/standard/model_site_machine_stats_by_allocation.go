@@ -22,9 +22,12 @@ var _ MappedNullable = &SiteMachineStatsByAllocation{}
 
 // SiteMachineStatsByAllocation Machine stats for a Site by allocation
 type SiteMachineStatsByAllocation struct {
-	AllocatedInUse    *int32 `json:"allocatedInUse,omitempty"`
+	// Number of allocated Machines currently in use
+	AllocatedInUse *int32 `json:"allocatedInUse,omitempty"`
+	// Number of allocated Machines not currently in use
 	AllocatedNotInUse *int32 `json:"allocatedNotInUse,omitempty"`
-	Unallocated       *int32 `json:"unallocated,omitempty"`
+	// Number of Machines not currently allocated
+	Unallocated *int32 `json:"unallocated,omitempty"`
 }
 
 // NewSiteMachineStatsByAllocation instantiates a new SiteMachineStatsByAllocation object

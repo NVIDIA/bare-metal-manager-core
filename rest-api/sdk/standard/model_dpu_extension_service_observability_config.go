@@ -23,9 +23,11 @@ var _ MappedNullable = &DpuExtensionServiceObservabilityConfig{}
 // DpuExtensionServiceObservabilityConfig A single observability configuration for a DPU Extension Service version
 type DpuExtensionServiceObservabilityConfig struct {
 	// Optional name of the service or component being monitored
-	Name       NullableString
+	Name NullableString
+	// Prometheus scrape configuration
 	Prometheus *DpuExtensionServiceObservabilityPrometheus
-	Logging    *DpuExtensionServiceObservabilityLogging
+	// Logging configuration
+	Logging *DpuExtensionServiceObservabilityLogging
 }
 
 // NewDpuExtensionServiceObservabilityConfig instantiates a new DpuExtensionServiceObservabilityConfig object

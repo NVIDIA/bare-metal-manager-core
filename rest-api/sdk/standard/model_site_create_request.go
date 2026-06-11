@@ -30,8 +30,10 @@ type SiteCreateRequest struct {
 	Description NullableString `json:"description,omitempty"`
 	// Hostname to reach Serial Console for the Site
 	SerialConsoleHostname NullableString `json:"serialConsoleHostname,omitempty"`
-	Location              *SiteLocation  `json:"location,omitempty"`
-	Contact               *SiteContact   `json:"contact,omitempty"`
+	// Site location information
+	Location *SiteLocation `json:"location,omitempty"`
+	// Site contact information
+	Contact *SiteContact `json:"contact,omitempty"`
 }
 
 type _SiteCreateRequest SiteCreateRequest

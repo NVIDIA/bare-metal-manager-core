@@ -31,7 +31,8 @@ type AllocationCreateRequest struct {
 	// ID of the Tenant that should receive the Allocation
 	TenantId string `json:"tenantId"`
 	// ID of the Site where resources should be allocated
-	SiteId                string                              `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// List of Allocation Constraint objects
 	AllocationConstraints []AllocationConstraintCreateRequest `json:"allocationConstraints,omitempty"`
 }
 

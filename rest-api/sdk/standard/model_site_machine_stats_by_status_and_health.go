@@ -22,14 +22,22 @@ var _ MappedNullable = &SiteMachineStatsByStatusAndHealth{}
 
 // SiteMachineStatsByStatusAndHealth Machine stats for a Site by status and health
 type SiteMachineStatsByStatusAndHealth struct {
+	// Health breakdown for Machines in Decommissioned status
 	Decommissioned *SiteMachineStatsByHealth `json:"Decommissioned,omitempty"`
-	Error          *SiteMachineStatsByHealth `json:"Error,omitempty"`
-	Initializing   *SiteMachineStatsByHealth `json:"Initializing,omitempty"`
-	InUse          *SiteMachineStatsByHealth `json:"InUse,omitempty"`
-	Maintenance    *SiteMachineStatsByHealth `json:"Maintenance,omitempty"`
-	Ready          *SiteMachineStatsByHealth `json:"Ready,omitempty"`
-	Reset          *SiteMachineStatsByHealth `json:"Reset,omitempty"`
-	Unknown        *SiteMachineStatsByHealth `json:"Unknown,omitempty"`
+	// Health breakdown for Machines in Error status
+	Error *SiteMachineStatsByHealth `json:"Error,omitempty"`
+	// Health breakdown for Machines in Initializing status
+	Initializing *SiteMachineStatsByHealth `json:"Initializing,omitempty"`
+	// Health breakdown for Machines in InUse status
+	InUse *SiteMachineStatsByHealth `json:"InUse,omitempty"`
+	// Health breakdown for Machines in Maintenance status
+	Maintenance *SiteMachineStatsByHealth `json:"Maintenance,omitempty"`
+	// Health breakdown for Machines in Ready status
+	Ready *SiteMachineStatsByHealth `json:"Ready,omitempty"`
+	// Health breakdown for Machines in Reset status
+	Reset *SiteMachineStatsByHealth `json:"Reset,omitempty"`
+	// Health breakdown for Machines in Unknown status
+	Unknown *SiteMachineStatsByHealth `json:"Unknown,omitempty"`
 }
 
 // NewSiteMachineStatsByStatusAndHealth instantiates a new SiteMachineStatsByStatusAndHealth object

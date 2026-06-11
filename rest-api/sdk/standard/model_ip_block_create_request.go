@@ -24,14 +24,19 @@ var _ MappedNullable = &IpBlockCreateRequest{}
 
 // IpBlockCreateRequest Request data for creating IP block
 type IpBlockCreateRequest struct {
-	Name        string         `json:"name"`
+	// Name of the IP Block
+	Name string `json:"name"`
+	// Description of the IP Block
 	Description NullableString `json:"description,omitempty"`
-	SiteId      string         `json:"siteId"`
-	RoutingType string         `json:"routingType"`
+	// ID of the site
+	SiteId string `json:"siteId"`
+	// Routing type of the IP Block
+	RoutingType string `json:"routingType"`
 	// Either IPv4 or IPv6 address
 	Prefix string `json:"prefix"`
 	// Min: 1, Max: 32 for IPv4, 128 for IPv6
-	PrefixLength    int32  `json:"prefixLength"`
+	PrefixLength int32 `json:"prefixLength"`
+	// Version of the ip network ipv4 or ipv6
 	ProtocolVersion string `json:"protocolVersion"`
 }
 

@@ -30,14 +30,15 @@ type InstanceUpdateRequest struct {
 	TriggerReboot NullableBool `json:"triggerReboot,omitempty"`
 	// When specified along with triggerReboot, the Instance will boot using the custom iPXE specified by OS. If Instance has alwaysBootWithCustomIpxe flag set then this value will be ignored.
 	RebootWithCustomIpxe NullableBool `json:"rebootWithCustomIpxe,omitempty"`
-	// When specified, any updates pending for the Instance e.g. DPU reprovisioning, will be applied on reboot
+	// When specified, pending Instance updates such as DPU reprovisioning are applied on reboot
 	ApplyUpdatesOnReboot NullableBool `json:"applyUpdatesOnReboot,omitempty"`
 	// The UUID of the desired operating system.
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
 	// The iPXE script content to be used for booting.
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// Specify a new list of SSH Key Group IDs that will provide Serial over LAN and SSH access.  This will overwrite an existing list.
-	SshKeyGroupIds         []string       `json:"sshKeyGroupIds,omitempty"`
+	SshKeyGroupIds []string `json:"sshKeyGroupIds,omitempty"`
+	// ID of the Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Any user-data to be sent to the booting OS.  For example, cloud-init data.
 	UserData NullableString `json:"userData,omitempty"`

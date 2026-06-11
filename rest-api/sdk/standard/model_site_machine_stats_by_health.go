@@ -22,7 +22,9 @@ var _ MappedNullable = &SiteMachineStatsByHealth{}
 
 // SiteMachineStatsByHealth Machine stats for a Site by health
 type SiteMachineStatsByHealth struct {
-	Healthy   *int32 `json:"healthy,omitempty"`
+	// Number of healthy Machines
+	Healthy *int32 `json:"healthy,omitempty"`
+	// Number of unhealthy Machines
 	Unhealthy *int32 `json:"unhealthy,omitempty"`
 }
 

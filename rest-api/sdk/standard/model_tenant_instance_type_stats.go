@@ -27,8 +27,9 @@ type TenantInstanceTypeStats struct {
 	// Organization name for the Tenant
 	Org *string `json:"org,omitempty"`
 	// Display name for the Tenant's organization
-	OrgDisplayName *string             `json:"orgDisplayName,omitempty"`
-	InstanceTypes  []InstanceTypeStats `json:"instanceTypes,omitempty"`
+	OrgDisplayName *string `json:"orgDisplayName,omitempty"`
+	// Instance Type statistics for this Tenant
+	InstanceTypes []InstanceTypeStats `json:"instanceTypes,omitempty"`
 }
 
 // NewTenantInstanceTypeStats instantiates a new TenantInstanceTypeStats object

@@ -24,7 +24,9 @@ var _ MappedNullable = &InfiniBandPartitionUpdateRequest{}
 
 // InfiniBandPartitionUpdateRequest Request data to update an InfiniBand Partition
 type InfiniBandPartitionUpdateRequest struct {
-	Name        string         `json:"name"`
+	// Name of the InfiniBand Partition
+	Name string `json:"name"`
+	// Description of the InfiniBand Partition
 	Description NullableString `json:"description,omitempty"`
 	// String key value pairs describing Partition labels. Up to 10 key value pairs can be specified
 	Labels map[string]string `json:"labels,omitempty"`

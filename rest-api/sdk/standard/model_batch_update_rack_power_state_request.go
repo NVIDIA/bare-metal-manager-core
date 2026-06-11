@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchUpdateRackPowerStateRequest{}
 // BatchUpdateRackPowerStateRequest Request body for batch rack power control operations
 type BatchUpdateRackPowerStateRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Racks whose power state should be updated
 	Filter *RackFilter `json:"filter,omitempty"`
 	// Target power state
 	State string `json:"state"`

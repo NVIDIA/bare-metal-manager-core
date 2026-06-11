@@ -22,12 +22,18 @@ var _ MappedNullable = &SubnetCountByStatus{}
 
 // SubnetCountByStatus Describes counts of Subnets in various statuses
 type SubnetCountByStatus struct {
-	Total        *int32 `json:"total,omitempty"`
-	Pending      *int32 `json:"pending,omitempty"`
+	// Total number of Subnets
+	Total *int32 `json:"total,omitempty"`
+	// Number of Subnets in Pending status
+	Pending *int32 `json:"pending,omitempty"`
+	// Number of Subnets in Provisioning status
 	Provisioning *int32 `json:"provisioning,omitempty"`
-	Ready        *int32 `json:"ready,omitempty"`
-	Deleting     *int32 `json:"deleting,omitempty"`
-	Error        *int32 `json:"error,omitempty"`
+	// Number of Subnets in Ready status
+	Ready *int32 `json:"ready,omitempty"`
+	// Number of Subnets in Deleting status
+	Deleting *int32 `json:"deleting,omitempty"`
+	// Number of Subnets in Error status
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewSubnetCountByStatus instantiates a new SubnetCountByStatus object

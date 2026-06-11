@@ -22,6 +22,7 @@ var _ MappedNullable = &TenantIdentityBasicClientSecretResponse{}
 
 // TenantIdentityBasicClientSecretResponse Public half of `client_secret_basic` credentials. Only the SHA-256 hash of the secret is returned.
 type TenantIdentityBasicClientSecretResponse struct {
+	// Client identifier used for basic client-secret authentication
 	ClientId *string `json:"clientId,omitempty"`
 	// SHA-256 hash of the raw secret.
 	ClientSecretHash *string `json:"clientSecretHash,omitempty"`

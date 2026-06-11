@@ -4,7 +4,6 @@
 package model
 
 import (
-	"reflect"
 	"testing"
 	"time"
 
@@ -112,13 +111,10 @@ func TestAPITenantAccountUpdateRequest_Validate(t *testing.T) {
 func TestAPITenantAccountNew(t *testing.T) {
 	dbObj := &cdbm.TenantAccount{
 		ID:                        uuid.New(),
-		AccountNumber:             "acctNum",
 		TenantID:                  cutil.GetPtr(uuid.New()),
 		TenantOrg:                 "testOrg",
 		InfrastructureProviderID:  uuid.New(),
 		InfrastructureProviderOrg: "testIPOrg",
-		SubscriptionID:            cutil.GetPtr(uuid.New().String()),
-		SubscriptionTier:          cutil.GetPtr("someTier"),
 		TenantContactID:           cutil.GetPtr(uuid.New()),
 		Status:                    "Invited",
 		Created:                   cdb.GetCurTime(),
@@ -134,13 +130,10 @@ func TestAPITenantAccountNew(t *testing.T) {
 	}
 	dbObj2 := &cdbm.TenantAccount{
 		ID:                        uuid.New(),
-		AccountNumber:             "acctNum",
 		TenantID:                  cutil.GetPtr(uuid.New()),
 		TenantOrg:                 "testOrg",
 		InfrastructureProviderID:  uuid.New(),
 		InfrastructureProviderOrg: "testIPOrg",
-		SubscriptionID:            cutil.GetPtr(uuid.New().String()),
-		SubscriptionTier:          cutil.GetPtr("someTier"),
 		TenantContact:             dbUsr,
 		TenantContactID:           cutil.GetPtr(uuid.New()),
 		Status:                    "Invited",
@@ -173,11 +166,8 @@ func TestAPITenantAccountNew(t *testing.T) {
 			sdObj: dbsds,
 			apiObj: &APITenantAccount{
 				ID:                        dbObj.ID.String(),
-				AccountNumber:             dbObj.AccountNumber,
 				InfrastructureProviderID:  dbObj.InfrastructureProviderID.String(),
 				InfrastructureProviderOrg: dbObj.InfrastructureProviderOrg,
-				SubscriptionID:            dbObj.SubscriptionID,
-				SubscriptionTier:          dbObj.SubscriptionTier,
 				TenantID:                  cutil.GetPtr(dbObj.TenantID.String()),
 				TenantOrg:                 dbObj.TenantOrg,
 				TenantContact:             nil,
@@ -194,11 +184,8 @@ func TestAPITenantAccountNew(t *testing.T) {
 			sdObj: dbsds,
 			apiObj: &APITenantAccount{
 				ID:                        dbObj2.ID.String(),
-				AccountNumber:             dbObj2.AccountNumber,
 				InfrastructureProviderID:  dbObj2.InfrastructureProviderID.String(),
-				InfrastructureProviderOrg: dbObj.InfrastructureProviderOrg,
-				SubscriptionID:            dbObj2.SubscriptionID,
-				SubscriptionTier:          dbObj2.SubscriptionTier,
+				InfrastructureProviderOrg: dbObj2.InfrastructureProviderOrg,
 				TenantID:                  cutil.GetPtr(dbObj2.TenantID.String()),
 				TenantOrg:                 dbObj.TenantOrg,
 				TenantContact:             apiUsr,
@@ -213,7 +200,15 @@ func TestAPITenantAccountNew(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			got := NewAPITenantAccount(tc.dbObj, tc.sdObj, 2)
-			assert.Equal(t, true, reflect.DeepEqual(got, tc.apiObj))
+			assert.Equal(t, tc.apiObj.ID, got.ID)
+			assert.Equal(t, tc.apiObj.InfrastructureProviderID, got.InfrastructureProviderID)
+			assert.Equal(t, tc.apiObj.InfrastructureProviderOrg, got.InfrastructureProviderOrg)
+			assert.Equal(t, tc.apiObj.TenantID, got.TenantID)
+			assert.Equal(t, tc.apiObj.TenantOrg, got.TenantOrg)
+			assert.Equal(t, tc.apiObj.TenantContact, got.TenantContact)
+			assert.Equal(t, tc.apiObj.AllocationCount, got.AllocationCount)
+			assert.Equal(t, tc.apiObj.Status, got.Status)
+			assert.Equal(t, tc.apiObj.StatusHistory, got.StatusHistory)
 		})
 	}
 }

@@ -25,7 +25,8 @@ var _ MappedNullable = &BatchTrayFirmwareUpdateRequest{}
 // BatchTrayFirmwareUpdateRequest Request body for batch tray firmware update operations
 type BatchTrayFirmwareUpdateRequest struct {
 	// ID of the Site
-	SiteId string      `json:"siteId"`
+	SiteId string `json:"siteId"`
+	// Filter that selects Trays targeted for firmware update
 	Filter *TrayFilter `json:"filter,omitempty"`
 	// Target firmware version.
 	Version NullableString `json:"version,omitempty"`

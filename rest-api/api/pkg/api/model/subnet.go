@@ -39,9 +39,6 @@ type APISubnetCreateRequest struct {
 	IPv4BlockID *string `json:"ipv4BlockId"`
 	// IPv6BlockID is the derived IPv6BlockId for the tenant from an allocation
 	IPv6BlockID *string `json:"ipv6BlockId"`
-	// IPBlockSize the block size for the Subnet
-	// NOTE: This field has been deprecated
-	IPBlockSize *int `json:"ipBlockSize"`
 	// PrefixLength is the length of the prefix
 	PrefixLength int `json:"prefixLength"`
 }

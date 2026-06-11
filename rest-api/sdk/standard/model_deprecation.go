@@ -31,7 +31,7 @@ type Deprecation struct {
 	Endpoint NullableString `json:"endpoint,omitempty"`
 	// Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
 	ReplacedBy NullableString `json:"replacedBy,omitempty"`
-	// ISO datetime string for when the deprecated field will no longer be accepted or available in the API
+	// Date/time by which clients should migrate away from the deprecated API surface
 	TakeActionBy *time.Time `json:"takeActionBy,omitempty"`
 	// Message describing the deprecation
 	Notice *string `json:"notice,omitempty"`

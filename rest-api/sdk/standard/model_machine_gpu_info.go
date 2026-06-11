@@ -22,14 +22,22 @@ var _ MappedNullable = &MachineGPUInfo{}
 
 // MachineGPUInfo Describes information about GPU of a Machine
 type MachineGPUInfo struct {
-	Name           NullableString `json:"name,omitempty"`
-	Serial         NullableString `json:"serial,omitempty"`
-	DriverVersion  NullableString `json:"driverVersion,omitempty"`
-	VbiosVersion   NullableString `json:"vbiosVersion,omitempty"`
+	// Name of the Machine's GPU
+	Name NullableString `json:"name,omitempty"`
+	// Serial number of the Machine's GPU
+	Serial NullableString `json:"serial,omitempty"`
+	// Version of the Machine's GPU driver
+	DriverVersion NullableString `json:"driverVersion,omitempty"`
+	// Bios version of the Machine's GPU
+	VbiosVersion NullableString `json:"vbiosVersion,omitempty"`
+	// Info rom version of the Machine's GPU
 	InforomVersion NullableString `json:"inforomVersion,omitempty"`
-	TotalMemory    NullableString `json:"totalMemory,omitempty"`
-	Frequency      NullableString `json:"frequency,omitempty"`
-	PciBusId       NullableString `json:"pciBusId,omitempty"`
+	// Total memory of the Machine's GPU
+	TotalMemory NullableString `json:"totalMemory,omitempty"`
+	// Frequency of the Machine's GPU
+	Frequency NullableString `json:"frequency,omitempty"`
+	// PCI BusId of the Machine's GPU
+	PciBusId NullableString `json:"pciBusId,omitempty"`
 }
 
 // NewMachineGPUInfo instantiates a new MachineGPUInfo object

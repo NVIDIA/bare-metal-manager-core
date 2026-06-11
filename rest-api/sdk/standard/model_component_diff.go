@@ -27,9 +27,11 @@ type ComponentDiff struct {
 	// Flow internal component UUID
 	Id *string `json:"id,omitempty"`
 	// Component ID assigned by the component manager service
-	ComponentId *string        `json:"componentId,omitempty"`
-	Expected    *RackComponent `json:"expected,omitempty"`
-	Actual      *RackComponent `json:"actual,omitempty"`
+	ComponentId *string `json:"componentId,omitempty"`
+	// Expected component value
+	Expected *RackComponent `json:"expected,omitempty"`
+	// Actual component value reported by the system
+	Actual *RackComponent `json:"actual,omitempty"`
 	// List of field differences (populated when type is Mismatch)
 	FieldDiffs []FieldDiff `json:"fieldDiffs,omitempty"`
 }

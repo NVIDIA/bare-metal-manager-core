@@ -41,9 +41,11 @@ type SiteUpdateRequest struct {
 	SerialConsoleMaxSessionLength *int32 `json:"serialConsoleMaxSessionLength,omitempty"`
 	// Enable/disable Serial Console access using SSH Keys. Previously updateable only by Tenants, modifying this value is no longer supported, update SSH Key Groups to remove Site instead.
 	// Deprecated
-	IsSerialConsoleSSHKeysEnabled *bool         `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
-	Location                      *SiteLocation `json:"location,omitempty"`
-	Contact                       *SiteContact  `json:"contact,omitempty"`
+	IsSerialConsoleSSHKeysEnabled *bool `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
+	// Updated Site location information
+	Location *SiteLocation `json:"location,omitempty"`
+	// Updated Site contact information
+	Contact *SiteContact `json:"contact,omitempty"`
 	// Modify Site capabilities. Can only be updated by Provider. Partial update allowed, only specify capabilities that should be updated.
 	Capabilities *SiteCapabilitiesUpdateRequest `json:"capabilities,omitempty"`
 }

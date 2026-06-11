@@ -22,7 +22,9 @@ var _ MappedNullable = &InterfaceCreateRequest{}
 
 // InterfaceCreateRequest Request data to create an Interface for an Instance by associating it with a Subnet or VPC Prefix.  If VPC specified in request has FNN virtualization type, then all interfaces must specify VPC Prefix.  If the VPC has Ethernet network virtualization type then all interfaces must specify Subnet.
 type InterfaceCreateRequest struct {
-	SubnetId    *string `json:"subnetId,omitempty"`
+	// ID of the Subnet to attach to the Interface
+	SubnetId *string `json:"subnetId,omitempty"`
+	// ID of the VPC Prefix to attach to the Interface
 	VpcPrefixId *string `json:"vpcPrefixId,omitempty"`
 	// Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
 	IpAddress            NullableString                        `json:"ipAddress,omitempty"`

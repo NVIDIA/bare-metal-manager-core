@@ -24,10 +24,14 @@ var _ MappedNullable = &SshKeyGroupCreateRequest{}
 
 // SshKeyGroupCreateRequest Request data to create an SSH Key Group
 type SshKeyGroupCreateRequest struct {
-	Name        string         `json:"name"`
+	// Name of the SSHKeyGroup
+	Name string `json:"name"`
+	// Description of the SSHKeyGroup
 	Description NullableString `json:"description,omitempty"`
-	SiteIds     []string       `json:"siteIds,omitempty"`
-	SshKeyIds   []string       `json:"sshKeyIds,omitempty"`
+	// List of Site objects
+	SiteIds []string `json:"siteIds,omitempty"`
+	// List of SSHKeyID objects
+	SshKeyIds []string `json:"sshKeyIds,omitempty"`
 }
 
 type _SshKeyGroupCreateRequest SshKeyGroupCreateRequest

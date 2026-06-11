@@ -34,9 +34,12 @@ type Allocation struct {
 	// ID of the Tenant that received the Allocation
 	TenantId *string `json:"tenantId,omitempty"`
 	// ID of the Site where resources are allocated
-	SiteId                *string                `json:"siteId,omitempty"`
-	Status                *AllocationStatus      `json:"status,omitempty"`
-	StatusHistory         []StatusDetail         `json:"statusHistory,omitempty"`
+	SiteId *string `json:"siteId,omitempty"`
+	// Status of the Allocation
+	Status *AllocationStatus `json:"status,omitempty"`
+	// Chronological status history for the Allocation
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// List of Allocation Constraints for the Allocation
 	AllocationConstraints []AllocationConstraint `json:"allocationConstraints,omitempty"`
 	// Date/time when the Allocation was created
 	Created *time.Time `json:"created,omitempty"`

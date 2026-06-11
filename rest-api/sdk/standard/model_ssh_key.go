@@ -24,9 +24,12 @@ var _ MappedNullable = &SshKey{}
 // SshKey Details of SSH public key
 type SshKey struct {
 	// Unique identifier for the key
-	Id       *string `json:"id,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	Org      *string `json:"org,omitempty"`
+	Id *string `json:"id,omitempty"`
+	// Name of the SSHKey
+	Name *string `json:"name,omitempty"`
+	// Organization the SSHKey belongs to
+	Org *string `json:"org,omitempty"`
+	// ID of the Tenant
 	TenantId *string `json:"tenantId,omitempty"`
 	// SHA256 fingerprint of the public key
 	Fingerprint *string `json:"fingerprint,omitempty"`

@@ -22,10 +22,15 @@ var _ MappedNullable = &SiteCapabilities{}
 
 // SiteCapabilities Boolean flags to indicate features supported by a Site
 type SiteCapabilities struct {
-	NativeNetworking          *bool `json:"nativeNetworking,omitempty"`
-	NetworkSecurityGroup      *bool `json:"networkSecurityGroup,omitempty"`
-	NvLinkPartition           *bool `json:"nvLinkPartition,omitempty"`
-	Flow                      *bool `json:"flow,omitempty"`
+	// Whether the Site supports native networking
+	NativeNetworking *bool `json:"nativeNetworking,omitempty"`
+	// Whether the Site supports Network Security Groups
+	NetworkSecurityGroup *bool `json:"networkSecurityGroup,omitempty"`
+	// Whether the Site supports NVLink partitioning
+	NvLinkPartition *bool `json:"nvLinkPartition,omitempty"`
+	// Whether the Site supports Flow-based operations
+	Flow *bool `json:"flow,omitempty"`
+	// Whether the Site supports image-based operating system provisioning
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`
 }
 

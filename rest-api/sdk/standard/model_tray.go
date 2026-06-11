@@ -41,8 +41,9 @@ type Tray struct {
 	// Firmware version of the tray
 	FirmwareVersion *string `json:"firmwareVersion,omitempty"`
 	// Current power state of the tray
-	PowerState *string       `json:"powerState,omitempty"`
-	Position   *TrayPosition `json:"position,omitempty"`
+	PowerState *string `json:"powerState,omitempty"`
+	// Position of the Tray within the Rack
+	Position *TrayPosition `json:"position,omitempty"`
 	// BMC (Baseboard Management Controller) entries for the tray
 	Bmcs []BMCInfo `json:"bmcs,omitempty"`
 	// ID of the rack this tray belongs to

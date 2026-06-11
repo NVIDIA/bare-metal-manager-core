@@ -46,21 +46,29 @@ type Machine struct {
 	// Product name of the Machine
 	ProductName NullableString `json:"productName,omitempty"`
 	// Serial number of the Machine, only visible to Provider
-	SerialNumber        NullableString      `json:"serialNumber,omitempty"`
+	SerialNumber NullableString `json:"serialNumber,omitempty"`
+	// List of capabilities of the machine
 	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`
-	MachineInterfaces   []MachineInterface  `json:"machineInterfaces,omitempty"`
+	// List of admin interfaces of the machine
+	MachineInterfaces []MachineInterface `json:"machineInterfaces,omitempty"`
 	// If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
-	Health             *MachineHealth `json:"health,omitempty"`
+	// Health information about the machine
+	Health *MachineHealth `json:"health,omitempty"`
 	// Only available to Providers. Returned if includeMetadata query param is specified. Otherwise attribute is omitted from response.
-	Metadata *MachineMetadata  `json:"metadata,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
-	Status   *MachineStatus    `json:"status,omitempty"`
+	Metadata *MachineMetadata `json:"metadata,omitempty"`
+	// Labels is VPC labels specified by user
+	Labels map[string]string `json:"labels,omitempty"`
+	// Status represents the status of the machine
+	Status *MachineStatus `json:"status,omitempty"`
 	// Indicates whether the machine is usable by or currently in use by a tenant.
-	IsUsableByTenant *bool          `json:"isUsableByTenant,omitempty"`
-	StatusHistory    []StatusDetail `json:"statusHistory,omitempty"`
-	Created          *time.Time     `json:"created,omitempty"`
-	Updated          *time.Time     `json:"updated,omitempty"`
+	IsUsableByTenant *bool `json:"isUsableByTenant,omitempty"`
+	// Chronological status history for the Machine
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the Machine was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Machine was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewMachine instantiates a new Machine object

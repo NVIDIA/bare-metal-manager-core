@@ -33,8 +33,9 @@ type Rack struct {
 	// Serial number of the Rack
 	SerialNumber *string `json:"serialNumber,omitempty"`
 	// Description of the Rack
-	Description *string       `json:"description,omitempty"`
-	Location    *RackLocation `json:"location,omitempty"`
+	Description *string `json:"description,omitempty"`
+	// Physical or logical location of the Rack
+	Location *RackLocation `json:"location,omitempty"`
 	// Components within the Rack. Only returned when includeComponents is true.
 	Components []RackComponent `json:"components,omitempty"`
 }
