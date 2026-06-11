@@ -24,10 +24,10 @@ use super::super::common::NetworkConfigQuery;
 EXAMPLES:
 
 Print the network status of all machines:
-    $ carbide-admin-cli machine network status
+    $ nico-admin-cli machine network status
 
 Show the VPC network configuration for a DPU:
-    $ carbide-admin-cli machine network config --machine-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine network config --machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub enum Args {

@@ -20,6 +20,8 @@
 //! 2. Wait for watcher callbacks (DPU ready, reboot required)
 //! 3. Handle cleanup on error/reprovisioning
 
+use std::net::IpAddr;
+
 use carbide_dpf::{DpfError, DpuPhase, dpu_node_cr_name};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
@@ -40,8 +42,8 @@ fn dpf_error(error: DpfError) -> StateHandlerError {
     ExternalServiceError::with_source("dpf", "", error.to_string(), "dpf_error", error).into()
 }
 
-fn bmc_ip(machine: &Machine) -> Result<String, StateHandlerError> {
-    machine.bmc_info.ip.map(|ip| ip.to_string()).ok_or_else(|| {
+fn bmc_ip(machine: &Machine) -> Result<IpAddr, StateHandlerError> {
+    machine.bmc_info.ip.ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!("BMC IP is not set for machine {}", machine.id))
     })
 }

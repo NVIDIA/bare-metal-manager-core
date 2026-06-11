@@ -55,7 +55,7 @@ impl Machine {
                     vendor_string: discovery.vendor_class.clone(),
                     circuit_id: discovery.circuit_id.clone(),
                     remote_id: discovery.remote_id.clone(),
-                    desired_address: discovery.desired_address.clone(),
+                    desired_address: discovery.desired_address.map(|addr| addr.to_string()),
                 });
 
                 client

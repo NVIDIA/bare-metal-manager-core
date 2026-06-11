@@ -24,7 +24,7 @@ use rpc::forge::InstanceOperatingSystemConfig;
 EXAMPLES:
 
 Update an instance's OS configuration:
-    $ carbide-admin-cli instance update-os --instance 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance update-os --instance 12345678-1234-5678-90ab-cdef01234567 \
     --os '{\"os_image_id\":\"abcdef01-2345-6789-abcd-ef0123456789\"}'
 
 ")]

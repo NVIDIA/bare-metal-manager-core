@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a TPM CA certificate by its id (from `tpm-ca show`):
-    $ carbide-admin-cli tpm-ca delete --ca-id 42
+    $ nico-admin-cli tpm-ca delete --ca-id 42
 
 ")]
 pub struct Args {

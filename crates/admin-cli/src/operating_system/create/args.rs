@@ -25,10 +25,10 @@ use crate::operating_system::common::parse_param;
 EXAMPLES:
 
 Create an OS definition:
-    $ carbide-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a
+    $ nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a
 
 Create one with a description, inactive, allowing parameter overrides:
-    $ carbide-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a \
+    $ nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a \
     --description \"Ubuntu 22.04 base\" --is-active false --allow-override
 
 ")]

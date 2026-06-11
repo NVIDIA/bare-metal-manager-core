@@ -28,7 +28,6 @@ use axum::extract::State;
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
-use bytes::Bytes;
 use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
@@ -573,10 +572,7 @@ async fn proxy_request(
 
     let status = upstream_response.status();
     let headers = upstream_response.headers().clone();
-    let body = upstream_response
-        .bytes()
-        .await
-        .map_err(|e| error_response((StatusCode::BAD_GATEWAY, e.to_string()).into()))?;
+    let body = Body::from_stream(upstream_response.bytes_stream());
 
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         evict_cached_credentials(target_ip, &state.credential_cache).await;
@@ -714,7 +710,7 @@ fn request_principal_ids(auth_context: &AuthContext<()>) -> Vec<String> {
 fn build_response(
     status: reqwest::StatusCode,
     headers: &reqwest::header::HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response<Body> {
     let mut response = Response::builder().status(status);
     for (name, value) in headers {
@@ -723,7 +719,7 @@ fn build_response(
         }
         response = response.header(name, value);
     }
-    response.body(Body::from(body)).unwrap()
+    response.body(body).unwrap()
 }
 
 fn copy_request_headers(source: &HeaderMap, dest: &mut HeaderMap) {
@@ -1004,21 +1000,27 @@ async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::convert::Infallible;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
     use std::sync::Arc;
 
-    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+    use axum::body::Body;
+    use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+    use bytes::Bytes;
+    use http_body_util::BodyExt;
     use mac_address::MacAddress;
     use opentelemetry::global;
     use rpc::forge::find_bmc_ips_request::LookupBy;
     use rpc::forge_api_client::ForgeApiClient;
     use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
     use tokio::sync::Mutex;
+    use tokio_stream::iter;
 
     use super::{
-        BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, evict_cached_credentials,
-        forwarded_header_value, ip_for_forwarded_target, parse_forwarded_host_value,
+        BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, build_response,
+        evict_cached_credentials, forwarded_header_value, ip_for_forwarded_target,
+        parse_forwarded_host_value,
     };
 
     fn test_state_with_ip_cache(ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
@@ -1210,5 +1212,47 @@ mod tests {
         evict_cached_credentials(ip, &credential_cache).await;
 
         assert!(!credential_cache.lock().await.contains_key(&ip));
+    }
+
+    #[tokio::test]
+    async fn build_response_keeps_safe_headers_and_streams_body() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            reqwest::header::CONTENT_LENGTH,
+            HeaderValue::from_static("999"),
+        );
+        headers.insert(
+            reqwest::header::CONNECTION,
+            HeaderValue::from_static("keep-alive"),
+        );
+
+        let body = Body::from_stream(iter([
+            Result::<Bytes, Infallible>::Ok(Bytes::from_static(br#"{"value":"#)),
+            Result::<Bytes, Infallible>::Ok(Bytes::from_static(br#""ok"}"#)),
+        ]));
+
+        let response = build_response(reqwest::StatusCode::OK, &headers, body);
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .unwrap(),
+            "application/json"
+        );
+        assert!(
+            !response
+                .headers()
+                .contains_key(reqwest::header::CONTENT_LENGTH)
+        );
+        assert!(!response.headers().contains_key(reqwest::header::CONNECTION));
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body, Bytes::from_static(br#"{"value":"ok"}"#));
     }
 }

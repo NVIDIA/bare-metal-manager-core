@@ -23,7 +23,7 @@ use rpc::{CredentialType, forge as forgerpc};
 EXAMPLES:
 
 Delete an NMX-M credential by username:
-    $ carbide-admin-cli credential delete-nmx-m --username admin
+    $ nico-admin-cli credential delete-nmx-m --username admin
 
 ")]
 pub struct Args {

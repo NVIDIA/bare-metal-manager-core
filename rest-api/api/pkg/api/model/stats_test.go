@@ -125,7 +125,7 @@ func TestAPIMachineInstanceTypeStats_JSON(t *testing.T) {
 		UsedMachineStats: APIMachineStatusBreakdown{
 			Total: 4, InUse: 2, Error: 1, Maintenance: 1,
 		},
-		Tenants: []APIMachineInstanceTypeTenant{
+		Tenants: []APIMachineInstanceTypeTenantStats{
 			{
 				ID:        "t-alpha",
 				Name:      "alpha-org",
@@ -133,7 +133,7 @@ func TestAPIMachineInstanceTypeStats_JSON(t *testing.T) {
 				UsedMachineStats: APIMachineStatusBreakdown{
 					Total: 3, InUse: 2, Error: 1,
 				},
-				Allocations: []APIMachineInstanceTypeTenantAllocation{
+				Allocations: []APIMachineInstanceTypeTenantAllocationStats{
 					{ID: "a-1", Name: "training-reserved", Allocated: 4},
 					{ID: "a-2", Name: "inference-ondemand", Allocated: 2},
 				},
@@ -145,7 +145,7 @@ func TestAPIMachineInstanceTypeStats_JSON(t *testing.T) {
 				UsedMachineStats: APIMachineStatusBreakdown{
 					Total: 1, Maintenance: 1,
 				},
-				Allocations: []APIMachineInstanceTypeTenantAllocation{
+				Allocations: []APIMachineInstanceTypeTenantAllocationStats{
 					{ID: "a-3", Name: "simulation-pool", Allocated: 1},
 				},
 			},
@@ -233,7 +233,7 @@ func TestAPITenantInstanceTypeStats_JSON(t *testing.T) {
 					Total: 3, InUse: 2, Error: 1,
 				},
 				MaxAllocatable: 2,
-				Allocations: []APITenantInstanceTypeAllocation{
+				Allocations: []APITenantInstanceTypeAllocationStats{
 					{ID: "a-1", Name: "training-reserved", Total: 4},
 					{ID: "a-2", Name: "inference-ondemand", Total: 2},
 				},
@@ -246,7 +246,7 @@ func TestAPITenantInstanceTypeStats_JSON(t *testing.T) {
 					Total: 2, InUse: 2,
 				},
 				MaxAllocatable: 1,
-				Allocations: []APITenantInstanceTypeAllocation{
+				Allocations: []APITenantInstanceTypeAllocationStats{
 					{ID: "a-1", Name: "training-reserved", Total: 3},
 				},
 			},

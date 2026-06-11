@@ -505,8 +505,8 @@ pub async fn update_encrypted_fields(
 mod tests {
     use std::collections::HashMap;
 
+    use carbide_secrets::key_encryption;
     use chrono::Utc;
-    use forge_secrets::key_encryption;
     use model::metadata::Metadata;
     use model::tenant::identity_config::SigningAlgorithm;
     use model::tenant::{

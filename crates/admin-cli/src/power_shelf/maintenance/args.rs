@@ -30,10 +30,10 @@ pub enum Args {
 EXAMPLES:
 
 Power on a power shelf:
-    $ carbide-admin-cli power-shelf maintenance power-on --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf maintenance power-on --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
 
 Power on several at once, citing a reference ticket:
-    $ carbide-admin-cli power-shelf maintenance power-on \
+    $ nico-admin-cli power-shelf maintenance power-on \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 \
     --reference https://tickets.example.com/PS-42
 
@@ -44,10 +44,10 @@ Power on several at once, citing a reference ticket:
 EXAMPLES:
 
 Power off a power shelf:
-    $ carbide-admin-cli power-shelf maintenance power-off --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf maintenance power-off --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
 
 Power off several at once, citing a reference ticket:
-    $ carbide-admin-cli power-shelf maintenance power-off \
+    $ nico-admin-cli power-shelf maintenance power-off \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 \
     --reference https://tickets.example.com/PS-42
 

@@ -25,16 +25,16 @@ use rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
 EXAMPLES:
 
 List all DPUs pending reprovisioning:
-    $ carbide-admin-cli dpu reprovision list
+    $ nico-admin-cli dpu reprovision list
 
 Set a DPU into reprovisioning mode:
-    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
 
 Clear reprovisioning mode for a DPU:
-    $ carbide-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
 
 Restart reprovisioning for a host:
-    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub enum Args {
@@ -53,13 +53,13 @@ pub enum Args {
 EXAMPLES:
 
 Set a single DPU into reprovisioning mode:
-    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
 
 Reprovision all DPUs on a host by passing the host machine id:
-    $ carbide-admin-cli dpu reprovision set --id abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpu reprovision set --id abcdef01-2345-6789-abcd-ef0123456789
 
 Reprovision and update DPU firmware, recording a maintenance message:
-    $ carbide-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-firmware --update-message \"scheduled firmware refresh\"
 
 ")]
@@ -99,10 +99,10 @@ impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
 EXAMPLES:
 
 Clear reprovisioning mode for a single DPU:
-    $ carbide-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision clear --id 12345678-1234-5678-90ab-cdef01234567
 
 Clear reprovisioning for all DPUs on a host by passing the host machine id:
-    $ carbide-admin-cli dpu reprovision clear --id abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpu reprovision clear --id abcdef01-2345-6789-abcd-ef0123456789
 
 ")]
 pub struct DpuReprovisionClear {
@@ -134,10 +134,10 @@ impl From<&DpuReprovisionClear> for DpuReprovisioningRequest {
 EXAMPLES:
 
 Restart reprovisioning for a host:
-    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567
 
 Restart reprovisioning and update DPU firmware:
-    $ carbide-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu reprovision restart --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-firmware
 
 ")]

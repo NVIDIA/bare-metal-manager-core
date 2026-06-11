@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a machine interface by ID (redeploy kea afterward):
-    $ carbide-admin-cli machine-interfaces delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-interfaces delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

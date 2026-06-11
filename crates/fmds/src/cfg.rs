@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 
+use std::net::SocketAddr;
+
 use clap::Parser;
+use ipnetwork::IpNetwork;
 
 #[derive(Parser)]
 #[clap(name = "carbide-fmds")]
@@ -27,15 +30,15 @@ pub struct Options {
     /// carbide-dpu-agent. The tenant should not be able to
     /// communicate with this address.
     #[clap(long, default_value = "0.0.0.0:50052")]
-    pub grpc_address: String,
+    pub grpc_address: SocketAddr,
 
     /// REST listen address for tenant OS metadata queries.
     #[clap(long, default_value = "0.0.0.0:80")]
-    pub rest_address: String,
+    pub rest_address: SocketAddr,
 
     /// Prometheus scrape address for `/metrics` (HTTP request stats for the REST metadata API).
     #[clap(long, default_value = "0.0.0.0:8888")]
-    pub metrics_address: String,
+    pub metrics_address: SocketAddr,
 
     /// Carbide API server address for phone_home.
     #[clap(long, default_value = "https://carbide-api.forge")]
@@ -66,7 +69,7 @@ pub struct Options {
         env = "FMDS_INTERFACE_CIDR",
         default_value = "169.254.169.254/30"
     )]
-    pub interface_cidr: String,
+    pub interface_cidr: IpNetwork,
 }
 
 impl Options {

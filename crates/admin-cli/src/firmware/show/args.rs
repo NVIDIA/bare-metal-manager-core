@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Show all available firmware:
-    $ carbide-admin-cli firmware show
+    $ nico-admin-cli firmware show
 
 ")]
 pub struct Args {}

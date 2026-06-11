@@ -1,6 +1,11 @@
 ## =============================================================================
 ## nico-core.yaml — values for: helm upgrade --install nico ./helm
 ##
+## SITE TEMPLATE — every site-specific value below ships BLANK on purpose.
+## Populate them for your site before running setup.sh; preflight.sh fails on
+## empty required values (hostname, VIPs, MetalLB pools) and on leftover
+## EXAMPLE/placeholder tokens.
+##
 ## Image registry and tag are injected at install time via --set flags:
 ##   --set global.image.repository=<your-registry>/nvmetal-carbide
 ##   --set global.image.tag=<tag>
@@ -13,8 +18,10 @@ global:
     tag: ""           # set via --set global.image.tag (NICO_CORE_IMAGE_TAG env var)
     pullPolicy: IfNotPresent
 
+  ## setup.sh creates a secret named `imagepullsecret` in nico-system from
+  ## REGISTRY_PULL_SECRET (host nvcr.io). Reference that name here.
   imagePullSecrets:
-    - name: nvcr-nico-dev
+    - name: imagepullsecret
 
   ## SPIFFE cert settings — vault-nico-issuer is configured by nico-prereqs
   certificate:
@@ -42,7 +49,14 @@ global:
 ##   what is available. Replace placeholder values with real site data.
 ## ---------------------------------------------------------------------------
 nico-api:
-  hostname: "api-examplesite.example.com"   # EXAMPLE - replace with your site's nico-api hostname
+  hostname: ""   # REQUIRED: external nico-api hostname (e.g. api-<site>.<domain>)
+
+  ## Trust admin-CLI client certs minted from the site CA (CN=site-root) so admin-cli works
+  ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole (ou: "Invalid").
+  ## "site-root" is the CN of the cert-manager site root created by nico-prereqs — generic, keep as-is.
+  auth:
+    additionalIssuerCns:
+      - "site-root"
 
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
@@ -50,7 +64,7 @@ nico-api:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
     annotations:
-      metallb.universe.tf/loadBalancerIPs: "10.180.126.177"  # EXAMPLE - nico-api external VIP
+      metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: nico-api external VIP
 
   ## TLS cert SANs.
   ##
@@ -63,48 +77,41 @@ nico-api:
   ## DNS (.forge zone)" for the full hostname list.
   certificate:
     extraDnsNames:
-      - "api-examplesite.example.com"  # EXAMPLE - your external hostname (match nico-api.hostname above)
+      - ""                             # REQUIRED: your external hostname (match nico-api.hostname above)
       - "carbide-api.forge"            # legacy hardcoded lookup in deployed DPU agents
+      - "nico-api.forge"               # renamed-binary alias (dual naming)
       - "carbide-api.forge-system.svc.cluster.local"  # legacy cluster-internal name from forged kustomize
 
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
       # -----------------------------------------------------------------------
-      # Site identity
+      # Site identity — REQUIRED: fill in your site's values.
       # -----------------------------------------------------------------------
-      sitename = "examplesite"                       # EXAMPLE - replace with your short site identifier
-      initial_domain_name = "examplesite.example.com" # EXAMPLE - replace with your base DNS domain
-      attestation_enabled = false                # enable TPM/DPU attestation
-      max_concurrent_machine_updates = 20        # cap parallel firmware/config pushes
-      vpc_peering_policy = "exclusive"           # "exclusive" | "shared"
+      sitename = ""                              # REQUIRED: short site identifier
+      initial_domain_name = ""                   # REQUIRED: base DNS domain for the site
+      attestation_enabled = false
+      max_concurrent_machine_updates = 20
 
       # -----------------------------------------------------------------------
-      # DHCP servers reachable from this site (empty list = no external DHCP)
+      # DHCP servers reachable from this site — REQUIRED: your nico-dhcp VIP(s).
       # -----------------------------------------------------------------------
-      dhcp_servers = ["10.180.126.160"]          # EXAMPLE — replace with your MetalLB VIP for DHCP service
+      dhcp_servers = []                          # REQUIRED: e.g. ["<dhcp-vip>"]
 
       # -----------------------------------------------------------------------
-      # BGP route servers (leave empty if not using BGP)
+      # BGP route servers — NICo Core has no FRR subchart; disabled by default.
+      # Re-enable + point at FRR VIPs if FRR is deployed out-of-band and DPU
+      # data-plane fabric BGP is required.
       # -----------------------------------------------------------------------
       route_servers = []
       enable_route_servers = false
-      # route_servers = ["10.0.0.1", "10.0.0.2"]
-      # enable_route_servers = true
 
       # -----------------------------------------------------------------------
-      # site_fabric_prefixes: prefixes that ARE part of the site fabric and
-      #   should be reachable between instances.
-      # deny_prefixes: prefixes that instances must NOT reach (OOB, control
-      #   plane, management networks, etc.).
+      # site_fabric_prefixes: prefixes that ARE part of the site fabric.
+      # deny_prefixes: prefixes instances must NOT reach (OOB, ctrl-plane, underlay).
       # -----------------------------------------------------------------------
-      site_fabric_prefixes = ["10.180.62.72/29"]   # EXAMPLE — replace with your fabric CIDRs
-
-      deny_prefixes = [                             # EXAMPLE — replace with your deny list
-        "10.180.62.64/29",    # EXAMPLE — admin/OOB network
-        "10.180.248.32/28",   # EXAMPLE — management network
-        "10.180.248.64/28",   # EXAMPLE — underlay TOR network
-      ]
+      site_fabric_prefixes = []                  # REQUIRED: your fabric CIDR(s)
+      deny_prefixes = []                         # your OOB / control-plane / underlay CIDRs
 
       # -----------------------------------------------------------------------
       # Site explorer — periodic background scan of site inventory
@@ -113,66 +120,56 @@ nico-api:
       run_interval = "30s"
 
       # -----------------------------------------------------------------------
-      # Host health monitoring
-      # Uncomment to override default behaviour.
+      # Machine + BOM validation
       # -----------------------------------------------------------------------
-      # [host_health]
-      # hardware_health_reports = "MonitorOnly"   # "MonitorOnly" | "Enforce"
+      [machine_validation_config]
+      enabled = true
+
+      [bom_validation]
+      enabled = true
+      ignore_unassigned_machines = true
 
       # -----------------------------------------------------------------------
-      # IP / integer pools — nico-api allocates from these ranges
-      #
-      # lo-ip:    loopback IPs assigned to bare-metal hosts
-      # vlan-id:  VLAN IDs for tenant networks
-      # vni:      VXLAN Network Identifiers
-      # vpc-vni:  VPC-level VNIs (set end=0 to disable)
+      # IP / integer pools — nico-api allocates from these ranges.
+      # REQUIRED: set the loopback (lo-ip) range to your site's pool.
       # -----------------------------------------------------------------------
       [pools.lo-ip]
       type = "ipv4"
-      ranges = [{ start = "10.180.62.84", end = "10.180.62.86" }]  # EXAMPLE — replace with your loopback pool
+      ranges = []                                # REQUIRED: e.g. [{ start = "...", end = "..." }]
 
       [pools.vlan-id]
       type = "integer"
-      ranges = [{ start = "100", end = "501" }]
+      ranges = []                                # REQUIRED: your VLAN ID range, e.g. [{ start = "100", end = "501" }]
 
       [pools.vni]
       type = "integer"
-      ranges = [{ start = "1024500", end = "1024800" }]
+      ranges = []                                # REQUIRED: your VXLAN VNI range, e.g. [{ start = "1024500", end = "1024800" }]
 
       [pools.vpc-vni]
       type = "integer"
-      ranges = [{ start = "0", end = "100" }]
+      ranges = []                                # REQUIRED: your VPC VNI range, e.g. [{ start = "0", end = "100" }]
 
       # -----------------------------------------------------------------------
-      # Networks — define named L3 segments visible to nico-api.
+      # Networks — named L3 segments visible to nico-api.
+      # REQUIRED: define your site's admin/OOB + underlay segments. Template:
       #
-      # type:          "admin" (OOB/management) | "underlay" (data-plane)
-      # prefix:        CIDR of the network
-      # gateway:       first-hop gateway IP
-      # mtu:           MTU (9000 for jumbo, 1500 for standard)
-      # reserve_first: number of IPs at the start of the prefix to skip
-      #                (gateway + infrastructure IPs)
+      #   [networks.admin]
+      #   type = "admin"
+      #   prefix = "<admin-cidr>"
+      #   gateway = "<admin-gateway>"
+      #   mtu = 9000
+      #   reserve_first = 5
       #
-      # Add one [networks.<name>] block per L3 segment at your site.
-      # The name is arbitrary but must be unique within this config.
+      #   [networks.<YOUR-UNDERLAY-SEGMENT-NAME>]
+      #   type = "underlay"
+      #   prefix = "<underlay-cidr>"
+      #   gateway = "<underlay-gateway>"
+      #   mtu = 1500
+      #   reserve_first = 2
       # -----------------------------------------------------------------------
-      [networks.admin]                             # EXAMPLE — your OOB/management network
-      type = "admin"
-      prefix = "10.180.62.64/29"    # EXAMPLE — replace with your admin CIDR
-      gateway = "10.180.62.65"      # EXAMPLE — replace with your admin gateway
-      mtu = 9000
-      reserve_first = 5
-
-      [networks.RNO1-M04-D04-IPMITOR-01]           # EXAMPLE — rename to your underlay segment name
-      type = "underlay"
-      prefix = "10.180.248.64/28"   # EXAMPLE — replace with your underlay CIDR
-      gateway = "10.180.248.65"     # EXAMPLE — replace with your underlay gateway
-      mtu = 1500
-      reserve_first = 5
-      # Add additional [networks.<name>] blocks here for each underlay segment at your site.
 
       # -----------------------------------------------------------------------
-      # InfiniBand (leave enabled=false if no IB fabric at this site)
+      # InfiniBand (disabled unless your site has an IB fabric)
       # -----------------------------------------------------------------------
       [ib_config]
       enabled = false
@@ -189,7 +186,6 @@ nico-api:
 
       # -----------------------------------------------------------------------
       # Machine state controller
-      # failure_retry_time: how long to wait before retrying a failed machine op
       # -----------------------------------------------------------------------
       [machine_state_controller]
       failure_retry_time = "90m"
@@ -208,46 +204,40 @@ nico-api:
 ##   - External pool (client-facing):  nico-api
 ##   - Each IP must be unique across all services
 ##   - The nico-api IP must resolve from external DNS to the hostname above
-##
-## These values mirror the kustomization patches that nicod applies via
-## site-controller. Without them the services come up with unpredictable IPs.
 ## ---------------------------------------------------------------------------
 
 nico-dhcp:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
     annotations:
-      metallb.universe.tf/loadBalancerIPs: "10.180.126.160"  # EXAMPLE - DHCP VIP (internal pool)
+      metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: DHCP VIP (internal pool)
 
   ## DHCP hook libraries' advertised IPs.
   ##
   ## Kea's libdhcp hook writes these IPs into the DHCP response that DPUs
   ## and bare-metal hosts receive on boot. They MUST be reachable on the
   ## PXE / management network the DPU comes up on, and they MUST match
-  ## the externalService VIPs assigned to nico-dns / nico-ntp / nico-pxe
-  ## above.
+  ## the externalService VIPs assigned to nico-dns / nico-ntp / nico-pxe.
   ##
-  ## Leaving the chart defaults (127.0.0.1) causes the symptoms reported
-  ## against helm-deployed sites — DPU pre-ingestion fails with clock
-  ## divergence (no NTP) and the DPU agent cannot reach the API endpoint
-  ## (no DNS).
+  ## Leaving the chart defaults (127.0.0.1) causes DPU pre-ingestion failures:
+  ## clock divergence (no NTP) and unreachable API endpoint (no DNS).
   ##
   ## Cross-check: each value below should equal the corresponding
   ## externalService loadBalancerIPs annotation in this file.
   ##
   ## DUAL-DEPLOYMENT NOTE (PR #2062): if the NICo API is installed under
   ## the legacy `carbide-api` name on this site, ALSO set
-  ## `nico-dhcp.apiServiceName: carbide-api` (uncomment the line below)
-  ## so the kea hook generates the right `nico-api-url` for DPUs. Without
-  ## this, the hook advertises https://nico-api.<ns>.svc.cluster.local
-  ## which will NXDOMAIN against a carbide-api-only deployment.
+  ## `nico-dhcp.apiServiceName: carbide-api` (uncomment below).
   # apiServiceName: carbide-api
   config:
     kea:
       hookParameters:
-        nameservers: "10.180.126.180"                      # EXAMPLE — must match nico-dns instance-0 VIP
-        ntpServer: "10.180.126.165,10.180.126.166,10.180.126.167"  # EXAMPLE — must match nico-ntp per-pod VIPs (comma-separated)
-        provisioningServer: "10.180.126.162"               # EXAMPLE — must match nico-pxe VIP
+        # DPUs need a resolver that serves the .forge zone (carbide-api.forge etc.).
+        # nico-dns is authoritative-only and does NOT serve .forge, so hand DPUs
+        # the unbound VIP (must equal unbound.externalService VIP below).
+        nameservers: ""           # REQUIRED: unbound VIP (must serve .forge)
+        ntpServer: ""             # REQUIRED: nico-ntp per-pod VIPs, comma-separated
+        provisioningServer: ""    # REQUIRED: nico-pxe VIP
 
 nico-dns:
   externalService:
@@ -256,14 +246,28 @@ nico-dns:
     ## The chart creates separate UDP + TCP services per pod and uses
     ## metallb.universe.tf/allow-shared-ip so both share the same IP.
     perPodAnnotations:
-      - metallb.universe.tf/loadBalancerIPs: "10.180.126.180"  # EXAMPLE - DNS instance-0 VIP (external pool)
-      - metallb.universe.tf/loadBalancerIPs: "10.180.126.179"  # EXAMPLE - DNS instance-1 VIP (external pool)
+      - metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: DNS instance-0 VIP (external pool)
+      - metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: DNS instance-1 VIP (external pool)
 
 nico-pxe:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
     annotations:
-      metallb.universe.tf/loadBalancerIPs: "10.180.126.162"  # EXAMPLE - PXE VIP (internal pool)
+      metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: PXE VIP (internal pool)
+
+  ## Boot artifacts (ipxe.efi, BFB, OS images) — REQUIRED or DPU/host HTTP boot 404s and
+  ## falls back to the local OS (never re-images). These init containers populate the
+  ## /boot-artifacts/blobs/internal volume that nico-pxe serves at /public/blobs/internal.
+  ## Pin the images to the same build/registry as nvmetal-carbide.
+  ## NOTE: the aarch64 image ships /aarch64 + /apt (NOT /firmware) — copying a missing dir crash-loops the init.
+  bootArtifactContainers: []
+  # bootArtifactContainers:
+  #   - name: boot-artifacts-x86-64
+  #     image: <your-registry>/boot-artifacts-x86_64:<tag>
+  #     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+  #   - name: boot-artifacts-aarch64
+  #     image: <your-registry>/boot-artifacts-aarch64:<tag>
+  #     command: ["sh", "-c", "cp -r /aarch64 /apt /boot-artifacts/blobs/internal"]
 
   ## TLS cert SANs — DPU agents are hardcoded to fetch boot artifacts from
   ## `carbide-pxe.forge` / `carbide-static-pxe.forge`. If the cert doesn't
@@ -271,14 +275,17 @@ nico-pxe:
   certificate:
     extraDnsNames:
       - "carbide-pxe.forge"            # legacy hardcoded lookup in deployed DPU agents
+      - "nico-pxe.forge"               # renamed-binary alias (dual naming)
       - "carbide-static-pxe.forge"     # legacy hardcoded lookup in host PXE loaders
       - "carbide-pxe.forge-system.svc.cluster.local"  # legacy cluster-internal name
 
 nico-ssh-console-rs:
+  ## imagePullSecrets now inherited from global.imagePullSecrets (chart fix: this subchart
+  ## falls back to global). No per-subchart override needed.
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
     annotations:
-      metallb.universe.tf/loadBalancerIPs: "10.180.126.164"  # EXAMPLE - SSH console VIP (internal pool)
+      metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: SSH console VIP (internal pool)
 
 ## ---------------------------------------------------------------------------
 ## nico-ntp - chrony NTP servers
@@ -286,8 +293,7 @@ nico-ssh-console-rs:
 ## Deploys a 3-replica chrony StatefulSet plus per-pod LoadBalancer Services.
 ## Each replica gets a stable MetalLB VIP that DPUs and bare-metal hosts sync
 ## against (advertised to them via nico-dhcp.config.kea.hookParameters.ntpServer
-## above). Enabled by default — DPU pre-ingestion fails on clock divergence,
-## so the chart deploys NTP unless you disable it here.
+## above). Enabled by default — DPU pre-ingestion fails on clock divergence.
 ## ---------------------------------------------------------------------------
 nico-ntp:
   externalService:
@@ -295,9 +301,9 @@ nico-ntp:
     ## NTP uses perPodAnnotations - one VIP per replica so clients can reach
     ## each NTP instance at a stable IP regardless of pod scheduling.
     perPodAnnotations:
-      - metallb.universe.tf/loadBalancerIPs: "10.180.126.165"  # EXAMPLE - NTP instance-0 VIP (internal pool)
-      - metallb.universe.tf/loadBalancerIPs: "10.180.126.166"  # EXAMPLE - NTP instance-1 VIP (internal pool)
-      - metallb.universe.tf/loadBalancerIPs: "10.180.126.167"  # EXAMPLE - NTP instance-2 VIP (internal pool)
+      - metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: NTP instance-0 VIP (internal pool)
+      - metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: NTP instance-1 VIP (internal pool)
+      - metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: NTP instance-2 VIP (internal pool)
 
 ## ---------------------------------------------------------------------------
 ## nico-dsx-exchange-consumer - disabled until binary is included in image
@@ -318,36 +324,52 @@ nico-dsx-exchange-consumer:
 ## If you point your own external DNS at the same VIPs and serve the .forge
 ## records there, you can leave this disabled. Otherwise enable it and fill
 ## the VIPs to match the externalService.annotations entries above.
-##
-## Verify after install: `helm-prereqs/health-check.sh` reports per-record
-## status under the ".forge DNS Endpoint Reference" section.
 ## ---------------------------------------------------------------------------
 unbound:
-  enabled: false
-  # imagePullSecrets:
-  #   - name: nvcr-nvidian-nvforge
+  enabled: true
 
-  ## Uncomment + fill in VIPs to serve the DPU compatibility .forge zone.
-  ## The IPs below must match the loadBalancerIPs you set above (nico-api,
-  ## nico-pxe, nico-ntp). The unbound chart turns each entry into a
-  ## `local-data` line in `local_data.conf`. Existing DPU agents look up these
-  ## hostnames verbatim; the rename to .nico is deferred per the dual-
-  ## deployment POR, so we serve both old and new under the same VIPs.
-  # localData:
-  #   - name: carbide-api.forge        # nico-api external VIP — legacy DPU agent lookup
-  #     addresses: ["10.180.126.177"]
-  #   - name: nico-api.forge           # same VIP, renamed-binary alias
-  #     addresses: ["10.180.126.177"]
-  #   - name: carbide-pxe.forge        # nico-pxe VIP — hardcoded in DPU agent + boot images
-  #     addresses: ["10.180.126.162"]
-  #   - name: carbide-static-pxe.forge
-  #     addresses: ["10.180.126.162"]
-  #   - name: carbide-ntp.forge        # nico-ntp VIPs — hardcoded in DPU agent
-  #     addresses: ["10.180.126.165", "10.180.126.166", "10.180.126.167"]
-  #   - name: unbound.forge            # distributed to DPUs via DHCP option 6
-  #     addresses: ["10.180.126.180"]
-  #   # Optional: otel-receiver / socks if you run those services
-  #   # - name: otel-receiver.forge
-  #   #   addresses: ["10.180.126.181"]
-  #   # - name: socks.forge
-  #   #   addresses: ["10.180.126.182"]
+  ## unbound uses its own images (not global.image). These are fixed product
+  ## images (host nvcr.io, same `imagepullsecret` works) — set to the build
+  ## your site standardises on.
+  image:
+    repository: ""    # REQUIRED: unbound image repository
+    tag: ""           # REQUIRED: unbound image tag
+  exporterImage:
+    repository: ""    # REQUIRED: unbound_exporter image repository
+    tag: ""           # REQUIRED: unbound_exporter image tag
+
+  ## In-chart LoadBalancer VIP (chart fix) so DPUs reach unbound for .forge.
+  ## Must match nico-dhcp.config.kea.hookParameters.nameservers.
+  externalService:
+    enabled: true
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: ""  # REQUIRED: unbound VIP (internal pool)
+
+  ## Upstream recursive forwarder. The chart default forwarders.conf is a broken
+  ## `patchme` placeholder; override it with your site's upstream resolver.
+  localConfig:
+    forwarders.conf: |
+      forward-zone:
+          name: .
+          forward-addr:       # REQUIRED: your upstream DNS resolver IP
+
+  ## DPU-compatibility .forge zone. Each entry becomes a `local-data ... IN A`
+  ## line. Serve both legacy carbide-* and new nico-* names under the same VIPs
+  ## (dual naming). Set every address to the matching service VIP above.
+  localData:
+    - name: carbide-api.forge
+      addresses: []          # REQUIRED: [nico-api VIP]
+    - name: nico-api.forge
+      addresses: []          # REQUIRED: [nico-api VIP]
+    - name: carbide-pxe.forge
+      addresses: []          # REQUIRED: [nico-pxe VIP]
+    - name: nico-pxe.forge
+      addresses: []          # REQUIRED: [nico-pxe VIP]
+    - name: carbide-static-pxe.forge
+      addresses: []          # REQUIRED: [nico-pxe VIP]
+    - name: carbide-ntp.forge
+      addresses: []          # REQUIRED: [nico-ntp VIPs]
+    - name: nico-ntp.forge
+      addresses: []          # REQUIRED: [nico-ntp VIPs]
+    - name: unbound.forge
+      addresses: []          # REQUIRED: [unbound VIP]

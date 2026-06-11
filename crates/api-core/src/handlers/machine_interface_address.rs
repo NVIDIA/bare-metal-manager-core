@@ -52,6 +52,7 @@ pub async fn update_preallocated_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
+    retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
 
@@ -98,6 +99,7 @@ pub async fn update_preallocated_machine_interface(
             &bmc_mac_address,
             true,
             AddressSelectionStrategy::StaticAddress(bmc_ip),
+            retained_window,
         )
         .await?;
 

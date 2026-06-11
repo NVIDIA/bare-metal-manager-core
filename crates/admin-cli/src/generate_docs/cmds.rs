@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Generates the `docs/cli` markdown reference from the live clap command tree.
+//! Generates the `docs/manuals/nico-admin-cli` markdown reference from the live clap command tree.
 //!
 //! The per-command pages are derived from the same man pages the
 //! `generate-man` subcommand produces: we render every command's roff man page
@@ -40,7 +40,7 @@ use clap::{Command, CommandFactory};
 use crate::cfg::cli_options::{CliDomain, CliOptions, domain_for_command};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
-const BIN: &str = "carbide-admin-cli";
+const BIN: &str = "nico-admin-cli";
 const DOMAINS: [CliDomain; 4] = [
     CliDomain::Hardware,
     CliDomain::Network,
@@ -53,8 +53,8 @@ pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
 
     // Render every command's roff man page into a scratch directory. clap_mangen
     // names each file by the full command path joined with '-' (e.g.
-    // `carbide-admin-cli-vpc-show.1`), which we reconstruct per node below.
-    let man_dir = std::env::temp_dir().join("carbide-admin-cli-cli-docs-man");
+    // `nico-admin-cli-vpc-show.1`), which we reconstruct per node below.
+    let man_dir = std::env::temp_dir().join("nico-admin-cli-cli-docs-man");
     let _ = std::fs::remove_dir_all(&man_dir);
     std::fs::create_dir_all(&man_dir)?;
     clap_mangen::generate_to(root.clone(), &man_dir)?;
@@ -112,7 +112,7 @@ pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
 }
 
 /// Writes the markdown page for `cmd` (whose full path from the binary is
-/// `path`, e.g. `["carbide-admin-cli", "vpc", "show"]`) and recurses into its
+/// `path`, e.g. `["nico-admin-cli", "vpc", "show"]`) and recurses into its
 /// visible subcommands. Every page for one top-level command lives flat in
 /// `dir`, named by the path below the binary joined with '-' (so `vpc show`
 /// becomes `vpc-show.md`).
@@ -221,7 +221,7 @@ fn render_domain_index(domain: CliDomain, rows: &[&(String, String, CliDomain)])
 // ---- helpers ----
 
 /// The page stem for a command path: the path below the binary joined with '-'
-/// (`["carbide-admin-cli", "vpc", "show"]` -> `"vpc-show"`). Both the file name
+/// (`["nico-admin-cli", "vpc", "show"]` -> `"vpc-show"`). Both the file name
 /// and the in-directory links use this.
 fn stem(path: &[String]) -> String {
     path[1..].join("-")

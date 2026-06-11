@@ -28,7 +28,7 @@ use crate::boot_override::common::BootOverride;
 EXAMPLES:
 
 Clear the boot override on a machine interface:
-    $ carbide-admin-cli boot-override clear 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli boot-override clear 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

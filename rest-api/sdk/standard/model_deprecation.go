@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,12 +23,18 @@ var _ MappedNullable = &Deprecation{}
 
 // Deprecation Details of a particular deprecation in NVIDIA Infra Controller (NICo) API
 type Deprecation struct {
-	Attribute    NullableString `json:"attribute,omitempty"`
-	QueryParam   NullableString `json:"queryParam,omitempty"`
-	Endpoint     NullableString `json:"endpoint,omitempty"`
-	ReplacedBy   NullableString `json:"replacedBy,omitempty"`
-	TakeActionBy *time.Time     `json:"takeActionBy,omitempty"`
-	Notice       *string        `json:"notice,omitempty"`
+	// Name of the attribute that is deprecated. Omitted if queryParam or endpoint is being deprecated.
+	Attribute NullableString `json:"attribute,omitempty"`
+	// Query parameter that is deprecated. Omitted if attribute or endpoint is being deprecated.
+	QueryParam NullableString `json:"queryParam,omitempty"`
+	// API endpoint that is deprecated. Omitted if attribute or queryParam is being deprecated.
+	Endpoint NullableString `json:"endpoint,omitempty"`
+	// Name of the attribute, query parameter, or endpoint that replaces the deprecated item. Omitted if no replacement is available.
+	ReplacedBy NullableString `json:"replacedBy,omitempty"`
+	// Date/time by which clients should migrate away from the deprecated API surface
+	TakeActionBy *time.Time `json:"takeActionBy,omitempty"`
+	// Message describing the deprecation
+	Notice *string `json:"notice,omitempty"`
 }
 
 // NewDeprecation instantiates a new Deprecation object

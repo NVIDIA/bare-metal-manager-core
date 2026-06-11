@@ -24,16 +24,16 @@ use rpc::forge::DeletedFilter;
 EXAMPLES:
 
 List all live power shelves:
-    $ carbide-admin-cli power-shelf list
+    $ nico-admin-cli power-shelf list
 
 Include deleted power shelves:
-    $ carbide-admin-cli power-shelf list --deleted include
+    $ nico-admin-cli power-shelf list --deleted include
 
 Filter by controller state:
-    $ carbide-admin-cli power-shelf list --controller-state ready
+    $ nico-admin-cli power-shelf list --controller-state ready
 
 Find a power shelf by its BMC MAC address:
-    $ carbide-admin-cli power-shelf list --bmc-mac 00:11:22:33:44:55
+    $ nico-admin-cli power-shelf list --bmc-mac 00:11:22:33:44:55
 
 ")]
 pub struct Args {

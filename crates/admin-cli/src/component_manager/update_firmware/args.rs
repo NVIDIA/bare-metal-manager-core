@@ -30,25 +30,25 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Queue firmware on NVLink switches from a target version:
-    $ carbide-admin-cli component-manager update-firmware switch \
+    $ nico-admin-cli component-manager update-firmware switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
 
 Update only specific switch components, forcing the update:
-    $ carbide-admin-cli component-manager update-firmware switch \
+    $ nico-admin-cli component-manager update-firmware switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567 --component bmc,bios --force-update \
     --target-version fw-1.2.3
 
 Queue firmware on compute trays from an RMS SOT JSON file:
-    $ carbide-admin-cli component-manager update-firmware compute-tray \
+    $ nico-admin-cli component-manager update-firmware compute-tray \
     --machine-id 12345678-1234-5678-90ab-cdef01234567 --sot-json-file ./sot.json \
     --access-token mytoken
 
 Queue firmware on power shelves:
-    $ carbide-admin-cli component-manager update-firmware power-shelf \
+    $ nico-admin-cli component-manager update-firmware power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
 
 Queue firmware on all eligible devices in a rack:
-    $ carbide-admin-cli component-manager update-firmware rack \
+    $ nico-admin-cli component-manager update-firmware rack \
     --rack-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
 
 ")]

@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use arc_swap::ArcSwap;
+use carbide_secrets::credentials::CredentialReader;
 use carbide_utils::HostPortPair;
 use chrono::{DateTime, Local};
 use db::Transaction;
@@ -25,7 +26,6 @@ use db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use forge_secrets::credentials::CredentialReader;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;

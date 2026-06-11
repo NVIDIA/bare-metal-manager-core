@@ -650,7 +650,7 @@ func (gaith GetAllInstanceTypeHandler) Handle(c echo.Context) error {
 		instanceTypeIDsToMachineInstanceTypeMap[mi.InstanceTypeID] = append(instanceTypeIDsToMachineInstanceTypeMap[mi.InstanceTypeID], cmi)
 	}
 
-	var instantTypeIDsToAllocStatsMap map[uuid.UUID]*model.APIAllocationStats
+	var instantTypeIDsToAllocStatsMap map[uuid.UUID]*model.APIInstanceTypeAllocationStats
 	if includeAllocationStats {
 		instantTypeIDsToAllocStatsMap, apiErr = common.GetAllInstanceTypeAllocationStats(ctx, gaith.dbSession, stID, itIDs, logger, tenantID)
 		if apiErr != nil {
@@ -844,7 +844,7 @@ func (gith GetInstanceTypeHandler) Handle(c echo.Context) error {
 	}
 
 	// Allocation stats info for this Tnstance Type
-	var aas *model.APIAllocationStats
+	var aas *model.APIInstanceTypeAllocationStats
 
 	if includeAllocationStats {
 		aas, apiErr = common.GetInstanceTypeAllocationStats(ctx, gith.dbSession, logger, *it, tenantID)

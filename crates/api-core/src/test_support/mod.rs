@@ -27,8 +27,8 @@ pub mod network_segment;
 
 use std::sync::Arc;
 
+use carbide_secrets::credentials::CredentialManager;
 use db::work_lock_manager::WorkLockManagerHandle;
-use forge_secrets::credentials::CredentialManager;
 use model::resource_pool::common::CommonPools;
 pub use rpc;
 

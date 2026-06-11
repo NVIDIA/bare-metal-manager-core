@@ -46,6 +46,7 @@ async fn prevent_duplicate_mac_addresses(
         &dpu.oob_mac_address,
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
 
@@ -58,6 +59,7 @@ async fn prevent_duplicate_mac_addresses(
         &dpu.oob_mac_address,
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await;
 

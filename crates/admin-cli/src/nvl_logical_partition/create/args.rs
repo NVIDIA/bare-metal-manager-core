@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Create a logical partition for a tenant:
-    $ carbide-admin-cli logical-partition create --name my-partition \
+    $ nico-admin-cli logical-partition create --name my-partition \
     --tenant-organization-id fds34511233a
 
 ")]

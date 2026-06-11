@@ -23,7 +23,7 @@ use rpc::forge::DeleteInstanceTypeRequest;
 EXAMPLES:
 
 Delete an instance type by id:
-    $ carbide-admin-cli instance-type delete --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli instance-type delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

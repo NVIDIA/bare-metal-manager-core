@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
-use forge_secrets::credentials::CredentialManager;
+use carbide_secrets::credentials::CredentialManager;
 
 use crate::cfg::file::CarbideConfig;
 

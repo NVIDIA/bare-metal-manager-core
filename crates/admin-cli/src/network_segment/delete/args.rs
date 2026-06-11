@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a network segment by ID:
-    $ carbide-admin-cli network-segment delete --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli network-segment delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

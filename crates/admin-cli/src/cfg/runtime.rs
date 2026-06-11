@@ -18,6 +18,7 @@
 use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::cli_options::SortField;
+use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
 // RuntimeContext is context passed to all subcommand
@@ -36,6 +37,15 @@ pub struct RuntimeConfig {
     pub format: OutputFormat,
     pub page_size: usize,
     pub extended: bool,
-    pub cloud_unsafe_op_enabled: bool,
+    pub cloud_unsafe_op: Option<String>,
     pub sort_by: SortField,
+}
+
+impl RuntimeContext {
+    pub fn assert_cloud_unsafe_op_message(&self) -> Result<&str, CarbideCliError> {
+        self.config
+            .cloud_unsafe_op
+            .as_deref()
+            .ok_or(CarbideCliError::CloudUnsafeOp)
+    }
 }

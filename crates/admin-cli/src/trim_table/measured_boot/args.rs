@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Keep the 1000 most recent measured-boot reports, deleting the rest:
-    $ carbide-admin-cli trim-table measured-boot --keep-entries 1000
+    $ nico-admin-cli trim-table measured-boot --keep-entries 1000
 
 Trim down to the latest report only:
-    $ carbide-admin-cli trim-table measured-boot --keep-entries 1
+    $ nico-admin-cli trim-table measured-boot --keep-entries 1
 
 ")]
 pub struct Args {

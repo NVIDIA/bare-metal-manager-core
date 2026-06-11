@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,12 +23,16 @@ var _ MappedNullable = &SshKeyGroupSiteAssociation{}
 
 // SshKeyGroupSiteAssociation Describes the relationship between an SSH Key Group and a Site
 type SshKeyGroupSiteAssociation struct {
-	Site   *SiteSummary                      `json:"site,omitempty"`
+	// Summary of the Site
+	Site *SiteSummary `json:"site,omitempty"`
+	// Status of the SSHKeyGroupSiteAssociation
 	Status *SshKeyGroupSiteAssociationStatus `json:"status,omitempty"`
 	// Version of the Key Group on Site
 	Version NullableString `json:"version,omitempty"`
-	Created *time.Time     `json:"created,omitempty"`
-	Updated *time.Time     `json:"updated,omitempty"`
+	// Date/time when the Site was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Site was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewSshKeyGroupSiteAssociation instantiates a new SshKeyGroupSiteAssociation object

@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a SKU by ID:
-    $ carbide-admin-cli sku delete DGX-H100-640GB
+    $ nico-admin-cli sku delete DGX-H100-640GB
 
 ")]
 pub struct Args {

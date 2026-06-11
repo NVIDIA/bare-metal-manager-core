@@ -31,9 +31,11 @@ import (
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
 const (
@@ -53,23 +55,27 @@ type Manager struct {
 	// avoid overwhelming the power delivery system when commanding
 	// multiple compute trays. 0 means no delay.
 	powerDelay time.Duration
-	// assignment guards mutating operations from running while any target
-	// machine still has an instance attached (ManagedHostState::Assigned).
-	assignment *nicoprovider.AssignmentChecker
+	// readiness guards mutating operations from running while any target
+	// machine is reported as not ready for the operation by its persisted
+	// ComponentStatus.
+	readiness readiness.Gate
 }
 
-// New creates a new NICo-based compute Manager instance.
-func New(nicoClient nicoapi.Client, powerDelay time.Duration) *Manager {
+// New creates a new NICo-based compute Manager instance. A nil gate
+// short-circuits to permissive in tests; production callers wire the
+// shared DB-backed gate.
+func New(nicoClient nicoapi.Client, powerDelay time.Duration, gate readiness.Gate) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
 		powerDelay: powerDelay,
-		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+		readiness:  gate,
 	}
 }
 
 // Factory returns a factory for the NICo compute manager. powerDelay is the
-// inter-component stagger for power control calls.
-func Factory(powerDelay time.Duration) componentmanager.ManagerFactory {
+// inter-component stagger for power control calls; gate is the shared
+// readiness gate consulted before disruptive operations.
+func Factory(powerDelay time.Duration, gate readiness.Gate) componentmanager.ManagerFactory {
 	return func(
 		providerRegistry *providerapi.ProviderRegistry,
 	) (componentmanager.ComponentManager, error) {
@@ -82,7 +88,7 @@ func Factory(powerDelay time.Duration) componentmanager.ManagerFactory {
 				"compute/nicolegacy requires nico provider: %w", err,
 			)
 		}
-		return New(provider.Client(), powerDelay), nil
+		return New(provider.Client(), powerDelay, gate), nil
 	}
 }
 
@@ -107,10 +113,10 @@ func Descriptor() cmcatalog.Descriptor {
 }
 
 // FactorySpec returns the NICo compute manager runtime factory spec.
-func FactorySpec(powerDelay time.Duration) componentmanager.FactorySpec {
+func FactorySpec(powerDelay time.Duration, gate readiness.Gate) componentmanager.FactorySpec {
 	return componentmanager.FactorySpec{
 		Descriptor: Descriptor(),
-		Factory:    Factory(powerDelay),
+		Factory:    Factory(powerDelay, gate),
 	}
 }
 
@@ -167,12 +173,12 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	// Refuse to power-cycle a host that is currently attached to an
-	// instance. The poll blocks until Core reports the host has left the
-	// Assigned state, or returns an error at the deadline. The operator
-	// may set OverrideAssignmentCheck to bypass this gate for supervised
+	// Refuse to power-cycle a host that is not ready for the operation.
+	// The poll blocks until the persisted ComponentStatus reports the host
+	// as ready, or returns an error at the deadline. The operator may set
+	// OverrideReadinessCheck to bypass this gate for supervised
 	// maintenance; the bypass is logged inside ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -348,12 +354,12 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
-	// Block firmware upgrade while any target host is still attached to an
-	// instance: BMC/host firmware updates power-cycle the machine. The
-	// operator may set OverrideAssignmentCheck to bypass this gate for
+	// Block firmware upgrade while any target host is not ready for the
+	// operation: BMC/host firmware updates power-cycle the machine. The
+	// operator may set OverrideReadinessCheck to bypass this gate for
 	// supervised maintenance; the bypass is logged inside
 	// ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypeFirmwareControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -782,11 +788,11 @@ func (m *Manager) BringUpControl(
 	}
 
 	// Opening the power-on gate can trigger an actual power transition,
-	// so the same assignment-state safety check that guards PowerControl
-	// applies here. OverrideAssignmentCheck propagates from the parent
-	// BringUp request when the operator elects to bypass; the bypass is
-	// logged inside ensureMachinesOperable.
-	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+	// so the same readiness check that guards PowerControl applies here.
+	// OverrideReadinessCheck propagates from the parent BringUp request
+	// when the operator elects to bypass; the bypass is logged inside
+	// ensureMachinesOperable.
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, types.OperationTypePowerControl, info.OverrideReadinessCheck); err != nil {
 		return fmt.Errorf("refused: %w", err)
 	}
 
@@ -862,9 +868,10 @@ func nicoToBringUpState(
 
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
-// while any target host is still in Core's Assigned/* lifecycle state.
+// while any target host is reported as not ready for op by its persisted
+// ComponentStatus.
 //
-// When overrideAssignmentCheck is true the gate is short-circuited and the
+// When overrideReadinessCheck is true the gate is short-circuited and the
 // operation runs against the current set of machines unconditionally. The
 // override is intended for operator-supervised maintenance windows where
 // tenant impact has been acknowledged out-of-band; authorisation is
@@ -873,15 +880,17 @@ func nicoToBringUpState(
 func (m *Manager) ensureMachinesOperable(
 	ctx context.Context,
 	machineIDs []string,
-	overrideAssignmentCheck bool,
+	op types.OperationType,
+	overrideReadinessCheck bool,
 ) error {
-	if overrideAssignmentCheck {
+	if overrideReadinessCheck {
 		log.Warn().
 			Strs("machine_ids", machineIDs).
-			Msg("Assignment safety check bypassed by override_assignment_check on compute operation")
+			Str("operation", string(op)).
+			Msg("Readiness check bypassed by override_readiness_check on compute operation")
 		return nil
 	}
-	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)
+	return m.readiness.WaitForComponentsReady(ctx, machineIDs, op)
 }
 
 // isAlreadyInDesiredStateError returns true when NICo reports that the

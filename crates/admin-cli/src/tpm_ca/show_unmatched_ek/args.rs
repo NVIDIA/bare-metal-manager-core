@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Show TPM EK certificates that have no matching CA:
-    $ carbide-admin-cli tpm-ca show-unmatched-ek
+    $ nico-admin-cli tpm-ca show-unmatched-ek
 
 ")]
 pub struct Args;

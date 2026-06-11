@@ -183,7 +183,14 @@ impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
             id: data.id,
             description: data.description,
             local_port: data.local_port,
-            ip_address: data.ip_address,
+            ip_address: data
+                .ip_address
+                .into_iter()
+                .map(|ip| {
+                    ip.parse()
+                        .map_err(|_| RpcDataConversionError::InvalidIpAddress(ip))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
             remote_port: data.remote_port,
         })
     }
@@ -198,7 +205,11 @@ impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
             id: data.id,
             description: data.description,
             local_port: data.local_port,
-            ip_address: data.ip_address,
+            ip_address: data
+                .ip_address
+                .into_iter()
+                .map(|ip| ip.to_string())
+                .collect(),
             remote_port: data.remote_port,
         })
     }

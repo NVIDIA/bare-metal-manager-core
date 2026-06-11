@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Assign a SKU to a machine:
-    $ carbide-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567
 
 Force the assignment even if the machine does not verify against the SKU:
-    $ carbide-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567 --force
+    $ nico-admin-cli sku assign DGX-H100-640GB 12345678-1234-5678-90ab-cdef01234567 --force
 
 ")]
 pub struct Args {

@@ -25,7 +25,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a power shelf by ID:
-    $ carbide-admin-cli power-shelf delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

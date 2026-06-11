@@ -28,10 +28,10 @@ use rpc::protos::mlx_device as mlx_device_pb;
 EXAMPLES:
 
 Get device info for one device on a machine:
-    $ carbide-admin-cli mlx info device 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
+    $ nico-admin-cli mlx info device 12345678-1234-5678-90ab-cdef01234567 0000:01:00.0
 
 Get the full device report for a machine:
-    $ carbide-admin-cli mlx info machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli mlx info machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub enum InfoCommand {

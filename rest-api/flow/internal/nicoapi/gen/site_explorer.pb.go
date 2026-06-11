@@ -10,13 +10,12 @@
 package nicoapigrpc
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -2250,8 +2249,8 @@ const file_site_explorer_proto_rawDesc = "" +
 	"\x16InternalLockdownStatus\x12\v\n" +
 	"\aENABLED\x10\x00\x12\v\n" +
 	"\aPARTIAL\x10\x01\x12\f\n" +
-	"\bDISABLED\x10\x02B\xb9\x01\n" +
-	"\x11com.site_explorerB\x11SiteExplorerProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03SXX\xaa\x02\fSiteExplorer\xca\x02\fSiteExplorer\xe2\x02\x18SiteExplorer\\GPBMetadata\xea\x02\fSiteExplorerb\x06proto3"
+	"\bDISABLED\x10\x02B\xbd\x01\n" +
+	"\x11com.site_explorerB\x11SiteExplorerProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03SXX\xaa\x02\fSiteExplorer\xca\x02\fSiteExplorer\xe2\x02\x18SiteExplorer\\GPBMetadata\xea\x02\fSiteExplorerb\x06proto3"
 
 var (
 	file_site_explorer_proto_rawDescOnce sync.Once

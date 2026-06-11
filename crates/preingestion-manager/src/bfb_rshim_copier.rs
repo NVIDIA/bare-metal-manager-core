@@ -18,7 +18,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use carbide_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;

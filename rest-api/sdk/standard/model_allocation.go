@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -34,9 +34,12 @@ type Allocation struct {
 	// ID of the Tenant that received the Allocation
 	TenantId *string `json:"tenantId,omitempty"`
 	// ID of the Site where resources are allocated
-	SiteId                *string                `json:"siteId,omitempty"`
-	Status                *AllocationStatus      `json:"status,omitempty"`
-	StatusHistory         []StatusDetail         `json:"statusHistory,omitempty"`
+	SiteId *string `json:"siteId,omitempty"`
+	// Status of the Allocation
+	Status *AllocationStatus `json:"status,omitempty"`
+	// Chronological status history for the Allocation
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// List of Allocation Constraints for the Allocation
 	AllocationConstraints []AllocationConstraint `json:"allocationConstraints,omitempty"`
 	// Date/time when the Allocation was created
 	Created *time.Time `json:"created,omitempty"`

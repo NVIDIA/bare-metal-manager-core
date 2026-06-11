@@ -133,7 +133,7 @@ type APIInstanceType struct {
 	// MachineInstanceTypes is the list of machines that are associated to this Instance Type
 	MachineInstanceTypes []APIMachineInstanceType `json:"machineInstanceTypes,omitempty"`
 	// AllocationStats is the stats of allocation that are associated to this Instance Type
-	AllocationStats *APIAllocationStats `json:"allocationStats,omitempty"`
+	AllocationStats *APIInstanceTypeAllocationStats `json:"allocationStats,omitempty"`
 	// Deprecations is the list of deprecation messages denoting fields which are being deprecated
 	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 	// Status is the status of the Instance Type
@@ -147,7 +147,7 @@ type APIInstanceType struct {
 }
 
 // NewAPIInstanceType accepts a DB layer Instance Type object returns an API layer object
-func NewAPIInstanceType(dbit *cdbm.InstanceType, dbsds []cdbm.StatusDetail, mcs []cdbm.MachineCapability, mit []cdbm.MachineInstanceType, aas *APIAllocationStats) *APIInstanceType {
+func NewAPIInstanceType(dbit *cdbm.InstanceType, dbsds []cdbm.StatusDetail, mcs []cdbm.MachineCapability, mit []cdbm.MachineInstanceType, aas *APIInstanceTypeAllocationStats) *APIInstanceType {
 	if dbit == nil {
 		return nil
 	}
@@ -223,7 +223,7 @@ func NewAPIInstanceTypeSummary(dbist *cdbm.InstanceType) *APIInstanceTypeSummary
 }
 
 // APIAllocationStats is the data structure to capture API representation of an InstanceType allocation stats
-type APIAllocationStats struct {
+type APIInstanceTypeAllocationStats struct {
 	// Assigned is the total number of Machines assigned to this Instance Type
 	Assigned int `json:"assigned"`
 	// Total is the total number of Machines allocated to different Tenants for this Instance Type

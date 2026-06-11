@@ -33,13 +33,13 @@ type APIDeprecation struct {
 	// Field denotes the field that is deprecated (optional)
 	Attribute *string `json:"attribute,omitempty"`
 	// Field denotes the field that is deprecated (optional)
-	QueryParam *string `json:"queryparam,omitempty"`
+	QueryParam *string `json:"queryParam,omitempty"`
 	// Endpoint denotes the endpoint that is deprecated (optional)
 	Endpoint *string `json:"endpoint,omitempty"`
 	// ReplacedBy denotes the field that replaces the deprecated field (optional)
-	ReplacedBy *string `json:"replacedby"`
-	// Effective indicates the ISO datetime string for when the deprecation takes effect
-	TakeActionBy time.Time `json:"effective"`
+	ReplacedBy *string `json:"replacedBy,omitempty"`
+	// TakeActionBy indicates the ISO datetime string for when the deprecated field will no longer be accepted or available in the API
+	TakeActionBy time.Time `json:"takeActionBy"`
 	// Notice describes the deprecated field
 	Notice string `json:"notice"`
 }

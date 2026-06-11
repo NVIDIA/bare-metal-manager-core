@@ -126,12 +126,24 @@ pub async fn update_expected_switch(
         })?;
 
     if let Some(bmc_ip) = switch.bmc_ip_address {
-        update_preallocated_machine_interface(&mut txn, switch.bmc_mac_address, bmc_ip).await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            switch.bmc_mac_address,
+            bmc_ip,
+            api.runtime_config.retained_boot_interface_window,
+        )
+        .await?;
     }
     if let Some(nvos_ip) = switch.nvos_ip_address {
         // Pairing already validated above; nvos_mac_addresses has exactly one entry.
         let nvos_mac = switch.nvos_mac_addresses[0];
-        update_preallocated_machine_interface(&mut txn, nvos_mac, nvos_ip).await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            nvos_mac,
+            nvos_ip,
+            api.runtime_config.retained_boot_interface_window,
+        )
+        .await?;
     }
 
     db_expected_switch::update(&mut txn, &switch)

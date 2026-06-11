@@ -26,11 +26,11 @@ use crate::metadata::parse_rpc_labels;
 EXAMPLES:
 
 Add an expected rack with its rack profile:
-    $ carbide-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
 Add an expected rack with a metadata name and a label:
-    $ carbide-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli expected-rack add 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789 --meta-name rack-01 --label DATACENTER:XYZ
 
 ")]

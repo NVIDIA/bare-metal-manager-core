@@ -53,10 +53,10 @@ algorithm = "ES256"               # must match tenant identity signing alg (ES25
 identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
 identity_keyfile_path = "/var/run/secrets/spiffe.io/tls.key"
 root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
-admin_root_cafile_path = "/etc/forge/carbide-api/site/admin_root_cert_pem"
+admin_root_cafile_path = "{{ .Values.auth.adminRootCafilePath | default "/etc/forge/carbide-api/site/admin_root_cert_pem" }}"
 
 [auth]
-permissive_mode = false
+permissive_mode = {{ .Values.auth.permissiveMode | default false }}
 casbin_policy_file = "/etc/forge/carbide-api/casbin-policy.csv"
 
 [auth.trust]
@@ -67,7 +67,7 @@ spiffe_service_base_paths = [
   "/elektra-site-agent/sa/",
 ]
 spiffe_machine_base_path = "/{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}/machine/"
-additional_issuer_cns = []
+additional_issuer_cns = [{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}]
 
 [machine_state_controller]
 failure_retry_time = "90m"

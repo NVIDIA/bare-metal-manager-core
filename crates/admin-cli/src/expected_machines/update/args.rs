@@ -38,14 +38,14 @@ use clap::Parser;
 ///    }
 ///
 /// Usage:
-///   carbide-admin-cli expected-machine update --filename machine.json
+///   nico-admin-cli expected-machine update --filename machine.json
 #[derive(Parser, Debug)]
 #[clap(verbatim_doc_comment)]
 #[command(after_long_help = "\
 EXAMPLES:
 
 Replace an expected machine record from a JSON file:
-    $ carbide-admin-cli expected-machine update --filename ./machine.json
+    $ nico-admin-cli expected-machine update --filename ./machine.json
 
 ")]
 pub struct Args {
