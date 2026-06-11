@@ -33,7 +33,7 @@ pub enum Args {
 EXAMPLES:
 
 Quarantine a host (blocks all host network traffic):
-    $ carbide-admin-cli managed-host quarantine on --host 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host quarantine on --host 12345678-1234-5678-90ab-cdef01234567 \
     --reason \"suspected compromise\"
 
 ")]
@@ -67,7 +67,7 @@ impl From<QuarantineOn> for forgerpc::SetManagedHostQuarantineStateRequest {
 EXAMPLES:
 
 Take a host out of quarantine:
-    $ carbide-admin-cli managed-host quarantine off --host 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-host quarantine off --host 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct QuarantineOff {

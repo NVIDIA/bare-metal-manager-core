@@ -29,7 +29,7 @@ use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
@@ -1454,7 +1454,7 @@ mod tests {
     use arc_swap::ArcSwap;
     use carbide_redfish::libredfish::test_support::RedfishSim;
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
-    use forge_secrets::credentials::Credentials;
+    use carbide_secrets::credentials::Credentials;
     use libredfish::model::service_root::RedfishVendor;
 
     use super::RedfishClient;

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,6 +24,7 @@ var _ MappedNullable = &TenantAccountCreateRequest{}
 
 // TenantAccountCreateRequest Request data to create a TenantAccount
 type TenantAccountCreateRequest struct {
+	// ID of the Infrastructure Provider in the organization
 	InfrastructureProviderId string `json:"infrastructureProviderId"`
 	// Must be a valid Org name
 	TenantOrg string `json:"tenantOrg" validate:"regexp=^[A-Za-z0-9-_]+$"`

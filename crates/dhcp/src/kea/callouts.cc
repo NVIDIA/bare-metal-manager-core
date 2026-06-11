@@ -410,11 +410,14 @@ int pkt4_receive(CalloutHandle &handle) {
 
         auto desired = addr.toText();
 
-        discovery_set_desired_address(discovery.get(), desired.c_str());
+        builder_result =
+            discovery_set_desired_address(discovery.get(), desired.c_str());
 
-        LOG_INFO(logger,
-                "LOG_CARBIDE_PKT4_RECEIVE: Desired Address [%1] set")
-          .arg(desired);
+        if (builder_result == DiscoveryBuilderResult::Success) {
+          LOG_INFO(logger,
+                  "LOG_CARBIDE_PKT4_RECEIVE: Desired Address [%1] set")
+            .arg(desired);
+        }
       } else {
         LOG_ERROR(logger, "LOG_CARBIDE_PKT4_RECEIVE: Desired addr buf len wrong: [%1]")
           .arg(bufSize);

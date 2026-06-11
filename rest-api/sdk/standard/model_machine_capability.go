@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -36,6 +36,8 @@ type MachineCapability struct {
 	Capacity NullableString `json:"capacity,omitempty"`
 	// Vendor of the Capability component, if available
 	Vendor NullableString `json:"vendor,omitempty"`
+	// Hardware revision of the Capability component, if available
+	HardwareRevision NullableString `json:"hardwareRevision,omitempty"`
 	// A list of inactive devices
 	InactiveDevices []int32 `json:"inactiveDevices,omitempty"`
 	// Count of the Capability component
@@ -340,6 +342,49 @@ func (o *MachineCapability) UnsetVendor() {
 	o.Vendor.Unset()
 }
 
+// GetHardwareRevision returns the HardwareRevision field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *MachineCapability) GetHardwareRevision() string {
+	if o == nil || IsNil(o.HardwareRevision.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.HardwareRevision.Get()
+}
+
+// GetHardwareRevisionOk returns a tuple with the HardwareRevision field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *MachineCapability) GetHardwareRevisionOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.HardwareRevision.Get(), o.HardwareRevision.IsSet()
+}
+
+// HasHardwareRevision returns a boolean if a field has been set.
+func (o *MachineCapability) HasHardwareRevision() bool {
+	if o != nil && o.HardwareRevision.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetHardwareRevision gets a reference to the given NullableString and assigns it to the HardwareRevision field.
+func (o *MachineCapability) SetHardwareRevision(v string) {
+	o.HardwareRevision.Set(&v)
+}
+
+// SetHardwareRevisionNil sets the value for HardwareRevision to be an explicit nil
+func (o *MachineCapability) SetHardwareRevisionNil() {
+	o.HardwareRevision.Set(nil)
+}
+
+// UnsetHardwareRevision ensures that no value is present for HardwareRevision, not even an explicit nil
+func (o *MachineCapability) UnsetHardwareRevision() {
+	o.HardwareRevision.Unset()
+}
+
 // GetInactiveDevices returns the InactiveDevices field value if set, zero value otherwise.
 func (o *MachineCapability) GetInactiveDevices() []int32 {
 	if o == nil || IsNil(o.InactiveDevices) {
@@ -488,6 +533,9 @@ func (o MachineCapability) ToMap() (map[string]interface{}, error) {
 	}
 	if o.Vendor.IsSet() {
 		toSerialize["vendor"] = o.Vendor.Get()
+	}
+	if o.HardwareRevision.IsSet() {
+		toSerialize["hardwareRevision"] = o.HardwareRevision.Get()
 	}
 	if !IsNil(o.InactiveDevices) {
 		toSerialize["inactiveDevices"] = o.InactiveDevices

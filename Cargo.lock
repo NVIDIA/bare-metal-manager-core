@@ -1036,55 +1036,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
-name = "carbide-admin-cli"
-version = "0.0.1"
-dependencies = [
- "bmc-vendor",
- "carbide-health-report",
- "carbide-libmlx",
- "carbide-libmlx-model",
- "carbide-macros",
- "carbide-measured-boot",
- "carbide-network",
- "carbide-rpc",
- "carbide-rpc-utils",
- "carbide-secrets",
- "carbide-ssh",
- "carbide-tls",
- "carbide-utils",
- "carbide-uuid",
- "carbide-version",
- "chrono",
- "clap",
- "clap_complete",
- "clap_mangen",
- "color-eyre",
- "csv",
- "eyre",
- "futures",
- "ipnet",
- "libredfish",
- "librms",
- "mac_address",
- "pandoc",
- "prettytable-rs",
- "reqwest 0.13.4",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.18",
- "tokio",
- "toml 1.1.2+spec-1.1.0",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
- "x509-parser",
- "zip",
-]
-
-[[package]]
 name = "carbide-agent"
 version = "0.1.0"
 dependencies = [
@@ -7200,6 +7151,55 @@ dependencies = [
  "libc",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "nico-admin-cli"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "carbide-health-report",
+ "carbide-libmlx",
+ "carbide-libmlx-model",
+ "carbide-macros",
+ "carbide-measured-boot",
+ "carbide-network",
+ "carbide-rpc",
+ "carbide-rpc-utils",
+ "carbide-secrets",
+ "carbide-ssh",
+ "carbide-tls",
+ "carbide-utils",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "clap_mangen",
+ "color-eyre",
+ "csv",
+ "eyre",
+ "futures",
+ "ipnet",
+ "libredfish",
+ "librms",
+ "mac_address",
+ "pandoc",
+ "prettytable-rs",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "uuid",
+ "x509-parser",
+ "zip",
 ]
 
 [[package]]

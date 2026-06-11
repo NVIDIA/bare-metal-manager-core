@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a rack by ID:
-    $ carbide-admin-cli rack delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli rack delete 12345678-1234-5678-90ab-cdef01234567
 
 Delete a rack by name:
-    $ carbide-admin-cli rack delete rack-01
+    $ nico-admin-cli rack delete rack-01
 
 ")]
 pub struct Args {

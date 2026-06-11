@@ -26,7 +26,7 @@ use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
     ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedSwitch, InlineIpxe,
-    InstanceOperatingSystemConfig, MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
+    InstanceOperatingSystemConfig, MachinesByIdsRequest, SetDynamicConfigRequest,
     VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -474,23 +474,6 @@ impl ApiClient {
             .await
             .map_err(ClientApiError::InvocationError)
             .map(|_| ())
-    }
-
-    pub async fn get_pxe_instructions(
-        &self,
-        arch: rpc::forge::MachineArchitecture,
-        client_ip: std::net::IpAddr,
-        product: Option<String>,
-    ) -> ClientApiResult<PxeInstructions> {
-        self.0
-            .get_pxe_instructions(rpc::forge::PxeInstructionRequest {
-                arch: arch.into(),
-                product,
-                client_ip: Some(client_ip.to_string()),
-                ..Default::default()
-            })
-            .await
-            .map_err(ClientApiError::InvocationError)
     }
 
     pub async fn configure_bmc_proxy_host(&self, host: String) -> ClientApiResult<()> {

@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Ping the API server (default 1s interval):
-    $ carbide-admin-cli ping
+    $ nico-admin-cli ping
 
 Ping twice a second:
-    $ carbide-admin-cli ping --interval 0.5
+    $ nico-admin-cli ping --interval 0.5
 
 ")]
 pub struct Opts {

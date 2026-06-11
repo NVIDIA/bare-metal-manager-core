@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -31,7 +31,8 @@ type MachineUpdateRequest struct {
 	// Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or Privileged Tenant.
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
 	// Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or Privileged Tenant.
-	Labels       map[string]string    `json:"labels,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+	// Request to enter/exit online repair
 	OnlineRepair *MachineOnlineRepair `json:"onlineRepair,omitempty"`
 	// Required when `onlineRepair.enabled` is true. Must not be set when exiting online repair (`onlineRepair.enabled` false).
 	HealthIssue *MachineHealthIssue `json:"healthIssue,omitempty"`

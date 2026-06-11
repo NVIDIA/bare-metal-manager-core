@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::certificates::Certificate;
+use carbide_secrets::certificates::Certificate;
 
 use crate::protos::forge::MachineCertificate;
 

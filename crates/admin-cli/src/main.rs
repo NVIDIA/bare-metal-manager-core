@@ -216,7 +216,7 @@ async fn main() -> color_eyre::Result<()> {
             format: config.format,
             page_size: config.internal_page_size,
             extended: config.extended,
-            cloud_unsafe_op_enabled: config.cloud_unsafe_op.is_some(),
+            cloud_unsafe_op: config.cloud_unsafe_op,
             sort_by: config.sort_by,
         },
         output_file: get_output_file_or_stdout(config.output.as_deref()).await?,

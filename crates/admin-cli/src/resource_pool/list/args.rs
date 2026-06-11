@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 List all resource pools with their stats:
-    $ carbide-admin-cli resource-pool list
+    $ nico-admin-cli resource-pool list
 
 ")]
 pub struct Args;

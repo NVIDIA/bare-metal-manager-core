@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,12 +24,18 @@ var _ MappedNullable = &InstanceTypeCreateRequest{}
 
 // InstanceTypeCreateRequest Request data to create an Instance Type
 type InstanceTypeCreateRequest struct {
-	Name                  string                                `json:"name"`
-	Description           NullableString                        `json:"description,omitempty"`
-	SiteId                string                                `json:"siteId"`
-	Labels                map[string]string                     `json:"labels,omitempty"`
-	ControllerMachineType NullableString                        `json:"controllerMachineType,omitempty"`
-	MachineCapabilities   []InstanceTypeCapabilityCreateRequest `json:"machineCapabilities,omitempty"`
+	// Name of the Instance Type
+	Name string `json:"name"`
+	// Description of the Instance Type
+	Description NullableString `json:"description,omitempty"`
+	// ID of the site
+	SiteId string `json:"siteId"`
+	// User-defined key-value labels for the Instance Type
+	Labels map[string]string `json:"labels,omitempty"`
+	// Site Controller assigned Machine type
+	ControllerMachineType NullableString `json:"controllerMachineType,omitempty"`
+	// List of Machine Capabilities to match
+	MachineCapabilities []InstanceTypeCapabilityCreateRequest `json:"machineCapabilities,omitempty"`
 }
 
 type _InstanceTypeCreateRequest InstanceTypeCreateRequest

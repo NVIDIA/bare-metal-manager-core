@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,12 +24,18 @@ var _ MappedNullable = &SubnetCreateRequest{}
 
 // SubnetCreateRequest Request data for creating Subnet
 type SubnetCreateRequest struct {
-	Name         string         `json:"name"`
-	Description  NullableString `json:"description,omitempty"`
-	VpcId        string         `json:"vpcId"`
-	Ipv4BlockId  NullableString `json:"ipv4BlockId,omitempty"`
-	Ipv6BlockId  NullableString `json:"ipv6BlockId,omitempty"`
-	PrefixLength int32          `json:"prefixLength"`
+	// Name of the Subnet
+	Name string `json:"name"`
+	// Description of the Subnet
+	Description NullableString `json:"description,omitempty"`
+	// ID of the VPC containing the Subnet
+	VpcId string `json:"vpcId"`
+	// ID of the derived Tenant IPv4 Block from an Allocation
+	Ipv4BlockId NullableString `json:"ipv4BlockId,omitempty"`
+	// ID of the derived Tenant IPv6 Block from an Allocation
+	Ipv6BlockId NullableString `json:"ipv6BlockId,omitempty"`
+	// Length of the prefix
+	PrefixLength int32 `json:"prefixLength"`
 }
 
 type _SubnetCreateRequest SubnetCreateRequest

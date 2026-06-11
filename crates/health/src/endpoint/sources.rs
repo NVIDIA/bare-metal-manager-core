@@ -52,14 +52,6 @@ impl StaticEndpointSource {
         let mut endpoints = Vec::with_capacity(configs.len());
 
         for cfg in configs {
-            let ip = match cfg.ip.parse() {
-                Ok(ip) => ip,
-                Err(error) => {
-                    tracing::warn!(?error, ip = ?cfg.ip, "Invalid IP in static endpoint config");
-                    continue;
-                }
-            };
-
             let mac = match MacAddress::from_str(&cfg.mac) {
                 Ok(mac) => mac,
                 Err(error) => {
@@ -158,7 +150,7 @@ impl StaticEndpointSource {
             };
 
             let addr = BmcAddr {
-                ip,
+                ip: cfg.ip,
                 port: cfg.port,
                 mac,
             };
@@ -267,11 +259,15 @@ mod tests {
         )
     }
 
+    fn ip(addr: &str) -> std::net::IpAddr {
+        addr.parse().unwrap()
+    }
+
     #[tokio::test]
-    async fn test_static_endpoint_source_filters_invalid_ip() {
+    async fn test_static_endpoint_source_filters_invalid_mac() {
         let configs = vec![
             StaticBmcEndpoint {
-                ip: "10.0.0.1".to_string(),
+                ip: ip("10.0.0.1"),
                 port: Some(443),
                 mac: "00:11:22:33:44:55".to_string(),
                 username: "admin".to_string(),
@@ -282,9 +278,9 @@ mod tests {
                 rack_id: None,
             },
             StaticBmcEndpoint {
-                ip: "not-an-ip".to_string(),
+                ip: ip("10.0.0.2"),
                 port: Some(443),
-                mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                mac: "not-a-mac".to_string(),
                 username: "admin".to_string(),
                 password: Some("pass".to_string()),
                 machine: None,
@@ -308,7 +304,7 @@ mod tests {
     async fn test_static_endpoint_with_switch_serial_sets_metadata() {
         let switch_id = test_switch_id("switch-a");
         let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.1.1".to_string(),
+            ip: ip("10.0.1.1"),
             port: Some(443),
             mac: "11:22:33:44:55:66".to_string(),
             username: "cumulus".to_string(),
@@ -349,7 +345,7 @@ mod tests {
     async fn test_static_endpoint_with_power_shelf_metadata() {
         let power_shelf_id = test_power_shelf_id("power-shelf-a");
         let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.2.1".to_string(),
+            ip: ip("10.0.2.1"),
             port: Some(443),
             mac: "22:33:44:55:66:77".to_string(),
             username: "admin".to_string(),
@@ -385,7 +381,7 @@ mod tests {
             .parse()
             .expect("valid NVLink domain UUID");
         let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.1.2".to_string(),
+            ip: ip("10.0.1.2"),
             port: Some(443),
             mac: "11:22:33:44:55:11".to_string(),
             username: "admin".to_string(),
@@ -428,7 +424,7 @@ mod tests {
     #[tokio::test]
     async fn test_static_endpoint_without_switch_serial_has_no_metadata() {
         let configs = vec![StaticBmcEndpoint {
-            ip: "10.0.0.1".to_string(),
+            ip: ip("10.0.0.1"),
             port: Some(443),
             mac: "aa:bb:cc:dd:ee:ff".to_string(),
             username: "admin".to_string(),

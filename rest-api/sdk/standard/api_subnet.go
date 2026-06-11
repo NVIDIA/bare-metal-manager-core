@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -48,7 +48,7 @@ Create a Subnet for the org.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-At least 1 IPv4 IP block or 1 IPv6 IP block must be specified.
+At least one IPv4 IP block or one IPv6 IP block must be specified.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -285,7 +285,7 @@ type ApiGetAllSubnetRequest struct {
 	orderBy           *string
 }
 
-// Filter subnets by Site, required if vpcId query param is not specified
+// Filter subnets by Site, required if the vpcId query parameter is not specified
 func (r ApiGetAllSubnetRequest) SiteId(siteId string) ApiGetAllSubnetRequest {
 	r.siteId = &siteId
 	return r
@@ -303,7 +303,7 @@ func (r ApiGetAllSubnetRequest) Status(status string) ApiGetAllSubnetRequest {
 	return r
 }
 
-// Search for matches across all Sites. Input will be matched against name, description and status fields
+// Search for matches across all Subnets. Input will be matched against name, description, and status fields
 func (r ApiGetAllSubnetRequest) Query(query string) ApiGetAllSubnetRequest {
 	r.query = &query
 	return r
@@ -315,7 +315,7 @@ func (r ApiGetAllSubnetRequest) IncludeRelation(includeRelation string) ApiGetAl
 	return r
 }
 
-// When true, each Subnet object includes usage statistic using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+// When true, each Subnet object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
 func (r ApiGetAllSubnetRequest) IncludeUsageStats(includeUsageStats bool) ApiGetAllSubnetRequest {
 	r.includeUsageStats = &includeUsageStats
 	return r
@@ -495,7 +495,7 @@ func (r ApiGetSubnetRequest) IncludeRelation(includeRelation string) ApiGetSubne
 	return r
 }
 
-// When true, each Subnet object includes usage statistic using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnets consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
+// When true, each Subnet object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
 func (r ApiGetSubnetRequest) IncludeUsageStats(includeUsageStats bool) ApiGetSubnetRequest {
 	r.includeUsageStats = &includeUsageStats
 	return r

@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Verify a machine against its assigned SKU:
-    $ carbide-admin-cli sku verify 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli sku verify 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

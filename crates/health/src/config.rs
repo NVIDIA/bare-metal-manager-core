@@ -16,7 +16,7 @@
  */
 
 use std::fmt::Debug;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -94,7 +94,7 @@ impl Default for EndpointSourcesConfig {
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
-    pub ip: String,
+    pub ip: IpAddr,
     #[serde(default)]
     pub port: Option<u16>,
     pub mac: String,
@@ -1309,7 +1309,7 @@ cache_size = 50
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].ip,
-            "192.168.1.100"
+            "192.168.1.100".parse::<IpAddr>().unwrap()
         );
         assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[0].mac,
@@ -1341,6 +1341,23 @@ cache_size = 50
         assert!(config.processors.leak_detection.is_enabled());
 
         config.validate().expect("config should be valid");
+    }
+
+    #[test]
+    fn test_static_endpoint_config_rejects_invalid_ip() {
+        let toml_content = r#"
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "not-an-ip"
+mac = "00:11:22:33:44:55"
+username = "root"
+"#;
+
+        let result = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract::<Config>();
+
+        assert!(result.is_err());
     }
 
     #[test]

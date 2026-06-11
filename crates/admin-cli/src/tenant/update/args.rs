@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 Rename a tenant org:
-    $ carbide-admin-cli tenant update fds34511233a --name \"Acme Corp\"
+    $ nico-admin-cli tenant update fds34511233a --name \"Acme Corp\"
 
 Apply a routing profile to a tenant:
-    $ carbide-admin-cli tenant update fds34511233a --routing-profile-type default
+    $ nico-admin-cli tenant update fds34511233a --routing-profile-type default
 
 Update only if the record is still at a known version (optimistic concurrency):
-    $ carbide-admin-cli tenant update fds34511233a --name \"Acme Corp\" --version 7
+    $ nico-admin-cli tenant update fds34511233a --name \"Acme Corp\" --version 7
 
 ")]
 pub struct Args {

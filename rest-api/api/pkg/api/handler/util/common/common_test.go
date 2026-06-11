@@ -1443,7 +1443,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 		it          *cdbm.InstanceType
 		tnas        []cdbm.Allocation
 		instances   []cdbm.Instance
-		expectStats *cam.APIAllocationStats
+		expectStats *cam.APIInstanceTypeAllocationStats
 		expectErr   bool
 		logger      zerolog.Logger
 	}{
@@ -1452,7 +1452,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 			tenantID:  cutil.GetPtr(tn1.ID),
 			instances: tn1inss,
 			it:        it1,
-			expectStats: &cam.APIAllocationStats{
+			expectStats: &cam.APIInstanceTypeAllocationStats{
 				Assigned:       len(m1s),
 				Total:          alc1.ConstraintValue,
 				Used:           len(tn1inss),
@@ -1467,7 +1467,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 			tenantID:  cutil.GetPtr(tn2.ID),
 			instances: tn2inss,
 			it:        it1,
-			expectStats: &cam.APIAllocationStats{
+			expectStats: &cam.APIInstanceTypeAllocationStats{
 				Assigned:       len(m1s),
 				Total:          alc2.ConstraintValue,
 				Used:           len(tn2inss),
@@ -1482,7 +1482,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 			tenantID:  cutil.GetPtr(tn3.ID),
 			instances: tn3inss,
 			it:        it1,
-			expectStats: &cam.APIAllocationStats{
+			expectStats: &cam.APIInstanceTypeAllocationStats{
 				Assigned:       len(m1s),
 				Total:          alc3.ConstraintValue,
 				Used:           len(tn3inss),
@@ -1497,7 +1497,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 			tenantID:  nil,
 			instances: it1inss,
 			it:        it1,
-			expectStats: &cam.APIAllocationStats{
+			expectStats: &cam.APIInstanceTypeAllocationStats{
 				Assigned:       len(m1s),
 				Total:          alc1.ConstraintValue + alc2.ConstraintValue + alc3.ConstraintValue,
 				Used:           len(it1inss),
@@ -1512,7 +1512,7 @@ func TestGetInstanceTypeAllocationStats(t *testing.T) {
 			tenantID:  nil,
 			instances: []cdbm.Instance{},
 			it:        it2,
-			expectStats: &cam.APIAllocationStats{
+			expectStats: &cam.APIInstanceTypeAllocationStats{
 				Assigned:       len(m2s),
 				Total:          0,
 				Used:           0,

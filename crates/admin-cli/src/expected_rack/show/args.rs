@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all expected racks:
-    $ carbide-admin-cli expected-rack show
+    $ nico-admin-cli expected-rack show
 
 Show one expected rack by rack ID:
-    $ carbide-admin-cli expected-rack show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli expected-rack show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

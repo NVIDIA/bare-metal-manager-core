@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,10 +24,8 @@ var _ MappedNullable = &SkuTpm{}
 type SkuTpm struct {
 	// Vendor of the TPM
 	Vendor *string `json:"vendor,omitempty"`
-	// Model of the TPM
-	Model *string `json:"model,omitempty"`
-	// Number of TPMs present
-	Count *int32 `json:"count,omitempty"`
+	// Version of the TPM
+	Version *string `json:"version,omitempty"`
 }
 
 // NewSkuTpm instantiates a new SkuTpm object
@@ -79,68 +77,36 @@ func (o *SkuTpm) SetVendor(v string) {
 	o.Vendor = &v
 }
 
-// GetModel returns the Model field value if set, zero value otherwise.
-func (o *SkuTpm) GetModel() string {
-	if o == nil || IsNil(o.Model) {
+// GetVersion returns the Version field value if set, zero value otherwise.
+func (o *SkuTpm) GetVersion() string {
+	if o == nil || IsNil(o.Version) {
 		var ret string
 		return ret
 	}
-	return *o.Model
+	return *o.Version
 }
 
-// GetModelOk returns a tuple with the Model field value if set, nil otherwise
+// GetVersionOk returns a tuple with the Version field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuTpm) GetModelOk() (*string, bool) {
-	if o == nil || IsNil(o.Model) {
+func (o *SkuTpm) GetVersionOk() (*string, bool) {
+	if o == nil || IsNil(o.Version) {
 		return nil, false
 	}
-	return o.Model, true
+	return o.Version, true
 }
 
-// HasModel returns a boolean if a field has been set.
-func (o *SkuTpm) HasModel() bool {
-	if o != nil && !IsNil(o.Model) {
+// HasVersion returns a boolean if a field has been set.
+func (o *SkuTpm) HasVersion() bool {
+	if o != nil && !IsNil(o.Version) {
 		return true
 	}
 
 	return false
 }
 
-// SetModel gets a reference to the given string and assigns it to the Model field.
-func (o *SkuTpm) SetModel(v string) {
-	o.Model = &v
-}
-
-// GetCount returns the Count field value if set, zero value otherwise.
-func (o *SkuTpm) GetCount() int32 {
-	if o == nil || IsNil(o.Count) {
-		var ret int32
-		return ret
-	}
-	return *o.Count
-}
-
-// GetCountOk returns a tuple with the Count field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *SkuTpm) GetCountOk() (*int32, bool) {
-	if o == nil || IsNil(o.Count) {
-		return nil, false
-	}
-	return o.Count, true
-}
-
-// HasCount returns a boolean if a field has been set.
-func (o *SkuTpm) HasCount() bool {
-	if o != nil && !IsNil(o.Count) {
-		return true
-	}
-
-	return false
-}
-
-// SetCount gets a reference to the given int32 and assigns it to the Count field.
-func (o *SkuTpm) SetCount(v int32) {
-	o.Count = &v
+// SetVersion gets a reference to the given string and assigns it to the Version field.
+func (o *SkuTpm) SetVersion(v string) {
+	o.Version = &v
 }
 
 func (o SkuTpm) MarshalJSON() ([]byte, error) {
@@ -156,11 +122,8 @@ func (o SkuTpm) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Vendor) {
 		toSerialize["vendor"] = o.Vendor
 	}
-	if !IsNil(o.Model) {
-		toSerialize["model"] = o.Model
-	}
-	if !IsNil(o.Count) {
-		toSerialize["count"] = o.Count
+	if !IsNil(o.Version) {
+		toSerialize["version"] = o.Version
 	}
 	return toSerialize, nil
 }

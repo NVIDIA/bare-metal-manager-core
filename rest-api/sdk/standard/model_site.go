@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,13 +23,16 @@ var _ MappedNullable = &Site{}
 
 // Site Site is a datacenter that is running NVIDIA Infra Controller (NICo) services
 type Site struct {
+	// Unique UUID v4 identifier for the Site in NICo Cloud
 	Id *string `json:"id,omitempty"`
 	// Name of the Site
 	Name *string `json:"name,omitempty"`
 	// Optional description for the Site
-	Description              NullableString `json:"description,omitempty"`
-	Org                      *string        `json:"org,omitempty"`
-	InfrastructureProviderId *string        `json:"infrastructureProviderId,omitempty"`
+	Description NullableString `json:"description,omitempty"`
+	// NGC organization ID of the Infrastructure Provider that owns the Site
+	Org *string `json:"org,omitempty"`
+	// ID of the Infrastructure Provider that owns the Site
+	InfrastructureProviderId *string `json:"infrastructureProviderId,omitempty"`
 	// Version of the Site Controller software
 	SiteControllerVersion NullableString `json:"siteControllerVersion,omitempty"`
 	// Version of the Site Agent software
@@ -37,8 +40,9 @@ type Site struct {
 	// Token that can be used to register a Site. Value only exposed to Provider
 	RegistrationToken NullableString `json:"registrationToken,omitempty"`
 	// Date/time when registration token expires. Value only exposed to Provider
-	RegistrationTokenExpiration NullableTime   `json:"registrationTokenExpiration,omitempty"`
-	SerialConsoleHostname       NullableString `json:"serialConsoleHostname,omitempty"`
+	RegistrationTokenExpiration NullableTime `json:"registrationTokenExpiration,omitempty"`
+	// Serial console hostname of the site controller
+	SerialConsoleHostname NullableString `json:"serialConsoleHostname,omitempty"`
 	// Indicates if Serial Console is enabled for the Site by the Provider
 	IsSerialConsoleEnabled *bool `json:"isSerialConsoleEnabled,omitempty"`
 	// Maximum idle time in seconds before Serial Console is disconnected
@@ -48,15 +52,23 @@ type Site struct {
 	// Only visible to Tenant retrieving the Site. Indicates if Serial Console access using SSH Keys is enabled by Tenant
 	IsSerialConsoleSSHKeysEnabled *bool `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
 	// Indicates if the Site is currently reachable from Cloud
-	IsOnline      *bool             `json:"isOnline,omitempty"`
-	Status        *SiteStatus       `json:"status,omitempty"`
-	StatusHistory []StatusDetail    `json:"statusHistory,omitempty"`
-	Created       *time.Time        `json:"created,omitempty"`
-	Updated       *time.Time        `json:"updated,omitempty"`
-	Location      *SiteLocation     `json:"location,omitempty"`
-	Contact       *SiteContact      `json:"contact,omitempty"`
-	Capabilities  *SiteCapabilities `json:"capabilities,omitempty"`
-	MachineStats  *SiteMachineStats `json:"machineStats,omitempty"`
+	IsOnline *bool `json:"isOnline,omitempty"`
+	// Status of the Site
+	Status *SiteStatus `json:"status,omitempty"`
+	// Chronological status history for the Site
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the Site was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Site was last updated
+	Updated *time.Time `json:"updated,omitempty"`
+	// Site location information
+	Location *SiteLocation `json:"location,omitempty"`
+	// Site contact information
+	Contact *SiteContact `json:"contact,omitempty"`
+	// Site capabilities used for feature availability and configuration
+	Capabilities *SiteCapabilities `json:"capabilities,omitempty"`
+	// Machine counts by status for the Site
+	MachineStats *SiteMachineStats `json:"machineStats,omitempty"`
 }
 
 // NewSite instantiates a new Site object

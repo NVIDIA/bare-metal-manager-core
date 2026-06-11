@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,12 +22,18 @@ var _ MappedNullable = &OpenIDConfiguration{}
 
 // OpenIDConfiguration OIDC discovery document. Note: `id_token_signing_alg_values_supported` is always empty because NICo issues JWT bearer access tokens, not OIDC `id_token`s.
 type OpenIDConfiguration struct {
-	Issuer                           *string  `json:"issuer,omitempty"`
-	JwksUri                          *string  `json:"jwks_uri,omitempty"`
-	ResponseTypesSupported           []string `json:"response_types_supported,omitempty"`
-	SubjectTypesSupported            []string `json:"subject_types_supported,omitempty"`
+	// Issuer URL for OpenID Connect discovery
+	Issuer *string `json:"issuer,omitempty"`
+	// URL of the JSON Web Key Set used to verify tokens
+	JwksUri *string `json:"jwks_uri,omitempty"`
+	// OAuth response types supported by this issuer
+	ResponseTypesSupported []string `json:"response_types_supported,omitempty"`
+	// Subject identifier types supported by this issuer
+	SubjectTypesSupported []string `json:"subject_types_supported,omitempty"`
+	// ID token signing algorithms supported by this issuer
 	IdTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported,omitempty"`
-	SpiffeJwksUri                    *string  `json:"spiffe_jwks_uri,omitempty"`
+	// URL of the SPIFFE JSON Web Key Set used to verify SPIFFE JWT-SVIDs
+	SpiffeJwksUri *string `json:"spiffe_jwks_uri,omitempty"`
 }
 
 // NewOpenIDConfiguration instantiates a new OpenIDConfiguration object

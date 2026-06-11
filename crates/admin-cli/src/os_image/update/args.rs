@@ -25,11 +25,11 @@ use crate::os_image::common::str_to_rpc_uuid;
 EXAMPLES:
 
 Rename an OS image and update its description:
-    $ carbide-admin-cli os-image update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli os-image update --id 12345678-1234-5678-90ab-cdef01234567 \
     --name ubuntu-22.04 --description \"Ubuntu 22.04 base\"
 
 Rotate the image URL's auth token:
-    $ carbide-admin-cli os-image update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli os-image update --id 12345678-1234-5678-90ab-cdef01234567 \
     --auth-type Bearer --auth-token <token>
 
 ")]

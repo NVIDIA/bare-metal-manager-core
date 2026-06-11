@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Enable site-explorer:
-    $ carbide-admin-cli set site-explorer --enable
+    $ nico-admin-cli set site-explorer --enable
 
 Disable site-explorer:
-    $ carbide-admin-cli set site-explorer --disable
+    $ nico-admin-cli set site-explorer --disable
 
 ")]
 pub struct Args {

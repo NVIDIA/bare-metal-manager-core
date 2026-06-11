@@ -25,19 +25,19 @@ use crate::bmc_machine::common::AdminPowerControlAction;
 EXAMPLES:
 
 Power a machine on:
-    $ carbide-admin-cli bmc-machine admin-power-control \
+    $ nico-admin-cli bmc-machine admin-power-control \
     --machine 12345678-1234-5678-90ab-cdef01234567 --action on
 
 Gracefully shut a machine down:
-    $ carbide-admin-cli bmc-machine admin-power-control \
+    $ nico-admin-cli bmc-machine admin-power-control \
     --machine 12345678-1234-5678-90ab-cdef01234567 --action graceful-shutdown
 
 Force a machine off (immediate, no OS shutdown):
-    $ carbide-admin-cli bmc-machine admin-power-control \
+    $ nico-admin-cli bmc-machine admin-power-control \
     --machine 12345678-1234-5678-90ab-cdef01234567 --action force-off
 
 Gracefully restart a machine:
-    $ carbide-admin-cli bmc-machine admin-power-control \
+    $ nico-admin-cli bmc-machine admin-power-control \
     --machine 12345678-1234-5678-90ab-cdef01234567 --action graceful-restart
 
 ")]

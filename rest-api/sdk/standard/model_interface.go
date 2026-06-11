@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,26 +23,35 @@ var _ MappedNullable = &Interface{}
 
 // Interface Associates an Instance with a Subnet
 type Interface struct {
-	Id          *string        `json:"id,omitempty"`
-	InstanceId  *string        `json:"instanceId,omitempty"`
-	SubnetId    NullableString `json:"subnetId,omitempty"`
+	// Unique UUID v4 identifier for the Interface
+	Id *string `json:"id,omitempty"`
+	// ID of the associated Instance
+	InstanceId *string `json:"instanceId,omitempty"`
+	// ID of the associated Subnet
+	SubnetId NullableString `json:"subnetId,omitempty"`
+	// ID of the associated VPCPrefix
 	VpcPrefixId NullableString `json:"vpcPrefixId,omitempty"`
-	IsPhysical  *bool          `json:"isPhysical,omitempty"`
+	// IsPhysical indicates whether the Subnet is bound on a physical Interface
+	IsPhysical *bool `json:"isPhysical,omitempty"`
 	// Name of the device to use
 	Device NullableString `json:"device,omitempty"`
 	// Index of the device, used to identify which interface card to attache the Partition to
 	DeviceInstance NullableInt32 `json:"deviceInstance,omitempty"`
 	// Must be specified if isPhysical is false
-	VirtualFunctionId NullableInt32  `json:"virtualFunctionId,omitempty"`
-	MacAddress        NullableString `json:"macAddress,omitempty"`
+	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
+	// MAC address of the Interface
+	MacAddress NullableString `json:"macAddress,omitempty"`
 	// A list of IPv4 or IPv6 addresses
 	IpAddresses []string `json:"ipAddresses,omitempty"`
 	// Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
 	RequestedIpAddress   NullableString                        `json:"requestedIpAddress,omitempty"`
 	InlineRoutingProfile NullableInterfaceInlineRoutingProfile `json:"inlineRoutingProfile,omitempty"`
-	Status               *InterfaceStatus                      `json:"status,omitempty"`
-	Created              *time.Time                            `json:"created,omitempty"`
-	Updated              *time.Time                            `json:"updated,omitempty"`
+	// Status of the Interface
+	Status *InterfaceStatus `json:"status,omitempty"`
+	// Date/time when the Interface was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Interface was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewInterface instantiates a new Interface object

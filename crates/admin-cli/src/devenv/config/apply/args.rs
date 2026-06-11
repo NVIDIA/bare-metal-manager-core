@@ -22,10 +22,10 @@ use clap::{Parser, ValueEnum};
 EXAMPLES:
 
 Apply a devenv config using network segments:
-    $ carbide-admin-cli dev-env config apply ./devenv_config.toml --mode network-segment
+    $ nico-admin-cli dev-env config apply ./devenv_config.toml --mode network-segment
 
 Apply a devenv config using VPC prefixes:
-    $ carbide-admin-cli dev-env config apply ./devenv_config.toml --mode vpc-prefix
+    $ nico-admin-cli dev-env config apply ./devenv_config.toml --mode vpc-prefix
 
 ")]
 pub struct Args {

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,11 +23,16 @@ var _ MappedNullable = &TenantIdentityTokenDelegation{}
 
 // TenantIdentityTokenDelegation Current token delegation configuration for the org.
 type TenantIdentityTokenDelegation struct {
-	TokenEndpoint        *string                                  `json:"tokenEndpoint,omitempty"`
-	ClientSecretBasic    *TenantIdentityBasicClientSecretResponse `json:"clientSecretBasic,omitempty"`
-	SubjectTokenAudience *string                                  `json:"subjectTokenAudience,omitempty"`
-	Created              *time.Time                               `json:"created,omitempty"`
-	Updated              *time.Time                               `json:"updated,omitempty"`
+	// Token endpoint used to exchange delegated Tenant identity tokens
+	TokenEndpoint *string `json:"tokenEndpoint,omitempty"`
+	// Client-secret basic authentication settings for token delegation
+	ClientSecretBasic *TenantIdentityBasicClientSecretResponse `json:"clientSecretBasic,omitempty"`
+	// Audience value expected on the subject token
+	SubjectTokenAudience *string `json:"subjectTokenAudience,omitempty"`
+	// Date/time when the token delegation configuration was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the token delegation configuration was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewTenantIdentityTokenDelegation instantiates a new TenantIdentityTokenDelegation object

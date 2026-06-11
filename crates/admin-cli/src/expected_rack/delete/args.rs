@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete an expected rack by rack ID:
-    $ carbide-admin-cli expected-rack delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli expected-rack delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {
