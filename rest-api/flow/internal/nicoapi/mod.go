@@ -56,6 +56,12 @@ type Client interface {
 	// for which Core returns no controller_state are omitted from the result.
 	FindSwitchControllerStates(ctx context.Context, switchIds []string) (map[string]string, error)
 
+	// FindSwitchNvosIPs returns the resolved NVOS host IP for each switch,
+	// keyed by Core SwitchId. Core populates nvos_info only once both the NVOS
+	// MAC and its assigned address resolve, so switches without a resolved NVOS
+	// endpoint are omitted from the result.
+	FindSwitchNvosIPs(ctx context.Context, switchIds []string) (map[string]string, error)
+
 	// FindPowerShelfControllerStates is the power-shelf equivalent of
 	// FindSwitchControllerStates.
 	FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error)
@@ -165,6 +171,7 @@ type Client interface {
 	SetSwitchRackID(switchID, rackID string)
 	SetPowerShelfRackID(shelfID, rackID string)
 	SetSwitchControllerState(switchID, state string)
+	SetSwitchNvosIP(switchID, ip string)
 	SetPowerShelfControllerState(shelfID, state string)
 	SetRackHostMachineIDs(rackID string, machineIDs []string)
 	AddExpectedRackDetail(detail ExpectedRackDetail)

@@ -381,6 +381,43 @@ func (c *grpcClient) FindSwitchControllerStates(ctx context.Context, switchIds [
 	return result, nil
 }
 
+// FindSwitchNvosIPs returns the resolved NVOS host IP for each given switch,
+// keyed by Core SwitchId. Core resolves nvos_info from the expected switch's
+// NVOS MAC and its assigned interface address, and only populates it once both
+// are known, so switches without a resolved NVOS endpoint are omitted.
+func (c *grpcClient) FindSwitchNvosIPs(ctx context.Context, switchIds []string) (map[string]string, error) {
+	if len(switchIds) == 0 {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	req := &pb.SwitchesByIdsRequest{
+		SwitchIds: make([]*pb.SwitchId, 0, len(switchIds)),
+	}
+	for _, id := range switchIds {
+		req.SwitchIds = append(req.SwitchIds, &pb.SwitchId{Id: id})
+	}
+
+	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	result := make(map[string]string, len(resp.GetSwitches()))
+	for _, sw := range resp.GetSwitches() {
+		sid := sw.GetId().GetId()
+		if sid == "" {
+			continue
+		}
+		if ip := sw.GetNvosInfo().GetIp(); ip != "" {
+			result[sid] = ip
+		}
+	}
+	return result, nil
+}
+
 // FindPowerShelfRackIDs returns the rack assignment of each given power shelf.
 func (c *grpcClient) FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error) {
 	if len(shelfIds) == 0 {
@@ -909,6 +946,10 @@ func (c *grpcClient) SetPowerShelfRackID(shelfID, rackID string) {
 }
 
 func (c *grpcClient) SetSwitchControllerState(switchID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetSwitchNvosIP(switchID, ip string) {
 	panic("Not a unit test")
 }
 
