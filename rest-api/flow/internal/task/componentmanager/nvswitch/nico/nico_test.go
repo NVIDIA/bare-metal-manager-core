@@ -208,7 +208,7 @@ func TestAggregateNICoStatuses(t *testing.T) {
 // newManagerForReadinessTest builds a Manager with a tight-timeout
 // readiness gate backed by the supplied MemReader so the wait loop
 // actually times out within the test budget. The caller seeds the
-// reader with the rack→hosts mapping and any ComponentStatus rows the
+// reader with the rack→hosts mapping and any ComponentOperationStatus rows the
 // test scenario requires.
 func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *readiness.MemReader) *Manager {
 	t.Helper()
@@ -218,8 +218,8 @@ func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *rea
 
 // inUseStatus returns a status that blocks every disruptive operation,
 // mirroring what inventorysync would persist for a tenant-attached host.
-func inUseStatus() *types.ComponentStatus {
-	return &types.ComponentStatus{
+func inUseStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{
 		Phase:  types.PhaseInUse,
 		Reason: "tenant attached",
 		BlockedOperations: []types.OperationType{
@@ -258,7 +258,7 @@ func TestPowerControl_AllowsWhenRackHostsReady(t *testing.T) {
 
 	reader := readiness.NewMemReader()
 	reader.SetRackHosts("rack-A", []string{"host-1"})
-	reader.SetStatus("host-1", &types.ComponentStatus{Phase: types.PhaseReady})
+	reader.SetStatus("host-1", &types.ComponentOperationStatus{Phase: types.PhaseReady})
 
 	m := newManagerForReadinessTest(t, client, reader)
 	target := common.Target{

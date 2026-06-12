@@ -78,12 +78,12 @@ func mapKeys(m map[string]*model.Component) []string {
 	return out
 }
 
-// persistComponentStatuses maps raw core controller_state strings to
-// ComponentStatus values via the per-type mapper and writes any deltas to the
+// persistComponentOperationStatuses maps raw core controller_state strings to
+// ComponentOperationStatus values via the per-type mapper and writes any deltas to the
 // component table. components are keyed by external_id (machineID / switchID /
 // shelfID). Entries without a state in statesByID are skipped — missing data
 // is not a status reset.
-func persistComponentStatuses(
+func persistComponentOperationStatuses(
 	ctx context.Context,
 	pool *cdb.Session,
 	componentType types.ComponentType,
@@ -100,7 +100,7 @@ func persistComponentStatuses(
 		if !ok {
 			continue
 		}
-		newStatus := nicoapi.MapComponentStatus(componentType, raw)
+		newStatus := nicoapi.MapComponentOperationStatus(componentType, raw)
 		if comp.Status != nil && comp.Status.Equal(newStatus) {
 			continue
 		}

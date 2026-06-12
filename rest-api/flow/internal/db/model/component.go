@@ -43,7 +43,7 @@ type Component struct {
 	BMCs        []BMC                  `bun:"rel:has-many,join:id=component_id"`
 	ComponentID *string                `bun:"external_id"`
 	PowerState  *nicoapi.PowerState    `bun:"power_state"`
-	Status      *types.ComponentStatus `bun:"status,type:jsonb,nullzero"`
+	Status      *types.ComponentOperationStatus `bun:"status,type:jsonb,nullzero"`
 	// LeakStatus is owned by the leak-detection loop. nullzero so an
 	// insert that leaves it empty falls back to the DB default 'UNKNOWN'
 	// rather than writing an empty string.

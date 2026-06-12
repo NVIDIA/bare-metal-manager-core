@@ -61,7 +61,7 @@ type Manager struct {
 	nicoClient nicoapi.Client
 	// readiness guards mutating operations from running while any target
 	// machine is reported as not ready for the operation by its persisted
-	// ComponentStatus. Identical safety contract to compute/nicolegacy:
+	// ComponentOperationStatus. Identical safety contract to compute/nicolegacy:
 	// the gate runs in Flow because Core's Component Manager dispatch
 	// does not (yet) check host readiness state on its own.
 	readiness readiness.Gate
@@ -139,7 +139,7 @@ func machineIDsProto(ids []string) *pb.MachineIdList {
 // ensureMachinesOperable is the per-Manager policy gate for disruptive
 // operations on the given machines. The default policy refuses to proceed
 // while any target host is reported as not ready for op by its persisted
-// ComponentStatus.
+// ComponentOperationStatus.
 //
 // When overrideReadinessCheck is true the gate is short-circuited and
 // the operation runs unconditionally; the bypass is logged so it remains

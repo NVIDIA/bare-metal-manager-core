@@ -529,7 +529,7 @@ func TestAllFirmwareUpToDate(t *testing.T) {
 // newManagerForReadinessTest builds a Manager with a tight-timeout
 // readiness gate backed by the supplied MemReader so the wait loop
 // actually times out within the test budget. The caller seeds the
-// reader with the ComponentStatus rows the test expects.
+// reader with the ComponentOperationStatus rows the test expects.
 func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *readiness.MemReader) *Manager {
 	t.Helper()
 	gate := readiness.NewDBGate(reader, 50*time.Millisecond, 10*time.Millisecond)
@@ -538,8 +538,8 @@ func newManagerForReadinessTest(t *testing.T, client nicoapi.Client, reader *rea
 
 // inUseStatus returns a status that blocks every disruptive operation,
 // mirroring what inventorysync would persist for a tenant-attached host.
-func inUseStatus() *types.ComponentStatus {
-	return &types.ComponentStatus{
+func inUseStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{
 		Phase:  types.PhaseInUse,
 		Reason: "tenant attached",
 		BlockedOperations: []types.OperationType{
@@ -570,7 +570,7 @@ func TestPowerControl_RefusesInUseMachine(t *testing.T) {
 
 func TestPowerControl_AllowsReadyMachine(t *testing.T) {
 	reader := readiness.NewMemReader()
-	reader.SetStatus("machine-1", &types.ComponentStatus{Phase: types.PhaseReady})
+	reader.SetStatus("machine-1", &types.ComponentOperationStatus{Phase: types.PhaseReady})
 
 	m := newManagerForReadinessTest(t, nicoapi.NewMockClient(), reader)
 	target := common.Target{

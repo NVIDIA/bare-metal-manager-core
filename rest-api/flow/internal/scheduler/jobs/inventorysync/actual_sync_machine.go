@@ -117,7 +117,7 @@ func syncMachines(
 	// Step 5: Direct-write firmware_version (from pre-fetched details, no extra API call)
 	syncFirmwareVersions(ctx, pool, detailByID, componentsByExternalID)
 
-	// Step 5b: Direct-write derived ComponentStatus (from pre-fetched detail.State).
+	// Step 5b: Direct-write derived ComponentOperationStatus (from pre-fetched detail.State).
 	syncMachineStatuses(ctx, pool, detailByID, componentsByExternalID)
 
 	// Step 6: Fetch positions and build drift records (requires separate NICo API)
@@ -348,7 +348,7 @@ func syncFirmwareVersions(
 	}
 }
 
-// syncMachineStatuses derives a types.ComponentStatus from each machine's
+// syncMachineStatuses derives a types.ComponentOperationStatus from each machine's
 // controller_state (already fetched as detail.State) and direct-writes it to
 // the component row. Only rows whose status actually changed are updated.
 func syncMachineStatuses(
@@ -363,7 +363,7 @@ func syncMachineStatuses(
 			statesByID[id] = d.State
 		}
 	}
-	persistComponentStatuses(ctx, pool, types.ComponentTypeCompute, statesByID, componentsByExternalID)
+	persistComponentOperationStatuses(ctx, pool, types.ComponentTypeCompute, statesByID, componentsByExternalID)
 }
 
 // compareMachineFieldsForDrift compares validation fields between expected (DB) and actual (NICo).
