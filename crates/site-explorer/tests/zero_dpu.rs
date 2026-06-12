@@ -21,9 +21,9 @@ use std::time::Duration;
 
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
-use carbide_test_harness::test_support::endpoint_explorer::MockEndpointExplorer;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use mac_address::MacAddress;
 use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
@@ -34,8 +34,7 @@ struct ZeroDpuEnv {
     test_harness: TestHarness,
     underlay_segment: TestNetworkSegment,
     host_inband_segment: TestNetworkSegment,
-    endpoint_explorer: Arc<MockEndpointExplorer>,
-    explorer: SiteExplorer,
+    site_explorer: TestSiteExplorer,
 }
 
 impl ZeroDpuEnv {
@@ -52,24 +51,27 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
     let host_inband_segment = network_controller.create_host_inband_segment(&domain).await;
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let api = test_harness.api();
-    let explorer = SiteExplorer::new(
-        api.database_connection.clone(),
-        SiteExplorerConfig {
-            enabled: Arc::new(true.into()),
-            retained_boot_interface_window: None,
-            explorations_per_run: 1,
-            concurrent_explorations: 1,
-            run_interval: Duration::from_secs(1),
-            create_machines: Arc::new(true.into()),
-            ..Default::default()
-        },
-        test_harness.test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(api.runtime_config.get_firmware_config()),
-        api.common_pools().clone(),
-        api.work_lock_manager_handle(),
-        None,
-        api.credential_manager().clone(),
+    let site_explorer = TestSiteExplorer::new(
+        SiteExplorer::new(
+            api.database_connection.clone(),
+            SiteExplorerConfig {
+                enabled: Arc::new(true.into()),
+                retained_boot_interface_window: None,
+                explorations_per_run: 1,
+                concurrent_explorations: 1,
+                run_interval: Duration::from_secs(1),
+                create_machines: Arc::new(true.into()),
+                ..Default::default()
+            },
+            test_harness.test_meter.meter(),
+            endpoint_explorer.clone(),
+            Arc::new(api.runtime_config.get_firmware_config()),
+            api.common_pools().clone(),
+            api.work_lock_manager_handle(),
+            None,
+            api.credential_manager().clone(),
+        ),
+        endpoint_explorer,
     );
 
     ZeroDpuEnv {
@@ -77,8 +79,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
         test_harness,
         underlay_segment,
         host_inband_segment,
-        endpoint_explorer,
-        explorer,
+        site_explorer,
     }
 }
 
@@ -143,16 +144,16 @@ async fn test_site_explorer_records_boot_interface_id_onto_non_dpu_nic(
         .into_inner();
     let host_bmc_ip = host_bmc_response.address.parse()?;
 
-    env.endpoint_explorer.insert_endpoints(
+    env.site_explorer.insert_endpoints(
         mock_host
             .exploration_results(Some(host_bmc_ip), &[])?
             .into_endpoints(),
     );
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let host_dhcp_response = env
         .api()
@@ -214,16 +215,16 @@ async fn test_predicted_interface_hands_boot_interface_id_to_real_row(
 
     // Site-explorer runs BEFORE the in-band NIC ever DHCPs, so ingestion
     // mints a predicted interface for it.
-    env.endpoint_explorer.insert_endpoints(
+    env.site_explorer.insert_endpoints(
         mock_host
             .exploration_results(Some(host_bmc_ip), &[])?
             .into_endpoints(),
     );
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await?;
     let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
@@ -305,16 +306,16 @@ async fn test_predicted_live_boot_interface_id_outranks_retained_at_promotion(
 
     // Ingestion mints a predicted interface holding the CURRENT id
     // from the live report.
-    env.endpoint_explorer.insert_endpoints(
+    env.site_explorer.insert_endpoints(
         mock_host
             .exploration_results(Some(host_bmc_ip), &[])?
             .into_endpoints(),
     );
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await?;
     let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
@@ -390,16 +391,16 @@ async fn test_predicted_live_boot_interface_id_outranks_preallocated_retained_ro
     let host_bmc_ip = host_bmc_response.address.parse()?;
 
     // Site-explorer mints a pending prediction with the current Redfish id.
-    env.endpoint_explorer.insert_endpoints(
+    env.site_explorer.insert_endpoints(
         mock_host
             .exploration_results(Some(host_bmc_ip), &[])?
             .into_endpoints(),
     );
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let static_ip: std::net::IpAddr = "192.0.3.77".parse()?;
     let mut txn = env.pool.begin().await?;
@@ -523,14 +524,14 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
         .await?
         .into_inner();
     let host_bmc_ip = host_bmc_response.address.parse()?;
-    env.endpoint_explorer
+    env.site_explorer
         .insert_endpoint_result(host_bmc_ip, Ok(id_less_report));
 
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await?;
     let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
@@ -544,9 +545,9 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
 
     // Second exploration: the BMC now resolves the id; the pending
     // prediction picks it up.
-    env.endpoint_explorer
+    env.site_explorer
         .insert_endpoint_result(host_bmc_ip, Ok(mock_host.clone().into()));
-    env.explorer.run_single_iteration().await?;
+    env.site_explorer.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await?;
     let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)

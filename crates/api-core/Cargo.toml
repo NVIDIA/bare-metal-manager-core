@@ -199,6 +199,7 @@ test-support = [
   "carbide-redfish/test-support",
   "carbide-rpc/test-support",
   "carbide-secrets/test-support",
+  "carbide-site-explorer/test-support",
   "carbide-utils/test-support",
   "state-controller/test-support",
 ]
@@ -223,6 +224,9 @@ carbide-rack = { path = "../rack", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-rpc = { path = "../rpc", features = ["model", "sqlx", "test-support"] }
 carbide-secrets = { path = "../secrets", features = ["test-support"] }
+carbide-site-explorer = { path = "../site-explorer", features = [
+  "test-support",
+] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-test-support = { path = "../test-support" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
