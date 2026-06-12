@@ -244,6 +244,9 @@ pub struct UnexpectedMachine {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     /// Nothing set anywhere -- the host falls back to the absolute
@@ -344,33 +347,43 @@ mod tests {
         assert!(!DpuMode::NoDpu.is_dpu_managed());
     }
 
+    /// JSON deserialization of `ExpectedMachine`, projecting to the
+    /// `host_lifecycle_profile.disable_lockdown` field under test. A missing
+    /// `host_lifecycle_profile` defaults to `None` (equivalent to
+    /// `HostLifecycleProfile::default()`, whose only field is `disable_lockdown`).
     #[test]
-    fn host_lifecycle_profile_defaults_when_missing_from_json() {
-        let json = r#"{
-            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-            "bmc_username": "root",
-            "bmc_password": "pass",
-            "serial_number": "SN-1"
-        }"#;
-        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            em.data.host_lifecycle_profile,
-            HostLifecycleProfile::default()
+    fn host_lifecycle_profile_deserializes_from_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "missing host_lifecycle_profile defaults to None",
+                    input: r#"{
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "serial_number": "SN-1"
+                    }"#,
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "present host_lifecycle_profile parses disable_lockdown",
+                    input: r#"{
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "serial_number": "SN-1",
+                        "host_lifecycle_profile": {"disable_lockdown": true}
+                    }"#,
+                    expect: Yields(Some(true)),
+                },
+            ],
+            // serde_json::Error is not PartialEq, so discard it on the error path.
+            |json| {
+                serde_json::from_str::<ExpectedMachine>(json)
+                    .map(|em| em.data.host_lifecycle_profile.disable_lockdown)
+                    .map_err(drop)
+            },
         );
-        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, None);
-    }
-
-    #[test]
-    fn host_lifecycle_profile_parses_from_json_when_present() {
-        let json = r#"{
-            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
-            "bmc_username": "root",
-            "bmc_password": "pass",
-            "serial_number": "SN-1",
-            "host_lifecycle_profile": {"disable_lockdown": true}
-        }"#;
-        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
-        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, Some(true));
     }
 
     #[test]
