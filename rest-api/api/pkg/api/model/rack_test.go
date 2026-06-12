@@ -112,7 +112,7 @@ func TestNewAPIRack(t *testing.T) {
 						FirmwareVersion: "1.0.0",
 						SlotID:          1,
 						OperationStatus: "Ready",
-						LeakStatus:      "NotDetected",
+						LeakStatus:      "NoLeak",
 					},
 					{
 						ID:              "comp-2",

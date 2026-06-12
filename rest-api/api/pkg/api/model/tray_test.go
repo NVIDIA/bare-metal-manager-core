@@ -304,7 +304,7 @@ func TestAPITray_FromProto(t *testing.T) {
 	assert.Equal(t, "My Tray", at.Name)
 	assert.Equal(t, "rack-uuid", at.RackID)
 	assert.Equal(t, "InUse", at.OperationStatus)
-	assert.Equal(t, "Detected", at.LeakStatus)
+	assert.Equal(t, "Leaking", at.LeakStatus)
 	assert.NotNil(t, at.Position)
 	assert.Equal(t, int32(3), at.Position.SlotID)
 	assert.Equal(t, int32(0), at.Position.TrayIdx)

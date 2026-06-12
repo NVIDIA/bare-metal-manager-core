@@ -46,12 +46,14 @@ var ProtoToAPIPhaseName = map[flowv1.Phase]string{
 	flowv1.Phase_PHASE_DELETING:     "Deleting",
 }
 
-// ProtoToAPILeakStatusName maps protobuf LeakStatus to the string surfaced as
-// `leakStatus`.
+// ProtoToAPILeakStatusName maps Flow's leak-detection enum to the leak status
+// surfaced as `leakStatus`. Callers care whether a tray is considered leaking,
+// not about the underlying detection signal, so a fired detection maps to
+// "Leaking" and a clear detection to "NoLeak".
 var ProtoToAPILeakStatusName = map[flowv1.LeakStatus]string{
 	flowv1.LeakStatus_LEAK_STATUS_UNKNOWN:      "Unknown",
-	flowv1.LeakStatus_LEAK_STATUS_DETECTED:     "Detected",
-	flowv1.LeakStatus_LEAK_STATUS_NOT_DETECTED: "NotDetected",
+	flowv1.LeakStatus_LEAK_STATUS_DETECTED:     "Leaking",
+	flowv1.LeakStatus_LEAK_STATUS_NOT_DETECTED: "NoLeak",
 }
 
 var validTrayTypesAny, ValidProtoComponentTypes = func() ([]interface{}, []flowv1.ComponentType) {

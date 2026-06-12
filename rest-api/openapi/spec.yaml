@@ -17865,9 +17865,9 @@ components:
           type: string
           enum:
             - Unknown
-            - Detected
-            - NotDetected
-          description: Coolant leak detection status of the component
+            - NoLeak
+            - Leaking
+          description: Whether the component is considered leaking coolant
     BMCInfo:
       title: BMCInfo
       type: object
@@ -17956,9 +17956,9 @@ components:
           type: string
           enum:
             - Unknown
-            - Detected
-            - NotDetected
-          description: Coolant leak detection status of the tray
+            - NoLeak
+            - Leaking
+          description: Whether the tray is considered leaking coolant
         position:
           $ref: '#/components/schemas/TrayPosition'
           description: 'Position of the Tray within the Rack'
