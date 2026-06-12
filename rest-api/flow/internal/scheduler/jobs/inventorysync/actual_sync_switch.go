@@ -156,7 +156,7 @@ func syncNVSwitchesNICo(
 }
 
 // syncSwitchStatuses fetches controller_state for the matched switches and
-// persists the derived ComponentStatus per DB row.
+// persists the derived ComponentOperationStatus per DB row.
 func syncSwitchStatuses(
 	ctx context.Context,
 	pool *cdb.Session,
@@ -172,7 +172,7 @@ func syncSwitchStatuses(
 		log.Error().Msgf("Unable to retrieve switch controller_states from NICo: %v", err)
 		return
 	}
-	persistComponentStatuses(ctx, pool, types.ComponentTypeNVSwitch, statesByID, componentsBySwitchID)
+	persistComponentOperationStatuses(ctx, pool, types.ComponentTypeNVSwitch, statesByID, componentsBySwitchID)
 }
 
 // syncSwitchNvosIPs records Core's resolved NVOS host IP for each matched

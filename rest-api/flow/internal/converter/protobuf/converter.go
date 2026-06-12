@@ -620,7 +620,21 @@ func ComponentTo(c *component.Component) *pb.Component {
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
 		PowerState:      c.PowerState,
-		Status:          ComponentStatusTo(c.Status),
+		Status:          ComponentOperationStatusTo(c.Status),
+		LeakStatus:      LeakStatusTo(c.LeakStatus),
+	}
+}
+
+// LeakStatusTo converts the Flow-internal LeakStatus to its protobuf
+// counterpart. An unset or unrecognized value maps to LEAK_STATUS_UNKNOWN.
+func LeakStatusTo(s types.LeakStatus) pb.LeakStatus {
+	switch s {
+	case types.LeakStatusDetected:
+		return pb.LeakStatus_LEAK_STATUS_DETECTED
+	case types.LeakStatusNotDetected:
+		return pb.LeakStatus_LEAK_STATUS_NOT_DETECTED
+	default:
+		return pb.LeakStatus_LEAK_STATUS_UNKNOWN
 	}
 }
 
@@ -656,10 +670,10 @@ func operationTypeFromTypesTo(op types.OperationType) pb.OperationType {
 	}
 }
 
-// ComponentStatusTo converts the Flow-internal ComponentStatus to the
+// ComponentOperationStatusTo converts the Flow-internal ComponentOperationStatus to the
 // protobuf form. Returns nil if the input is nil so callers transparently
 // surface "no status yet" rather than a default-valued message.
-func ComponentStatusTo(s *types.ComponentStatus) *pb.ComponentStatus {
+func ComponentOperationStatusTo(s *types.ComponentOperationStatus) *pb.ComponentOperationStatus {
 	if s == nil {
 		return nil
 	}
@@ -670,7 +684,7 @@ func ComponentStatusTo(s *types.ComponentStatus) *pb.ComponentStatus {
 			blocked = append(blocked, operationTypeFromTypesTo(op))
 		}
 	}
-	return &pb.ComponentStatus{
+	return &pb.ComponentOperationStatus{
 		Phase:             PhaseTo(s.Phase),
 		Reason:            s.Reason,
 		BlockedOperations: blocked,

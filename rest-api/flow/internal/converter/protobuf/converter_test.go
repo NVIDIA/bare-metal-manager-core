@@ -24,7 +24,21 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
+
+func TestLeakStatusTo(t *testing.T) {
+	cases := map[types.LeakStatus]pb.LeakStatus{
+		types.LeakStatusDetected:    pb.LeakStatus_LEAK_STATUS_DETECTED,
+		types.LeakStatusNotDetected: pb.LeakStatus_LEAK_STATUS_NOT_DETECTED,
+		types.LeakStatusUnknown:     pb.LeakStatus_LEAK_STATUS_UNKNOWN,
+		types.LeakStatus(""):        pb.LeakStatus_LEAK_STATUS_UNKNOWN,
+		types.LeakStatus("bogus"):   pb.LeakStatus_LEAK_STATUS_UNKNOWN,
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, LeakStatusTo(in), "LeakStatusTo(%q)", in)
+	}
+}
 
 func TestUUIDFrom(t *testing.T) {
 	testID := uuid.New()

@@ -26,6 +26,9 @@ use model::health::HealthReportSources;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
+mod per_object;
+pub use per_object::PerObjectMetricsRegistry;
+
 pub trait HealthMetricDimension:
     Hash + Eq + Clone + Default + Debug + Send + Sync + 'static
 {

@@ -291,8 +291,10 @@ func TestAPITray_FromProto(t *testing.T) {
 			Id:   &flowv1.UUID{Id: "tray-uuid"},
 			Name: "My Tray",
 		},
-		Position: &flowv1.RackPosition{SlotId: 3, TrayIdx: 0, HostId: 1},
-		RackId:   &flowv1.UUID{Id: "rack-uuid"},
+		Position:   &flowv1.RackPosition{SlotId: 3, TrayIdx: 0, HostId: 1},
+		RackId:     &flowv1.UUID{Id: "rack-uuid"},
+		Status:     &flowv1.ComponentOperationStatus{Phase: flowv1.Phase_PHASE_IN_USE},
+		LeakStatus: flowv1.LeakStatus_LEAK_STATUS_DETECTED,
 	}
 	at := &APITray{}
 	at.FromProto(comp)
@@ -301,6 +303,8 @@ func TestAPITray_FromProto(t *testing.T) {
 	assert.Equal(t, "tray-uuid", at.ID)
 	assert.Equal(t, "My Tray", at.Name)
 	assert.Equal(t, "rack-uuid", at.RackID)
+	assert.Equal(t, "InUse", at.OperationStatus)
+	assert.Equal(t, "Leaking", at.LeakStatus)
 	assert.NotNil(t, at.Position)
 	assert.Equal(t, int32(3), at.Position.SlotID)
 	assert.Equal(t, int32(0), at.Position.TrayIdx)
@@ -308,6 +312,13 @@ func TestAPITray_FromProto(t *testing.T) {
 
 	at.FromProto(nil) // no-op, fields unchanged
 	assert.Equal(t, "tray-uuid", at.ID)
+
+	// A component with no computed operation status and no leak status
+	// resolves both fields to "Unknown".
+	bare := &APITray{}
+	bare.FromProto(&flowv1.Component{Type: flowv1.ComponentType_COMPONENT_TYPE_COMPUTE})
+	assert.Equal(t, "Unknown", bare.OperationStatus)
+	assert.Equal(t, "Unknown", bare.LeakStatus)
 }
 
 func TestAPITrayGetAllRequest_Validate(t *testing.T) {

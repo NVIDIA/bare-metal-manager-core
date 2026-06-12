@@ -28,7 +28,10 @@ type Component struct {
 	PowerState      string                            `json:"power_state,omitempty"`
 	// Status is the Flow-derived view of operability. Nil when no status
 	// has been computed yet (e.g. before the first inventory sync).
-	Status *types.ComponentStatus `json:"status,omitempty"`
+	Status *types.ComponentOperationStatus `json:"status,omitempty"`
+	// LeakStatus is the Flow-derived coolant leak detection status, owned by
+	// the leak-detection loop. LeakStatusUnknown until the loop evaluates it.
+	LeakStatus types.LeakStatus `json:"leak_status,omitempty"`
 
 	bmcMacToID map[string]bmcID
 }

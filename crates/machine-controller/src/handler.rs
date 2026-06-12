@@ -558,6 +558,18 @@ impl MachineStateHandler {
             &state.aggregate_health,
             &state.host_snapshot.health_reports,
         );
+
+        // Feed the per-object health classification metric. The registry filters
+        // to the opted-in classifications and emits a series labeled with this
+        // host's id; emitting an empty set clears any prior series once the host
+        // becomes healthy.
+        let in_use = ctx.metrics.in_use_by_tenant.is_some();
+        ctx.services.per_object_metrics_registry.record(
+            "machine",
+            &state.host_snapshot.id.to_string(),
+            &ctx.metrics.health.health_alert_classifications,
+            vec![opentelemetry::KeyValue::new("in_use", in_use.to_string())],
+        );
     }
 
     fn record_health_history(

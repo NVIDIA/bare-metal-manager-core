@@ -4,7 +4,7 @@
 // Package readiness provides ReadinessGate, the Flow-side guard that holds
 // mutating component operations (power, firmware, …) until every targeted
 // component is in a phase that permits them. It reads the persisted
-// ComponentStatus that inventorysync writes, so callers no longer poll Core
+// ComponentOperationStatus that inventorysync writes, so callers no longer poll Core
 // directly for state-machine state.
 //
 // All component / rack identifiers are the Core (external) IDs that flow
@@ -45,11 +45,11 @@ const (
 // StatusReader is the narrow data dependency of the gate. A DB-backed
 // implementation lives in this package; tests inject fakes.
 type StatusReader interface {
-	// GetStatusesByExternalIDs returns the persisted ComponentStatus for
+	// GetStatusesByExternalIDs returns the persisted ComponentOperationStatus for
 	// each requested Core component ID (the external_id column).
 	// Components without a row or without a status are simply absent from
 	// the result map.
-	GetStatusesByExternalIDs(ctx context.Context, externalIDs []string) (map[string]*types.ComponentStatus, error)
+	GetStatusesByExternalIDs(ctx context.Context, externalIDs []string) (map[string]*types.ComponentOperationStatus, error)
 
 	// GetHostExternalIDsByRackIDs returns, for each rack (Core rack ID,
 	// matching component.rack_id), the external_id of every host (compute)
@@ -62,7 +62,7 @@ type StatusReader interface {
 // Gate is the abstraction call sites depend on.
 type Gate interface {
 	// WaitForComponentsReady blocks until none of the listed components
-	// block op (per their persisted ComponentStatus), or the gate's
+	// block op (per their persisted ComponentOperationStatus), or the gate's
 	// timeout elapses.
 	WaitForComponentsReady(ctx context.Context, externalIDs []string, op types.OperationType) error
 

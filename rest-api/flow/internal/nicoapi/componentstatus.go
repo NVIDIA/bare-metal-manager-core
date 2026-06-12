@@ -10,15 +10,15 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
-// MapComponentStatus translates a raw Core controller_state string into a
-// types.ComponentStatus for the given component type. The raw form differs
+// MapComponentOperationStatus translates a raw Core controller_state string into a
+// types.ComponentOperationStatus for the given component type. The raw form differs
 // per type — that is why this lives in nicoapi (which owns "what raw
 // string Core returns") rather than in the dependency-light pkg/types:
 //   - Compute: ManagedHostState Display (e.g. "Ready", "Assigned/Provisioning").
 //   - Switch / PowerShelf: JSON object with a "state" tag (e.g. {"state":"ready"}).
 //
 // Unrecognized inputs map to PhaseUnknown so callers fail closed.
-func MapComponentStatus(componentType types.ComponentType, rawState string) types.ComponentStatus {
+func MapComponentOperationStatus(componentType types.ComponentType, rawState string) types.ComponentOperationStatus {
 	switch componentType {
 	case types.ComponentTypeCompute:
 		return mapComputeStatus(rawState)
@@ -27,17 +27,17 @@ func MapComponentStatus(componentType types.ComponentType, rawState string) type
 	case types.ComponentTypePowerShelf:
 		return mapPowerShelfStatus(rawState)
 	default:
-		return types.ComponentStatus{
+		return types.ComponentOperationStatus{
 			Phase:  types.PhaseUnknown,
 			Reason: "unsupported component type: " + string(componentType),
 		}
 	}
 }
 
-func mapComputeStatus(raw string) types.ComponentStatus {
+func mapComputeStatus(raw string) types.ComponentOperationStatus {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return types.ComponentStatus{Phase: types.PhaseUnknown, Reason: "no controller_state from core"}
+		return types.ComponentOperationStatus{Phase: types.PhaseUnknown, Reason: "no controller_state from core"}
 	}
 
 	head := raw
@@ -83,10 +83,10 @@ type switchStateEnvelope struct {
 	State string `json:"state"`
 }
 
-func mapSwitchStatus(raw string) types.ComponentStatus {
+func mapSwitchStatus(raw string) types.ComponentOperationStatus {
 	tag, ok := decodeTaggedState(raw)
 	if !ok {
-		return types.ComponentStatus{Phase: types.PhaseUnknown, Reason: "undecodable switch state: " + raw}
+		return types.ComponentOperationStatus{Phase: types.PhaseUnknown, Reason: "undecodable switch state: " + raw}
 	}
 	switch tag {
 	case "ready":
@@ -100,13 +100,13 @@ func mapSwitchStatus(raw string) types.ComponentStatus {
 	case "deleting":
 		return blockAll(types.PhaseDeleting, raw, types.ComponentTypeNVSwitch)
 	}
-	return types.ComponentStatus{Phase: types.PhaseUnknown, Reason: "unknown switch state tag: " + tag}
+	return types.ComponentOperationStatus{Phase: types.PhaseUnknown, Reason: "unknown switch state tag: " + tag}
 }
 
-func mapPowerShelfStatus(raw string) types.ComponentStatus {
+func mapPowerShelfStatus(raw string) types.ComponentOperationStatus {
 	tag, ok := decodeTaggedState(raw)
 	if !ok {
-		return types.ComponentStatus{Phase: types.PhaseUnknown, Reason: "undecodable power shelf state: " + raw}
+		return types.ComponentOperationStatus{Phase: types.PhaseUnknown, Reason: "undecodable power shelf state: " + raw}
 	}
 	switch tag {
 	case "ready":
@@ -120,7 +120,7 @@ func mapPowerShelfStatus(raw string) types.ComponentStatus {
 	case "deleting":
 		return blockAll(types.PhaseDeleting, raw, types.ComponentTypePowerShelf)
 	}
-	return types.ComponentStatus{Phase: types.PhaseUnknown, Reason: "unknown power shelf state tag: " + tag}
+	return types.ComponentOperationStatus{Phase: types.PhaseUnknown, Reason: "unknown power shelf state tag: " + tag}
 }
 
 func decodeTaggedState(raw string) (string, bool) {
@@ -145,14 +145,14 @@ var blockedOpsByType = map[types.ComponentType][]types.OperationType{
 	types.ComponentTypePowerShelf: {types.OperationTypePowerControl, types.OperationTypeFirmwareControl},
 }
 
-func blockAll(phase types.Phase, reason string, ct types.ComponentType) types.ComponentStatus {
-	return types.ComponentStatus{
+func blockAll(phase types.Phase, reason string, ct types.ComponentType) types.ComponentOperationStatus {
+	return types.ComponentOperationStatus{
 		Phase:             phase,
 		Reason:            reason,
 		BlockedOperations: append([]types.OperationType(nil), blockedOpsByType[ct]...),
 	}
 }
 
-func blockNoneIfReady(phase types.Phase, reason string, _ types.ComponentType) types.ComponentStatus {
-	return types.ComponentStatus{Phase: phase, Reason: reason}
+func blockNoneIfReady(phase types.Phase, reason string, _ types.ComponentType) types.ComponentOperationStatus {
+	return types.ComponentOperationStatus{Phase: phase, Reason: reason}
 }

@@ -1738,24 +1738,26 @@ pub(crate) async fn update_component_firmware(
             }
 
             let cm = require_component_manager(api)?;
-            if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                // Only rack-scale systems (currently GB200 NVL) can be driven
-                // through the rack-level state controller maintenance flow.
-                // Standalone servers fall back to the legacy host
-                // reprovisioning firmware path.
-                let (rack_scale_ids, standalone_ids) =
-                    partition_compute_machines_by_rack_scale(api, &list.machine_ids).await?;
 
-                let mut results = Vec::new();
+            // Standalone (non-rack-scale) servers have no compute-tray backend
+            // that can take a direct firmware dispatch, so they always go
+            // through the host reprovisioning firmware flow. Only rack-scale
+            // systems (currently GB200 NVL, backed by RMS via the
+            // ComputeTrayManager interface) can choose between the rack-level
+            // state controller maintenance flow and a direct backend dispatch.
+            let (rack_scale_ids, standalone_ids) =
+                partition_compute_machines_by_rack_scale(api, &list.machine_ids).await?;
 
-                if !standalone_ids.is_empty() {
-                    // Use the host reprovisioning firmware flow for non-rack servers
-                    results.extend(
-                        schedule_host_reprovisioning_firmware_update(api, &standalone_ids).await,
-                    );
-                }
+            let mut results = Vec::new();
 
-                if !rack_scale_ids.is_empty() {
+            if !standalone_ids.is_empty() {
+                results.extend(
+                    schedule_host_reprovisioning_firmware_update(api, &standalone_ids).await,
+                );
+            }
+
+            if !rack_scale_ids.is_empty() {
+                if cm.compute_tray_use_state_controller && !bypass_state_controller {
                     let token = require_firmware_object_json_for_rack_maintenance(
                         "compute tray",
                         &access_token,
@@ -1772,44 +1774,41 @@ pub(crate) async fn update_component_firmware(
                     results.extend(
                         submit_rack_firmware_maintenance_requests(api, targets, activities).await?,
                     );
+                } else {
+                    reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
+                    let components = map_compute_tray_components(&t.components)?;
+                    let resolved = resolve_compute_tray_endpoints(api, &rack_scale_ids).await?;
+
+                    results.extend(
+                        resolved
+                            .unresolved
+                            .iter()
+                            .map(|u| error_result(&u.id.to_string(), u.reason.clone())),
+                    );
+
+                    let backend_results = cm
+                        .compute_tray
+                        .update_firmware(
+                            &resolved.resolved.endpoints,
+                            &req.target_version,
+                            &components,
+                            &FirmwareUpdateOptions::default(),
+                        )
+                        .await
+                        .map_err(component_manager_error_to_status)?;
+                    results.extend(backend_results.into_iter().map(|r| {
+                        if r.success {
+                            success_result(&r.bmc_ip.to_string())
+                        } else {
+                            error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
+                        }
+                    }));
                 }
-
-                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                    results,
-                }));
-            } else {
-                reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
-                let components = map_compute_tray_components(&t.components)?;
-                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
-
-                let mut results: Vec<_> = resolved
-                    .unresolved
-                    .iter()
-                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                    .collect();
-
-                let backend_results = cm
-                    .compute_tray
-                    .update_firmware(
-                        &resolved.resolved.endpoints,
-                        &req.target_version,
-                        &components,
-                        &FirmwareUpdateOptions::default(),
-                    )
-                    .await
-                    .map_err(component_manager_error_to_status)?;
-                results.extend(backend_results.into_iter().map(|r| {
-                    if r.success {
-                        success_result(&r.bmc_ip.to_string())
-                    } else {
-                        error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
-                    }
-                }));
-
-                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                    results,
-                }));
             }
+
+            return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                results,
+            }));
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
             let list = t

@@ -1647,6 +1647,7 @@ func ExecutePowerControlWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	state string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
@@ -1658,39 +1659,44 @@ func ExecutePowerControlWorkflow(
 	case cam.PowerControlStateOn:
 		workflowName = "PowerOnRack"
 		flowRequest = &flowv1.PowerOnRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power on %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power on %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power off %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power off %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
-			TargetSpec:  targetSpec,
-			Description: fmt.Sprintf("API power cycle %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Description:            fmt.Sprintf("API power cycle %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
-			TargetSpec:  targetSpec,
-			Forced:      true,
-			Description: fmt.Sprintf("API force power off %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Forced:                 true,
+			Description:            fmt.Sprintf("API force power off %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	case cam.PowerControlStateForceCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
-			TargetSpec:  targetSpec,
-			Forced:      true,
-			Description: fmt.Sprintf("API force power cycle %s", entityName),
-			RuleId:      ruleUUID,
+			TargetSpec:             targetSpec,
+			Forced:                 true,
+			Description:            fmt.Sprintf("API force power cycle %s", entityName),
+			RuleId:                 ruleUUID,
+			OverrideReadinessCheck: overrideReadinessCheck,
 		}
 	default:
 		return nil, cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid power control state: %s", state), nil)
@@ -1740,13 +1746,15 @@ func ExecuteBringUpRackWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	description string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.BringUpRackRequest{
-		TargetSpec:  targetSpec,
-		Description: description,
-		RuleId:      GetFlowUUIDPtr(ruleID),
+		TargetSpec:             targetSpec,
+		Description:            description,
+		RuleId:                 GetFlowUUIDPtr(ruleID),
+		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1801,15 +1809,17 @@ func ExecuteFirmwareUpdateWorkflow(
 	version *string,
 	targets []string,
 	ruleID *string,
+	overrideReadinessCheck bool,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.UpgradeFirmwareRequest{
-		TargetSpec:    targetSpec,
-		TargetVersion: version,
-		SubTargets:    targets,
-		Description:   fmt.Sprintf("API firmware update %s", entityName),
-		RuleId:        GetFlowUUIDPtr(ruleID),
+		TargetSpec:             targetSpec,
+		TargetVersion:          version,
+		SubTargets:             targets,
+		Description:            fmt.Sprintf("API firmware update %s", entityName),
+		RuleId:                 GetFlowUUIDPtr(ruleID),
+		OverrideReadinessCheck: overrideReadinessCheck,
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{

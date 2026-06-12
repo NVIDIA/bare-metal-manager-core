@@ -20,19 +20,19 @@ import (
 // so a test can mutate state from another goroutine while the gate polls.
 type fakeReader struct {
 	mu       sync.Mutex
-	statuses map[string]*types.ComponentStatus
+	statuses map[string]*types.ComponentOperationStatus
 	hosts    map[string][]string
 	calls    atomic.Int32
 }
 
 func newFakeReader() *fakeReader {
 	return &fakeReader{
-		statuses: map[string]*types.ComponentStatus{},
+		statuses: map[string]*types.ComponentOperationStatus{},
 		hosts:    map[string][]string{},
 	}
 }
 
-func (f *fakeReader) setStatus(id string, s *types.ComponentStatus) {
+func (f *fakeReader) setStatus(id string, s *types.ComponentOperationStatus) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.statuses[id] = s
@@ -44,11 +44,11 @@ func (f *fakeReader) setHosts(rackID string, hosts []string) {
 	f.hosts[rackID] = hosts
 }
 
-func (f *fakeReader) GetStatusesByExternalIDs(_ context.Context, ids []string) (map[string]*types.ComponentStatus, error) {
+func (f *fakeReader) GetStatusesByExternalIDs(_ context.Context, ids []string) (map[string]*types.ComponentOperationStatus, error) {
 	f.calls.Add(1)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make(map[string]*types.ComponentStatus, len(ids))
+	out := make(map[string]*types.ComponentOperationStatus, len(ids))
 	for _, id := range ids {
 		if s, ok := f.statuses[id]; ok {
 			out[id] = s
@@ -69,12 +69,12 @@ func (f *fakeReader) GetHostExternalIDsByRackIDs(_ context.Context, rackIDs []st
 	return out, nil
 }
 
-func readyStatus() *types.ComponentStatus {
-	return &types.ComponentStatus{Phase: types.PhaseReady}
+func readyStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{Phase: types.PhaseReady}
 }
 
-func inUseStatus() *types.ComponentStatus {
-	return &types.ComponentStatus{
+func inUseStatus() *types.ComponentOperationStatus {
+	return &types.ComponentOperationStatus{
 		Phase:             types.PhaseInUse,
 		Reason:            "Assigned/Provisioning",
 		BlockedOperations: []types.OperationType{types.OperationTypePowerControl, types.OperationTypeFirmwareControl},
@@ -148,7 +148,7 @@ func TestWaitForComponentsReady_PartialBlocking(t *testing.T) {
 func TestWaitForComponentsReady_OperationScopedBlock(t *testing.T) {
 	r := newFakeReader()
 	// Only firmware is blocked; power control should proceed.
-	r.setStatus("m1", &types.ComponentStatus{
+	r.setStatus("m1", &types.ComponentOperationStatus{
 		Phase:             types.PhaseReady,
 		BlockedOperations: []types.OperationType{types.OperationTypeFirmwareControl},
 	})

@@ -64,6 +64,7 @@ async fn services(
         db_pool: env.pool.clone(),
         component_manager,
         credential_manager: Arc::new(TestCredentialManager::default()),
+        per_object_metrics_registry: env.per_object_metrics_registry(),
     }
 }
 

@@ -35,6 +35,7 @@ carbide-dpa = { path = "../dpa" }
 carbide-dpa-manager = { path = "../dpa-manager" }
 carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
+carbide-health-metrics = { path = "../health-metrics" }
 carbide-health-report = { path = "../health-report" }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-ib-fabric = { path = "../ib-fabric" }

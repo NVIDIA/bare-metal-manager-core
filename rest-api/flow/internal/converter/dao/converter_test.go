@@ -19,7 +19,21 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
+
+func TestComponentFrom_LeakStatus(t *testing.T) {
+	daoComponent := model.Component{
+		ID:         uuid.New(),
+		Type:       devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
+		LeakStatus: types.LeakStatusDetected,
+	}
+	assert.Equal(t, types.LeakStatusDetected, ComponentFrom(daoComponent).LeakStatus)
+
+	// The resting value round-trips as LeakStatusUnknown.
+	daoComponent.LeakStatus = types.LeakStatusUnknown
+	assert.Equal(t, types.LeakStatusUnknown, ComponentFrom(daoComponent).LeakStatus)
+}
 
 func TestBMCConversion(t *testing.T) {
 	testCases := map[string]struct {
