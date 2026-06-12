@@ -281,12 +281,77 @@ async fn test_boot_interface_candidates_skips_dpu_machines(
             .is_none(),
         "an unowned endpoint should not resolve boot-interface rows",
     );
-    let rows = boot_interface_candidates(txn.as_mut(), Some(host_id))
+    let candidates = boot_interface_candidates(txn.as_mut(), Some(host_id))
         .await?
-        .expect("a host machine should resolve its interface rows");
+        .expect("a host machine should resolve its boot-interface candidates");
     assert!(
-        rows.iter().any(|i| i.primary_interface),
+        candidates.interfaces.iter().any(|i| i.primary_interface),
         "the host's rows should include its primary interface",
+    );
+    assert!(
+        candidates.predicted.is_empty(),
+        "a fully-leased DPU host should have no pending predictions",
+    );
+
+    Ok(())
+}
+
+// The window this PR exists for: a zero-DPU machine has been ingested, but its
+// in-band NIC has not taken its first DHCP lease -- no machine_interfaces row
+// exists yet, and site-explorer records no explored default for zero-DPU
+// hosts, so a no-MAC set_dpu_first_boot_order used to have nothing to resolve.
+// The machine's predicted interface (mac + report-derived Redfish id, kept
+// fresh every exploration since #2448) now answers.
+#[crate::sqlx_test]
+async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
+
+    let mock_host = ManagedHostConfig {
+        dpus: vec![],
+        ..ManagedHostConfig::default()
+    };
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+
+    let _mock =
+        api_fixtures::site_explorer::ingest_zero_dpu_host_awaiting_first_lease(&env, mock_host)
+            .await?;
+
+    // Precondition: the machine owns a prediction for the NIC and no real
+    // interface row. (The prediction's content is the site-explorer ingest
+    // tests' contract; here it only locates the machine.)
+    let machine_id = {
+        let mut txn = env.pool.begin().await?;
+        let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+            .await?
+            .expect("zero-DPU ingest should have minted a predicted interface");
+        assert!(
+            db::machine_interface::find_by_mac_address(txn.as_mut(), inband_mac)
+                .await?
+                .is_empty(),
+            "the in-band NIC should not have a machine_interfaces row yet",
+        );
+        predicted.machine_id
+    };
+
+    let timepoint = env.redfish_sim.timepoint();
+
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(machine_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
+
+    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    assert_eq!(
+        actions,
+        vec![RedfishSimAction::SetBootOrderDpuFirst {
+            boot_interface_mac: inband_mac.to_string(),
+        }],
+        "the machine awaiting its first lease should resolve from its predicted interface",
     );
 
     Ok(())
