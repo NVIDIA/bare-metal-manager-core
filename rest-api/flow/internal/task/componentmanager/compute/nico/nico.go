@@ -376,7 +376,7 @@ func (m *Manager) FirmwareControl(
 	}
 
 	if hasDpu {
-		if err := m.firmwareControlDpus(ctx, target, info.TargetVersion); err != nil {
+		if err := m.firmwareControlDpus(ctx, target); err != nil {
 			return err
 		}
 	}
@@ -431,23 +431,14 @@ func (m *Manager) firmwareControlComputeTrays(
 
 // firmwareControlDpus runs DPU reprovisioning on every host listed in
 // the target. Each host is reprovisioned serially via the four-step
-// sequence implemented in compute/common/dpureprov; targetVersion is logged
-// (so the audit trail shows what the caller asked for) but NOT
-// forwarded to Core because Core's reprovisioning state machine
-// resolves the target firmware version from site configuration rather
-// than per request — see the dpureprov package doc.
+// sequence implemented in compute/common/dpureprov. The per-request
+// target version is not forwarded to Core: its reprovisioning state
+// machine resolves the target firmware version from site configuration
+// rather than per request — see the dpureprov package doc.
 func (m *Manager) firmwareControlDpus(
 	ctx context.Context,
 	target common.Target,
-	targetVersion string,
 ) error {
-	if targetVersion != "" {
-		log.Warn().
-			Str("components", target.String()).
-			Str("requested_target_version", targetVersion).
-			Msg("compute/nico ignores target_version for DPU reprovisioning; Core uses the site-configured DPU firmware target")
-	}
-
 	return dpureprov.ReprovisionHosts(
 		ctx, m.nicoClient, target.ComponentIDs,
 		true, // update_firmware: tenant-driven DPU reprov always rolls firmware

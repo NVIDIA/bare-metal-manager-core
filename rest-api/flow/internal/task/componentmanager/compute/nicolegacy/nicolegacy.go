@@ -390,12 +390,6 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 	}
 
 	if hasDpu {
-		if info.TargetVersion != "" {
-			log.Warn().
-				Str("components", target.String()).
-				Str("requested_target_version", info.TargetVersion).
-				Msg("compute/nicolegacy ignores target_version for DPU reprovisioning; Core uses the site-configured DPU firmware target")
-		}
 		if err := dpureprov.ReprovisionHosts(
 			ctx, m.nicoClient, target.ComponentIDs,
 			true, // update_firmware: tenant-driven DPU reprov always rolls firmware
