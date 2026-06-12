@@ -20,8 +20,9 @@ use std::sync::Arc;
 
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 pub use carbide_api_core::test_support::{self, Api, rpc};
+use carbide_site_explorer::test_support::TestSiteExplorer;
 use carbide_utils::test_support::test_meter::TestMeter;
-use sqlx::PgPool;
+use sqlx::{PgPool, PgTransaction};
 use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
@@ -29,12 +30,16 @@ use tonic::Request;
 use crate::builder::TestHarnessBuilder;
 use crate::dns::TestDomain;
 use crate::network::controller::TestNetworkController;
+use crate::network::segment::TestNetworkSegment;
 
 pub mod builder;
 pub mod dns;
+pub mod managed_host;
 pub mod network;
 pub mod prelude;
 pub mod resource_pool;
+
+pub use managed_host::{TestManagedHost, TestManagedHostBuilder};
 
 pub struct TestHarness {
     api: Arc<ApiHandle>,
@@ -54,6 +59,14 @@ impl TestHarness {
 
     pub fn api(&self) -> &Api {
         self.api.deref()
+    }
+
+    pub async fn db_txn(&self) -> PgTransaction<'static> {
+        self.api
+            .database_connection
+            .begin()
+            .await
+            .expect("database transaction should start")
     }
 
     pub async fn test_domain(&self) -> TestDomain {
@@ -79,6 +92,14 @@ impl TestHarness {
             self.processor_id.clone(),
             &self.test_meter,
         )
+    }
+
+    pub fn managed_host_builder<'a>(
+        &'a self,
+        site_explorer: &'a TestSiteExplorer,
+        segment: TestNetworkSegment,
+    ) -> TestManagedHostBuilder<'a> {
+        TestManagedHostBuilder::new(self, site_explorer, segment)
     }
 }
 

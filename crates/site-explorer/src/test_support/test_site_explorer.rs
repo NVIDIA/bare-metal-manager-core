@@ -21,10 +21,9 @@ use std::sync::Arc;
 
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport};
 
+use super::mock_endpoint_explorer::MockEndpointExplorer;
 use crate::errors::SiteExplorerResult;
 use crate::{SiteExplorer, SiteIdentifiedHosts};
-
-use super::mock_endpoint_explorer::MockEndpointExplorer;
 
 pub struct TestSiteExplorer {
     endpoint_explorer: Arc<MockEndpointExplorer>,

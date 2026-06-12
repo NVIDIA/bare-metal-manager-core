@@ -21,4 +21,4 @@ pub use sqlx::PgPool;
 pub use sqlx_testing;
 
 pub use crate::resource_pool::ResourcePoolBuilder;
-pub use crate::{Api, TestHarness, rpc};
+pub use crate::{Api, TestHarness, TestManagedHost, TestManagedHostBuilder, rpc};
