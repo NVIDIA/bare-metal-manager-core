@@ -50,7 +50,11 @@ sqlx = { workspace = true, features = [
 thiserror = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+carbide-macros = { path = "../macros" }
+carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 
 [lints]
 workspace = true
