@@ -124,13 +124,12 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 
 	metadata := &cwssaws.Metadata{
 		Labels: expectedComponentLabelsInput{
-			Manufacturer:    eps.Manufacturer,
-			Model:           eps.Model,
-			FirmwareVersion: eps.FirmwareVersion,
-			SlotID:          eps.SlotID,
-			TrayIdx:         eps.TrayIdx,
-			HostID:          eps.HostID,
-			Labels:          eps.Labels,
+			Manufacturer: eps.Manufacturer,
+			Model:        eps.Model,
+			SlotID:       eps.SlotID,
+			TrayIdx:      eps.TrayIdx,
+			HostID:       eps.HostID,
+			Labels:       eps.Labels,
 		}.ToProto(),
 	}
 	if eps.Name != nil {

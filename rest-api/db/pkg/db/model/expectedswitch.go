@@ -131,13 +131,12 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 
 	metadata := &cwssaws.Metadata{
 		Labels: expectedComponentLabelsInput{
-			Manufacturer:    es.Manufacturer,
-			Model:           es.Model,
-			FirmwareVersion: es.FirmwareVersion,
-			SlotID:          es.SlotID,
-			TrayIdx:         es.TrayIdx,
-			HostID:          es.HostID,
-			Labels:          es.Labels,
+			Manufacturer: es.Manufacturer,
+			Model:        es.Model,
+			SlotID:       es.SlotID,
+			TrayIdx:      es.TrayIdx,
+			HostID:       es.HostID,
+			Labels:       es.Labels,
 		}.ToProto(),
 	}
 	if es.Name != nil {
