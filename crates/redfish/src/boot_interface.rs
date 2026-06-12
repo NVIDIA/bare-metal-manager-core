@@ -24,6 +24,7 @@ use mac_address::MacAddress;
 use model::machine_boot_interface::MachineBootInterface;
 
 /// How to target a host's boot interface for a Redfish setup operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BootInterfaceTarget {
     /// A fully-captured boot interface (MAC + Redfish interface id). The MAC is
     /// tried first; on failure the [stable] interface id is used as a fallback

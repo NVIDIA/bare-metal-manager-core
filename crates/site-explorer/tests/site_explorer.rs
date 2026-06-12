@@ -44,7 +44,7 @@ use rpc::forge::GetSiteExplorationRequest;
 use rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
-use tonic::{IntoRequest, Request};
+use tonic::Request;
 
 use crate::env::{Env, new_site_explorer};
 
@@ -68,16 +68,9 @@ impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, api: &Api) -> Result<(), Box<dyn std::error::Error>> {
         let response = api
             .discover_dhcp(
-                rpc::forge::DhcpDiscovery {
-                    mac_address: self.mac.to_string(),
-                    relay_address: self.segment.relay_address.to_string(),
-                    vendor_string: Some(self.dhcp_vendor.clone()),
-                    link_address: None,
-                    circuit_id: None,
-                    remote_id: None,
-                    desired_address: None,
-                }
-                .into_request(),
+                rpc::forge::DhcpDiscovery::builder(self.mac, self.segment.relay_address)
+                    .vendor_string(&self.dhcp_vendor)
+                    .tonic_request(),
             )
             .await?
             .into_inner();

@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,108 +46,131 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_create ensures create parses with required
-// script_filename.
+// create routes to the Create variant. A bare invocation leaves the optional
+// fields unset; supplying every flag fills them in. Each row yields the parsed
+// (script_filename, retries, meta_name, meta_description, has_labels).
 #[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from([
-        "dpu-remediation",
-        "create",
-        "--script-filename",
-        "/path/to/script.sh",
-    ])
-    .expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.script_filename, "/path/to/script.sh");
-            assert!(args.retries.is_none());
-            assert!(args.meta_name.is_none());
-        }
-        _ => panic!("expected Create variant"),
-    }
+fn parse_create_routes_and_fills_fields() {
+    check_cases(
+        [
+            Case {
+                scenario: "required script-filename only",
+                input: &[
+                    "dpu-remediation",
+                    "create",
+                    "--script-filename",
+                    "/path/to/script.sh",
+                ][..],
+                expect: Yields(("/path/to/script.sh".to_string(), None, None, None, false)),
+            },
+            Case {
+                scenario: "all options supplied",
+                input: &[
+                    "dpu-remediation",
+                    "create",
+                    "--script-filename",
+                    "/path/to/script.sh",
+                    "--retries",
+                    "3",
+                    "--meta-name",
+                    "My Remediation",
+                    "--meta-description",
+                    "Fixes a bug",
+                    "--label",
+                    "env:prod",
+                ][..],
+                expect: Yields((
+                    "/path/to/script.sh".to_string(),
+                    Some(3),
+                    Some("My Remediation".to_string()),
+                    Some("Fixes a bug".to_string()),
+                    true,
+                )),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (
+                        args.script_filename,
+                        args.retries,
+                        args.meta_name,
+                        args.meta_description,
+                        args.labels.is_some(),
+                    ),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_create_with_options ensures create parses with
-// all options.
+// show routes to the Show variant. Each row yields (id_present, display_script):
+// a bare invocation leaves the id unset and the flag off, and --display-script
+// turns the flag on.
 #[test]
-fn parse_create_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "dpu-remediation",
-        "create",
-        "--script-filename",
-        "/path/to/script.sh",
-        "--retries",
-        "3",
-        "--meta-name",
-        "My Remediation",
-        "--meta-description",
-        "Fixes a bug",
-        "--label",
-        "env:prod",
-    ])
-    .expect("should parse create with options");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.retries, Some(3));
-            assert_eq!(args.meta_name, Some("My Remediation".to_string()));
-            assert_eq!(args.meta_description, Some("Fixes a bug".to_string()));
-            assert!(args.labels.is_some());
-        }
-        _ => panic!("expected Create variant"),
-    }
+fn parse_show_routes_and_fills_fields() {
+    check_cases(
+        [
+            Case {
+                scenario: "no arguments",
+                input: &["dpu-remediation", "show"][..],
+                expect: Yields((false, false)),
+            },
+            Case {
+                scenario: "with --display-script",
+                input: &["dpu-remediation", "show", "--display-script"][..],
+                expect: Yields((false, true)),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => (args.id.is_some(), args.display_script),
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_no_args ensures show parses with no arguments.
+// list-applied routes to the ListApplied variant. A bare invocation leaves both
+// optional filters unset; the row yields (remediation_id_present, machine_id_present).
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["dpu-remediation", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-            assert!(!args.display_script);
-        }
-        _ => panic!("expected Show variant"),
-    }
+fn parse_list_applied_routes_and_fills_fields() {
+    check_cases(
+        [Case {
+            scenario: "no arguments",
+            input: &["dpu-remediation", "list-applied"][..],
+            expect: Yields((false, false)),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::ListApplied(args) => {
+                        (args.remediation_id.is_some(), args.machine_id.is_some())
+                    }
+                    _ => panic!("expected ListApplied variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_with_display_script ensures show parses
-// with --display-script.
+// Every malformed invocation is rejected at parse time -- here, create without
+// its required --script-filename.
 #[test]
-fn parse_show_with_display_script() {
-    let cmd = Cmd::try_parse_from(["dpu-remediation", "show", "--display-script"])
-        .expect("should parse show --display-script");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.display_script);
-        }
-        _ => panic!("expected Show variant"),
-    }
-}
-
-// parse_list_applied_no_args ensures list-applied
-// parses with no arguments.
-#[test]
-fn parse_list_applied_no_args() {
-    let cmd = Cmd::try_parse_from(["dpu-remediation", "list-applied"])
-        .expect("should parse list-applied");
-
-    match cmd {
-        Cmd::ListApplied(args) => {
-            assert!(args.remediation_id.is_none());
-            assert!(args.machine_id.is_none());
-        }
-        _ => panic!("expected ListApplied variant"),
-    }
-}
-
-// parse_create_missing_script_fails ensures create
-// fails without --script-filename.
-#[test]
-fn parse_create_missing_script_fails() {
-    let result = Cmd::try_parse_from(["dpu-remediation", "create"]);
-    assert!(result.is_err(), "should fail without --script-filename");
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [Case {
+            scenario: "create without --script-filename",
+            input: &["dpu-remediation", "create"][..],
+            expect: Fails,
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
+    );
 }

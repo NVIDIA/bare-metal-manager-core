@@ -11,6 +11,26 @@ use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
 
+/// Selects which `NvSwitchManager` backend is used
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    Nsm,
+    #[default]
+    Rms,
+    Mock,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nsm => f.write_str("nsm"),
+            Self::Rms => f.write_str("rms"),
+            Self::Mock => f.write_str("mock"),
+        }
+    }
+}
+
 /// Physical network identifiers for an NV-Switch, used to register with and
 /// operate against the backend service (NSM).
 #[derive(Debug, Clone)]

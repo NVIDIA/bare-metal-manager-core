@@ -87,6 +87,15 @@ pub async fn delete(
     Ok(())
 }
 
+/// All predicted interfaces for a machine -- the boot-interface candidates a
+/// host offers while it awaits its first DHCP lease.
+pub async fn find_by_machine_id(
+    txn: &mut PgConnection,
+    machine_id: &carbide_uuid::machine::MachineId,
+) -> Result<Vec<PredictedMachineInterface>, DatabaseError> {
+    find_by(txn, ObjectColumnFilter::One(MachineIdColumn, machine_id)).await
+}
+
 pub async fn find_by_mac_address(
     txn: &mut PgConnection,
     mac_address: MacAddress,

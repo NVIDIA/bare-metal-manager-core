@@ -16,6 +16,7 @@
  */
 
 use carbide_libmlx_model::device::info::MlxDeviceInfo;
+use carbide_test_support::{Check, check_values};
 use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
 use libmlx::variables::registry::MlxVariableRegistry;
 use libmlx::variables::spec::MlxVariableSpec;
@@ -236,17 +237,26 @@ fn test_registry_device_matching_with_filters() {
             match_mode: MatchMode::Regex,
         });
 
-    // Device that matches both filters
-    let matching_device = create_test_device("BlueField3", "MCX623106AS-CDAT", "28.38.1010");
-    assert!(registry.matches_device(&matching_device));
-
-    // Device that matches only first filter
-    let partial_match_device = create_test_device("BlueField3", "MT40354", "28.38.1010");
-    assert!(!registry.matches_device(&partial_match_device));
-
-    // Device that matches no filters
-    let non_matching_device = create_test_device("ConnectX-6", "MT40354", "28.38.1010");
-    assert!(!registry.matches_device(&non_matching_device));
+    check_values(
+        [
+            Check {
+                scenario: "matches both filters",
+                input: create_test_device("BlueField3", "MCX623106AS-CDAT", "28.38.1010"),
+                expect: true,
+            },
+            Check {
+                scenario: "matches only the device-type filter",
+                input: create_test_device("BlueField3", "MT40354", "28.38.1010"),
+                expect: false,
+            },
+            Check {
+                scenario: "matches neither filter",
+                input: create_test_device("ConnectX-6", "MT40354", "28.38.1010"),
+                expect: false,
+            },
+        ],
+        |device| registry.matches_device(&device),
+    );
 }
 
 #[test]

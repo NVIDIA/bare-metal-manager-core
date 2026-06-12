@@ -41,7 +41,7 @@ use model::network_segment::{
 };
 use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use model::vpc::UpdateVpcVirtualization;
+use model::vpc::{UpdateVpcVirtualization, VpcDefinition};
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
@@ -502,6 +502,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
         (
@@ -513,6 +514,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
         (
@@ -524,6 +526,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             },
         ),
     ]);
@@ -575,6 +578,121 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
         num_before, num_after,
         "second create_initial_networks should not have created any segments"
     );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+pub async fn test_create_initial_vpc_and_attached_network(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let vpcs = HashMap::from([(
+        "zero-dpu-vpc".to_string(),
+        VpcDefinition {
+            organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+            network_virtualization_type: VpcVirtualizationType::Flat,
+            routing_profile_type: None,
+            vni: None,
+        },
+    )]);
+    let networks = HashMap::from([(
+        "ZERO-DPU-HOST-01-SWP7".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::HostInband,
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            gateway: "10.217.18.193".parse().unwrap(),
+            mtu: 1500,
+            reserve_first: 1,
+            allocation_strategy: Default::default(),
+            vpc_name: Some("zero-dpu-vpc".to_string()),
+        },
+    )]);
+
+    crate::db_init::create_initial_vpcs(
+        &env.pool,
+        &vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await?;
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let seeded_vpcs = db::vpc::find_by_name(txn.as_mut(), "zero-dpu-vpc").await?;
+    assert_eq!(seeded_vpcs.len(), 1);
+    let seeded_vpc = &seeded_vpcs[0];
+    assert_eq!(
+        seeded_vpc.tenant_organization_id,
+        "2829bbe3-c169-4cd9-8b2a-19a8b1618a93"
+    );
+    assert_eq!(
+        seeded_vpc.network_virtualization_type,
+        VpcVirtualizationType::Flat
+    );
+
+    let host_inband = db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7").await?;
+    assert_eq!(
+        host_inband.config.segment_type,
+        NetworkSegmentType::HostInband
+    );
+    assert_eq!(host_inband.config.vpc_id, Some(seeded_vpc.id));
+    txn.commit().await?;
+
+    crate::db_init::create_initial_vpcs(
+        &env.pool,
+        &vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await?;
+    let seeded_vpcs = db::vpc::find_by_name(&env.pool, "zero-dpu-vpc").await?;
+    assert_eq!(
+        seeded_vpcs.len(),
+        1,
+        "second create_initial_vpcs should not create duplicate VPCs"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+pub async fn test_create_initial_network_fails_for_missing_vpc_name(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let networks = HashMap::from([(
+        "ZERO-DPU-HOST-01-SWP7".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::HostInband,
+            prefix: "10.217.18.192/30".parse().unwrap(),
+            gateway: "10.217.18.193".parse().unwrap(),
+            mtu: 1500,
+            reserve_first: 1,
+            allocation_strategy: Default::default(),
+            vpc_name: Some("missing-vpc".to_string()),
+        },
+    )]);
+
+    let err = crate::db_init::create_initial_networks(&env.api, &env.pool, &networks)
+        .await
+        .expect_err("missing VPC references must fail before creating a network segment");
+
+    assert!(
+        err.to_string().contains("missing-vpc"),
+        "error should name the missing VPC: {err}"
+    );
+
+    let mut txn = db_pool.begin().await?;
+    assert!(
+        db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7")
+            .await
+            .is_err(),
+        "network segment should not be created when its VPC reference is invalid"
+    );
+    txn.commit().await?;
+
     Ok(())
 }
 

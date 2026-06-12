@@ -79,38 +79,45 @@ impl From<rpc::forge::Label> for LabelFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
+    // `LabelFilter::from` is a total conversion: project to (key, value) — the two
+    // fields the originals asserted.
     #[test]
-    fn label_filter_from_rpc_with_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, Some("prod".to_string()));
-    }
-
-    #[test]
-    fn label_filter_from_rpc_without_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: None,
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, None);
-    }
-
-    #[test]
-    fn label_filter_from_rpc_empty_key() {
-        let rpc_label = rpc::forge::Label {
-            key: String::new(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert!(filter.key.is_empty());
-        assert_eq!(filter.value, Some("prod".to_string()));
+    fn label_filter_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "with value",
+                    input: rpc::forge::Label {
+                        key: "env".to_string(),
+                        value: Some("prod".to_string()),
+                    },
+                    expect: ("env".to_string(), Some("prod".to_string())),
+                },
+                Check {
+                    scenario: "without value",
+                    input: rpc::forge::Label {
+                        key: "env".to_string(),
+                        value: None,
+                    },
+                    expect: ("env".to_string(), None),
+                },
+                Check {
+                    scenario: "empty key",
+                    input: rpc::forge::Label {
+                        key: String::new(),
+                        value: Some("prod".to_string()),
+                    },
+                    expect: (String::new(), Some("prod".to_string())),
+                },
+            ],
+            |label| {
+                let filter = LabelFilter::from(label);
+                (filter.key, filter.value)
+            },
+        );
     }
 }

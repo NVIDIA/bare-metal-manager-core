@@ -1232,8 +1232,8 @@ pub async fn create_test_env_with_overrides(
     let rms_sim = Arc::new(RmsSim::default());
     let test_component_manager = component_manager::component_manager::build_component_manager(
         &component_manager::config::ComponentManagerConfig {
-            nv_switch_backend: "rms".into(),
-            power_shelf_backend: "rms".into(),
+            nv_switch_backend: component_manager::nv_switch_manager::Backend::Rms,
+            power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
             ..Default::default()

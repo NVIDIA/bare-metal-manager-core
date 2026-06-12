@@ -57,6 +57,12 @@ impl MachineBootInterface {
             interface_id: interface_id.filter(|s| !s.is_empty())?,
         })
     }
+
+    /// [`Self::from_parts`] for records whose MAC is always present (interface
+    /// rows, predictions): only the interface id can be missing.
+    pub fn for_mac(mac_address: MacAddress, interface_id: Option<String>) -> Option<Self> {
+        Self::from_parts(Some(mac_address), interface_id)
+    }
 }
 
 #[cfg(test)]

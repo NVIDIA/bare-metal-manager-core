@@ -174,6 +174,8 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use carbide_uuid::machine::MachineId;
     use chrono::Utc;
     use health_report::{HealthReport, REPAIR_REQUEST_MERGE_SOURCE};
@@ -214,135 +216,128 @@ mod tests {
             machine_id,
         };
 
-        struct Case {
-            name: &'static str,
-            machine_state: ManagedHostState,
-            configs_synced: SyncState,
-            repair_active: bool,
-            expected: TenantState,
-        }
-
-        let cases = [
-            Case {
-                name: "tenant-ready with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::Ready,
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Repairing,
-            },
-            Case {
-                name: "terminating with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::SwitchToAdminNetwork,
-                },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Terminating,
-            },
-            Case {
-                name: "reprovision with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::DPUReprovision {
-                        dpu_states: DpuReprovisionStates {
-                            states: HashMap::new(),
+        // Each row: a (machine_state, configs_synced) pair under repair_active=true,
+        // exercising which states repair-merge does or does not override.
+        check_cases(
+            [
+                Case {
+                    scenario: "tenant-ready with repair merge",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Ready,
                         },
-                    },
+                        SyncState::Synced,
+                    ),
+                    expect: Yields(TenantState::Repairing),
                 },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Updating,
-            },
-            Case {
-                name: "configuring with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::Ready,
+                Case {
+                    scenario: "terminating with repair merge",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::SwitchToAdminNetwork,
+                        },
+                        SyncState::Synced,
+                    ),
+                    expect: Yields(TenantState::Terminating),
                 },
-                configs_synced: SyncState::Pending,
-                repair_active: true,
-                expected: TenantState::Configuring,
-            },
-            Case {
-                name: "failed with repair merge",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: failed,
+                Case {
+                    scenario: "reprovision with repair merge",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::DPUReprovision {
+                                dpu_states: DpuReprovisionStates {
+                                    states: HashMap::new(),
+                                },
+                            },
+                        },
+                        SyncState::Synced,
+                    ),
+                    expect: Yields(TenantState::Updating),
                 },
-                configs_synced: SyncState::Synced,
-                repair_active: true,
-                expected: TenantState::Failed,
+                Case {
+                    scenario: "configuring with repair merge",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Ready,
+                        },
+                        SyncState::Pending,
+                    ),
+                    expect: Yields(TenantState::Configuring),
+                },
+                Case {
+                    scenario: "failed with repair merge",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: failed,
+                        },
+                        SyncState::Synced,
+                    ),
+                    expect: Yields(TenantState::Failed),
+                },
+            ],
+            |(machine_state, configs_synced)| {
+                instance_status_tenant_state(
+                    machine_state,
+                    configs_synced,
+                    false,
+                    None,
+                    true,
+                    false,
+                    true,
+                )
+                .map_err(drop)
             },
-        ];
-
-        for case in cases {
-            let state = instance_status_tenant_state(
-                case.machine_state,
-                case.configs_synced,
-                false,
-                None,
-                true,
-                false,
-                case.repair_active,
-            )
-            .unwrap_or_else(|_| panic!("case {:?} failed conversion", case.name));
-            assert_eq!(state, case.expected, "case: {}", case.name);
-        }
+        );
     }
 
     #[test]
     fn operator_managed_allocations_project_as_tenant_ready() {
-        struct Case {
-            name: &'static str,
-            machine_state: ManagedHostState,
-            expected: TenantState,
-        }
-
-        // Cover allocated/network-wait states where Flat has no NICo readiness signal.
-        let cases = [
-            Case {
-                name: "allocated before state controller pickup",
-                machine_state: ManagedHostState::Ready,
-                expected: TenantState::Ready,
-            },
-            Case {
-                name: "assigned init",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::Init,
+        // Allocated/network-wait states where Flat has no NICo readiness signal:
+        // operator-managed networking should not wait on network observations.
+        check_cases(
+            [
+                Case {
+                    scenario: "allocated before state controller pickup",
+                    input: ManagedHostState::Ready,
+                    expect: Yields(TenantState::Ready),
                 },
-                expected: TenantState::Ready,
-            },
-            Case {
-                name: "waiting for network config",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::WaitingForNetworkConfig,
-                },
-                expected: TenantState::Ready,
-            },
-            Case {
-                name: "network config update",
-                machine_state: ManagedHostState::Assigned {
-                    instance_state: InstanceState::NetworkConfigUpdate {
-                        network_config_update_state:
-                            model::machine::NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
+                Case {
+                    scenario: "assigned init",
+                    input: ManagedHostState::Assigned {
+                        instance_state: InstanceState::Init,
                     },
+                    expect: Yields(TenantState::Ready),
                 },
-                expected: TenantState::Ready,
+                Case {
+                    scenario: "waiting for network config",
+                    input: ManagedHostState::Assigned {
+                        instance_state: InstanceState::WaitingForNetworkConfig,
+                    },
+                    expect: Yields(TenantState::Ready),
+                },
+                Case {
+                    scenario: "network config update",
+                    input: ManagedHostState::Assigned {
+                        instance_state: InstanceState::NetworkConfigUpdate {
+                            network_config_update_state:
+                                model::machine::NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
+                        },
+                    },
+                    expect: Yields(TenantState::Ready),
+                },
+            ],
+            |machine_state| {
+                instance_status_tenant_state(
+                    machine_state,
+                    SyncState::Pending,
+                    true,
+                    None,
+                    false,
+                    true,
+                    false,
+                )
+                .map_err(drop)
             },
-        ];
-
-        // Flat/operator-managed states should not wait on network observations.
-        for case in cases {
-            let state = instance_status_tenant_state(
-                case.machine_state,
-                SyncState::Pending,
-                true,
-                None,
-                false,
-                true,
-                false,
-            )
-            .unwrap_or_else(|_| panic!("case {:?} failed conversion", case.name));
-            assert_eq!(state, case.expected, "case: {}", case.name);
-        }
+        );
     }
 }

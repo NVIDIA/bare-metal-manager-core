@@ -265,6 +265,9 @@ navigation:
     - page: Getting Started
       path: ../rest-api/openapi/getting-started.md
       icon: circle-play
+    - page: Example REST API Workflows
+      path: ../rest-api/openapi/example_workflows.md
+      icon: gear
     - page: Deprecations
       path: ../rest-api/openapi/deprecations.md
       icon: bell

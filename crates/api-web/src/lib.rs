@@ -29,7 +29,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use carbide_api_core::cfg::file::{CarbideConfig, ToolLink};
-use carbide_api_core::{Api, AuthContext, CarbideError};
+use carbide_api_core::{Api, AuthContext, CarbideError, DefaultCredential};
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode};
@@ -943,6 +943,7 @@ struct Index {
     create_machines: String,
     carbide_config: CarbideConfig,
     bmc_proxy: String,
+    missing_default_credentials: Vec<DefaultCredential>,
 }
 
 impl Base for Index {}
@@ -993,6 +994,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         create_machines,
         carbide_config: state.runtime_config.redacted(),
         bmc_proxy,
+        missing_default_credentials: state.missing_default_credentials().await,
     };
 
     (StatusCode::OK, Html(index.render().unwrap()))

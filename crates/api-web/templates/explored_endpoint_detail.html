@@ -173,7 +173,7 @@
 							<input type="submit" value="Restore Boot Interface">
 						</div>
 					</form>
-					<div class="config-card-reminder">Re-applies this host's stored boot interface (MAC + Redfish interface id). Use it to restore boot setup when the boot MAC is no longer reported by Redfish, e.g. after a DPU was switched to NIC mode.</div>
+					<div class="config-card-reminder">Re-applies this host's resolved boot interface (MAC + Redfish interface id): the machine's designated primary interface once managed, or site-explorer's automatic default before that. Use it to restore boot setup when the boot MAC is no longer reported by Redfish, e.g. after a DPU was switched to NIC mode.</div>
 				</div>
 				{% include "restart_reminder.html" %}
 				{% if let Some(status) = action_status %}

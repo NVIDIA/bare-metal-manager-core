@@ -428,8 +428,9 @@ func mirrorExpectedComponents(
 		}
 		for i := range p.toUpdate {
 			// Mirror-managed columns only. external_id / power_state /
-			// firmware_version / status are owned by the actual-sync loop;
-			// a full-model UPDATE would clobber them with the snapshot read
+			// firmware_version / status are owned by the actual-sync loop
+			// and leak_status by the leak-detection loop; a full-model
+			// UPDATE would clobber them with the snapshot read
 			// at the top of this pass. WhereAllWithDeleted is required so a
 			// resurrection (deleted_at cleared in Go) actually matches the
 			// tombstone row — bun otherwise appends "deleted_at IS NULL" to
@@ -515,9 +516,10 @@ func resolveRackID(s expectedComponentSpec, rackIDByExtID map[string]uuid.UUID) 
 
 // componentFromSpec builds the model.Component the mirror would insert for
 // this spec. Mirror-managed fields only — ComponentID/external_id (runtime
-// sync), PowerState (runtime), Status (lifecycle), IngestedAt are all left
-// at their zero values so they don't clobber state owned by other code paths
-// when this struct is used as the "desired" side of an UPDATE.
+// sync), PowerState (runtime), Status (lifecycle), LeakStatus (leak-detection
+// loop), IngestedAt are all left at their zero values so they don't clobber
+// state owned by other code paths when this struct is used as the "desired"
+// side of an UPDATE.
 func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Component {
 	name := s.Name
 	if name == "" {

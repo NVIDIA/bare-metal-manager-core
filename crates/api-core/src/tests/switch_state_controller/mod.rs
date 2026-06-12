@@ -22,8 +22,10 @@ use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
-use component_manager::compute_tray_manager::Backend;
+use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
+use component_manager::nv_switch_manager::Backend as NvSwitchBackend;
+use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::switch as db_switch;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
@@ -44,12 +46,12 @@ async fn build_test_component_manager(
 ) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
     let config = ComponentManagerConfig {
         nv_switch_backend: if rms_client.is_some() {
-            "rms".into()
+            NvSwitchBackend::Rms
         } else {
-            "mock".into()
+            NvSwitchBackend::Mock
         },
-        power_shelf_backend: "mock".into(),
-        compute_tray_backend: Backend::Mock,
+        power_shelf_backend: PowerShelfBackend::Mock,
+        compute_tray_backend: ComputeBackend::Mock,
         nv_switch_use_state_controller: true,
         ..Default::default()
     };

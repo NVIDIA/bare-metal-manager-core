@@ -105,6 +105,8 @@ pub enum MissingHardwareInfo {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use carbide_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
@@ -188,34 +190,52 @@ mod tests {
         assert!(constructor(fingerprint).is_err());
     }
 
+    // Each row loads a hardware-info fixture and derives a Machine ID through one
+    // constructor, expecting a given MachineType. `test_derive_machine_id` does all
+    // the assertions internally (and panics on mismatch), so each row just expects
+    // the run to complete, i.e. `Yields(())`.
     #[test]
-    fn derive_host_machine_id() {
-        let path = format!("{TEST_DATA_DIR}/x86_info.json");
-        let data = std::fs::read(path).unwrap();
-        let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
+    fn derive_machine_id() {
+        type Constructor = fn(&HardwareInfo) -> Result<MachineId, MissingHardwareInfo>;
 
-        test_derive_machine_id(&mut fingerprint, MachineType::Host, from_hardware_info);
-    }
+        check_cases(
+            [
+                Case {
+                    scenario: "host machine id from x86 fingerprint",
+                    input: (
+                        "x86_info.json",
+                        MachineType::Host,
+                        from_hardware_info as Constructor,
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "dpu machine id from dpu fingerprint",
+                    input: (
+                        "dpu_info.json",
+                        MachineType::Dpu,
+                        from_hardware_info as Constructor,
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "predicted-host machine id from dpu fingerprint",
+                    input: (
+                        "dpu_info.json",
+                        MachineType::PredictedHost,
+                        host_id_from_dpu_hardware_info as Constructor,
+                    ),
+                    expect: Yields(()),
+                },
+            ],
+            |(fixture, expected_type, constructor)| -> Result<(), ()> {
+                let path = format!("{TEST_DATA_DIR}/{fixture}");
+                let data = std::fs::read(path).unwrap();
+                let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
 
-    #[test]
-    fn derive_dpu_machine_id() {
-        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
-        let data = std::fs::read(path).unwrap();
-        let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
-
-        test_derive_machine_id(&mut fingerprint, MachineType::Dpu, from_hardware_info);
-    }
-
-    #[test]
-    fn derive_host_machine_id_from_dpu_fingerprint() {
-        let path = format!("{TEST_DATA_DIR}/dpu_info.json");
-        let data = std::fs::read(path).unwrap();
-        let mut fingerprint = serde_json::from_slice::<HardwareInfo>(&data).unwrap();
-
-        test_derive_machine_id(
-            &mut fingerprint,
-            MachineType::PredictedHost,
-            host_id_from_dpu_hardware_info,
+                test_derive_machine_id(&mut fingerprint, expected_type, constructor);
+                Ok(())
+            },
         );
     }
 }

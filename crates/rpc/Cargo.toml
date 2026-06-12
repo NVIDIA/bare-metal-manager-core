@@ -120,6 +120,7 @@ base64 = { workspace = true, optional = true }
 
 [dev-dependencies]
 carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

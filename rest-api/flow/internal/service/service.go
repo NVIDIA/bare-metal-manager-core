@@ -321,6 +321,8 @@ func (s *Service) startScheduler(ctx context.Context) error {
 
 	// Create and register the leak detection job
 	leakJob, err := leakdetection.New(
+		ctx,
+		&s.conf.DBConf,
 		s.taskManager,
 		s.conf.ProviderRegistry,
 		s.conf.FlowConfig,

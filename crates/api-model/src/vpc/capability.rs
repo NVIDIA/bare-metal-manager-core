@@ -493,6 +493,11 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::discriminant;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
@@ -884,49 +889,73 @@ mod tests {
         }
     }
 
+    // `ensure_supports_segment` gating: segment-type whitelist plus
+    // per-address-family prefix support. `VpcCapabilityError` is not
+    // `PartialEq`, so rejection rows assert the error *variant* via its
+    // discriminant; the success row yields `()`.
     #[test]
-    fn ensure_supports_segment_passes_for_compatible_segment_v4_only() {
-        let segment = segment_with(NetworkSegmentType::Tenant, vec!["192.0.2.0/24"], None);
-        VpcVirtualizationType::Fnn
-            .ensure_supports_segment(&segment)
-            .expect("FNN + Tenant + IPv4 is the standard happy path");
-    }
+    fn ensure_supports_segment_gates_by_type_and_address_family() {
+        // A representative error value per variant we expect, used only to
+        // pull its discriminant for comparison.
+        let unsupported_segment_type = discriminant(&VpcCapabilityError::UnsupportedSegmentType {
+            vpc_type: VpcVirtualizationType::Flat,
+            segment_type: NetworkSegmentType::Tenant,
+        });
+        let ipv6_unsupported = discriminant(&VpcCapabilityError::Ipv6Unsupported {
+            vpc_type: VpcVirtualizationType::EthernetVirtualizer,
+        });
 
-    #[test]
-    fn ensure_supports_segment_rejects_unsupported_segment_type() {
-        let segment = segment_with(NetworkSegmentType::Tenant, vec!["192.0.2.0/24"], None);
-        let err = VpcVirtualizationType::Flat
-            .ensure_supports_segment(&segment)
-            .expect_err("Flat doesn't accept Tenant segments");
-        assert!(matches!(
-            err,
-            VpcCapabilityError::UnsupportedSegmentType { .. }
-        ));
-    }
-
-    #[test]
-    fn ensure_supports_segment_rejects_ipv6_on_etv() {
-        let segment = segment_with(
-            NetworkSegmentType::Tenant,
-            vec!["192.0.2.0/24", "2001:db8::/64"],
-            None,
+        check_cases(
+            [
+                Case {
+                    scenario: "FNN + Tenant + IPv4 is the standard happy path",
+                    input: (
+                        VpcVirtualizationType::Fnn,
+                        segment_with(NetworkSegmentType::Tenant, vec!["192.0.2.0/24"], None),
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "Flat doesn't accept Tenant segments",
+                    input: (
+                        VpcVirtualizationType::Flat,
+                        segment_with(NetworkSegmentType::Tenant, vec!["192.0.2.0/24"], None),
+                    ),
+                    expect: FailsWith(unsupported_segment_type),
+                },
+                Case {
+                    scenario: "ETV doesn't accept IPv6 prefixes even if segment-type matches",
+                    input: (
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        segment_with(
+                            NetworkSegmentType::Tenant,
+                            vec!["192.0.2.0/24", "2001:db8::/64"],
+                            None,
+                        ),
+                    ),
+                    expect: FailsWith(ipv6_unsupported),
+                },
+                Case {
+                    scenario: "Flat + HostInband + IPv6 is a supported combination",
+                    input: (
+                        VpcVirtualizationType::Flat,
+                        segment_with(
+                            NetworkSegmentType::HostInband,
+                            vec!["192.0.2.0/24", "2001:db8::/64"],
+                            None,
+                        ),
+                    ),
+                    expect: Yields(()),
+                },
+            ],
+            // The operation under test: gate a segment against a VPC type. The
+            // error type isn't `PartialEq`, so we project it to its discriminant
+            // so the asserted variant is comparable.
+            |(vt, segment)| {
+                vt.ensure_supports_segment(&segment)
+                    .map_err(|e| discriminant(&e))
+            },
         );
-        let err = VpcVirtualizationType::EthernetVirtualizer
-            .ensure_supports_segment(&segment)
-            .expect_err("ETV doesn't accept IPv6 prefixes even if segment-type matches");
-        assert!(matches!(err, VpcCapabilityError::Ipv6Unsupported { .. }));
-    }
-
-    #[test]
-    fn ensure_supports_segment_allows_ipv6_on_flat_with_host_inband() {
-        let segment = segment_with(
-            NetworkSegmentType::HostInband,
-            vec!["192.0.2.0/24", "2001:db8::/64"],
-            None,
-        );
-        VpcVirtualizationType::Flat
-            .ensure_supports_segment(&segment)
-            .expect("Flat + HostInband + IPv6 is a supported combination");
     }
 
     #[test]

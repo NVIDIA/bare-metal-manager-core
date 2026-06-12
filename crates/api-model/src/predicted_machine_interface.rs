@@ -19,6 +19,7 @@ use mac_address::MacAddress;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use crate::machine_boot_interface::MachineBootInterface;
 use crate::network_segment::NetworkSegmentType;
 
 #[derive(Debug, Clone, FromRow)]
@@ -31,6 +32,16 @@ pub struct PredictedMachineInterface {
     /// MAC, handed to the `machine_interfaces` row at DHCP promotion so
     /// the host's boot target is a full pair from its first owned interface.
     pub boot_interface_id: Option<String>,
+}
+
+impl PredictedMachineInterface {
+    /// The predicted [`MachineBootInterface`]: this NIC's MAC plus its last
+    /// recorded Redfish interface id -- the same pair the promoted
+    /// `machine_interfaces` row holds once the NIC's first lease lands.
+    /// `None` until the id has been captured from an exploration report.
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        MachineBootInterface::for_mac(self.mac_address, self.boot_interface_id.clone())
+    }
 }
 
 #[derive(Debug, Clone)]

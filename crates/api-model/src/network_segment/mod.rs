@@ -93,15 +93,35 @@ pub struct NetworkDefinition {
     /// behavior of Carbide + carbide-dhcp.
     #[serde(default)]
     pub allocation_strategy: AllocationStrategy,
+    /// Set to the name of a VPC to attach this network segment to a VPC on creation. Will fail if
+    /// the VPC is not defined. You probably want to add a vpc with a corresponding name to the
+    /// config via `[vpcs.<name>]` for this to work when data is initially being seeded.
+    pub vpc_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkDefinitionSegmentType {
     Admin,
     Underlay,
     HostInband,
     // Tenant networks are created via the API, not the config file
+}
+
+impl From<NetworkDefinitionSegmentType> for crate::network_segment::NetworkSegmentType {
+    fn from(value: NetworkDefinitionSegmentType) -> Self {
+        match value {
+            NetworkDefinitionSegmentType::Admin => {
+                crate::network_segment::NetworkSegmentType::Admin
+            }
+            NetworkDefinitionSegmentType::Underlay => {
+                crate::network_segment::NetworkSegmentType::Underlay
+            }
+            NetworkDefinitionSegmentType::HostInband => {
+                crate::network_segment::NetworkSegmentType::HostInband
+            }
+        }
+    }
 }
 
 /// Returns the SLA for the current state
@@ -335,11 +355,7 @@ impl NewNetworkSegment {
             prefixes: vec![prefix],
             vlan_id: None,
             vni: None,
-            segment_type: match value.segment_type {
-                NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
-                NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
-                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
-            },
+            segment_type: value.segment_type.into(),
             can_stretch: None,
             allocation_strategy: value.allocation_strategy,
         })

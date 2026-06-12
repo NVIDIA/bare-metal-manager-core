@@ -31,3 +31,15 @@ prefix = "172.99.0.0/26"
 gateway = "172.99.0.1"
 mtu = 1500
 reserve_first = 5
+
+[networks.ZERO-DPU-HOST-01-SWP7]
+type = "hostinband"
+prefix = "10.217.18.192/30"
+gateway = "10.217.18.193"
+mtu = 1500
+reserve_first = 1
+vpc_name = "zero-dpu-vpc"
+
+[vpcs.zero-dpu-vpc]
+organization_id = "2829bbe3-c169-4cd9-8b2a-19a8b1618a93"
+network_virtualization_type = "flat"

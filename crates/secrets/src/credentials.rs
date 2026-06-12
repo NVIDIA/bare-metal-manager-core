@@ -326,6 +326,24 @@ pub enum CredentialKey {
     },
 }
 
+/// The site-wide default credentials endpoint exploration requires before it
+/// can run (validated by `SiteExplorer::check_preconditions`).
+///
+/// Single source of truth: the explorer's precondition check and the admin UI's
+/// "default credentials not set" warning both iterate this list so the two
+/// cannot drift apart. Order matches the explorer's original check order.
+pub const REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS: [CredentialKey; 3] = [
+    CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::SiteWideRoot,
+    },
+    CredentialKey::DpuUefi {
+        credential_type: CredentialType::SiteDefault,
+    },
+    CredentialKey::HostUefi {
+        credential_type: CredentialType::SiteDefault,
+    },
+];
+
 /// CredentialPrefix identifies a category of
 /// credentials by their shared path prefix.
 /// Useful for listing or querying all secrets

@@ -821,6 +821,8 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
@@ -1026,54 +1028,69 @@ mod tests {
         }
     }
 
+    // check_accepts_maintenance: Ready/Error (with no pending request) accept;
+    // every other state is rejected as NotReadyOrError, and a state that already
+    // has a pending request is rejected as AlreadyPending. The originals only
+    // asserted the rejection variant (via matches!), so we compare the error's
+    // discriminant rather than its full value. The input is the (state, pending)
+    // pair handed to `test_rack`.
     #[test]
-    fn accepts_maintenance_in_ready_state() {
-        let rack = test_rack(RackState::Ready, None);
-        assert!(rack.check_accepts_maintenance().is_ok());
-    }
-
-    #[test]
-    fn accepts_maintenance_in_error_state() {
-        let rack = test_rack(
-            RackState::Error {
-                cause: "something broke".into(),
-            },
-            None,
+    fn check_accepts_maintenance_cases() {
+        // Discriminant sentinels for the two rejection variants.
+        let not_ready_or_error = std::mem::discriminant(
+            &RackMaintenanceRejection::NotReadyOrError(RackState::Created),
         );
-        assert!(rack.check_accepts_maintenance().is_ok());
-    }
+        let already_pending = std::mem::discriminant(&RackMaintenanceRejection::AlreadyPending);
 
-    #[test]
-    fn rejects_maintenance_in_created_state() {
-        let rack = test_rack(RackState::Created, None);
-        let err = rack.check_accepts_maintenance().unwrap_err();
-        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
-    }
-
-    #[test]
-    fn rejects_maintenance_in_discovering_state() {
-        let rack = test_rack(RackState::Discovering, None);
-        let err = rack.check_accepts_maintenance().unwrap_err();
-        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
-    }
-
-    #[test]
-    fn rejects_maintenance_in_maintenance_state() {
-        let rack = test_rack(
-            RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::Completed,
+        check_cases(
+            [
+                Case {
+                    scenario: "accepts in ready state",
+                    input: (RackState::Ready, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "accepts in error state",
+                    input: (
+                        RackState::Error {
+                            cause: "something broke".into(),
+                        },
+                        None,
+                    ),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "rejects in created state",
+                    input: (RackState::Created, None),
+                    expect: FailsWith(not_ready_or_error),
+                },
+                Case {
+                    scenario: "rejects in discovering state",
+                    input: (RackState::Discovering, None),
+                    expect: FailsWith(not_ready_or_error),
+                },
+                Case {
+                    scenario: "rejects in maintenance state",
+                    input: (
+                        RackState::Maintenance {
+                            maintenance_state: RackMaintenanceState::Completed,
+                        },
+                        None,
+                    ),
+                    expect: FailsWith(not_ready_or_error),
+                },
+                Case {
+                    scenario: "rejects when already pending",
+                    input: (RackState::Ready, Some(MaintenanceScope::default())),
+                    expect: FailsWith(already_pending),
+                },
+            ],
+            |(state, maintenance_requested)| {
+                test_rack(state, maintenance_requested)
+                    .check_accepts_maintenance()
+                    .map_err(|e| std::mem::discriminant(&e))
             },
-            None,
         );
-        let err = rack.check_accepts_maintenance().unwrap_err();
-        assert!(matches!(err, RackMaintenanceRejection::NotReadyOrError(_)));
-    }
-
-    #[test]
-    fn rejects_maintenance_when_already_pending() {
-        let rack = test_rack(RackState::Ready, Some(MaintenanceScope::default()));
-        let err = rack.check_accepts_maintenance().unwrap_err();
-        assert!(matches!(err, RackMaintenanceRejection::AlreadyPending));
     }
 
     // ── RackMaintenanceRejection display ────────────────────────────────

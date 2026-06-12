@@ -55,8 +55,8 @@ pub struct ComputeTrayFirmwareUpdateStatus {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    #[default]
     Core,
+    #[default]
     Rms,
     Mock,
 }

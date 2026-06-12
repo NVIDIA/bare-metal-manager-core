@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 use get_report::args::Args as GetReportMode;
 
@@ -88,40 +90,38 @@ fn parse_get_report_endpoint() {
     }
 }
 
-// parse_explore ensures explore parses with address.
+// explore routes to the Explore variant; --mac is optional. Each row yields
+// (parsed address, whether a MAC was supplied).
 #[test]
 fn parse_explore() {
-    let cmd = Cmd::try_parse_from(["site-explorer", "explore", "192.168.1.100"])
-        .expect("should parse explore");
-
-    match cmd {
-        Cmd::Explore(args) => {
-            assert_eq!(args.inner.address, "192.168.1.100");
-            assert!(args.inner.mac.is_none());
-        }
-        _ => panic!("expected Explore variant"),
-    }
-}
-
-// parse_explore_with_mac ensures explore parses with
-// address and mac.
-#[test]
-fn parse_explore_with_mac() {
-    let cmd = Cmd::try_parse_from([
-        "site-explorer",
-        "explore",
-        "192.168.1.100",
-        "--mac",
-        "00:11:22:33:44:55",
-    ])
-    .expect("should parse explore with mac");
-
-    match cmd {
-        Cmd::Explore(args) => {
-            assert!(args.inner.mac.is_some());
-        }
-        _ => panic!("expected Explore variant"),
-    }
+    check_cases(
+        [
+            Case {
+                scenario: "address only, no mac",
+                input: &["site-explorer", "explore", "192.168.1.100"][..],
+                expect: Yields(("192.168.1.100".to_string(), false)),
+            },
+            Case {
+                scenario: "address with mac",
+                input: &[
+                    "site-explorer",
+                    "explore",
+                    "192.168.1.100",
+                    "--mac",
+                    "00:11:22:33:44:55",
+                ][..],
+                expect: Yields(("192.168.1.100".to_string(), true)),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Explore(args) => (args.inner.address, args.inner.mac.is_some()),
+                    _ => panic!("expected Explore variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
 // parse_re_explore ensures re-explore parses with address.
@@ -183,10 +183,20 @@ fn parse_remediation() {
     }
 }
 
-// parse_explore_missing_address_fails ensures explore
-// fails without address.
+// Malformed invocations are rejected at parse time -- e.g. a subcommand left
+// without its required positional address.
 #[test]
-fn parse_explore_missing_address_fails() {
-    let result = Cmd::try_parse_from(["site-explorer", "explore"]);
-    assert!(result.is_err(), "should fail without address");
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [Case {
+            scenario: "explore without an address",
+            input: &["site-explorer", "explore"][..],
+            expect: Fails,
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
+    );
 }

@@ -26,6 +26,8 @@ import (
 )
 
 const (
+	// VpcPrefixStatusProvisioning status is provisioning
+	VpcPrefixStatusProvisioning = "Provisioning"
 	// VpcPrefixStatusReady status is ready
 	VpcPrefixStatusReady = "Ready"
 	// VpcPrefixStatusError status is error
@@ -53,10 +55,11 @@ var (
 	}
 	// VpcPrefixStatusMap is a list of valid status for the VpcPrefix model
 	VpcPrefixStatusMap = map[string]bool{
-		VpcPrefixStatusReady:    true,
-		VpcPrefixStatusError:    true,
-		VpcPrefixStatusDeleting: true,
-		VpcPrefixStatusDeleted:  true,
+		VpcPrefixStatusProvisioning: true,
+		VpcPrefixStatusReady:        true,
+		VpcPrefixStatusError:        true,
+		VpcPrefixStatusDeleting:     true,
+		VpcPrefixStatusDeleted:      true,
 	}
 )
 

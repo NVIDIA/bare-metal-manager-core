@@ -200,21 +200,106 @@ impl Default for ManagedHostNetworkConfig {
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
-    // Verify that existing JSON with IPv4 addresses (as stored in Postgres) still
-    // deserializes correctly after going from Ipv4Addr to IpAddr (to support v6).
+    // JSON round-trips: serialize a config to JSON and deserialize it back; the
+    // config must survive intact. Covers the IPv4 case (existing Postgres JSON
+    // still deserializes after Ipv4Addr -> IpAddr) and the IPv6 case (new v6
+    // pools). The error type (serde_json::Error) is not PartialEq, so failing
+    // rows would use `Fails`; all rows here round-trip cleanly.
     #[test]
-    fn test_managed_host_network_config_ipv4_json_roundtrip() {
-        let config = ManagedHostNetworkConfig {
-            loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
-            use_admin_network: Some(true),
-            quarantine_state: None,
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: ManagedHostNetworkConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(config, deserialized);
+    fn test_managed_host_network_config_json_roundtrip() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ipv4 round-trip",
+                    input: ManagedHostNetworkConfig {
+                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                        secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                        use_admin_network: Some(true),
+                        quarantine_state: None,
+                    },
+                    expect: Yields(ManagedHostNetworkConfig {
+                        loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                        secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                        use_admin_network: Some(true),
+                        quarantine_state: None,
+                    }),
+                },
+                Case {
+                    scenario: "ipv6 round-trip",
+                    input: ManagedHostNetworkConfig {
+                        loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                        ))),
+                        secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                            0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
+                        ))),
+                        use_admin_network: Some(false),
+                        quarantine_state: None,
+                    },
+                    expect: Yields(ManagedHostNetworkConfig {
+                        loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                            0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                        ))),
+                        secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
+                            0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
+                        ))),
+                        use_admin_network: Some(false),
+                        quarantine_state: None,
+                    }),
+                },
+            ],
+            |config| {
+                let json = serde_json::to_string(&config).map_err(drop)?;
+                serde_json::from_str::<ManagedHostNetworkConfig>(&json).map_err(drop)
+            },
+        );
+    }
+
+    // Deserialize raw JSON (as it would already exist in the database) into the
+    // IpAddr-typed config, projecting to the (loopback_ip, secondary_overlay_vtep_ip)
+    // pair the original tests asserted. Covers legacy IPv4 JSON and IPv6 JSON.
+    #[test]
+    fn test_managed_host_network_config_deserialize_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "legacy ipv4 json",
+                    input: r#"{
+                        "loopback_ip": "10.0.0.1",
+                        "secondary_overlay_vtep_ip": "172.16.0.5",
+                        "use_admin_network": true,
+                        "quarantine_state": null
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                        Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    )),
+                },
+                Case {
+                    scenario: "ipv6 json",
+                    input: r#"{
+                        "loopback_ip": "2001:db8::1",
+                        "secondary_overlay_vtep_ip": null,
+                        "use_admin_network": true,
+                        "quarantine_state": null
+                    }"#,
+                    expect: Yields((
+                        Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+                        None,
+                    )),
+                },
+            ],
+            |json| {
+                serde_json::from_str::<ManagedHostNetworkConfig>(json)
+                    .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip))
+                    .map_err(drop)
+            },
+        );
     }
 
     // Ensure that the JSON representation of an IPv4 address under IpAddr is
@@ -232,63 +317,6 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         // Ensure IpAddr serializes IPv4 same as Ipv4Addr.
         assert!(json.contains(r#""loopback_ip":"10.0.0.1""#), "json: {json}");
-    }
-
-    // Confirm that a raw JSON string with an IPv4 address (as would already
-    // exist in the database from before switching to IpAddr for v6 support),
-    // deserializes correctly into the new IpAddr type.
-    #[test]
-    fn test_managed_host_network_config_deserialize_legacy_ipv4_json() {
-        let json = r#"{
-            "loopback_ip": "10.0.0.1",
-            "secondary_overlay_vtep_ip": "172.16.0.5",
-            "use_admin_network": true,
-            "quarantine_state": null
-        }"#;
-        let config: ManagedHostNetworkConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            config.loopback_ip,
-            Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)))
-        );
-        assert_eq!(
-            config.secondary_overlay_vtep_ip,
-            Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5)))
-        );
-    }
-
-    // Verify that IPv6 addresses serialize/deserialize correctly through our
-    // ManagedHostNetworkConfig JSON representation, for the case when IPv6
-    // pools are enabled.
-    #[test]
-    fn test_managed_host_network_config_ipv6_json_roundtrip() {
-        let config = ManagedHostNetworkConfig {
-            loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
-            secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
-            ))),
-            use_admin_network: Some(false),
-            quarantine_state: None,
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: ManagedHostNetworkConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(config, deserialized);
-    }
-
-    // ...aand confirm deserialization of IPv6 addresses from JSON.
-    #[test]
-    fn test_managed_host_network_config_deserialize_ipv6_json() {
-        let json = r#"{
-            "loopback_ip": "2001:db8::1",
-            "secondary_overlay_vtep_ip": null,
-            "use_admin_network": true,
-            "quarantine_state": null
-        }"#;
-        let config: ManagedHostNetworkConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            config.loopback_ip,
-            Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)))
-        );
-        assert_eq!(config.secondary_overlay_vtep_ip, None);
     }
 
     // Ensure default ManagedHostNetworkConfig is still all-None/Some(true),
@@ -314,19 +342,26 @@ mod tests {
         assert_eq!(v6.to_string(), "2001:db8::1");
     }
 
-    // Verify that IPv4 strings parse correctly as IpAddr, since resource pools
-    // store values as strings and parse them via IpAddr::from_str.
+    // Parse pool strings as IpAddr (resource pools store values as strings and
+    // parse them via IpAddr::from_str). Yielding the exact IpAddr value also
+    // covers the original is_ipv4()/is_ipv6() family assertions. AddrParseError
+    // is not PartialEq, so failing rows would use `Fails`; both rows parse.
     #[test]
     fn test_ip_addr_parse_from_pool_strings() {
-        let v4: IpAddr = "10.0.0.1".parse().unwrap();
-        assert!(v4.is_ipv4());
-        assert_eq!(v4, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
-
-        let v6: IpAddr = "2001:db8::1".parse().unwrap();
-        assert!(v6.is_ipv6());
-        assert_eq!(
-            v6,
-            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        check_cases(
+            [
+                Case {
+                    scenario: "ipv4 string",
+                    input: "10.0.0.1",
+                    expect: Yields(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                },
+                Case {
+                    scenario: "ipv6 string",
+                    input: "2001:db8::1",
+                    expect: Yields(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+                },
+            ],
+            |s| s.parse::<IpAddr>(),
         );
     }
 }

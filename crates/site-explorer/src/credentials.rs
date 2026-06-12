@@ -18,7 +18,8 @@
 use std::sync::Arc;
 
 use carbide_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
+    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+    REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS,
 };
 use mac_address::MacAddress;
 use model::expected_entity::BmcCredentialsData;
@@ -117,41 +118,18 @@ impl CredentialClient {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
-        // Site wide BMC credentials
-        let credential_key = SITEWIDE_BMC_ROOT_CREDENTIAL_KEY;
-        if let Some(e) = self.get_credentials(&credential_key).await.err() {
-            let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(&credential_key_str);
-            return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str().to_string(),
-                cause: e.to_string(),
-            });
-        }
-
-        // Site wide DPU UEFI credentials
-        let credential_key = CredentialKey::DpuUefi {
-            credential_type: CredentialType::SiteDefault,
-        };
-        if let Some(e) = self.get_credentials(&credential_key).await.err() {
-            let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(&credential_key_str);
-            return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str().to_string(),
-                cause: e.to_string(),
-            });
-        }
-
-        // Site wide Host UEFI credentials
-        let credential_key = CredentialKey::HostUefi {
-            credential_type: CredentialType::SiteDefault,
-        };
-        if let Some(e) = self.get_credentials(&credential_key).await.err() {
-            let credential_key_str = credential_key.to_key_str();
-            metrics.increment_credential_missing(&credential_key_str);
-            return Err(EndpointExplorationError::MissingCredentials {
-                key: credential_key.to_key_str().to_string(),
-                cause: e.to_string(),
-            });
+        // The required site-wide default credentials (site-wide BMC root, DPU
+        // UEFI, host UEFI) come from the shared canonical list so this check and
+        // the admin UI's "default credentials not set" warning cannot drift.
+        for credential_key in REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
+            if let Some(e) = self.get_credentials(&credential_key).await.err() {
+                let credential_key_str = credential_key.to_key_str();
+                metrics.increment_credential_missing(&credential_key_str);
+                return Err(EndpointExplorationError::MissingCredentials {
+                    key: credential_key.to_key_str().to_string(),
+                    cause: e.to_string(),
+                });
+            }
         }
 
         Ok(())

@@ -263,6 +263,8 @@ fn show_table_csv(outputs: &[RackOutput]) {
 #[cfg(test)]
 mod tests {
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use rpc::admin_cli::OutputFormat;
     use rpc::forge::{Metadata, Rack};
 
@@ -318,28 +320,43 @@ mod tests {
         assert!(output.current_nvlink_switches.is_empty());
     }
 
-    /// A Rack with no ID falls back to an empty string in RackOutput.
+    // A missing Rack component falls back to an empty string in RackOutput:
+    // no ID yields an empty id, no metadata yields an empty name. The run
+    // closure converts the Rack and reads back the field named by the case.
     #[test]
-    fn rack_output_defaults_when_id_missing() {
-        let rack = Rack {
-            id: None,
-            rack_state: "Created".to_string(),
-            ..Default::default()
-        };
-        let output = RackOutput::from(&rack);
-        assert_eq!(output.id, "");
-    }
-
-    /// A Rack with no metadata falls back to an empty name in RackOutput.
-    #[test]
-    fn rack_output_defaults_when_metadata_missing() {
-        let rack = Rack {
-            id: Some("Rack1".parse().unwrap()),
-            metadata: None,
-            ..Default::default()
-        };
-        let output = RackOutput::from(&rack);
-        assert_eq!(output.name, "");
+    fn rack_output_defaults_when_fields_missing() {
+        check_cases(
+            [
+                Case {
+                    scenario: "missing id falls back to empty string",
+                    input: Rack {
+                        id: None,
+                        rack_state: "Created".to_string(),
+                        ..Default::default()
+                    },
+                    expect: Yields(String::new()),
+                },
+                Case {
+                    scenario: "missing metadata falls back to empty name",
+                    input: Rack {
+                        id: Some("Rack1".parse().unwrap()),
+                        metadata: None,
+                        ..Default::default()
+                    },
+                    expect: Yields(String::new()),
+                },
+            ],
+            // Read the field that the missing component would have populated:
+            // id for the no-id case, name for the no-metadata case.
+            |rack: Rack| -> Result<String, ()> {
+                let output = RackOutput::from(&rack);
+                Ok(if rack.id.is_none() {
+                    output.id
+                } else {
+                    output.name
+                })
+            },
+        );
     }
 
     /////////////////////////////////////////////////////////////////////////////
@@ -426,51 +443,68 @@ mod tests {
     /////////////////////////////////////////////////////////////////////////////
     // Rendering functions
 
-    /// show_single renders JSON without errors.
+    // The structured renderers return Ok for both formats: show_single and
+    // show_list each serialize cleanly as JSON and as YAML. Each row's input
+    // is a thunk that builds the fixture and runs one renderer at one format.
     #[test]
-    fn show_single_json_returns_ok() {
-        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
-        assert!(show_single(&output, OutputFormat::Json).is_ok());
-    }
-
-    /// show_single renders YAML without errors.
-    #[test]
-    fn show_single_yaml_returns_ok() {
-        let output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
-        assert!(show_single(&output, OutputFormat::Yaml).is_ok());
-    }
-
-    /// show_list renders JSON without errors.
-    #[test]
-    fn show_list_json_returns_ok() {
-        let outputs = vec![
-            make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
-            make_output(
-                "Rack2",
-                "NVL36",
-                "Provisioned",
-                "V2",
-                vec!["t-1"],
-                vec![],
-                vec![],
-            ),
+    fn structured_renderers_return_ok() {
+        type RenderCase = Case<fn() -> Result<()>, (), ()>;
+        let cases: [RenderCase; 4] = [
+            Case {
+                scenario: "show_single renders JSON",
+                input: || {
+                    let output =
+                        make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+                    show_single(&output, OutputFormat::Json)
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "show_single renders YAML",
+                input: || {
+                    let output =
+                        make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+                    show_single(&output, OutputFormat::Yaml)
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "show_list renders JSON",
+                input: || {
+                    let outputs = vec![
+                        make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]),
+                        make_output(
+                            "Rack2",
+                            "NVL36",
+                            "Provisioned",
+                            "V2",
+                            vec!["t-1"],
+                            vec![],
+                            vec![],
+                        ),
+                    ];
+                    show_list(&outputs, OutputFormat::Json)
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "show_list renders YAML",
+                input: || {
+                    let outputs = vec![make_output(
+                        "Rack1",
+                        "NVL72",
+                        "Created",
+                        "V1",
+                        vec![],
+                        vec![],
+                        vec![],
+                    )];
+                    show_list(&outputs, OutputFormat::Yaml)
+                },
+                expect: Yields(()),
+            },
         ];
-        assert!(show_list(&outputs, OutputFormat::Json).is_ok());
-    }
-
-    /// show_list renders YAML without errors.
-    #[test]
-    fn show_list_yaml_returns_ok() {
-        let outputs = vec![make_output(
-            "Rack1",
-            "NVL72",
-            "Created",
-            "V1",
-            vec![],
-            vec![],
-            vec![],
-        )];
-        assert!(show_list(&outputs, OutputFormat::Yaml).is_ok());
+        check_cases(cases, |run| run().map_err(drop));
     }
 
     /// show_detail with all-empty component lists renders "N/A" paths without panicking.

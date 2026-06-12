@@ -213,6 +213,11 @@ pub struct CarbideConfig {
     /// instead.
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 
+    /// VPCs to create at startup. Use the
+    /// `CreateVpc` gRPC to create them later
+    /// instead.
+    pub vpcs: Option<HashMap<String, VpcDefinition>>,
+
     /// IPMI tool implementation for DPU power control
     /// (e.g., "prod" or "fake").
     pub dpu_ipmi_tool_impl: Option<String>,
@@ -1590,6 +1595,8 @@ pub struct InitialObjectsConfig {
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
     /// Network Segment definitions
     pub networks: Option<HashMap<String, NetworkDefinition>>,
+    /// VPC definitions
+    pub vpcs: Option<HashMap<String, VpcDefinition>>,
 }
 
 /// TLS certificate and key configuration for securing
@@ -2157,6 +2164,7 @@ fn default_mqtt_broker_port() -> u16 {
 }
 
 pub use carbide_dpa_manager::config::{DpaConfig, MqttAuthConfig, MqttAuthMode};
+use model::vpc::VpcDefinition;
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
@@ -2356,6 +2364,7 @@ mod tests {
     use std::sync::atomic::Ordering as AtomicOrdering;
 
     use carbide_authn::config::CertComponent;
+    use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
     use chrono::Datelike;
     use figment::Figment;
@@ -3762,6 +3771,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
         let pools = config.pools.as_ref().unwrap();
         let networks = config.networks.as_ref().unwrap();
+        let vpcs = config.vpcs.as_ref().unwrap();
 
         assert_eq!(
             networks.get("admin").unwrap(),
@@ -3772,6 +3782,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
             }
         );
 
@@ -3784,6 +3795,30 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                vpc_name: None,
+            }
+        );
+
+        assert_eq!(
+            networks.get("ZERO-DPU-HOST-01-SWP7").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::HostInband,
+                prefix: "10.217.18.192/30".parse().unwrap(),
+                gateway: "10.217.18.193".parse().unwrap(),
+                mtu: 1500,
+                reserve_first: 1,
+                allocation_strategy: Default::default(),
+                vpc_name: Some("zero-dpu-vpc".to_string()),
+            }
+        );
+
+        assert_eq!(
+            vpcs.get("zero-dpu-vpc").unwrap(),
+            &VpcDefinition {
+                organization_id: Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+                network_virtualization_type: VpcVirtualizationType::Flat,
+                routing_profile_type: None,
+                vni: None,
             }
         );
 

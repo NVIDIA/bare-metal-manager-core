@@ -161,7 +161,7 @@ impl EventContext {
 }
 
 #[derive(Clone, Debug)]
-pub struct SensorHealthContext {
+pub struct SensorThresholdContext {
     pub entity_type: String,
     pub sensor_id: String,
     pub upper_fatal: Option<f64>,
@@ -176,14 +176,14 @@ pub struct SensorHealthContext {
 }
 
 #[derive(Clone, Debug)]
-pub struct SensorHealthData {
+pub struct MetricSample {
     pub key: String,
     pub name: String,
     pub metric_type: String,
     pub unit: String,
     pub value: f64,
     pub labels: Vec<MetricLabel>,
-    pub context: Option<SensorHealthContext>,
+    pub context: Option<SensorThresholdContext>,
 }
 
 #[derive(Clone, Debug)]
@@ -232,7 +232,7 @@ impl HealthReport {
 #[derive(Clone, Debug)]
 pub enum CollectorEvent {
     MetricCollectionStart,
-    Metric(Box<SensorHealthData>),
+    Metric(Box<MetricSample>),
     MetricCollectionEnd,
     CollectorRemoved,
     Log(Box<LogRecord>),
