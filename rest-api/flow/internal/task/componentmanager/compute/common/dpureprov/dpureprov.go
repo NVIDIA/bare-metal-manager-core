@@ -13,41 +13,10 @@
 // The sequence is the four-step "SAGA" that Core requires (mirroring
 // the legacy `fac ytl` operator runbook):
 //
-//  1. Insert a `HostUpdateInProgress` health override carrying the
-//     `PreventAllocations` classification on the host. This is the
-//     precondition Core's `trigger_dpu_reprovisioning` validates.
-//  2. Call `TriggerDpuReprovisioning(host_id, mode=Set,
-//     update_firmware=true)`. Core flips the per-DPU
-//     `reprovision_requested` flag for every DPU attached to the host.
-//  3. Hand the pending request off to Core's machine-controller. The
-//     concrete call depends on whether the host is currently
-//     `Assigned` to a tenant instance:
-//
-//       * Assigned: call `InvokeInstancePower(instance,
-//         apply_updates_on_reboot=true)`. This is NOT a power
-//         operation despite the RPC name — for a host that has any
-//         pending DPU reprovisioning the API handler approves the
-//         request (sets each DPU's `user_approval_received=true`) and
-//         returns immediately without rebooting. The
-//         `Assigned/Ready` state-machine handler then sees the
-//         approved request on its next reconcile and drives the
-//         actual host reboot itself (via `ForceRestart`).
-//       * Non-Assigned: call `AdminPowerControl(ColdReset)`. The
-//         non-Assigned state-machine path doesn't gate on user
-//         approval — it consumes any pending `reprovision_requested`
-//         entry as soon as it reconciles the host. The cold reset is
-//         not strictly required to make Core consume the request, but
-//         it matches the operator runbook's "reboot the host" step
-//         and avoids waiting for the next natural reconcile.
-//
-//     Either way, this step is just the trigger; the actual DPU
-//     reprovisioning work is performed asynchronously by the state
-//     machine, and step (4) is what waits for completion.
-//  4. Poll `IsDpuReprovisioningPendingForHost` until the host's DPUs
-//     are no longer reported, then remove the health override inserted
-//     in step (1). The override removal is wrapped in a `defer` so a
-//     mid-flight failure still releases the host from the
-//     "prevent_allocations" alert state.
+//  1. Insert a `HostUpdateInProgress` health override carrying the `PreventAllocations` classification on the host. This is the precondition Core's `trigger_dpu_reprovisioning` validates.
+//  2. Call `TriggerDpuReprovisioning(host_id, mode=Set, update_firmware=true)`. Core flips the per-DPU `reprovision_requested` flag for every DPU attached to the host.
+//  3. Hand the pending request off to Core's machine-controller. This is a trigger only; the actual DPU reprovisioning runs asynchronously inside Core and step (4) waits for it. The concrete call depends on whether the host is `Assigned` to a tenant instance — see handOffPendingReprovToStateMachine for why an Assigned host uses InvokeInstancePower while a non-Assigned host uses AdminPowerControl.
+//  4. Poll `IsDpuReprovisioningPendingForHost` until the host's DPUs are no longer reported, then remove the health override inserted in step (1). The override removal is wrapped in a `defer` so a mid-flight failure still releases the host from the "prevent_allocations" alert state.
 //
 // A single host argument (`host_machine_id`) is sufficient to drive the
 // sequence even when the host has multiple DPUs: Core's

@@ -42,7 +42,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/dpureprov"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
@@ -300,7 +300,7 @@ func (m *Manager) GetPowerStatus(
 // # The "dpu" sub-target
 //
 // When info.SubTargets contains "dpu" the function ALSO runs the DPU
-// reprovisioning sequence (see compute/dpureprov) against the targeted
+// reprovisioning sequence (see compute/common/dpureprov) against the targeted
 // hosts. The two paths are sequenced rather than concurrent: any
 // compute-tray-internal sub-targets (BMC / BIOS / NIC / etc.) are
 // dispatched to UpdateComponentFirmware first, and DPU reprovisioning
@@ -411,7 +411,7 @@ func (m *Manager) firmwareControlComputeTrays(
 
 // firmwareControlDpus runs DPU reprovisioning on every host listed in
 // the target. Each host is reprovisioned serially via the four-step
-// sequence implemented in compute/dpureprov; targetVersion is logged
+// sequence implemented in compute/common/dpureprov; targetVersion is logged
 // (so the audit trail shows what the caller asked for) but NOT
 // forwarded to Core because Core's reprovisioning state machine
 // resolves the target firmware version from site configuration rather

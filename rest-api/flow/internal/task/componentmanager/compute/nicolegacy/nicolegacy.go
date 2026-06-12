@@ -29,7 +29,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/dpureprov"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
@@ -343,7 +343,7 @@ func nicoPowerStateToOperationsPowerStatus(state nicoapi.PowerState) operations.
 // # The "dpu" sub-target
 //
 // When info.SubTargets contains "dpu" the function ALSO runs the DPU
-// reprovisioning sequence (see compute/dpureprov) against the targeted
+// reprovisioning sequence (see compute/common/dpureprov) against the targeted
 // hosts AFTER any compute-tray-internal scheduling has been completed.
 // "dpu" is intentionally NOT covered by the "empty SubTargets means
 // update everything" default; the caller has to opt in explicitly. The

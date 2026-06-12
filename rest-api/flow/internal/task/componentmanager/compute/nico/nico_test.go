@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/dpureprov"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
