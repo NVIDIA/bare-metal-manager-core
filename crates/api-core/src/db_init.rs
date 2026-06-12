@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::vpc::VpcId;
 use db::dns::domain;
 use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
@@ -29,7 +30,9 @@ use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{NetworkDefinition, NetworkSegmentType, NewNetworkSegment};
-use model::vpc::{NewVpc, VpcStatus};
+use model::resource_pool;
+use model::resource_pool::ResourcePool;
+use model::vpc::{NewVpc, VpcDefinition, VpcStatus, VpcVirtualizationTypeCapabilities};
 use sqlx::{Pool, Postgres};
 
 use crate::CarbideError;
@@ -96,12 +99,36 @@ pub async fn create_initial_networks(
             tracing::debug!("Network segment {name} exists");
             continue;
         }
+
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
+        ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {
+            match db::vpc::find_by_name(&mut txn, vpc_name).await?.as_slice() {
+                [vpc] => {
+                    vpc.network_virtualization_type
+                        .ensure_supports_segment(&ns)?;
+                    Some(vpc.id)
+                }
+                [] => {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
+                    )));
+                }
+                _ => {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "Network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
+                    )));
+                }
+            }
+        } else {
+            None
+        };
+
         // Capture before `save` moves `ns`. `insert_network_def` needs
         // the id because `network_def.segment_id` is FK-bound to it.
         let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
+        tracing::info!("Creating network segment {name} from config: {ns:?}");
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         // Snapshot the network definition in the same transaction as the network_segment row,
         // so the two stay consistent across restarts.
@@ -110,6 +137,64 @@ pub async fn create_initial_networks(
     }
 
     ensure_static_assignments_segment(api, &mut txn, Some(domain_id)).await?;
+
+    txn.commit().await?;
+    Ok(())
+}
+
+pub async fn create_initial_vpcs(
+    db_pool: &Pool<Postgres>,
+    vpcs: &HashMap<String, VpcDefinition>,
+    vni_pool: &ResourcePool<i32>,
+) -> Result<(), CarbideError> {
+    let mut txn = Transaction::begin(db_pool).await?;
+    for (name, def) in vpcs {
+        if db::vpc::find_by_name(&mut txn, name)
+            .await
+            .is_ok_and(|v| !v.is_empty())
+        {
+            tracing::debug!("VPC {name} exists");
+            continue;
+        }
+
+        let vpc_id = VpcId::new();
+        let tenant_organization_id = def
+            .organization_id
+            .clone()
+            .unwrap_or(uuid::Uuid::new_v4().into());
+
+        let vni = db::resource_pool::allocate(
+            vni_pool,
+            &mut txn,
+            resource_pool::OwnerType::Vpc,
+            vpc_id.to_string().as_ref(),
+            def.vni,
+        )
+        .await?;
+
+        let vpc = NewVpc {
+            id: vpc_id,
+            tenant_organization_id,
+            network_virtualization_type: def.network_virtualization_type,
+            metadata: Metadata {
+                name: name.to_owned(),
+                ..Default::default()
+            },
+            network_security_group_id: None,
+            routing_profile_type: def.routing_profile_type.clone(),
+            vni: Some(vni),
+        };
+
+        // Validation
+        if def.routing_profile_type.is_some() {
+            def.network_virtualization_type
+                .ensure_supports_routing_profiles()
+                .map_err(CarbideError::from)?;
+        }
+
+        db::vpc::persist(vpc, VpcStatus { vni: Some(vni) }, &mut txn).await?;
+        tracing::info!("Created VPC {name}");
+    }
 
     txn.commit().await?;
     Ok(())

@@ -149,6 +149,7 @@ impl DellPowerEdgeR750<'_> {
                 // there. So we provide empty collection to avoid 404
                 // failure.
                 storage: Some(vec![]),
+                processors: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
                     .attributes(json!({

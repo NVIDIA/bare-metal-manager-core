@@ -79,6 +79,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,
                 storage: Some(vec![]),
+                processors: None,
                 base_bios: None,
                 secure_boot_available: false,
             }],

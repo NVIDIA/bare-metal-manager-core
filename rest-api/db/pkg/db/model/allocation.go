@@ -144,17 +144,17 @@ type AllocationClearInput struct {
 }
 
 type AllocationFilterInput struct {
-	Name                     *string
-	InfrastructureProviderID *uuid.UUID
-	TenantIDs                []uuid.UUID
-	SiteIDs                  []uuid.UUID
-	Statuses                 []string
-	ResourceTypes            []string
-	AllocationIDs            []uuid.UUID
-	SearchQuery              *string
-	ResourceTypeIDs          []uuid.UUID
-	ConstraintTypes          []string
-	ConstraintValues         []int
+	Name                      *string
+	InfrastructureProviderIDs []uuid.UUID
+	TenantIDs                 []uuid.UUID
+	SiteIDs                   []uuid.UUID
+	Statuses                  []string
+	ResourceTypes             []string
+	AllocationIDs             []uuid.UUID
+	SearchQuery               *string
+	ResourceTypeIDs           []uuid.UUID
+	ConstraintTypes           []string
+	ConstraintValues          []int
 }
 
 var _ bun.BeforeAppendModelHook = (*Allocation)(nil)
@@ -278,9 +278,13 @@ func (asd AllocationSQLDAO) setQueryWithFilter(filter AllocationFilterInput, que
 		asd.tracerSpan.SetAttribute(allocationDAOSpan, "name", *filter.Name)
 	}
 
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("a.infrastructure_provider_id = ?", filter.InfrastructureProviderID)
-		asd.tracerSpan.SetAttribute(allocationDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
+	if filter.InfrastructureProviderIDs != nil {
+		if len(filter.InfrastructureProviderIDs) == 1 {
+			query = query.Where("a.infrastructure_provider_id = ?", filter.InfrastructureProviderIDs[0])
+		} else {
+			query = query.Where("a.infrastructure_provider_id IN (?)", bun.In(filter.InfrastructureProviderIDs))
+		}
+		asd.tracerSpan.SetAttribute(allocationDAOSpan, "infrastructure_provider_ids", filter.InfrastructureProviderIDs)
 	}
 
 	if filter.TenantIDs != nil {

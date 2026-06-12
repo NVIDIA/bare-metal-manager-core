@@ -185,6 +185,7 @@ impl NvidiaDgxH100<'_> {
                     base_bios: Some(base_bios(system_id)),
                     log_services: None,
                     storage: None,
+                    processors: None,
                     secure_boot_available: true,
                 },
                 redfish::computer_system::SingleSystemConfig {
@@ -202,6 +203,7 @@ impl NvidiaDgxH100<'_> {
                     base_bios: None,
                     log_services: None,
                     storage: None,
+                    processors: None,
                     secure_boot_available: false,
                 },
             ],

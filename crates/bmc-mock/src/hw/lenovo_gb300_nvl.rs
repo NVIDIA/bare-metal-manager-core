@@ -176,6 +176,7 @@ impl LenovoGB300Nvl<'_> {
                     secure_boot_available: false,
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
+                    processors: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
@@ -195,6 +196,7 @@ impl LenovoGB300Nvl<'_> {
                     secure_boot_available: true,
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
+                    processors: None,
                 },
             ],
         }

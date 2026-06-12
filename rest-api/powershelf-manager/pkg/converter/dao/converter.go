@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/pmc"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/objects/powershelf"
@@ -20,7 +21,7 @@ func PmcTo(pmc *pmc.PMC) *model.PMC {
 
 	return &model.PMC{
 		MacAddress: model.MacAddr(pmc.GetMac()),
-		IPAddress:  model.IPAddr(pmc.GetIp()),
+		IPAddress:  sqltypes.IPAddr(pmc.GetIp()),
 		Vendor:     pmc.GetVendor().Code,
 	}
 }

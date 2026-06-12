@@ -164,6 +164,10 @@ func (emur *APIExpectedMachineUpdateRequest) Validate() error {
 	}
 
 	err := validation.ValidateStruct(emur,
+		validation.Field(&emur.BmcMacAddress,
+			validation.NilOrNotEmpty.Error("BmcMacAddress cannot be empty"),
+			validation.When(emur.BmcMacAddress != nil && *emur.BmcMacAddress != "",
+				validationis.MAC)),
 		validation.Field(&emur.DefaultBmcUsername,
 			validation.NilOrNotEmpty.Error("BMC Username cannot be empty"),
 			validation.When(emur.DefaultBmcUsername != nil && *emur.DefaultBmcUsername != "",

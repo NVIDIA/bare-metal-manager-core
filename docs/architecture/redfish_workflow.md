@@ -120,7 +120,7 @@ Once all DPUs are matched and validated, the host enters an "ingestable" state a
 
 ## 4. DPU Provisioning
 
-After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `nico-rest`) with Redfish power control (in `infra-controller-core`).
+After pairing, the DPU must be provisioned with NICo software. This is orchestrated via Temporal workflows (in `nico-rest`) with Redfish power control (in `infra-controller`).
 
 ### Boot Configuration
 

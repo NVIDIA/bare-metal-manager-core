@@ -216,13 +216,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TODO: add flow / powershelf-manager / nvswitch-manager when rest-api/Makefile gets test-<X> targets
+        # TODO: add powershelf-manager / nvswitch-manager when rest-api/Makefile gets test-<X> targets
         module:
           - api
           - auth
           - cert-manager
           - common
           - db
+          - flow
           - ipam
           - site-agent
           - site-manager

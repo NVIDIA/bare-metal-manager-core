@@ -71,42 +71,51 @@ impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+    use model::metadata::LabelFilter;
     use model::rack::{LABEL_CHASSIS_MANUFACTURER, LABEL_LOCATION_DATACENTER};
 
     use super::*;
 
+    // `RackSearchFilter::from` maps the optional proto label onto the model's
+    // optional `LabelFilter`; project to that `label` field for each input.
     #[test]
-    fn rack_search_filter_from_rpc_with_label_key_and_value() {
-        let rpc_filter = rpc::forge::RackSearchFilter {
-            label: Some(rpc::forge::Label {
-                key: LABEL_LOCATION_DATACENTER.to_string(),
-                value: Some("az01".to_string()),
-            }),
-        };
-        let filter = RackSearchFilter::from(rpc_filter);
-        let label = filter.label.unwrap();
-        assert_eq!(label.key, LABEL_LOCATION_DATACENTER);
-        assert_eq!(label.value, Some("az01".to_string()));
-    }
-
-    #[test]
-    fn rack_search_filter_from_rpc_with_label_key_only() {
-        let rpc_filter = rpc::forge::RackSearchFilter {
-            label: Some(rpc::forge::Label {
-                key: LABEL_CHASSIS_MANUFACTURER.to_string(),
-                value: None,
-            }),
-        };
-        let filter = RackSearchFilter::from(rpc_filter);
-        let label = filter.label.unwrap();
-        assert_eq!(label.key, LABEL_CHASSIS_MANUFACTURER);
-        assert!(label.value.is_none());
-    }
-
-    #[test]
-    fn rack_search_filter_from_rpc_no_label() {
-        let rpc_filter = rpc::forge::RackSearchFilter { label: None };
-        let filter = RackSearchFilter::from(rpc_filter);
-        assert!(filter.label.is_none());
+    fn rack_search_filter_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "label with key and value",
+                    input: rpc::forge::RackSearchFilter {
+                        label: Some(rpc::forge::Label {
+                            key: LABEL_LOCATION_DATACENTER.to_string(),
+                            value: Some("az01".to_string()),
+                        }),
+                    },
+                    expect: Some(LabelFilter {
+                        key: LABEL_LOCATION_DATACENTER.to_string(),
+                        value: Some("az01".to_string()),
+                    }),
+                },
+                Check {
+                    scenario: "label with key only",
+                    input: rpc::forge::RackSearchFilter {
+                        label: Some(rpc::forge::Label {
+                            key: LABEL_CHASSIS_MANUFACTURER.to_string(),
+                            value: None,
+                        }),
+                    },
+                    expect: Some(LabelFilter {
+                        key: LABEL_CHASSIS_MANUFACTURER.to_string(),
+                        value: None,
+                    }),
+                },
+                Check {
+                    scenario: "no label",
+                    input: rpc::forge::RackSearchFilter { label: None },
+                    expect: None,
+                },
+            ],
+            |rpc_filter| RackSearchFilter::from(rpc_filter).label,
+        );
     }
 }

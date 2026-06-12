@@ -77,6 +77,7 @@ async fn test_oem_manager_profiles_passed_to_machine_setup() {
         actions[0],
         RedfishSimAction::MachineSetup {
             oem_manager_profiles: config.oem_manager_profiles,
+            boot_interface_mac: None,
         }
     );
 }

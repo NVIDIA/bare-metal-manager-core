@@ -22,10 +22,9 @@ func TestAPITenantAccountCreateRequest_Validate(t *testing.T) {
 		errStr    string
 	}{
 		{
-			desc:      "errors when infrastructureProviderID is not provided",
+			desc:      "ok when infrastructureProviderID is omitted (inferred from org by handler)",
 			obj:       APITenantAccountCreateRequest{TenantID: cutil.GetPtr(uuid.New().String())},
-			expectErr: true,
-			errStr:    "infrastructureProviderId: " + validationErrorValueRequired + ".",
+			expectErr: false,
 		},
 		{
 			desc:      "errors when infrastructureProviderID is invalid",
@@ -141,11 +140,21 @@ func TestAPITenantAccountNew(t *testing.T) {
 		Updated:                   cdb.GetCurTime(),
 	}
 	apiUsr := NewAPIUserFromDBUser(*dbUsr)
+
 	dbsds := []cdbm.StatusDetail{
 		{
 			ID:       uuid.New(),
 			EntityID: dbObj.ID.String(),
-			Status:   cdbm.TenantAccountStatusPending,
+			Status:   cdbm.TenantAccountStatusInvited,
+			Message:  cutil.GetPtr("received tenant account creation request, pending accept"),
+			Created:  time.Now(),
+			Updated:  time.Now(),
+		},
+		{
+			ID:       uuid.New(),
+			EntityID: dbObj.ID.String(),
+			Status:   cdbm.TenantAccountStatusReady,
+			Message:  cutil.GetPtr("received tenant account update request, ready"),
 			Created:  time.Now(),
 			Updated:  time.Now(),
 		},
@@ -196,6 +205,27 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                   dbObj2.Updated,
 			},
 		},
+		{
+			desc:  "status history is an empty slice (not nil) when no status details exist",
+			dbObj: dbObj,
+			sdObj: []cdbm.StatusDetail{},
+			apiObj: &APITenantAccount{
+				ID:                         dbObj.ID.String(),
+				AccountNumberDeprecated:    cutil.GetPtr(dbObj.AccountNumber),
+				InfrastructureProviderID:   dbObj.InfrastructureProviderID.String(),
+				InfrastructureProviderOrg:  dbObj.InfrastructureProviderOrg,
+				SubscriptionIDDeprecated:   dbObj.SubscriptionID,
+				SubscriptionTierDeprecated: dbObj.SubscriptionTier,
+				TenantID:                   cutil.GetPtr(dbObj.TenantID.String()),
+				TenantOrg:                  dbObj.TenantOrg,
+				TenantContact:              nil,
+				AllocationCount:            2,
+				Status:                     dbObj.Status,
+				StatusHistory:              []APIStatusDetail{},
+				Created:                    dbObj.Created,
+				Updated:                    dbObj.Updated,
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -209,6 +239,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 			assert.Equal(t, tc.apiObj.AllocationCount, got.AllocationCount)
 			assert.Equal(t, tc.apiObj.Status, got.Status)
 			assert.Equal(t, tc.apiObj.StatusHistory, got.StatusHistory)
+			assert.NotNil(t, got.StatusHistory)
 		})
 	}
 }

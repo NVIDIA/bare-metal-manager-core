@@ -3192,10 +3192,10 @@ fn should_alert_power_state(power_state: PowerState) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
-    use nico_test_support::Outcome::*;
-    use nico_test_support::{Case, check_cases};
 
     use super::*;
 

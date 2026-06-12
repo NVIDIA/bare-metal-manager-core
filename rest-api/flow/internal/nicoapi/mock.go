@@ -29,6 +29,13 @@ type mockClient struct {
 	switchControllerStates     map[string]string // switch ID → raw core controller_state
 	powerShelfControllerStates map[string]string // shelf ID → raw core controller_state
 	hostMachinesByRackID       map[string][]string
+	// Detail tables for the GetAllExpected*Details RPCs (Flow's mirror sync).
+	// Keyed by the natural identifier the test cares about so test helpers can
+	// overwrite individual entries without rebuilding the whole slice.
+	expectedRackDetails       map[string]ExpectedRackDetail       // by RackID
+	expectedMachineDetails    map[string]ExpectedMachineDetail    // by ExpectedMachineID (UUID)
+	expectedSwitchDetails     map[string]ExpectedSwitchDetail     // by ExpectedSwitchID (UUID)
+	expectedPowerShelfDetails map[string]ExpectedPowerShelfDetail // by ExpectedPowerShelfID (UUID)
 }
 
 // NewMockClient returns a "GRPC" client that returns mock values so it can be used in unit tests.
@@ -43,6 +50,10 @@ func NewMockClient() Client {
 		switchControllerStates:     map[string]string{},
 		powerShelfControllerStates: map[string]string{},
 		hostMachinesByRackID:       map[string][]string{},
+		expectedRackDetails:        map[string]ExpectedRackDetail{},
+		expectedMachineDetails:     map[string]ExpectedMachineDetail{},
+		expectedSwitchDetails:      map[string]ExpectedSwitchDetail{},
+		expectedPowerShelfDetails:  map[string]ExpectedPowerShelfDetail{},
 	}
 }
 
@@ -319,4 +330,73 @@ func (c *mockClient) SetMachineAutoUpdate(_ context.Context, _ string, _ bool) e
 
 func (c *mockClient) AddExpectedSwitchInfo(info ExpectedSwitchInfo) {
 	c.expectedSwitches[utils.NormalizeMAC(info.BMCMACAddress)] = info
+}
+
+func (c *mockClient) GetAllExpectedRackDetails(_ context.Context) ([]ExpectedRackDetail, error) {
+	if len(c.expectedRackDetails) == 0 {
+		return nil, nil
+	}
+	out := make([]ExpectedRackDetail, 0, len(c.expectedRackDetails))
+	for _, d := range c.expectedRackDetails {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (c *mockClient) GetAllExpectedMachineDetails(_ context.Context) ([]ExpectedMachineDetail, error) {
+	if len(c.expectedMachineDetails) == 0 {
+		return nil, nil
+	}
+	out := make([]ExpectedMachineDetail, 0, len(c.expectedMachineDetails))
+	for _, d := range c.expectedMachineDetails {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (c *mockClient) GetAllExpectedSwitchDetails(_ context.Context) ([]ExpectedSwitchDetail, error) {
+	if len(c.expectedSwitchDetails) == 0 {
+		return nil, nil
+	}
+	out := make([]ExpectedSwitchDetail, 0, len(c.expectedSwitchDetails))
+	for _, d := range c.expectedSwitchDetails {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (c *mockClient) GetAllExpectedPowerShelfDetails(_ context.Context) ([]ExpectedPowerShelfDetail, error) {
+	if len(c.expectedPowerShelfDetails) == 0 {
+		return nil, nil
+	}
+	out := make([]ExpectedPowerShelfDetail, 0, len(c.expectedPowerShelfDetails))
+	for _, d := range c.expectedPowerShelfDetails {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// AddExpectedRackDetail registers an expected rack for the mock GetAllExpectedRackDetails call.
+func (c *mockClient) AddExpectedRackDetail(detail ExpectedRackDetail) {
+	c.expectedRackDetails[detail.RackID] = detail
+}
+
+// AddExpectedMachineDetail registers an expected machine for the mock
+// GetAllExpectedMachineDetails call. Tests that don't care about the
+// ExpectedMachineID may leave it empty; the map then uses "" as the key (only
+// one such entry will survive).
+func (c *mockClient) AddExpectedMachineDetail(detail ExpectedMachineDetail) {
+	c.expectedMachineDetails[detail.ExpectedMachineID] = detail
+}
+
+// AddExpectedSwitchDetail registers an expected switch for the mock
+// GetAllExpectedSwitchDetails call.
+func (c *mockClient) AddExpectedSwitchDetail(detail ExpectedSwitchDetail) {
+	c.expectedSwitchDetails[detail.ExpectedSwitchID] = detail
+}
+
+// AddExpectedPowerShelfDetail registers an expected power shelf for the mock
+// GetAllExpectedPowerShelfDetails call.
+func (c *mockClient) AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail) {
+	c.expectedPowerShelfDetails[detail.ExpectedPowerShelfID] = detail
 }

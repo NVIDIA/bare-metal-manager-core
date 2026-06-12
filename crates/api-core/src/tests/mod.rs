@@ -16,6 +16,8 @@
  */
 
 #[cfg(test)]
+mod boot_interface_resolution;
+#[cfg(test)]
 mod client_resolution;
 pub mod common;
 #[cfg(test)]

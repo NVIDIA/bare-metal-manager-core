@@ -650,6 +650,51 @@ input[type="submit"]:hover:not(.disabled) {
   flex-shrink: 0;
 }
 
+/* Prominent banner shown when required site-wide default credentials are unset
+   (endpoint exploration fails until they are configured). */
+.missing-credentials-banner {
+  margin: 0 0 20px 0;
+  padding: 14px 18px;
+  background-color: #fff5eb;
+  border: 1px solid var(--warning);
+  border-left: 6px solid var(--warning);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.missing-credentials-banner-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #b65a17;
+  margin-bottom: 6px;
+}
+
+.missing-credentials-banner p {
+  margin: 6px 0;
+}
+
+.missing-credentials-banner ul {
+  margin: 6px 0 6px 1.25rem;
+}
+
+.missing-credentials-banner li {
+  margin: 2px 0;
+}
+
+.missing-credentials-banner code {
+  background-color: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.85rem;
+}
+
+.missing-credentials-banner-hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* Search button icon */
 .search-container input[type="submit"] {
   width: 40px;

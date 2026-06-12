@@ -745,6 +745,82 @@ func (c *grpcClient) GetAllExpectedPowerShelvesLinked(ctx context.Context) ([]Li
 	return results, nil
 }
 
+func (c *grpcClient) GetAllExpectedRackDetails(ctx context.Context) ([]ExpectedRackDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedRacks(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected racks: %w", err)
+	}
+	rows := resp.GetExpectedRacks()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedRackDetail, 0, len(rows))
+	for _, er := range rows {
+		results = append(results, expectedRackDetailFromPb(er))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedMachineDetails(ctx context.Context) ([]ExpectedMachineDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedMachines(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected machines: %w", err)
+	}
+	rows := resp.GetExpectedMachines()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedMachineDetail, 0, len(rows))
+	for _, em := range rows {
+		results = append(results, expectedMachineDetailFromPb(em))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedSwitchDetails(ctx context.Context) ([]ExpectedSwitchDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedSwitches(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected switches: %w", err)
+	}
+	rows := resp.GetExpectedSwitches()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedSwitchDetail, 0, len(rows))
+	for _, es := range rows {
+		results = append(results, expectedSwitchDetailFromPb(es))
+	}
+	return results, nil
+}
+
+func (c *grpcClient) GetAllExpectedPowerShelfDetails(ctx context.Context) ([]ExpectedPowerShelfDetail, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	resp, err := c.gclient.GetAllExpectedPowerShelves(ctx, &emptypb.Empty{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all expected power shelves: %w", err)
+	}
+	rows := resp.GetExpectedPowerShelves()
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make([]ExpectedPowerShelfDetail, 0, len(rows))
+	for _, eps := range rows {
+		results = append(results, expectedPowerShelfDetailFromPb(eps))
+	}
+	return results, nil
+}
+
 func (c *grpcClient) GetDesiredFirmwareVersions(ctx context.Context) ([]*pb.DesiredFirmwareVersionEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer cancel()
@@ -841,5 +917,21 @@ func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
 }
 
 func (c *grpcClient) SetRackHostMachineIDs(rackID string, machineIDs []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedRackDetail(detail ExpectedRackDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedMachineDetail(detail ExpectedMachineDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedSwitchDetail(detail ExpectedSwitchDetail) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) AddExpectedPowerShelfDetail(detail ExpectedPowerShelfDetail) {
 	panic("Not a unit test")
 }

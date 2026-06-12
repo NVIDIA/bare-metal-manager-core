@@ -279,6 +279,7 @@ func testInstanceBuildVPC(t *testing.T, dbSession *cdb.Session, name string, ip 
 
 func testInstanceBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, tn *cdbm.Tenant, vpc *cdbm.Vpc, cnsID *uuid.UUID, status string, user *cdbm.User) *cdbm.Subnet {
 	subnetDAO := cdbm.NewSubnetDAO(dbSession)
+	ipv4Prefix := fmt.Sprintf("10.%d.0.0/24", (int(name[0])+len(name))%200+1)
 
 	subnet, err := subnetDAO.Create(context.Background(), nil, cdbm.SubnetCreateInput{
 		Name:                       name,
@@ -288,7 +289,8 @@ func testInstanceBuildSubnet(t *testing.T, dbSession *cdb.Session, name string, 
 		VpcID:                      vpc.ID,
 		TenantID:                   tn.ID,
 		ControllerNetworkSegmentID: cnsID,
-		PrefixLength:               0,
+		IPv4Prefix:                 &ipv4Prefix,
+		PrefixLength:               24,
 		Status:                     status,
 		CreatedBy:                  user.ID,
 	})
@@ -772,6 +774,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 9, ipu)
 	assert.NotNil(t, alc1)
 
+	// Dedicated instance type for IP-exhaustion fixtures; must not consume ist1 allocation (limit 9).
+	istExhaustFixture := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-exhaust-fixture", st1, cdbm.InstanceStatusReady)
+	assert.NotNil(t, istExhaustFixture)
+	alcExhaustFixture := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, istExhaustFixture.ID, cdbm.AllocationConstraintTypeReserved, 30, ipu)
+	assert.NotNil(t, alcExhaustFixture)
+
 	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
@@ -883,6 +891,27 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 	subnetPending := testInstanceBuildSubnet(t, dbSession, "test-subnet-5", tn1, vpcSiteReady, nil, cdbm.SubnetStatusPending, tnu1)
 	assert.NotNil(t, subnetPending)
+
+	subnetExhaustedIPv4 := "10.99.0.0/28"
+	subnetExhausted, err := cdbm.NewSubnetDAO(dbSession).Create(context.Background(), nil, cdbm.SubnetCreateInput{
+		Name:                       "test-subnet-exhausted",
+		Description:                cutil.GetPtr("Test Subnet exhausted"),
+		Org:                        tn1.Org,
+		SiteID:                     vpc1.SiteID,
+		VpcID:                      vpc1.ID,
+		TenantID:                   tn1.ID,
+		ControllerNetworkSegmentID: cutil.GetPtr(uuid.New()),
+		IPv4Prefix:                 &subnetExhaustedIPv4,
+		PrefixLength:               28,
+		Status:                     cdbm.SubnetStatusReady,
+		CreatedBy:                  tnu1.ID,
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, subnetExhausted)
+	for i := 0; i < 14; i++ {
+		exhaustInst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("exhaust-subnet-inst-%d", i), tn1.ID, ip.ID, st1.ID, &istExhaustFixture.ID, vpc1.ID, nil, &os1.ID, nil, cdbm.InstanceStatusReady)
+		testInstanceBuildInstanceInterface(t, dbSession, exhaustInst.ID, &subnetExhausted.ID, nil, nil, cdbm.InterfaceStatusPending)
+	}
 
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnet1.ID, mc1.ID)
 	assert.NotNil(t, mci1)
@@ -1148,6 +1177,23 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	vpcPrefix7 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-7", st1, tn1, vpc9.ID, &ipb5.ID, cutil.GetPtr("192.168.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpc9Site2.ID, &ipbSite2.ID, cutil.GetPtr("192.170.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
+	ipbExhausted := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-exhausted", st1, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "10.99.1.0", 28, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
+	assert.NotNil(t, ipbExhausted)
+	vpcPrefixExhausted := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-exhausted", st1, tn1, vpc9.ID, &ipbExhausted.ID, cutil.GetPtr("10.99.1.0/28"), cutil.GetPtr(28), cdbm.VpcPrefixStatusReady, tnu1)
+	assert.NotNil(t, vpcPrefixExhausted)
+	for i := 0; i < 8; i++ {
+		exhaustInst := testInstanceBuildInstance(t, dbSession, fmt.Sprintf("exhaust-vpcprefix-inst-%d", i), tn1.ID, ip.ID, st1.ID, &istExhaustFixture.ID, vpc9.ID, nil, &os1.ID, nil, cdbm.InstanceStatusReady)
+		testInstanceBuildInstanceInterface(t, dbSession, exhaustInst.ID, nil, &vpcPrefixExhausted.ID, nil, cdbm.InterfaceStatusPending)
+	}
+
+	subnetExhaustedUsageMap, err := cdbm.NewSubnetDAO(dbSession).GetPrefixUsage(context.Background(), nil, subnetExhausted)
+	assert.Nil(t, err)
+	subnetExhaustedUsage := subnetExhaustedUsageMap[subnetExhausted.ID]
+
+	vpcPrefixExhaustedUsageMap, err := cdbm.NewVpcPrefixDAO(dbSession).GetPrefixUsage(context.Background(), nil, vpcPrefixExhausted)
+	assert.Nil(t, err)
+	vpcPrefixExhaustedUsage := vpcPrefixExhaustedUsageMap[vpcPrefixExhausted.ID]
+
 	// NvLink Logical Partition
 	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cutil.GetPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cutil.GetPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
@@ -3424,6 +3470,70 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "test Instance create API endpoint failed when subnet IP addresses are exhausted",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:              "Test Instance subnet exhausted",
+					TenantID:          tn1.ID.String(),
+					InstanceTypeID:    cutil.GetPtr(ist1.ID.String()),
+					VpcID:             vpc1.ID.String(),
+					OperatingSystemID: cutil.GetPtr(os1.ID.String()),
+					IpxeScript:        cutil.GetPtr(common.DefaultIpxeScript),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							SubnetID: cutil.GetPtr(subnetExhausted.ID.String()),
+						},
+					},
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusBadRequest,
+				respMessage: fmt.Sprintf(
+					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP address(es)",
+					subnetExhausted.ID, subnetExhaustedUsage.AvailableIPs-subnetExhaustedUsage.AcquiredIPs, subnetExhaustedUsage.AvailableIPs, 1, 1,
+				),
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create API endpoint failed when VPC Prefix IP addresses are exhausted",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:              "Test Instance vpc prefix exhausted",
+					TenantID:          tn1.ID.String(),
+					InstanceTypeID:    cutil.GetPtr(ist1.ID.String()),
+					VpcID:             vpc9.ID.String(),
+					OperatingSystemID: cutil.GetPtr(os1.ID.String()),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							VpcPrefixID:    cutil.GetPtr(vpcPrefixExhausted.ID.String()),
+							IsPhysical:     true,
+							Device:         cutil.GetPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
+							DeviceInstance: cutil.GetPtr(0),
+						},
+					},
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusBadRequest,
+				respMessage: fmt.Sprintf(
+					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d interface(s) in this request require %d IP addresses",
+					vpcPrefixExhausted.ID, vpcPrefixExhaustedUsage.AvailableIPs-vpcPrefixExhaustedUsage.AcquiredIPs, vpcPrefixExhaustedUsage.AvailableIPs, 1, 2,
+				),
+			},
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {

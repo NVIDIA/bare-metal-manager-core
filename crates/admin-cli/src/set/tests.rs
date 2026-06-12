@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,168 +46,180 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_log_filter ensures log-filter parses with required filter arg.
+// Every malformed invocation is rejected at parse time -- log-filter without
+// its required --filter, and the toggle subcommands left without an
+// --enable/--disable choice.
 #[test]
-fn parse_log_filter() {
-    let cmd = Cmd::try_parse_from(["set", "log-filter", "--filter", "debug"])
-        .expect("should parse log-filter");
-
-    match cmd {
-        Cmd::LogFilter(args) => {
-            assert_eq!(args.filter, "debug");
-            assert_eq!(args.expiry, "1h"); // default
-        }
-        _ => panic!("expected LogFilter variant"),
-    }
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [
+            Case {
+                scenario: "log-filter without --filter",
+                input: &["set", "log-filter"][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "create-machines without --enable/--disable",
+                input: &["set", "create-machines"][..],
+                expect: Fails,
+            },
+            Case {
+                scenario: "site-explorer without --enable/--disable",
+                input: &["set", "site-explorer"][..],
+                expect: Fails,
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_log_filter_with_expiry ensures log-filter parses
-// with custom expiry.
+// log-filter parses its required --filter and an optional --expiry that
+// defaults to "1h"; the yielded tuple is (filter, expiry).
 #[test]
-fn parse_log_filter_with_expiry() {
-    let cmd = Cmd::try_parse_from([
-        "set",
-        "log-filter",
-        "--filter",
-        "trace",
-        "--expiry",
-        "30min",
-    ])
-    .expect("should parse log-filter with expiry");
-
-    match cmd {
-        Cmd::LogFilter(args) => {
-            assert_eq!(args.filter, "trace");
-            assert_eq!(args.expiry, "30min");
-        }
-        _ => panic!("expected LogFilter variant"),
-    }
+fn parse_log_filter_routes_to_variant() {
+    check_cases(
+        [
+            Case {
+                scenario: "filter only, expiry defaults",
+                input: &["set", "log-filter", "--filter", "debug"][..],
+                expect: Yields(("debug".to_string(), "1h".to_string())),
+            },
+            Case {
+                scenario: "filter with custom expiry",
+                input: &[
+                    "set",
+                    "log-filter",
+                    "--filter",
+                    "trace",
+                    "--expiry",
+                    "30min",
+                ][..],
+                expect: Yields(("trace".to_string(), "30min".to_string())),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::LogFilter(args) => (args.filter, args.expiry),
+                    _ => panic!("expected LogFilter variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_log_filter_missing_filter_fails ensures
-// log-filter requires --filter.
+// create-machines routes to the CreateMachines variant; --enable yields
+// is_enabled() == true, --disable yields false.
 #[test]
-fn parse_log_filter_missing_filter_fails() {
-    let result = Cmd::try_parse_from(["set", "log-filter"]);
-    assert!(result.is_err(), "should fail without --filter");
+fn parse_create_machines_toggle() {
+    check_cases(
+        [
+            Case {
+                scenario: "--enable",
+                input: &["set", "create-machines", "--enable"][..],
+                expect: Yields(true),
+            },
+            Case {
+                scenario: "--disable",
+                input: &["set", "create-machines", "--disable"][..],
+                expect: Yields(false),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::CreateMachines(args) => args.is_enabled(),
+                    _ => panic!("expected CreateMachines variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_create_machines_enable ensures create-machines --enable works.
+// site-explorer routes to the SiteExplorer variant; --enable yields
+// is_enabled() == true, --disable yields false.
 #[test]
-fn parse_create_machines_enable() {
-    let cmd = Cmd::try_parse_from(["set", "create-machines", "--enable"])
-        .expect("should parse create-machines --enable");
-
-    match cmd {
-        Cmd::CreateMachines(args) => {
-            assert!(args.is_enabled());
-        }
-        _ => panic!("expected CreateMachines variant"),
-    }
+fn parse_site_explorer_toggle() {
+    check_cases(
+        [
+            Case {
+                scenario: "--enable",
+                input: &["set", "site-explorer", "--enable"][..],
+                expect: Yields(true),
+            },
+            Case {
+                scenario: "--disable",
+                input: &["set", "site-explorer", "--disable"][..],
+                expect: Yields(false),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::SiteExplorer(args) => args.is_enabled(),
+                    _ => panic!("expected SiteExplorer variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_create_machines_disable ensures create-machines --disable works.
+// bmc-proxy parses --enabled and --proxy; the yielded tuple is
+// (enabled, proxy).
 #[test]
-fn parse_create_machines_disable() {
-    let cmd = Cmd::try_parse_from(["set", "create-machines", "--disable"])
-        .expect("should parse create-machines --disable");
-
-    match cmd {
-        Cmd::CreateMachines(args) => {
-            assert!(!args.is_enabled());
-        }
-        _ => panic!("expected CreateMachines variant"),
-    }
+fn parse_bmc_proxy_routes_to_variant() {
+    check_cases(
+        [Case {
+            scenario: "enabled with a proxy address",
+            input: &[
+                "set",
+                "bmc-proxy",
+                "--enabled",
+                "true",
+                "--proxy",
+                "proxy.example.com:8080",
+            ][..],
+            expect: Yields((true, Some("proxy.example.com:8080".to_string()))),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::BmcProxy(args) => (args.enabled, args.proxy),
+                    _ => panic!("expected BmcProxy variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_create_machines_requires_toggle ensures create-machines fails without --enable/--disable.
+// tracing-enabled routes to the TracingEnabled variant; "true" yields
+// value == true, "false" yields false.
 #[test]
-fn parse_create_machines_requires_toggle() {
-    let result = Cmd::try_parse_from(["set", "create-machines"]);
-    assert!(result.is_err(), "should fail without --enable or --disable");
-}
-
-// parse_site_explorer_enable ensures site-explorer --enable works.
-#[test]
-fn parse_site_explorer_enable() {
-    let cmd = Cmd::try_parse_from(["set", "site-explorer", "--enable"])
-        .expect("should parse site-explorer --enable");
-
-    match cmd {
-        Cmd::SiteExplorer(args) => {
-            assert!(args.is_enabled());
-        }
-        _ => panic!("expected SiteExplorer variant"),
-    }
-}
-
-// parse_site_explorer_disable ensures site-explorer --disable works.
-#[test]
-fn parse_site_explorer_disable() {
-    let cmd = Cmd::try_parse_from(["set", "site-explorer", "--disable"])
-        .expect("should parse site-explorer --disable");
-
-    match cmd {
-        Cmd::SiteExplorer(args) => {
-            assert!(!args.is_enabled());
-        }
-        _ => panic!("expected SiteExplorer variant"),
-    }
-}
-
-// parse_site_explorer_requires_toggle ensures site-explorer fails without --enable/--disable.
-#[test]
-fn parse_site_explorer_requires_toggle() {
-    let result = Cmd::try_parse_from(["set", "site-explorer"]);
-    assert!(result.is_err(), "should fail without --enable or --disable");
-}
-
-// parse_bmc_proxy ensures bmc-proxy parses with --enabled and --proxy.
-#[test]
-fn parse_bmc_proxy() {
-    let cmd = Cmd::try_parse_from([
-        "set",
-        "bmc-proxy",
-        "--enabled",
-        "true",
-        "--proxy",
-        "proxy.example.com:8080",
-    ])
-    .expect("should parse bmc-proxy");
-
-    match cmd {
-        Cmd::BmcProxy(args) => {
-            assert!(args.enabled);
-            assert_eq!(args.proxy, Some("proxy.example.com:8080".to_string()));
-        }
-        _ => panic!("expected BmcProxy variant"),
-    }
-}
-
-// parse_tracing_enabled_true ensures tracing-enabled parses true.
-#[test]
-fn parse_tracing_enabled_true() {
-    let cmd =
-        Cmd::try_parse_from(["set", "tracing-enabled", "true"]).expect("should parse tracing true");
-
-    match cmd {
-        Cmd::TracingEnabled(args) => {
-            assert!(args.value);
-        }
-        _ => panic!("expected TracingEnabled variant"),
-    }
-}
-
-// parse_tracing_enabled_false ensures tracing-enabled parses false.
-#[test]
-fn parse_tracing_enabled_false() {
-    let cmd = Cmd::try_parse_from(["set", "tracing-enabled", "false"])
-        .expect("should parse tracing false");
-
-    match cmd {
-        Cmd::TracingEnabled(args) => {
-            assert!(!args.value);
-        }
-        _ => panic!("expected TracingEnabled variant"),
-    }
+fn parse_tracing_enabled_value() {
+    check_cases(
+        [
+            Case {
+                scenario: "true",
+                input: &["set", "tracing-enabled", "true"][..],
+                expect: Yields(true),
+            },
+            Case {
+                scenario: "false",
+                input: &["set", "tracing-enabled", "false"][..],
+                expect: Yields(false),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::TracingEnabled(args) => args.value,
+                    _ => panic!("expected TracingEnabled variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }

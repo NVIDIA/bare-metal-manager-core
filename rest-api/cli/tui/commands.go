@@ -2217,18 +2217,20 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if prefixLen < 8 || prefixLen > 31 {
 		return fmt.Errorf("prefix length must be between 8 and 31")
 	}
-	ipBlockID, err := PromptText("IP block ID", true)
+	ipBlockID, err := promptVPCPrefixIPBlockID(s, context.Background())
 	if err != nil {
 		return err
 	}
 
+	// ipBlockID is already trimmed by promptVPCPrefixIPBlockID (picker IDs are
+	// clean; the manual-entry path trims), so no extra TrimSpace here.
 	body := map[string]interface{}{
 		"name":         name,
 		"vpcId":        vpc.ID,
-		"ipBlockId":    strings.TrimSpace(ipBlockID),
+		"ipBlockId":    ipBlockID,
 		"prefixLength": prefixLen,
 	}
-	LogCmd(s, "vpc-prefix", "create", "--name", name, "--vpc-id", vpc.ID, "--ip-block-id", strings.TrimSpace(ipBlockID), "--prefix-length", prefixLenText)
+	LogCmd(s, "vpc-prefix", "create", "--name", name, "--vpc-id", vpc.ID, "--ip-block-id", ipBlockID, "--prefix-length", prefixLenText)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "vpc-prefix"), nil, nil, bodyJSON)
 	if err != nil {
@@ -2240,6 +2242,72 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	json.Unmarshal(resp, &created)
 	fmt.Printf("%s VPC prefix created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
+}
+
+// ipBlockManualEntrySentinel is the select ID used for the trailing "enter
+// manually" option in the IP block picker, mirroring tenantManualEntrySentinel.
+const ipBlockManualEntrySentinel = "__manual__"
+
+// promptVPCPrefixIPBlockID picks the IP block for a new VPC prefix. ipBlockId
+// is required by the API (APIVpcPrefixCreateRequest.Validate), so rather than
+// make the operator paste a raw UUID, list the IP blocks already scoped to the
+// VPC's site and let them choose one. Falls back to manual entry when no IP
+// blocks are visible, when listing fails, or when the operator opts out via
+// the trailing sentinel (NVBug 6105076).
+func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
+	blocks, err := s.Resolver.Fetch(ctx, "ip-block")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s could not list IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
+		return promptIPBlockIDRaw()
+	}
+	items := buildIPBlockSelectItems(blocks)
+	if len(items) == 1 {
+		// Only the manual-entry sentinel: no IP blocks for this site.
+		fmt.Fprintf(os.Stderr, "%s no IP blocks found for this site; enter an IP block ID manually\n", Dim("note:"))
+		return promptIPBlockIDRaw()
+	}
+	selected, err := Select("IP block:", items)
+	if err != nil {
+		return "", err
+	}
+	if selected.ID == ipBlockManualEntrySentinel {
+		return promptIPBlockIDRaw()
+	}
+	return selected.ID, nil
+}
+
+func promptIPBlockIDRaw() (string, error) {
+	raw, err := PromptText("IP block ID", true)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(raw), nil
+}
+
+// buildIPBlockSelectItems turns the resolver's IP block list into picker
+// options whose ID is the IP block UUID and whose label surfaces the block
+// name (falling back to the UUID when unnamed) plus status. A trailing
+// manual-entry sentinel is always appended -- even for an empty list -- so the
+// operator can still type a raw UUID for a block that isn't listed in the
+// current scope. Blocks without an ID are skipped.
+func buildIPBlockSelectItems(blocks []NamedItem) []SelectItem {
+	items := make([]SelectItem, 0, len(blocks)+1)
+	for _, b := range blocks {
+		id := strings.TrimSpace(b.ID)
+		if id == "" {
+			continue
+		}
+		label := strings.TrimSpace(b.Name)
+		if label == "" {
+			label = id
+		}
+		if strings.TrimSpace(b.Status) != "" {
+			label += "  " + Dim(b.Status)
+		}
+		items = append(items, SelectItem{Label: label, ID: id})
+	}
+	items = append(items, SelectItem{Label: "Enter IP block ID manually...", ID: ipBlockManualEntrySentinel})
+	return items
 }
 
 func cmdVPCPrefixUpdate(s *Session, args []string) error {
