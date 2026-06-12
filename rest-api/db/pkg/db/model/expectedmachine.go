@@ -133,13 +133,12 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 
 	metadata := &cwssaws.Metadata{
 		Labels: expectedComponentLabelsInput{
-			Manufacturer:    em.Manufacturer,
-			Model:           em.Model,
-			FirmwareVersion: em.FirmwareVersion,
-			SlotID:          em.SlotID,
-			TrayIdx:         em.TrayIdx,
-			HostID:          em.HostID,
-			Labels:          em.Labels,
+			Manufacturer: em.Manufacturer,
+			Model:        em.Model,
+			SlotID:       em.SlotID,
+			TrayIdx:      em.TrayIdx,
+			HostID:       em.HostID,
+			Labels:       em.Labels,
 		}.ToProto(),
 	}
 	if em.Name != nil {
