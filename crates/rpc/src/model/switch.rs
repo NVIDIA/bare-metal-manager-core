@@ -213,12 +213,388 @@ impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_uuid::rack::RackId;
     use config_version::{ConfigVersion, Versioned};
     use model::controller_outcome::PersistentStateHandlerOutcome;
     use model::metadata::Metadata;
     use model::switch::{FabricManagerStatus, SwitchControllerState, SwitchStatus};
 
     use super::*;
+
+    fn rpc_uuid(value: &str) -> crate::common::Uuid {
+        crate::common::Uuid {
+            value: value.to_string(),
+        }
+    }
+
+    fn base_rpc_config() -> rpc::SwitchConfig {
+        rpc::SwitchConfig {
+            name: "leaf-1".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+        }
+    }
+
+    fn base_rpc_filter() -> rpc::SwitchSearchFilter {
+        rpc::SwitchSearchFilter {
+            rack_id: None,
+            deleted: 0,
+            controller_state: None,
+            bmc_mac: None,
+            nvos_mac: None,
+            only_with_health_alert: None,
+        }
+    }
+
+    // to_rpc_fabric_manager_state: every enum arm maps to its proto discriminant.
+    #[test]
+    fn to_rpc_fabric_manager_state_maps_each_arm() {
+        check_values(
+            [
+                Check {
+                    scenario: "ok",
+                    input: FabricManagerState::Ok,
+                    expect: rpc::FabricManagerState::Ok as i32,
+                },
+                Check {
+                    scenario: "not ok",
+                    input: FabricManagerState::NotOk,
+                    expect: rpc::FabricManagerState::NotOk as i32,
+                },
+                Check {
+                    scenario: "unknown",
+                    input: FabricManagerState::Unknown,
+                    expect: rpc::FabricManagerState::Unknown as i32,
+                },
+            ],
+            to_rpc_fabric_manager_state,
+        );
+    }
+
+    // rpc::SwitchConfig -> SwitchConfig: name and enable_nmxc pass through; the
+    // fabric_manager_config is always materialized (default empty when absent).
+    #[test]
+    fn switch_config_from_rpc_passes_fields_through() {
+        check_cases(
+            [
+                Case {
+                    scenario: "name preserved",
+                    input: rpc::SwitchConfig {
+                        name: "spine-7".to_string(),
+                        ..base_rpc_config()
+                    },
+                    expect: Yields("spine-7".to_string()),
+                },
+                Case {
+                    scenario: "empty name preserved",
+                    input: rpc::SwitchConfig {
+                        name: String::new(),
+                        ..base_rpc_config()
+                    },
+                    expect: Yields(String::new()),
+                },
+            ],
+            |conf| SwitchConfig::try_from(conf).map(|c| c.name).map_err(drop),
+        );
+    }
+
+    #[test]
+    fn switch_config_from_rpc_carries_enable_nmxc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "nmxc enabled",
+                    input: rpc::SwitchConfig {
+                        enable_nmxc: true,
+                        ..base_rpc_config()
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "nmxc disabled",
+                    input: rpc::SwitchConfig {
+                        enable_nmxc: false,
+                        ..base_rpc_config()
+                    },
+                    expect: Yields(false),
+                },
+            ],
+            |conf| {
+                SwitchConfig::try_from(conf)
+                    .map(|c| c.enable_nmxc)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn switch_config_from_rpc_materializes_fabric_manager_config() {
+        check_cases(
+            [
+                Case {
+                    scenario: "absent config becomes default empty map",
+                    input: rpc::SwitchConfig {
+                        fabric_manager_config: None,
+                        ..base_rpc_config()
+                    },
+                    expect: Yields(0),
+                },
+                Case {
+                    scenario: "present config map preserved",
+                    input: rpc::SwitchConfig {
+                        fabric_manager_config: Some(rpc::FabricManagerConfig {
+                            config_map: std::collections::HashMap::from([(
+                                "a".to_string(),
+                                "b".to_string(),
+                            )]),
+                        }),
+                        ..base_rpc_config()
+                    },
+                    expect: Yields(1),
+                },
+            ],
+            |conf| {
+                SwitchConfig::try_from(conf)
+                    .map(|c| c.fabric_manager_config.unwrap().config_map.len())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // rpc::SwitchCreationRequest -> NewSwitch: the config is required, an explicit
+    // id must parse, and placement fields flow through when present.
+    #[test]
+    fn new_switch_from_creation_request_requires_config() {
+        Case {
+            scenario: "missing config fails",
+            input: rpc::SwitchCreationRequest {
+                config: None,
+                id: None,
+                placement_in_rack: None,
+            },
+            expect: Fails,
+        }
+        .check(|req| NewSwitch::try_from(req).map(|_| ()).map_err(drop));
+    }
+
+    #[test]
+    fn new_switch_from_creation_request_validates_id() {
+        check_cases(
+            [
+                Case {
+                    scenario: "absent id generates one",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: None,
+                        placement_in_rack: None,
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "valid uuid accepted",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: Some(rpc_uuid("3a8c0f1e-2b4d-4c6e-8f10-1234567890ab")),
+                        placement_in_rack: None,
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "malformed uuid rejected",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: Some(rpc_uuid("not-a-uuid")),
+                        placement_in_rack: None,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |req| {
+                NewSwitch::try_from(req)
+                    .map(|_| true)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn new_switch_from_creation_request_carries_placement() {
+        check_cases(
+            [
+                Case {
+                    scenario: "no placement leaves both None",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: None,
+                        placement_in_rack: None,
+                    },
+                    expect: Yields((None, None)),
+                },
+                Case {
+                    scenario: "placement slot and tray flow through",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: None,
+                        placement_in_rack: Some(rpc::PlacementInRack {
+                            slot_number: Some(4),
+                            tray_index: Some(9),
+                        }),
+                    },
+                    expect: Yields((Some(4), Some(9))),
+                },
+                Case {
+                    scenario: "placement present with empty fields",
+                    input: rpc::SwitchCreationRequest {
+                        config: Some(base_rpc_config()),
+                        id: None,
+                        placement_in_rack: Some(rpc::PlacementInRack {
+                            slot_number: None,
+                            tray_index: None,
+                        }),
+                    },
+                    expect: Yields((None, None)),
+                },
+            ],
+            |req| {
+                NewSwitch::try_from(req)
+                    .map(|n| (n.slot_number, n.tray_index))
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // rpc::SwitchSearchFilter -> SwitchSearchFilter: the DeletedFilter discriminant
+    // maps by value (unknown -> Exclude default).
+    #[test]
+    fn search_filter_maps_deleted_discriminant() {
+        check_values(
+            [
+                Check {
+                    scenario: "0 -> Exclude",
+                    input: 0,
+                    expect: model::DeletedFilter::Exclude,
+                },
+                Check {
+                    scenario: "1 -> Only",
+                    input: 1,
+                    expect: model::DeletedFilter::Only,
+                },
+                Check {
+                    scenario: "2 -> Include",
+                    input: 2,
+                    expect: model::DeletedFilter::Include,
+                },
+                Check {
+                    scenario: "unknown -> Exclude default",
+                    input: 99,
+                    expect: model::DeletedFilter::Exclude,
+                },
+            ],
+            |deleted| {
+                SwitchSearchFilter::from(rpc::SwitchSearchFilter {
+                    deleted,
+                    ..base_rpc_filter()
+                })
+                .deleted
+            },
+        );
+    }
+
+    #[test]
+    fn search_filter_carries_rack_and_state() {
+        check_values(
+            [
+                Check {
+                    scenario: "rack absent",
+                    input: base_rpc_filter(),
+                    expect: (None, None),
+                },
+                Check {
+                    scenario: "rack and controller_state present",
+                    input: rpc::SwitchSearchFilter {
+                        rack_id: Some(RackId::new("rack-9")),
+                        controller_state: Some("ready".to_string()),
+                        ..base_rpc_filter()
+                    },
+                    expect: (Some(RackId::new("rack-9")), Some("ready".to_string())),
+                },
+            ],
+            |filter| {
+                let f = SwitchSearchFilter::from(filter);
+                (f.rack_id, f.controller_state)
+            },
+        );
+    }
+
+    #[test]
+    fn search_filter_parses_mac_fields() {
+        // Returns (bmc_mac.is_some(), nvos_mac.is_some()) — a valid MAC parses to
+        // Some, a malformed one is silently dropped to None.
+        check_values(
+            [
+                Check {
+                    scenario: "both absent",
+                    input: base_rpc_filter(),
+                    expect: (false, false),
+                },
+                Check {
+                    scenario: "valid bmc mac parses",
+                    input: rpc::SwitchSearchFilter {
+                        bmc_mac: Some("00:11:22:33:44:55".to_string()),
+                        ..base_rpc_filter()
+                    },
+                    expect: (true, false),
+                },
+                Check {
+                    scenario: "valid nvos mac parses",
+                    input: rpc::SwitchSearchFilter {
+                        nvos_mac: Some("aa:bb:cc:dd:ee:ff".to_string()),
+                        ..base_rpc_filter()
+                    },
+                    expect: (false, true),
+                },
+                Check {
+                    scenario: "malformed macs drop to None",
+                    input: rpc::SwitchSearchFilter {
+                        bmc_mac: Some("nope".to_string()),
+                        nvos_mac: Some("also-nope".to_string()),
+                        ..base_rpc_filter()
+                    },
+                    expect: (false, false),
+                },
+            ],
+            |filter| {
+                let f = SwitchSearchFilter::from(filter);
+                (f.bmc_mac.is_some(), f.nvos_mac.is_some())
+            },
+        );
+    }
+
+    #[test]
+    fn search_filter_carries_health_alert() {
+        check_values(
+            [
+                Check {
+                    scenario: "absent",
+                    input: base_rpc_filter(),
+                    expect: None,
+                },
+                Check {
+                    scenario: "present",
+                    input: rpc::SwitchSearchFilter {
+                        only_with_health_alert: Some(
+                            "hardware-health.tray-leak-detection".to_string(),
+                        ),
+                        ..base_rpc_filter()
+                    },
+                    expect: Some("hardware-health.tray-leak-detection".to_string()),
+                },
+            ],
+            |filter| SwitchSearchFilter::from(filter).only_with_health_alert,
+        );
+    }
 
     #[test]
     fn try_from_switch_populates_state_reason() {

@@ -523,62 +523,99 @@ pub fn validate_identity_overlap_for_rotation(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use model::tenant::{identity_config, validate_trust_domain_allowlist_patterns};
 
     use super::*;
     use crate::forge as rpc_forge;
     use crate::forge::token_delegation_response::AuthMethodConfig;
 
-    #[test]
-    fn test_stored_to_response_auth_config_none() {
-        assert!(stored_to_response_auth_config(TokenDelegationAuthMethod::None, None).is_none());
+    /// Builds identity-config validation bounds, varying only the two fields the
+    /// per-case tables exercise (trust-domain allowlist and master key id).
+    fn identity_bounds(
+        trust_domain_allowlist: Vec<String>,
+        encryption_key_id: &str,
+    ) -> IdentityConfigValidationBounds {
+        IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: identity_config::SigningAlgorithm::Es256,
+            encryption_key_id: encryption_key_id.parse().unwrap(),
+            trust_domain_allowlist,
+            signing_key_overlap_max_sec: 604_800,
+        }
     }
 
-    #[test]
-    fn test_stored_to_response_auth_config_client_secret_basic() {
-        let stored = ClientSecretBasic {
-            client_id: "my-client".to_string(),
-            client_secret: "secret".to_string(),
-        };
-        let out = stored_to_response_auth_config(
-            TokenDelegationAuthMethod::ClientSecretBasic,
-            Some(stored),
-        )
-        .unwrap();
-        let AuthMethodConfig::ClientSecretBasic(c) = &out;
-        assert_eq!(c.client_id, "my-client");
-        assert!(c.client_secret_hash.starts_with("sha256:"));
-        assert!(c.client_secret_hash.ends_with(".."));
-    }
-
-    #[test]
-    fn test_stored_to_response_auth_config_omits_cleartext() {
-        let stored = ClientSecretBasic {
-            client_id: "my-client".to_string(),
-            client_secret: "secret".to_string(),
-        };
-        let out = stored_to_response_auth_config(
-            TokenDelegationAuthMethod::ClientSecretBasic,
-            Some(stored),
-        )
-        .unwrap();
-        let AuthMethodConfig::ClientSecretBasic(c) = &out;
-        assert_eq!(c.client_id, "my-client");
-        assert!(!c.client_secret_hash.is_empty());
-    }
-
-    #[test]
-    fn test_stored_to_response_auth_config_client_secret_empty_returns_none() {
-        let stored = ClientSecretBasic {
-            client_id: "x".to_string(),
-            client_secret: String::new(),
-        };
-        assert!(
-            stored_to_response_auth_config(
-                TokenDelegationAuthMethod::ClientSecretBasic,
-                Some(stored),
+    /// Projects a stored auth config to the fields the originals asserted:
+    /// the client id and three display-hash properties.
+    fn project_auth_config(out: Option<AuthMethodConfig>) -> Option<(String, bool, bool, bool)> {
+        out.map(|AuthMethodConfig::ClientSecretBasic(c)| {
+            (
+                c.client_id,
+                c.client_secret_hash.starts_with("sha256:"),
+                c.client_secret_hash.ends_with(".."),
+                !c.client_secret_hash.is_empty(),
             )
-            .is_none()
+        })
+    }
+
+    // stored_to_response_auth_config: maps stored config to the response oneof,
+    // hashing/truncating the client secret and dropping empty/None secrets.
+    #[test]
+    fn stored_to_response_auth_config_cases() {
+        check_values(
+            [
+                Check {
+                    scenario: "auth method None yields no config",
+                    input: (TokenDelegationAuthMethod::None, None),
+                    expect: None,
+                },
+                Check {
+                    scenario: "client secret basic yields truncated hash",
+                    input: (
+                        TokenDelegationAuthMethod::ClientSecretBasic,
+                        Some(ClientSecretBasic {
+                            client_id: "my-client".to_string(),
+                            client_secret: "secret".to_string(),
+                        }),
+                    ),
+                    expect: Some(("my-client".to_string(), true, true, true)),
+                },
+                Check {
+                    scenario: "empty client secret yields no config",
+                    input: (
+                        TokenDelegationAuthMethod::ClientSecretBasic,
+                        Some(ClientSecretBasic {
+                            client_id: "x".to_string(),
+                            client_secret: String::new(),
+                        }),
+                    ),
+                    expect: None,
+                },
+            ],
+            |(auth_method, stored)| {
+                project_auth_config(stored_to_response_auth_config(auth_method, stored))
+            },
+        );
+    }
+
+    // The hashed client secret in the response never exposes the cleartext.
+    #[test]
+    fn stored_to_response_auth_config_hash_omits_cleartext() {
+        let out = stored_to_response_auth_config(
+            TokenDelegationAuthMethod::ClientSecretBasic,
+            Some(ClientSecretBasic {
+                client_id: "my-client".to_string(),
+                client_secret: "secret".to_string(),
+            }),
+        )
+        .expect("client secret basic yields a config");
+        let AuthMethodConfig::ClientSecretBasic(c) = out;
+        assert!(
+            !c.client_secret_hash.contains("secret"),
+            "hash must not expose the cleartext secret: {}",
+            c.client_secret_hash
         );
     }
 
@@ -635,297 +672,196 @@ mod tests {
         assert_eq!(config.encryption_key_id.as_str(), "test-master");
     }
 
+    // identity_config_try_from_proto success: each row asserts the normalized
+    // issuer and resolved SPIFFE subject_prefix produced from the proto + bounds.
     #[test]
-    fn identity_config_try_from_proto_stores_normalized_issuer() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "HTTPS://Issuer.EXAMPLE.COM/wl".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test-master".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let config = identity_config_try_from_proto(proto, &bounds).unwrap();
-        assert_eq!(config.issuer.as_str(), "https://issuer.example.com/wl");
-        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_empty_issuer() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: String::new(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("issuer is required"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_empty_default_audience() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: String::new(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("default_audience is required"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_accepts_custom_subject_prefix_in_proto() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: Some("spiffe://issuer.example.com/workloads".to_string()),
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let config = identity_config_try_from_proto(proto, &bounds).unwrap();
-        assert_eq!(
-            config.subject_prefix,
-            "spiffe://issuer.example.com/workloads"
+    fn identity_config_try_from_proto_success_cases() {
+        struct Row {
+            scenario: &'static str,
+            issuer: &'static str,
+            subject_prefix: Option<&'static str>,
+            allowlist: Vec<String>,
+            expect_issuer: &'static str,
+            expect_subject_prefix: &'static str,
+        }
+        let rows = [
+            Row {
+                scenario: "issuer is lowercased and normalized",
+                issuer: "HTTPS://Issuer.EXAMPLE.COM/wl",
+                subject_prefix: None,
+                allowlist: vec![],
+                expect_issuer: "https://issuer.example.com/wl",
+                expect_subject_prefix: "spiffe://issuer.example.com",
+            },
+            Row {
+                scenario: "custom subject_prefix in proto is honored",
+                issuer: "https://issuer.example.com",
+                subject_prefix: Some("spiffe://issuer.example.com/workloads"),
+                allowlist: vec![],
+                expect_issuer: "https://issuer.example.com",
+                expect_subject_prefix: "spiffe://issuer.example.com/workloads",
+            },
+            Row {
+                scenario: "empty optional subject_prefix defaults",
+                issuer: "https://issuer.example.com",
+                subject_prefix: Some(""),
+                allowlist: vec![],
+                expect_issuer: "https://issuer.example.com",
+                expect_subject_prefix: "spiffe://issuer.example.com",
+            },
+            Row {
+                scenario: "trust domain matching wildcard allowlist",
+                issuer: "https://auth.login.example.com",
+                subject_prefix: None,
+                allowlist: vec!["**.login.example.com".to_string()],
+                expect_issuer: "https://auth.login.example.com",
+                expect_subject_prefix: "spiffe://auth.login.example.com",
+            },
+        ];
+        check_cases(
+            rows.map(|r| Case {
+                scenario: r.scenario,
+                input: (r.issuer, r.subject_prefix, r.allowlist),
+                expect: Yields((
+                    r.expect_issuer.to_string(),
+                    r.expect_subject_prefix.to_string(),
+                )),
+            }),
+            |(issuer, subject_prefix, allowlist)| {
+                let proto = rpc_forge::TenantIdentityConfig {
+                    enabled: true,
+                    issuer: issuer.to_string(),
+                    default_audience: "api".to_string(),
+                    allowed_audiences: vec![],
+                    token_ttl_sec: 3600,
+                    subject_prefix: subject_prefix.map(|s| s.to_string()),
+                    rotate_key: false,
+                    signing_key_overlap_sec: None,
+                };
+                let bounds = identity_bounds(allowlist, "test-master");
+                let config = identity_config_try_from_proto(proto, &bounds).map_err(drop)?;
+                Ok::<_, ()>((config.issuer.as_str().to_string(), config.subject_prefix))
+            },
         );
     }
 
+    // identity_config_try_from_proto rejections: each row's error message must
+    // contain every listed substring (the user-facing validation contract).
     #[test]
-    fn identity_config_try_from_proto_empty_optional_subject_prefix_defaults() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: Some(String::new()),
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let config = identity_config_try_from_proto(proto, &bounds).unwrap();
-        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_rejects_non_spiffe_subject_prefix() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: Some("https://issuer.example.com/p".to_string()),
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("spiffe://"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_rejects_subject_prefix_trust_domain_mismatch() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: Some("spiffe://other.example/wl".to_string()),
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("does not match"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_token_ttl_zero() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 0,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("token_ttl_sec"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_token_ttl_below_min() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 30,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("token_ttl_sec must be between"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_token_ttl_above_max() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://issuer.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 100000,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec![],
-            signing_key_overlap_max_sec: 604800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("token_ttl_sec must be between"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_rejects_trust_domain_not_on_allowlist() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://evil.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec!["login.example.com".to_string()],
-            signing_key_overlap_max_sec: 604_800,
-        };
-        let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("trust domain"));
-        assert!(err.0.contains("allowlist"));
-    }
-
-    #[test]
-    fn identity_config_try_from_proto_accepts_trust_domain_matching_allowlist() {
-        let proto = rpc_forge::TenantIdentityConfig {
-            enabled: true,
-            issuer: "https://auth.login.example.com".to_string(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: None,
-            rotate_key: false,
-            signing_key_overlap_sec: None,
-        };
-        let bounds = IdentityConfigValidationBounds {
-            token_ttl_min_sec: 60,
-            token_ttl_max_sec: 86400,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            trust_domain_allowlist: vec!["**.login.example.com".to_string()],
-            signing_key_overlap_max_sec: 604_800,
-        };
-        let config = identity_config_try_from_proto(proto, &bounds).unwrap();
-        assert_eq!(config.subject_prefix, "spiffe://auth.login.example.com");
+    fn identity_config_try_from_proto_error_cases() {
+        struct Row {
+            scenario: &'static str,
+            proto: rpc_forge::TenantIdentityConfig,
+            allowlist: Vec<String>,
+            wants: Vec<&'static str>,
+        }
+        fn proto(
+            issuer: &str,
+            default_audience: &str,
+            token_ttl_sec: u32,
+            subject_prefix: Option<&str>,
+            signing_key_overlap_sec: Option<u32>,
+        ) -> rpc_forge::TenantIdentityConfig {
+            rpc_forge::TenantIdentityConfig {
+                enabled: true,
+                issuer: issuer.to_string(),
+                default_audience: default_audience.to_string(),
+                allowed_audiences: vec![],
+                token_ttl_sec,
+                subject_prefix: subject_prefix.map(|s| s.to_string()),
+                rotate_key: false,
+                signing_key_overlap_sec,
+            }
+        }
+        let rows = [
+            Row {
+                scenario: "empty issuer",
+                proto: proto("", "api", 3600, None, None),
+                allowlist: vec![],
+                wants: vec!["issuer is required"],
+            },
+            Row {
+                scenario: "empty default_audience",
+                proto: proto("https://issuer.example.com", "", 3600, None, None),
+                allowlist: vec![],
+                wants: vec!["default_audience is required"],
+            },
+            Row {
+                scenario: "non-spiffe subject_prefix",
+                proto: proto(
+                    "https://issuer.example.com",
+                    "api",
+                    3600,
+                    Some("https://issuer.example.com/p"),
+                    None,
+                ),
+                allowlist: vec![],
+                wants: vec!["spiffe://"],
+            },
+            Row {
+                scenario: "subject_prefix trust-domain mismatch",
+                proto: proto(
+                    "https://issuer.example.com",
+                    "api",
+                    3600,
+                    Some("spiffe://other.example/wl"),
+                    None,
+                ),
+                allowlist: vec![],
+                wants: vec!["does not match"],
+            },
+            Row {
+                scenario: "token_ttl_sec zero",
+                proto: proto("https://issuer.example.com", "api", 0, None, None),
+                allowlist: vec![],
+                wants: vec!["token_ttl_sec"],
+            },
+            Row {
+                scenario: "token_ttl_sec below min",
+                proto: proto("https://issuer.example.com", "api", 30, None, None),
+                allowlist: vec![],
+                wants: vec!["token_ttl_sec must be between"],
+            },
+            Row {
+                scenario: "token_ttl_sec above max",
+                proto: proto("https://issuer.example.com", "api", 100000, None, None),
+                allowlist: vec![],
+                wants: vec!["token_ttl_sec must be between"],
+            },
+            Row {
+                scenario: "trust domain not on allowlist",
+                proto: proto("https://evil.example.com", "api", 3600, None, None),
+                allowlist: vec!["login.example.com".to_string()],
+                wants: vec!["trust domain", "allowlist"],
+            },
+            Row {
+                scenario: "no allowlist entry matches",
+                proto: proto("https://idp.other.example/", "api", 3600, None, None),
+                allowlist: vec![
+                    "login.example.com".to_string(),
+                    "*.tenant.example.net".to_string(),
+                ],
+                wants: vec!["allowlist"],
+            },
+            Row {
+                scenario: "overlap set when not rotating",
+                proto: proto("https://issuer.example.com", "api", 3600, None, Some(120)),
+                allowlist: vec![],
+                wants: vec!["signing_key_overlap_sec may only be set"],
+            },
+        ];
+        check_values(
+            rows.map(|r| Check {
+                scenario: r.scenario,
+                input: (r.proto, r.allowlist, r.wants),
+                expect: true,
+            }),
+            |(proto, allowlist, wants)| {
+                let bounds = identity_bounds(allowlist, "test");
+                let err = identity_config_try_from_proto(proto, &bounds).unwrap_err();
+                wants.iter().all(|w| err.0.contains(w))
+            },
+        );
     }
 
     #[test]
@@ -1014,163 +950,820 @@ mod tests {
         assert!(err.0.contains("signing_key_overlap_sec may only be set"));
     }
 
+    // validate_identity_overlap_for_rotation: a missing overlap and an
+    // overlap shorter than token_ttl_sec are rejected (with the listed
+    // substring); a sufficient overlap is accepted (`None` want = Ok).
     #[test]
-    fn validate_identity_overlap_requires_value_when_rotating() {
-        let config = IdentityConfig {
-            issuer: "https://issuer.example.com".parse().unwrap(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: "spiffe://issuer.example.com".to_string(),
-            enabled: true,
-            rotate_key: true,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            signing_key_overlap_sec: None,
-        };
-        let err = validate_identity_overlap_for_rotation(&config).unwrap_err();
-        assert!(err.0.contains("signing_key_overlap_sec is required"));
-    }
-
-    #[test]
-    fn validate_identity_overlap_rejects_less_than_token_ttl() {
-        let config = IdentityConfig {
-            issuer: "https://issuer.example.com".parse().unwrap(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: "spiffe://issuer.example.com".to_string(),
-            enabled: true,
-            rotate_key: true,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            signing_key_overlap_sec: Some(120),
-        };
-        let err = validate_identity_overlap_for_rotation(&config).unwrap_err();
-        assert!(
-            err.0.contains("must be at least token_ttl_sec"),
-            "unexpected: {}",
-            err.0
+    fn validate_identity_overlap_cases() {
+        fn rotating_config(signing_key_overlap_sec: Option<i32>) -> IdentityConfig {
+            IdentityConfig {
+                issuer: "https://issuer.example.com".parse().unwrap(),
+                default_audience: "api".to_string(),
+                allowed_audiences: vec![],
+                token_ttl_sec: 3600,
+                subject_prefix: "spiffe://issuer.example.com".to_string(),
+                enabled: true,
+                rotate_key: true,
+                algorithm: identity_config::SigningAlgorithm::Es256,
+                encryption_key_id: "test".parse().unwrap(),
+                signing_key_overlap_sec,
+            }
+        }
+        check_values(
+            [
+                Check {
+                    scenario: "missing overlap is rejected",
+                    input: (None, Some("signing_key_overlap_sec is required")),
+                    expect: true,
+                },
+                Check {
+                    scenario: "overlap shorter than token_ttl_sec is rejected",
+                    input: (Some(120), Some("must be at least token_ttl_sec")),
+                    expect: true,
+                },
+                Check {
+                    scenario: "overlap at least token_ttl_sec is accepted",
+                    input: (Some(3600), None),
+                    expect: true,
+                },
+            ],
+            |(overlap, want): (Option<i32>, Option<&str>)| {
+                let result = validate_identity_overlap_for_rotation(&rotating_config(overlap));
+                match want {
+                    Some(substr) => result.unwrap_err().0.contains(substr),
+                    None => result.is_ok(),
+                }
+            },
         );
     }
 
-    #[test]
-    fn validate_identity_overlap_ok_when_rotating() {
-        let config = IdentityConfig {
-            issuer: "https://issuer.example.com".parse().unwrap(),
-            default_audience: "api".to_string(),
-            allowed_audiences: vec![],
-            token_ttl_sec: 3600,
-            subject_prefix: "spiffe://issuer.example.com".to_string(),
-            enabled: true,
-            rotate_key: true,
-            algorithm: identity_config::SigningAlgorithm::Es256,
-            encryption_key_id: "test".parse().unwrap(),
-            signing_key_overlap_sec: Some(3600),
-        };
-        validate_identity_overlap_for_rotation(&config).unwrap();
-    }
-
-    #[test]
-    fn token_delegation_try_from_success_none() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: "https://auth.example.com/token".to_string(),
-            subject_token_audience: "https://api.example.com".to_string(),
-            auth_method_config: None,
-        };
-        let config = TokenDelegation::try_from(proto).unwrap();
-        assert_eq!(config.token_endpoint, "https://auth.example.com/token");
-        assert_eq!(config.subject_token_audience, "https://api.example.com");
-        matches!(
-            config.auth_method_config,
-            TokenDelegationAuthMethodConfig::None
-        );
-    }
-
-    #[test]
-    fn token_delegation_try_from_success_client_secret_basic() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: "https://auth.example.com/token".to_string(),
-            subject_token_audience: "https://api.example.com".to_string(),
-            auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
-                        client_id: "my-client".to_string(),
-                        client_secret: "my-secret".to_string(),
-                    },
-                ),
-            ),
-        };
-        let config = TokenDelegation::try_from(proto).unwrap();
-        assert_eq!(config.token_endpoint, "https://auth.example.com/token");
-        assert_eq!(config.subject_token_audience, "https://api.example.com");
-        match &config.auth_method_config {
+    /// Projects a converted `TokenDelegation` to the endpoint, audience, and the
+    /// auth-method-config fields the originals asserted.
+    fn project_token_delegation(
+        config: TokenDelegation,
+    ) -> (String, String, Option<(String, String)>) {
+        let auth = match config.auth_method_config {
+            TokenDelegationAuthMethodConfig::None => None,
             TokenDelegationAuthMethodConfig::ClientSecretBasic {
                 client_id,
                 client_secret,
-            } => {
-                assert_eq!(client_id, "my-client");
-                assert_eq!(client_secret, "my-secret");
-            }
-            _ => panic!("expected ClientSecretBasic"),
+            } => Some((client_id, client_secret)),
+        };
+        (config.token_endpoint, config.subject_token_audience, auth)
+    }
+
+    // TokenDelegation::try_from success: the endpoint and audience pass through,
+    // and the auth method config maps to None or the client-secret-basic pair.
+    #[test]
+    fn token_delegation_try_from_success_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "no auth method config",
+                    input: rpc_forge::TokenDelegation {
+                        token_endpoint: "https://auth.example.com/token".to_string(),
+                        subject_token_audience: "https://api.example.com".to_string(),
+                        auth_method_config: None,
+                    },
+                    expect: Yields((
+                        "https://auth.example.com/token".to_string(),
+                        "https://api.example.com".to_string(),
+                        None,
+                    )),
+                },
+                Case {
+                    scenario: "client secret basic",
+                    input: rpc_forge::TokenDelegation {
+                        token_endpoint: "https://auth.example.com/token".to_string(),
+                        subject_token_audience: "https://api.example.com".to_string(),
+                        auth_method_config: Some(
+                            rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                                rpc_forge::ClientSecretBasic {
+                                    client_id: "my-client".to_string(),
+                                    client_secret: "my-secret".to_string(),
+                                },
+                            ),
+                        ),
+                    },
+                    expect: Yields((
+                        "https://auth.example.com/token".to_string(),
+                        "https://api.example.com".to_string(),
+                        Some(("my-client".to_string(), "my-secret".to_string())),
+                    )),
+                },
+            ],
+            |proto| {
+                let config = TokenDelegation::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>(project_token_delegation(config))
+            },
+        );
+    }
+
+    // TokenDelegation::try_from rejections: each row's error message must contain
+    // the listed substring (the user-facing validation contract).
+    #[test]
+    fn token_delegation_try_from_error_cases() {
+        fn client_secret_basic(
+            client_id: &str,
+            client_secret: &str,
+        ) -> Option<rpc_forge::token_delegation::AuthMethodConfig> {
+            Some(
+                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
+                    rpc_forge::ClientSecretBasic {
+                        client_id: client_id.to_string(),
+                        client_secret: client_secret.to_string(),
+                    },
+                ),
+            )
+        }
+        check_values(
+            [
+                Check {
+                    scenario: "empty token_endpoint",
+                    input: (
+                        rpc_forge::TokenDelegation {
+                            token_endpoint: String::new(),
+                            subject_token_audience: "https://api.example.com".to_string(),
+                            auth_method_config: None,
+                        },
+                        "token_endpoint is required",
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty subject_token_audience",
+                    input: (
+                        rpc_forge::TokenDelegation {
+                            token_endpoint: "https://auth.example.com/token".to_string(),
+                            subject_token_audience: String::new(),
+                            auth_method_config: None,
+                        },
+                        "subject_token_audience is required",
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty client_id",
+                    input: (
+                        rpc_forge::TokenDelegation {
+                            token_endpoint: "https://auth.example.com/token".to_string(),
+                            subject_token_audience: "https://api.example.com".to_string(),
+                            auth_method_config: client_secret_basic("", "secret"),
+                        },
+                        "client_id is required",
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty client_secret",
+                    input: (
+                        rpc_forge::TokenDelegation {
+                            token_endpoint: "https://auth.example.com/token".to_string(),
+                            subject_token_audience: "https://api.example.com".to_string(),
+                            auth_method_config: client_secret_basic("client", ""),
+                        },
+                        "client_secret is required",
+                    ),
+                    expect: true,
+                },
+            ],
+            |(proto, want): (rpc_forge::TokenDelegation, &str)| {
+                TokenDelegation::try_from(proto)
+                    .unwrap_err()
+                    .0
+                    .contains(want)
+            },
+        );
+    }
+
+    /// A version string the domain `ConfigVersion` parser accepts, round-tripping
+    /// to itself through `version_string()`.
+    const VALID_VERSION: &str = "V1-T1700000000000000";
+
+    /// A proto tenant keyset identifier with the given org and keyset id.
+    fn proto_keyset_identifier(
+        organization_id: &str,
+        keyset_id: &str,
+    ) -> rpc_forge::TenantKeysetIdentifier {
+        rpc_forge::TenantKeysetIdentifier {
+            organization_id: organization_id.to_string(),
+            keyset_id: keyset_id.to_string(),
         }
     }
 
+    // TenantSearchFilter::from copies the optional organization-name filter through
+    // unchanged for both present and absent.
     #[test]
-    fn token_delegation_try_from_empty_token_endpoint() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: String::new(),
-            subject_token_audience: "https://api.example.com".to_string(),
-            auth_method_config: None,
-        };
-        let err = TokenDelegation::try_from(proto).unwrap_err();
-        assert!(err.0.contains("token_endpoint is required"));
+    fn tenant_search_filter_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "present organization name",
+                    input: Some("acme".to_string()),
+                    expect: Some("acme".to_string()),
+                },
+                Check {
+                    scenario: "absent organization name",
+                    input: None,
+                    expect: None,
+                },
+            ],
+            |tenant_organization_name| {
+                TenantSearchFilter::from(rpc::forge::TenantSearchFilter {
+                    tenant_organization_name,
+                })
+                .tenant_organization_name
+            },
+        );
     }
 
+    // TenantKeysetSearchFilter::from copies the optional org-id filter through
+    // unchanged for both present and absent.
     #[test]
-    fn token_delegation_try_from_empty_subject_token_audience() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: "https://auth.example.com/token".to_string(),
-            subject_token_audience: String::new(),
-            auth_method_config: None,
-        };
-        let err = TokenDelegation::try_from(proto).unwrap_err();
-        assert!(err.0.contains("subject_token_audience is required"));
+    fn tenant_keyset_search_filter_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "present org id",
+                    input: Some("org-1".to_string()),
+                    expect: Some("org-1".to_string()),
+                },
+                Check {
+                    scenario: "absent org id",
+                    input: None,
+                    expect: None,
+                },
+            ],
+            |tenant_org_id| {
+                TenantKeysetSearchFilter::from(rpc::forge::TenantKeysetSearchFilter { tenant_org_id })
+                    .tenant_org_id
+            },
+        );
     }
 
+    // TenantPublicKey proto -> domain: the public_key string is parsed into algo/key/
+    // comment parts and the proto comment passes through. Projects to
+    // (algo, key, key-comment, tenant-comment).
     #[test]
-    fn token_delegation_try_from_empty_client_id() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: "https://auth.example.com/token".to_string(),
-            subject_token_audience: "https://api.example.com".to_string(),
-            auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
-                        client_id: String::new(),
-                        client_secret: "secret".to_string(),
+    fn tenant_public_key_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "algo and key and embedded comment",
+                    input: ("ssh-ed25519 AAAA user@host".to_string(), Some("c".to_string())),
+                    expect: (
+                        Some("ssh-ed25519".to_string()),
+                        "AAAA".to_string(),
+                        Some("user@host".to_string()),
+                        Some("c".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "bare key has no algo or comment",
+                    input: ("AAAA".to_string(), None),
+                    expect: (None, "AAAA".to_string(), None, None),
+                },
+            ],
+            |(public_key, comment)| {
+                let domain =
+                    TenantPublicKey::from(rpc::forge::TenantPublicKey { public_key, comment });
+                (
+                    domain.public_key.algo,
+                    domain.public_key.key,
+                    domain.public_key.comment,
+                    domain.comment,
+                )
+            },
+        );
+    }
+
+    // TenantPublicKey domain -> proto: the public key renders via Display and the
+    // tenant comment passes through. Projects to (public_key, comment).
+    #[test]
+    fn tenant_public_key_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "algo and key and key-comment render together",
+                    input: (
+                        PublicKey {
+                            algo: Some("ssh-ed25519".to_string()),
+                            key: "AAAA".to_string(),
+                            comment: Some("user@host".to_string()),
+                        },
+                        Some("tenant-comment".to_string()),
+                    ),
+                    expect: (
+                        "ssh-ed25519 AAAA user@host".to_string(),
+                        Some("tenant-comment".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "bare key renders alone with no comment",
+                    input: (
+                        PublicKey {
+                            algo: None,
+                            key: "AAAA".to_string(),
+                            comment: None,
+                        },
+                        None,
+                    ),
+                    expect: ("AAAA".to_string(), None),
+                },
+            ],
+            |(public_key, comment)| {
+                let proto = rpc::forge::TenantPublicKey::from(TenantPublicKey {
+                    public_key,
+                    comment,
+                });
+                (proto.public_key, proto.comment)
+            },
+        );
+    }
+
+    // TenantKeysetContent converts both directions; each row counts the keys that
+    // survive the round trip out and back, covering empty and populated sets.
+    #[test]
+    fn tenant_keyset_content_round_trips() {
+        fn proto_key(key: &str) -> rpc::forge::TenantPublicKey {
+            rpc::forge::TenantPublicKey {
+                public_key: key.to_string(),
+                comment: None,
+            }
+        }
+        check_values(
+            [
+                Check {
+                    scenario: "empty key set",
+                    input: vec![],
+                    expect: 0usize,
+                },
+                Check {
+                    scenario: "two keys",
+                    input: vec![proto_key("AAAA"), proto_key("BBBB")],
+                    expect: 2usize,
+                },
+            ],
+            |public_keys| {
+                let domain = TenantKeysetContent::from(rpc::forge::TenantKeysetContent {
+                    public_keys,
+                });
+                let proto = rpc::forge::TenantKeysetContent::from(domain);
+                proto.public_keys.len()
+            },
+        );
+    }
+
+    // TenantKeysetIdentifier::try_from: a valid org id yields the (org, keyset_id)
+    // pair; an empty/invalid org id is rejected.
+    #[test]
+    fn tenant_keyset_identifier_try_from_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid org and keyset id",
+                    input: proto_keyset_identifier("acme-1", "k1"),
+                    expect: Yields(("acme-1".to_string(), "k1".to_string())),
+                },
+                Case {
+                    scenario: "empty org id is rejected",
+                    input: proto_keyset_identifier("", "k1"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "org id with illegal char is rejected",
+                    input: proto_keyset_identifier("a b", "k1"),
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = TenantKeysetIdentifier::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>((domain.organization_id.to_string(), domain.keyset_id))
+            },
+        );
+    }
+
+    // TenantKeysetIdentifier::from (domain -> proto) copies org id and keyset id.
+    #[test]
+    fn tenant_keyset_identifier_to_rpc() {
+        let proto = rpc::forge::TenantKeysetIdentifier::from(TenantKeysetIdentifier {
+            organization_id: "acme-1".to_string().try_into().unwrap(),
+            keyset_id: "k1".to_string(),
+        });
+        Check {
+            scenario: "org and keyset id pass through",
+            input: proto,
+            expect: ("acme-1".to_string(), "k1".to_string()),
+        }
+        .check(|p| (p.organization_id, p.keyset_id));
+    }
+
+    // TenantKeysetId::from (the string-typed find-by-ids shape) -> proto identifier
+    // copies both fields verbatim.
+    #[test]
+    fn tenant_keyset_id_to_rpc_identifier() {
+        let proto = rpc::forge::TenantKeysetIdentifier::from(TenantKeysetId {
+            organization_id: "acme-1".to_string(),
+            keyset_id: "k1".to_string(),
+        });
+        Check {
+            scenario: "org and keyset id pass through",
+            input: proto,
+            expect: ("acme-1".to_string(), "k1".to_string()),
+        }
+        .check(|p| (p.organization_id, p.keyset_id));
+    }
+
+    // TenantKeyset::try_from: a complete proto yields the keyset (projected to
+    // org id, keyset id, key count, version); a missing identifier or missing
+    // content is rejected.
+    #[test]
+    fn tenant_keyset_try_from_rpc() {
+        let content = rpc::forge::TenantKeysetContent {
+            public_keys: vec![rpc::forge::TenantPublicKey {
+                public_key: "AAAA".to_string(),
+                comment: None,
+            }],
+        };
+        check_cases(
+            [
+                Case {
+                    scenario: "complete keyset",
+                    input: rpc::forge::TenantKeyset {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k1")),
+                        keyset_content: Some(content.clone()),
+                        version: "v1".to_string(),
                     },
-                ),
-            ),
-        };
-        let err = TokenDelegation::try_from(proto).unwrap_err();
-        assert!(err.0.contains("client_id is required"));
+                    expect: Yields(("acme-1".to_string(), "k1".to_string(), 1usize, "v1".to_string())),
+                },
+                Case {
+                    scenario: "missing keyset identifier is rejected",
+                    input: rpc::forge::TenantKeyset {
+                        keyset_identifier: None,
+                        keyset_content: Some(content.clone()),
+                        version: "v1".to_string(),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing keyset content is rejected",
+                    input: rpc::forge::TenantKeyset {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k1")),
+                        keyset_content: None,
+                        version: "v1".to_string(),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid org in identifier is rejected",
+                    input: rpc::forge::TenantKeyset {
+                        keyset_identifier: Some(proto_keyset_identifier("", "k1")),
+                        keyset_content: Some(content),
+                        version: "v1".to_string(),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = TenantKeyset::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>((
+                    domain.keyset_identifier.organization_id.to_string(),
+                    domain.keyset_identifier.keyset_id,
+                    domain.keyset_content.public_keys.len(),
+                    domain.version,
+                ))
+            },
+        );
     }
 
+    // TenantKeyset::from (domain -> proto) wraps identifier and content in Some and
+    // copies the version; projects to (has_identifier, has_content, version).
     #[test]
-    fn token_delegation_try_from_empty_client_secret() {
-        let proto = rpc_forge::TokenDelegation {
-            token_endpoint: "https://auth.example.com/token".to_string(),
-            subject_token_audience: "https://api.example.com".to_string(),
-            auth_method_config: Some(
-                rpc_forge::token_delegation::AuthMethodConfig::ClientSecretBasic(
-                    rpc_forge::ClientSecretBasic {
-                        client_id: "client".to_string(),
-                        client_secret: String::new(),
-                    },
-                ),
-            ),
+    fn tenant_keyset_to_rpc() {
+        let domain = TenantKeyset {
+            keyset_identifier: TenantKeysetIdentifier {
+                organization_id: "acme-1".to_string().try_into().unwrap(),
+                keyset_id: "k1".to_string(),
+            },
+            keyset_content: TenantKeysetContent {
+                public_keys: vec![],
+            },
+            version: "v1".to_string(),
         };
-        let err = TokenDelegation::try_from(proto).unwrap_err();
-        assert!(err.0.contains("client_secret is required"));
+        Check {
+            scenario: "identifier and content are present, version copied",
+            input: domain,
+            expect: (true, true, "v1".to_string()),
+        }
+        .check(|d| {
+            let proto = rpc::forge::TenantKeyset::from(d);
+            (
+                proto.keyset_identifier.is_some(),
+                proto.keyset_content.is_some(),
+                proto.version,
+            )
+        });
+    }
+
+    // CreateTenantKeysetRequest::try_from: a complete request yields the keyset;
+    // absent content defaults to an empty key set; a missing/invalid identifier
+    // is rejected.
+    #[test]
+    fn create_tenant_keyset_request_try_from_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "complete request",
+                    input: rpc::forge::CreateTenantKeysetRequest {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k1")),
+                        keyset_content: Some(rpc::forge::TenantKeysetContent {
+                            public_keys: vec![rpc::forge::TenantPublicKey {
+                                public_key: "AAAA".to_string(),
+                                comment: None,
+                            }],
+                        }),
+                        version: "v1".to_string(),
+                    },
+                    expect: Yields(("k1".to_string(), 1usize, "v1".to_string())),
+                },
+                Case {
+                    scenario: "absent content defaults to empty key set",
+                    input: rpc::forge::CreateTenantKeysetRequest {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k2")),
+                        keyset_content: None,
+                        version: "v2".to_string(),
+                    },
+                    expect: Yields(("k2".to_string(), 0usize, "v2".to_string())),
+                },
+                Case {
+                    scenario: "missing identifier is rejected",
+                    input: rpc::forge::CreateTenantKeysetRequest {
+                        keyset_identifier: None,
+                        keyset_content: None,
+                        version: "v1".to_string(),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = TenantKeyset::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>((
+                    domain.keyset_identifier.keyset_id,
+                    domain.keyset_content.public_keys.len(),
+                    domain.version,
+                ))
+            },
+        );
+    }
+
+    // UpdateTenantKeysetRequest::try_from: a complete request yields the update
+    // (projected to keyset id, key count, version, if_version_match); absent
+    // content defaults to empty; a missing identifier is rejected.
+    #[test]
+    fn update_tenant_keyset_request_try_from_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "complete request with version guard",
+                    input: rpc::forge::UpdateTenantKeysetRequest {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k1")),
+                        keyset_content: Some(rpc::forge::TenantKeysetContent {
+                            public_keys: vec![rpc::forge::TenantPublicKey {
+                                public_key: "AAAA".to_string(),
+                                comment: None,
+                            }],
+                        }),
+                        version: "v2".to_string(),
+                        if_version_match: Some("v1".to_string()),
+                    },
+                    expect: Yields((
+                        "k1".to_string(),
+                        1usize,
+                        "v2".to_string(),
+                        Some("v1".to_string()),
+                    )),
+                },
+                Case {
+                    scenario: "absent content defaults to empty, no version guard",
+                    input: rpc::forge::UpdateTenantKeysetRequest {
+                        keyset_identifier: Some(proto_keyset_identifier("acme-1", "k1")),
+                        keyset_content: None,
+                        version: "v2".to_string(),
+                        if_version_match: None,
+                    },
+                    expect: Yields(("k1".to_string(), 0usize, "v2".to_string(), None)),
+                },
+                Case {
+                    scenario: "missing identifier is rejected",
+                    input: rpc::forge::UpdateTenantKeysetRequest {
+                        keyset_identifier: None,
+                        keyset_content: None,
+                        version: "v2".to_string(),
+                        if_version_match: None,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = UpdateTenantKeyset::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>((
+                    domain.keyset_identifier.keyset_id,
+                    domain.keyset_content.public_keys.len(),
+                    domain.version,
+                    domain.if_version_match,
+                ))
+            },
+        );
+    }
+
+    /// A proto tenant with the given org id, version string, and routing profile.
+    /// Metadata is always present (the conversion requires it).
+    fn proto_tenant(
+        organization_id: &str,
+        version: &str,
+        routing_profile_type: Option<&str>,
+    ) -> rpc::forge::Tenant {
+        rpc::forge::Tenant {
+            organization_id: organization_id.to_string(),
+            metadata: Some(rpc::Metadata {
+                name: "acme".to_string(),
+                description: String::new(),
+                labels: vec![],
+            }),
+            version: version.to_string(),
+            routing_profile_type: routing_profile_type.map(|s| s.to_string()),
+        }
+    }
+
+    // Tenant::try_from(proto): a well-formed proto yields the domain tenant
+    // (projected to org id, metadata name, routing profile); missing metadata,
+    // an unparseable version, and an invalid org id are each rejected.
+    #[test]
+    fn tenant_try_from_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "well-formed tenant with routing profile",
+                    input: proto_tenant("acme-1", VALID_VERSION, Some("default")),
+                    expect: Yields((
+                        "acme-1".to_string(),
+                        "acme".to_string(),
+                        Some("default".to_string()),
+                    )),
+                },
+                Case {
+                    scenario: "well-formed tenant without routing profile",
+                    input: proto_tenant("acme-1", VALID_VERSION, None),
+                    expect: Yields(("acme-1".to_string(), "acme".to_string(), None)),
+                },
+                Case {
+                    scenario: "missing metadata is rejected",
+                    input: rpc::forge::Tenant {
+                        organization_id: "acme-1".to_string(),
+                        metadata: None,
+                        version: VALID_VERSION.to_string(),
+                        routing_profile_type: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unparseable version is rejected",
+                    input: proto_tenant("acme-1", "not-a-version", None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid org id is rejected",
+                    input: proto_tenant("a b", VALID_VERSION, None),
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = Tenant::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>((
+                    domain.organization_id.to_string(),
+                    domain.metadata.name,
+                    domain.routing_profile_type,
+                ))
+            },
+        );
+    }
+
+    /// A domain tenant whose org id, version, and routing profile vary per case.
+    fn domain_tenant(
+        organization_id: &str,
+        routing_profile_type: Option<&str>,
+    ) -> Tenant {
+        Tenant {
+            organization_id: organization_id.to_string().try_into().unwrap(),
+            routing_profile_type: routing_profile_type.map(|s| s.to_string()),
+            metadata: model::metadata::Metadata {
+                name: "acme".to_string(),
+                description: String::new(),
+                labels: std::collections::HashMap::new(),
+            },
+            version: VALID_VERSION.parse().unwrap(),
+        }
+    }
+
+    // Tenant -> proto Tenant: org id renders, version serializes back to the
+    // canonical string, and the routing profile passes through. Projects to
+    // (org id, version, routing profile).
+    #[test]
+    fn tenant_to_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "with routing profile",
+                    input: domain_tenant("acme-1", Some("default")),
+                    expect: Yields((
+                        "acme-1".to_string(),
+                        VALID_VERSION.to_string(),
+                        Some("default".to_string()),
+                    )),
+                },
+                Case {
+                    scenario: "without routing profile",
+                    input: domain_tenant("acme-1", None),
+                    expect: Yields(("acme-1".to_string(), VALID_VERSION.to_string(), None)),
+                },
+            ],
+            |tenant| {
+                let proto = rpc::forge::Tenant::try_from(tenant).map_err(drop)?;
+                Ok::<_, ()>((proto.organization_id, proto.version, proto.routing_profile_type))
+            },
+        );
+    }
+
+    // The three Tenant response wrappers each embed the converted tenant under
+    // their `tenant` field; every wrapper carries the same org id through.
+    #[test]
+    fn tenant_response_wrappers_embed_tenant() {
+        check_cases(
+            [
+                Case {
+                    scenario: "create response",
+                    input: 0u8,
+                    expect: Yields("acme-1".to_string()),
+                },
+                Case {
+                    scenario: "find response",
+                    input: 1u8,
+                    expect: Yields("acme-1".to_string()),
+                },
+                Case {
+                    scenario: "update response",
+                    input: 2u8,
+                    expect: Yields("acme-1".to_string()),
+                },
+            ],
+            |which| {
+                let tenant = domain_tenant("acme-1", None);
+                let org_id = match which {
+                    0 => rpc::forge::CreateTenantResponse::try_from(tenant)
+                        .map_err(drop)?
+                        .tenant
+                        .map(|t| t.organization_id),
+                    1 => rpc::forge::FindTenantResponse::try_from(tenant)
+                        .map_err(drop)?
+                        .tenant
+                        .map(|t| t.organization_id),
+                    _ => rpc::forge::UpdateTenantResponse::try_from(tenant)
+                        .map_err(drop)?
+                        .tenant
+                        .map(|t| t.organization_id),
+                };
+                org_id.ok_or(())
+            },
+        );
+    }
+
+    // ValidateTenantPublicKeyRequest::try_from: a valid instance UUID yields the
+    // request (projected to the public-key string); a non-UUID instance id fails.
+    #[test]
+    fn validate_tenant_public_key_request_try_from_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid instance uuid",
+                    input: rpc::forge::ValidateTenantPublicKeyRequest {
+                        instance_id: "00000000-0000-0000-0000-000000000001".to_string(),
+                        tenant_public_key: "ssh-ed25519 AAAA".to_string(),
+                    },
+                    expect: Yields("ssh-ed25519 AAAA".to_string()),
+                },
+                Case {
+                    scenario: "non-uuid instance id is rejected",
+                    input: rpc::forge::ValidateTenantPublicKeyRequest {
+                        instance_id: "not-a-uuid".to_string(),
+                        tenant_public_key: "ssh-ed25519 AAAA".to_string(),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto| {
+                let domain = TenantPublicKeyValidationRequest::try_from(proto).map_err(drop)?;
+                Ok::<_, ()>(domain.public_key)
+            },
+        );
     }
 }

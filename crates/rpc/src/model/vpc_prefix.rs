@@ -199,12 +199,35 @@ impl From<VpcPrefix> for rpc::forge::VpcPrefix {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use carbide_uuid::vpc::VpcId;
     use chrono::{DateTime, Utc};
     use config_version::{ConfigVersion, Versioned};
     use model::vpc_prefix::{VpcPrefixDeletionState, VpcPrefixStatus};
 
     use super::*;
+
+    /// A proto Metadata whose name is long enough to pass `validate(true)`.
+    fn valid_metadata(name: &str) -> rpc::forge::Metadata {
+        rpc::forge::Metadata {
+            name: name.to_owned(),
+            description: String::new(),
+            labels: Vec::new(),
+        }
+    }
+
+    /// A bare creation request: only the fields a row cares about are filled in
+    /// by mutating the returned value.
+    fn creation_request() -> rpc::forge::VpcPrefixCreationRequest {
+        rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: "10.0.0.0/24".to_owned(),
+            vpc_id: Some(VpcId::new()),
+            config: None,
+            metadata: None,
+        }
+    }
 
     /// Builds a minimal VPC prefix for status conversion tests.
     fn test_vpc_prefix(
@@ -274,5 +297,311 @@ mod tests {
             .expect("VPC prefix lifecycle should be populated");
         assert_eq!(lifecycle.state, r#"{"state":"ready"}"#);
         assert_eq!(status.tenant_state, TenantState::Terminating as i32);
+    }
+
+    #[test]
+    fn new_vpc_prefix_from_creation_request() {
+        check_cases(
+            [
+                Case {
+                    scenario: "deprecated prefix string used when config absent",
+                    input: creation_request(),
+                    expect: Yields("10.0.0.0/24".to_owned()),
+                },
+                Case {
+                    scenario: "config prefix wins over deprecated prefix string",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        prefix: "10.0.0.0/24".to_owned(),
+                        config: Some(rpc::forge::VpcPrefixConfig {
+                            prefix: "192.168.0.0/16".to_owned(),
+                        }),
+                        ..creation_request()
+                    },
+                    expect: Yields("192.168.0.0/16".to_owned()),
+                },
+                Case {
+                    scenario: "explicit valid metadata accepted",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        metadata: Some(valid_metadata("my-prefix")),
+                        ..creation_request()
+                    },
+                    expect: Yields("10.0.0.0/24".to_owned()),
+                },
+                Case {
+                    scenario: "ipv6 prefix accepted",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        prefix: "2001:db8::/32".to_owned(),
+                        ..creation_request()
+                    },
+                    expect: Yields("2001:db8::/32".to_owned()),
+                },
+                Case {
+                    scenario: "missing vpc_id rejected",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        vpc_id: None,
+                        ..creation_request()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid deprecated prefix string rejected",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        prefix: "not-a-cidr".to_owned(),
+                        ..creation_request()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid config prefix rejected",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        config: Some(rpc::forge::VpcPrefixConfig {
+                            prefix: "bogus".to_owned(),
+                        }),
+                        ..creation_request()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty-name metadata fails validation",
+                    input: rpc::forge::VpcPrefixCreationRequest {
+                        metadata: Some(valid_metadata("")),
+                        ..creation_request()
+                    },
+                    expect: Fails,
+                },
+            ],
+            |req| {
+                NewVpcPrefix::try_from(req)
+                    .map(|new| new.config.prefix.to_string())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn vpc_prefix_config_from_proto() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid ipv4 cidr",
+                    input: "10.0.0.0/24",
+                    expect: Yields("10.0.0.0/24".to_owned()),
+                },
+                Case {
+                    scenario: "valid ipv6 cidr",
+                    input: "2001:db8::/32",
+                    expect: Yields("2001:db8::/32".to_owned()),
+                },
+                Case {
+                    scenario: "empty prefix rejected",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-cidr text rejected",
+                    input: "nonsense",
+                    expect: Fails,
+                },
+            ],
+            |prefix| {
+                VpcPrefixConfig::try_from(rpc::forge::VpcPrefixConfig {
+                    prefix: prefix.to_owned(),
+                })
+                .map(|config| config.prefix.to_string())
+                .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn update_vpc_prefix_from_request() {
+        let id = VpcPrefixId::new();
+        check_cases(
+            [
+                Case {
+                    scenario: "id present, default metadata accepted",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: None,
+                        config: None,
+                        metadata: None,
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "id present, explicit valid metadata accepted",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: None,
+                        config: None,
+                        metadata: Some(valid_metadata("renamed")),
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "empty config prefix is not a resize",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: None,
+                        config: Some(rpc::forge::VpcPrefixConfig {
+                            prefix: String::new(),
+                        }),
+                        metadata: None,
+                    },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "deprecated prefix resize rejected",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: Some("10.0.0.0/24".to_owned()),
+                        config: None,
+                        metadata: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "config prefix resize rejected",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: None,
+                        config: Some(rpc::forge::VpcPrefixConfig {
+                            prefix: "10.0.0.0/24".to_owned(),
+                        }),
+                        metadata: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing id rejected",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: None,
+                        prefix: None,
+                        config: None,
+                        metadata: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty-name metadata fails validation",
+                    input: rpc::forge::VpcPrefixUpdateRequest {
+                        id: Some(id),
+                        prefix: None,
+                        config: None,
+                        metadata: Some(valid_metadata("")),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |req| {
+                UpdateVpcPrefix::try_from(req)
+                    .map(|update| update.id == id)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn delete_vpc_prefix_from_request() {
+        let id = VpcPrefixId::new();
+        check_cases(
+            [
+                Case {
+                    scenario: "id present accepted",
+                    input: rpc::forge::VpcPrefixDeletionRequest { id: Some(id) },
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "missing id rejected",
+                    input: rpc::forge::VpcPrefixDeletionRequest { id: None },
+                    expect: Fails,
+                },
+            ],
+            |req| {
+                DeleteVpcPrefix::try_from(req)
+                    .map(|delete| delete.id == id)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn vpc_prefix_to_proto_lifecycle_state_json() {
+        check_values(
+            [
+                Check {
+                    scenario: "provisioning serializes to controller json",
+                    input: VpcPrefixControllerState::Provisioning,
+                    expect: r#"{"state":"provisioning"}"#.to_owned(),
+                },
+                Check {
+                    scenario: "ready serializes to controller json",
+                    input: VpcPrefixControllerState::Ready,
+                    expect: r#"{"state":"ready"}"#.to_owned(),
+                },
+                Check {
+                    scenario: "deleting serializes with deletion_state",
+                    input: VpcPrefixControllerState::Deleting {
+                        deletion_state: VpcPrefixDeletionState::DBDelete,
+                    },
+                    expect: r#"{"state":"deleting","deletion_state":{"state":"dbdelete"}}"#
+                        .to_owned(),
+                },
+            ],
+            |controller_state| {
+                rpc::forge::VpcPrefix::from(test_vpc_prefix(controller_state, None))
+                    .status
+                    .and_then(|s| s.lifecycle)
+                    .map(|l| l.state)
+                    .unwrap_or_default()
+            },
+        );
+    }
+
+    #[test]
+    fn vpc_prefix_to_proto_carries_fields() {
+        check_values(
+            [
+                Check {
+                    scenario: "deprecated prefix string populated",
+                    input: "deprecated_prefix",
+                    expect: true,
+                },
+                Check {
+                    scenario: "config prefix matches deprecated prefix",
+                    input: "config_matches",
+                    expect: true,
+                },
+                Check {
+                    scenario: "id is surfaced",
+                    input: "id_present",
+                    expect: true,
+                },
+                Check {
+                    scenario: "vpc_id is surfaced",
+                    input: "vpc_id_present",
+                    expect: true,
+                },
+                Check {
+                    scenario: "metadata is surfaced",
+                    input: "metadata_present",
+                    expect: true,
+                },
+            ],
+            |which| {
+                let proto = rpc::forge::VpcPrefix::from(test_vpc_prefix(
+                    VpcPrefixControllerState::Ready,
+                    None,
+                ));
+                match which {
+                    "deprecated_prefix" => proto.prefix == "10.0.0.0/24",
+                    "config_matches" => proto.config.map(|c| c.prefix) == Some(proto.prefix),
+                    "id_present" => proto.id.is_some(),
+                    "vpc_id_present" => proto.vpc_id.is_some(),
+                    "metadata_present" => proto.metadata.is_some(),
+                    _ => false,
+                }
+            },
+        );
     }
 }

@@ -79,38 +79,236 @@ impl From<rpc::forge::Label> for LabelFilter {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
+    // `LabelFilter::from` is a total conversion: project to (key, value) — the two
+    // fields the originals asserted.
     #[test]
-    fn label_filter_from_rpc_with_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, Some("prod".to_string()));
+    fn label_filter_from_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "with value",
+                    input: rpc::forge::Label {
+                        key: "env".to_string(),
+                        value: Some("prod".to_string()),
+                    },
+                    expect: ("env".to_string(), Some("prod".to_string())),
+                },
+                Check {
+                    scenario: "without value",
+                    input: rpc::forge::Label {
+                        key: "env".to_string(),
+                        value: None,
+                    },
+                    expect: ("env".to_string(), None),
+                },
+                Check {
+                    scenario: "empty key",
+                    input: rpc::forge::Label {
+                        key: String::new(),
+                        value: Some("prod".to_string()),
+                    },
+                    expect: (String::new(), Some("prod".to_string())),
+                },
+            ],
+            |label| {
+                let filter = LabelFilter::from(label);
+                (filter.key, filter.value)
+            },
+        );
     }
 
+    // `Metadata -> rpc::Metadata` is a total conversion. Project the result to
+    // (name, description, sorted labels) so the row-by-row expects are
+    // order-independent (labels come out of a `HashMap`). An empty label value
+    // collapses to `None`; a non-empty one is wrapped in `Some`.
     #[test]
-    fn label_filter_from_rpc_without_value() {
-        let rpc_label = rpc::forge::Label {
-            key: "env".to_string(),
-            value: None,
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert_eq!(filter.key, "env");
-        assert_eq!(filter.value, None);
+    fn metadata_into_rpc() {
+        type Projected = (String, String, Vec<(String, Option<String>)>);
+
+        check_values(
+            [
+                Check {
+                    scenario: "name and description pass through, no labels",
+                    input: Metadata {
+                        name: "web".to_string(),
+                        description: "front end".to_string(),
+                        labels: HashMap::new(),
+                    },
+                    expect: ("web".to_string(), "front end".to_string(), vec![]),
+                },
+                Check {
+                    scenario: "empty fields pass through",
+                    input: Metadata::default(),
+                    expect: (String::new(), String::new(), vec![]),
+                },
+                Check {
+                    scenario: "non-empty label value becomes Some",
+                    input: Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: HashMap::from([("env".to_string(), "prod".to_string())]),
+                    },
+                    expect: (
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![("env".to_string(), Some("prod".to_string()))],
+                    ),
+                },
+                Check {
+                    scenario: "empty label value collapses to None",
+                    input: Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: HashMap::from([("env".to_string(), String::new())]),
+                    },
+                    expect: (
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![("env".to_string(), None)],
+                    ),
+                },
+                Check {
+                    scenario: "mixed empty and non-empty label values",
+                    input: Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: HashMap::from([
+                            ("a".to_string(), "1".to_string()),
+                            ("b".to_string(), String::new()),
+                        ]),
+                    },
+                    expect: (
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![
+                            ("a".to_string(), Some("1".to_string())),
+                            ("b".to_string(), None),
+                        ],
+                    ),
+                },
+            ],
+            |metadata| -> Projected {
+                let proto = rpc::Metadata::from(metadata);
+                let mut labels: Vec<(String, Option<String>)> = proto
+                    .labels
+                    .into_iter()
+                    .map(|label| (label.key, label.value))
+                    .collect();
+                labels.sort();
+                (proto.name, proto.description, labels)
+            },
+        );
     }
 
+    // `rpc::Metadata -> Metadata` is fallible: a duplicate label key is the one
+    // error arm. The error type carries non-PartialEq `#[from]` variants, so the
+    // failing rows use `Fails`. Project the Ok result to (name, description,
+    // sorted labels) for order-independent comparison.
     #[test]
-    fn label_filter_from_rpc_empty_key() {
-        let rpc_label = rpc::forge::Label {
-            key: String::new(),
-            value: Some("prod".to_string()),
-        };
-        let filter = LabelFilter::from(rpc_label);
-        assert!(filter.key.is_empty());
-        assert_eq!(filter.value, Some("prod".to_string()));
+    fn metadata_try_from_rpc() {
+        type Projected = (String, String, Vec<(String, String)>);
+
+        fn label(key: &str, value: Option<&str>) -> rpc::forge::Label {
+            rpc::forge::Label {
+                key: key.to_string(),
+                value: value.map(str::to_string),
+            }
+        }
+
+        check_cases(
+            [
+                Case {
+                    scenario: "no labels",
+                    input: rpc::Metadata {
+                        name: "web".to_string(),
+                        description: "front end".to_string(),
+                        labels: vec![],
+                    },
+                    expect: Yields(("web".to_string(), "front end".to_string(), vec![])),
+                },
+                Case {
+                    scenario: "empty fields",
+                    input: rpc::Metadata {
+                        name: String::new(),
+                        description: String::new(),
+                        labels: vec![],
+                    },
+                    expect: Yields((String::new(), String::new(), vec![])),
+                },
+                Case {
+                    scenario: "label with value",
+                    input: rpc::Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: vec![label("env", Some("prod"))],
+                    },
+                    expect: Yields((
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![("env".to_string(), "prod".to_string())],
+                    )),
+                },
+                Case {
+                    scenario: "absent label value defaults to empty string",
+                    input: rpc::Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: vec![label("env", None)],
+                    },
+                    expect: Yields((
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![("env".to_string(), String::new())],
+                    )),
+                },
+                Case {
+                    scenario: "multiple distinct keys",
+                    input: rpc::Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: vec![label("a", Some("1")), label("b", Some("2"))],
+                    },
+                    expect: Yields((
+                        "n".to_string(),
+                        "d".to_string(),
+                        vec![
+                            ("a".to_string(), "1".to_string()),
+                            ("b".to_string(), "2".to_string()),
+                        ],
+                    )),
+                },
+                Case {
+                    scenario: "duplicate key fails",
+                    input: rpc::Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: vec![label("env", Some("a")), label("env", Some("b"))],
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "duplicate key with differing present/absent values fails",
+                    input: rpc::Metadata {
+                        name: "n".to_string(),
+                        description: "d".to_string(),
+                        labels: vec![label("env", Some("a")), label("env", None)],
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto| -> Result<Projected, ()> {
+                let metadata = Metadata::try_from(proto).map_err(drop)?;
+                let mut labels: Vec<(String, String)> = metadata.labels.into_iter().collect();
+                labels.sort();
+                Ok((metadata.name, metadata.description, labels))
+            },
+        );
     }
 }

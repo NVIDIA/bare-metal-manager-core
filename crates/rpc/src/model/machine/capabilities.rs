@@ -190,174 +190,317 @@ impl TryFrom<rpc::MachineCapabilityDeviceType> for MachineCapabilityDeviceType {
 #[cfg(test)]
 mod tests {
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
     use crate::forge as rpc;
 
+    // The capability-type enum maps one model arm to one rpc arm; every arm is a
+    // `check_values` row over the infallible `From`.
+    #[test]
+    fn test_model_capability_type_to_rpc_conversion() {
+        check_values(
+            [
+                Check {
+                    scenario: "cpu",
+                    input: MachineCapabilityType::Cpu,
+                    expect: rpc::MachineCapabilityType::CapTypeCpu,
+                },
+                Check {
+                    scenario: "gpu",
+                    input: MachineCapabilityType::Gpu,
+                    expect: rpc::MachineCapabilityType::CapTypeGpu,
+                },
+                Check {
+                    scenario: "memory",
+                    input: MachineCapabilityType::Memory,
+                    expect: rpc::MachineCapabilityType::CapTypeMemory,
+                },
+                Check {
+                    scenario: "storage",
+                    input: MachineCapabilityType::Storage,
+                    expect: rpc::MachineCapabilityType::CapTypeStorage,
+                },
+                Check {
+                    scenario: "network",
+                    input: MachineCapabilityType::Network,
+                    expect: rpc::MachineCapabilityType::CapTypeNetwork,
+                },
+                Check {
+                    scenario: "infiniband",
+                    input: MachineCapabilityType::Infiniband,
+                    expect: rpc::MachineCapabilityType::CapTypeInfiniband,
+                },
+                Check {
+                    scenario: "dpu",
+                    input: MachineCapabilityType::Dpu,
+                    expect: rpc::MachineCapabilityType::CapTypeDpu,
+                },
+            ],
+            rpc::MachineCapabilityType::from,
+        );
+    }
+
+    // The reverse `TryFrom` accepts every named arm and rejects the invalid
+    // sentinel; the error type isn't `PartialEq`, so the Err arm is `Fails`.
+    #[test]
+    fn test_rpc_capability_type_to_model_conversion() {
+        check_cases(
+            [
+                Case {
+                    scenario: "invalid sentinel rejected",
+                    input: rpc::MachineCapabilityType::CapTypeInvalid,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "cpu",
+                    input: rpc::MachineCapabilityType::CapTypeCpu,
+                    expect: Yields(MachineCapabilityType::Cpu),
+                },
+                Case {
+                    scenario: "gpu",
+                    input: rpc::MachineCapabilityType::CapTypeGpu,
+                    expect: Yields(MachineCapabilityType::Gpu),
+                },
+                Case {
+                    scenario: "memory",
+                    input: rpc::MachineCapabilityType::CapTypeMemory,
+                    expect: Yields(MachineCapabilityType::Memory),
+                },
+                Case {
+                    scenario: "storage",
+                    input: rpc::MachineCapabilityType::CapTypeStorage,
+                    expect: Yields(MachineCapabilityType::Storage),
+                },
+                Case {
+                    scenario: "network",
+                    input: rpc::MachineCapabilityType::CapTypeNetwork,
+                    expect: Yields(MachineCapabilityType::Network),
+                },
+                Case {
+                    scenario: "infiniband",
+                    input: rpc::MachineCapabilityType::CapTypeInfiniband,
+                    expect: Yields(MachineCapabilityType::Infiniband),
+                },
+                Case {
+                    scenario: "dpu",
+                    input: rpc::MachineCapabilityType::CapTypeDpu,
+                    expect: Yields(MachineCapabilityType::Dpu),
+                },
+            ],
+            |t| MachineCapabilityType::try_from(t).map_err(drop),
+        );
+    }
+
+    // The device-type enum maps one model arm to one rpc arm; every arm is a
+    // `check_values` row over the infallible `From`.
+    #[test]
+    fn test_model_device_type_to_rpc_conversion() {
+        check_values(
+            [
+                Check {
+                    scenario: "unknown",
+                    input: MachineCapabilityDeviceType::Unknown,
+                    expect: rpc::MachineCapabilityDeviceType::Unknown,
+                },
+                Check {
+                    scenario: "dpu",
+                    input: MachineCapabilityDeviceType::Dpu,
+                    expect: rpc::MachineCapabilityDeviceType::Dpu,
+                },
+                Check {
+                    scenario: "nvlink (NvLink -> Nvlink)",
+                    input: MachineCapabilityDeviceType::NvLink,
+                    expect: rpc::MachineCapabilityDeviceType::Nvlink,
+                },
+            ],
+            rpc::MachineCapabilityDeviceType::from,
+        );
+    }
+
+    // The reverse device-type `TryFrom` accepts every rpc arm; it has no failing
+    // arm today, so every row is a `Yields`. Error type isn't `PartialEq`.
+    #[test]
+    fn test_rpc_device_type_to_model_conversion() {
+        check_cases(
+            [
+                Case {
+                    scenario: "unknown",
+                    input: rpc::MachineCapabilityDeviceType::Unknown,
+                    expect: Yields(MachineCapabilityDeviceType::Unknown),
+                },
+                Case {
+                    scenario: "dpu",
+                    input: rpc::MachineCapabilityDeviceType::Dpu,
+                    expect: Yields(MachineCapabilityDeviceType::Dpu),
+                },
+                Case {
+                    scenario: "nvlink (Nvlink -> NvLink)",
+                    input: rpc::MachineCapabilityDeviceType::Nvlink,
+                    expect: Yields(MachineCapabilityDeviceType::NvLink),
+                },
+            ],
+            |t| MachineCapabilityDeviceType::try_from(t).map_err(drop),
+        );
+    }
+
+    // Each per-attribute model -> rpc conversion is a distinct total `From` over a
+    // distinct pair of types, so each is one `Check` row exercising that `.into()`.
+
     #[test]
     fn test_model_cpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesCpu {
-            name: "pentium 4 HT".to_string(),
-            count: 1,
-            vendor: Some("intel".to_string()),
-            cores: Some(1),
-            threads: Some(2),
-        };
-
-        let machine_cap = MachineCapabilityCpu {
-            name: "pentium 4 HT".to_string(),
-            count: 1,
-            vendor: Some("intel".to_string()),
-            cores: Some(1),
-            threads: Some(2),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesCpu::from(machine_cap)
-        );
+        Check {
+            scenario: "cpu capability converts field-for-field",
+            input: MachineCapabilityCpu {
+                name: "pentium 4 HT".to_string(),
+                count: 1,
+                vendor: Some("intel".to_string()),
+                cores: Some(1),
+                threads: Some(2),
+            },
+            expect: rpc::MachineCapabilityAttributesCpu {
+                name: "pentium 4 HT".to_string(),
+                count: 1,
+                vendor: Some("intel".to_string()),
+                cores: Some(1),
+                threads: Some(2),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesCpu::from);
     }
 
     #[test]
     fn test_model_gpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesGpu {
-            name: "RTX 6000".to_string(),
-            count: 1,
-            frequency: Some("1.2 giggawattz".to_string()),
-            vendor: Some("nvidia".to_string()),
-            cores: Some(1),
-            threads: Some(2),
-            capacity: Some("24 GB".to_string()),
-            device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
-        };
-
-        let machine_cap = MachineCapabilityGpu {
-            name: "RTX 6000".to_string(),
-            count: 1,
-            frequency: Some("1.2 giggawattz".to_string()),
-            vendor: Some("nvidia".to_string()),
-            cores: Some(1),
-            threads: Some(2),
-            memory_capacity: Some("24 GB".to_string()),
-            device_type: Some(MachineCapabilityDeviceType::Unknown),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesGpu::from(machine_cap)
-        );
+        Check {
+            scenario: "gpu capability converts (memory_capacity -> capacity, device_type mapped)",
+            input: MachineCapabilityGpu {
+                name: "RTX 6000".to_string(),
+                count: 1,
+                frequency: Some("1.2 giggawattz".to_string()),
+                vendor: Some("nvidia".to_string()),
+                cores: Some(1),
+                threads: Some(2),
+                memory_capacity: Some("24 GB".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
+            },
+            expect: rpc::MachineCapabilityAttributesGpu {
+                name: "RTX 6000".to_string(),
+                count: 1,
+                frequency: Some("1.2 giggawattz".to_string()),
+                vendor: Some("nvidia".to_string()),
+                cores: Some(1),
+                threads: Some(2),
+                capacity: Some("24 GB".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesGpu::from);
     }
 
     #[test]
     fn test_model_memory_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesMemory {
-            name: "DDR4".to_string(),
-            count: 1,
-            vendor: Some("crucial".to_string()),
-            capacity: Some("32 GB".to_string()),
-        };
-
-        let machine_cap = MachineCapabilityMemory {
-            name: "DDR4".to_string(),
-            count: 1,
-            vendor: Some("crucial".to_string()),
-            capacity: Some("32 GB".to_string()),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesMemory::from(machine_cap)
-        );
+        Check {
+            scenario: "memory capability converts field-for-field",
+            input: MachineCapabilityMemory {
+                name: "DDR4".to_string(),
+                count: 1,
+                vendor: Some("crucial".to_string()),
+                capacity: Some("32 GB".to_string()),
+            },
+            expect: rpc::MachineCapabilityAttributesMemory {
+                name: "DDR4".to_string(),
+                count: 1,
+                vendor: Some("crucial".to_string()),
+                capacity: Some("32 GB".to_string()),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesMemory::from);
     }
 
     #[test]
     fn test_model_storage_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesStorage {
-            name: "Spinning Disk".to_string(),
-            count: 1,
-            vendor: Some("western digital".to_string()),
-            capacity: Some("1 TB".to_string()),
-        };
-
-        let machine_cap = MachineCapabilityStorage {
-            name: "Spinning Disk".to_string(),
-            count: 1,
-            vendor: Some("western digital".to_string()),
-            capacity: Some("1 TB".to_string()),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesStorage::from(machine_cap)
-        );
+        Check {
+            scenario: "storage capability converts field-for-field",
+            input: MachineCapabilityStorage {
+                name: "Spinning Disk".to_string(),
+                count: 1,
+                vendor: Some("western digital".to_string()),
+                capacity: Some("1 TB".to_string()),
+            },
+            expect: rpc::MachineCapabilityAttributesStorage {
+                name: "Spinning Disk".to_string(),
+                count: 1,
+                vendor: Some("western digital".to_string()),
+                capacity: Some("1 TB".to_string()),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesStorage::from);
     }
 
     #[test]
     fn test_model_network_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesNetwork {
-            name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
-            count: 1,
-            vendor: Some("0x14e4".to_string()),
-            device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
-        };
-
-        let machine_cap = MachineCapabilityNetwork {
-            name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
-            count: 1,
-            vendor: Some("0x14e4".to_string()),
-            device_type: Some(MachineCapabilityDeviceType::Unknown),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesNetwork::from(machine_cap)
-        );
+        Check {
+            scenario: "network capability converts (device_type mapped)",
+            input: MachineCapabilityNetwork {
+                name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
+                count: 1,
+                vendor: Some("0x14e4".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown),
+            },
+            expect: rpc::MachineCapabilityAttributesNetwork {
+                name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
+                count: 1,
+                vendor: Some("0x14e4".to_string()),
+                device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesNetwork::from);
     }
 
     #[test]
     fn test_model_infiniband_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesInfiniband {
-            name: "IB NIC".to_string(),
-            count: 4,
-            vendor: Some("IB NIC Vendor".to_string()),
-            inactive_devices: vec![0, 2],
-        };
-
-        let machine_cap = MachineCapabilityInfiniband {
-            name: "IB NIC".to_string(),
-            count: 4,
-            vendor: "IB NIC Vendor".to_string(),
-            inactive_devices: vec![0, 2],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesInfiniband::from(machine_cap)
-        );
+        Check {
+            scenario: "infiniband capability converts (vendor wrapped in Some)",
+            input: MachineCapabilityInfiniband {
+                name: "IB NIC".to_string(),
+                count: 4,
+                vendor: "IB NIC Vendor".to_string(),
+                inactive_devices: vec![0, 2],
+            },
+            expect: rpc::MachineCapabilityAttributesInfiniband {
+                name: "IB NIC".to_string(),
+                count: 4,
+                vendor: Some("IB NIC Vendor".to_string()),
+                inactive_devices: vec![0, 2],
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesInfiniband::from);
     }
 
     #[test]
     fn test_model_dpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesDpu {
-            name: "bf3".to_string(),
-            count: 1,
-            hardware_revision: Some("uh, 3?".to_string()),
-        };
-
-        let machine_cap = MachineCapabilityDpu {
-            name: "bf3".to_string(),
-            count: 1,
-            hardware_revision: Some("uh, 3?".to_string()),
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::MachineCapabilityAttributesDpu::from(machine_cap)
-        );
+        Check {
+            scenario: "dpu capability converts field-for-field",
+            input: MachineCapabilityDpu {
+                name: "bf3".to_string(),
+                count: 1,
+                hardware_revision: Some("uh, 3?".to_string()),
+            },
+            expect: rpc::MachineCapabilityAttributesDpu {
+                name: "bf3".to_string(),
+                count: 1,
+                hardware_revision: Some("uh, 3?".to_string()),
+            },
+        }
+        .check(rpc::MachineCapabilityAttributesDpu::from);
     }
 
+    // The whole-set conversion delegates to the per-attribute `From` impls above;
+    // one `Check` row exercises the aggregate `.into()` over a populated set.
     #[test]
     fn test_model_capability_set_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilitiesSet {
+        let expect = rpc::MachineCapabilitiesSet {
             cpu: vec![rpc::MachineCapabilityAttributesCpu {
                 name: "xeon".to_string(),
                 count: 2,
@@ -414,7 +557,7 @@ mod tests {
             }],
         };
 
-        let machine_cap = MachineCapabilitiesSet {
+        let input = MachineCapabilitiesSet {
             cpu: vec![MachineCapabilityCpu {
                 name: "xeon".to_string(),
                 count: 2,
@@ -471,6 +614,11 @@ mod tests {
             }],
         };
 
-        assert_eq!(req_type, rpc::MachineCapabilitiesSet::from(machine_cap));
+        Check {
+            scenario: "populated set converts each attribute vec",
+            input,
+            expect,
+        }
+        .check(rpc::MachineCapabilitiesSet::from);
     }
 }

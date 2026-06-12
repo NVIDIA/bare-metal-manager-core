@@ -253,6 +253,9 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
     fn make_test_creation_request(
@@ -297,88 +300,410 @@ mod tests {
         }
     }
 
+    // Every row drives the same conversion (NewNetworkSegment::try_from): IPv6 and
+    // dual-stack prefixes are accepted (and the resulting prefix count / IPv6-ness
+    // preserved), while tenant segments reject too-small IPv4 (/31, /32) and IPv6
+    // (/127, /128) prefixes. Accepting rows project to (prefix count, first prefix
+    // is IPv6); rejecting rows assert only that the conversion fails.
     #[test]
-    fn test_ipv6_prefix_accepted() {
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::/64")],
-            NetworkSegmentType::Admin,
-        );
-        let result = NewNetworkSegment::try_from(request);
-        assert!(result.is_ok(), "IPv6 prefix should be accepted: {result:?}");
-        let segment = result.unwrap();
-        assert_eq!(segment.prefixes.len(), 1);
-        assert!(segment.prefixes[0].prefix.is_ipv6());
-    }
-
-    #[test]
-    fn test_dual_stack_prefixes_accepted() {
-        let request = make_test_creation_request(
-            vec![
-                ipv4_prefix("192.0.2.0/24", Some("192.0.2.1")),
-                ipv6_prefix("2001:db8::/64"),
+    fn try_from_creation_request_validates_prefixes() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ipv6 prefix accepted (admin)",
+                    input: make_test_creation_request(
+                        vec![ipv6_prefix("2001:db8::/64")],
+                        NetworkSegmentType::Admin,
+                    ),
+                    expect: Yields((1, true)),
+                },
+                Case {
+                    scenario: "dual-stack prefixes accepted (admin)",
+                    input: make_test_creation_request(
+                        vec![
+                            ipv4_prefix("192.0.2.0/24", Some("192.0.2.1")),
+                            ipv6_prefix("2001:db8::/64"),
+                        ],
+                        NetworkSegmentType::Admin,
+                    ),
+                    expect: Yields((2, false)),
+                },
+                Case {
+                    scenario: "tenant /64 IPv6 allowed",
+                    input: make_test_creation_request(
+                        vec![ipv6_prefix("2001:db8::/64")],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Yields((1, true)),
+                },
+                Case {
+                    scenario: "tenant /127 IPv6 rejected",
+                    input: make_test_creation_request(
+                        vec![ipv6_prefix("2001:db8::1/127")],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tenant /128 IPv6 rejected",
+                    input: make_test_creation_request(
+                        vec![ipv6_prefix("2001:db8::1/128")],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tenant /24 IPv4 allowed",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Yields((1, false)),
+                },
+                Case {
+                    scenario: "tenant /31 IPv4 rejected",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/31", Some("192.0.2.1"))],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tenant /32 IPv4 rejected",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/32", None)],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Fails,
+                },
             ],
+            // The error type (RpcDataConversionError) is not asserted by these rows,
+            // so failing rows discard it; accepting rows project to the prefix count
+            // and whether the first prefix is IPv6.
+            |request| {
+                NewNetworkSegment::try_from(request)
+                    .map(|segment| (segment.prefixes.len(), segment.prefixes[0].prefix.is_ipv6()))
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // Empty prefixes are rejected outright, regardless of segment type.
+    #[test]
+    fn try_from_creation_request_rejects_empty_prefixes() {
+        check_cases(
+            [
+                Case {
+                    scenario: "admin with no prefixes",
+                    input: make_test_creation_request(vec![], NetworkSegmentType::Admin),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "tenant with no prefixes",
+                    input: make_test_creation_request(vec![], NetworkSegmentType::Tenant),
+                    expect: Fails,
+                },
+            ],
+            |request| NewNetworkSegment::try_from(request).map(drop).map_err(drop),
+        );
+    }
+
+    // When `mtu` is absent the conversion supplies a type-dependent default:
+    // 9000 for tenant segments, 1500 otherwise. An explicit `mtu` overrides both.
+    // Each row projects to the resulting segment's mtu.
+    #[test]
+    fn try_from_creation_request_defaults_mtu_by_type() {
+        fn request_with_mtu(
+            mtu: Option<i32>,
+            segment_type: NetworkSegmentType,
+        ) -> rpc::forge::NetworkSegmentCreationRequest {
+            let mut request = make_test_creation_request(
+                vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                segment_type,
+            );
+            request.mtu = mtu;
+            request
+        }
+
+        check_cases(
+            [
+                Case {
+                    scenario: "tenant default mtu is 9000",
+                    input: request_with_mtu(None, NetworkSegmentType::Tenant),
+                    expect: Yields(DEFAULT_MTU_TENANT),
+                },
+                Case {
+                    scenario: "admin default mtu is 1500",
+                    input: request_with_mtu(None, NetworkSegmentType::Admin),
+                    expect: Yields(DEFAULT_MTU_OTHER),
+                },
+                Case {
+                    scenario: "underlay default mtu is 1500",
+                    input: request_with_mtu(None, NetworkSegmentType::Underlay),
+                    expect: Yields(DEFAULT_MTU_OTHER),
+                },
+                Case {
+                    scenario: "host-inband default mtu is 1500",
+                    input: request_with_mtu(None, NetworkSegmentType::HostInband),
+                    expect: Yields(DEFAULT_MTU_OTHER),
+                },
+                Case {
+                    scenario: "explicit mtu overrides tenant default",
+                    input: request_with_mtu(Some(1400), NetworkSegmentType::Tenant),
+                    expect: Yields(1400),
+                },
+                Case {
+                    scenario: "explicit mtu overrides admin default",
+                    input: request_with_mtu(Some(1400), NetworkSegmentType::Admin),
+                    expect: Yields(1400),
+                },
+            ],
+            |request| NewNetworkSegment::try_from(request).map(|s| s.mtu).map_err(drop),
+        );
+    }
+
+    // `can_stretch` is set to Some(true) for tenant segments and left None for
+    // every other type. Each row projects to the resulting `can_stretch`.
+    #[test]
+    fn try_from_creation_request_sets_can_stretch_for_tenant() {
+        check_cases(
+            [
+                Case {
+                    scenario: "tenant is stretchable",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Yields(Some(true)),
+                },
+                Case {
+                    scenario: "admin is not stretchable",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Admin,
+                    ),
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "underlay is not stretchable",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Underlay,
+                    ),
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "host-inband is not stretchable",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::HostInband,
+                    ),
+                    expect: Yields(None),
+                },
+            ],
+            |request| {
+                NewNetworkSegment::try_from(request)
+                    .map(|s| s.can_stretch)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // The conversion carries the segment type through and defaults the allocation
+    // strategy to Dynamic. Each row projects to (segment_type, allocation_strategy).
+    #[test]
+    fn try_from_creation_request_carries_segment_type() {
+        check_cases(
+            [
+                Case {
+                    scenario: "tenant type preserved",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Tenant,
+                    ),
+                    expect: Yields((NetworkSegmentType::Tenant, AllocationStrategy::Dynamic)),
+                },
+                Case {
+                    scenario: "admin type preserved",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Admin,
+                    ),
+                    expect: Yields((NetworkSegmentType::Admin, AllocationStrategy::Dynamic)),
+                },
+                Case {
+                    scenario: "underlay type preserved",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::Underlay,
+                    ),
+                    expect: Yields((NetworkSegmentType::Underlay, AllocationStrategy::Dynamic)),
+                },
+                Case {
+                    scenario: "host-inband type preserved",
+                    input: make_test_creation_request(
+                        vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
+                        NetworkSegmentType::HostInband,
+                    ),
+                    expect: Yields((NetworkSegmentType::HostInband, AllocationStrategy::Dynamic)),
+                },
+            ],
+            |request| {
+                NewNetworkSegment::try_from(request)
+                    .map(|s| (s.segment_type, s.allocation_strategy))
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // An unrecognized `segment_type` discriminant fails the whole conversion.
+    #[test]
+    fn try_from_creation_request_rejects_unknown_segment_type() {
+        let mut request = make_test_creation_request(
+            vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
             NetworkSegmentType::Admin,
         );
-        let result = NewNetworkSegment::try_from(request);
-        assert!(result.is_ok(), "Dual-stack should be accepted: {result:?}");
-        let segment = result.unwrap();
-        assert_eq!(segment.prefixes.len(), 2);
+        request.segment_type = 999;
+
+        Case {
+            scenario: "unknown segment type discriminant",
+            input: request,
+            expect: Fails,
+        }
+        .check(|request| NewNetworkSegment::try_from(request).map(drop).map_err(drop));
     }
 
+    // i32 -> NetworkSegmentType: each valid discriminant maps to its arm, and any
+    // out-of-range value fails. The error type is not asserted, so failing rows
+    // discard it.
     #[test]
-    fn test_ipv6_tenant_prefix_size_validation() {
-        // /64 should be allowed for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::/64")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_ok(),
-            "/64 IPv6 prefix should be allowed for tenant segments"
-        );
-
-        // /127 should be rejected for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::1/127")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_err(),
-            "/127 IPv6 prefix should be rejected for tenant segments"
-        );
-
-        // /128 should be rejected for tenant segments
-        let request = make_test_creation_request(
-            vec![ipv6_prefix("2001:db8::1/128")],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(
-            NewNetworkSegment::try_from(request).is_err(),
-            "/128 IPv6 prefix should be rejected for tenant segments"
+    fn network_segment_type_from_i32() {
+        check_cases(
+            [
+                Case {
+                    scenario: "0 -> Tenant",
+                    input: rpc::forge::NetworkSegmentType::Tenant as i32,
+                    expect: Yields(NetworkSegmentType::Tenant),
+                },
+                Case {
+                    scenario: "1 -> Admin",
+                    input: rpc::forge::NetworkSegmentType::Admin as i32,
+                    expect: Yields(NetworkSegmentType::Admin),
+                },
+                Case {
+                    scenario: "2 -> Underlay",
+                    input: rpc::forge::NetworkSegmentType::Underlay as i32,
+                    expect: Yields(NetworkSegmentType::Underlay),
+                },
+                Case {
+                    scenario: "3 -> HostInband",
+                    input: rpc::forge::NetworkSegmentType::HostInband as i32,
+                    expect: Yields(NetworkSegmentType::HostInband),
+                },
+                Case {
+                    scenario: "unknown discriminant rejected",
+                    input: 999,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "negative discriminant rejected",
+                    input: -1,
+                    expect: Fails,
+                },
+            ],
+            |value| NetworkSegmentType::rpc_try_from(value).map_err(drop),
         );
     }
 
+    // NetworkSegmentSearchFilter::from is a direct field copy; each row projects
+    // to (name, tenant_org_id) so present vs absent optionals are both exercised.
     #[test]
-    fn test_ipv4_tenant_prefix_size_validation_unchanged() {
-        // /24 should be allowed
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/24", Some("192.0.2.1"))],
-            NetworkSegmentType::Tenant,
+    fn search_filter_from_proto() {
+        check_values(
+            [
+                Check {
+                    scenario: "both fields present",
+                    input: rpc::forge::NetworkSegmentSearchFilter {
+                        name: Some("seg".to_string()),
+                        tenant_org_id: Some("org".to_string()),
+                    },
+                    expect: (Some("seg".to_string()), Some("org".to_string())),
+                },
+                Check {
+                    scenario: "name only",
+                    input: rpc::forge::NetworkSegmentSearchFilter {
+                        name: Some("seg".to_string()),
+                        tenant_org_id: None,
+                    },
+                    expect: (Some("seg".to_string()), None),
+                },
+                Check {
+                    scenario: "tenant_org_id only",
+                    input: rpc::forge::NetworkSegmentSearchFilter {
+                        name: None,
+                        tenant_org_id: Some("org".to_string()),
+                    },
+                    expect: (None, Some("org".to_string())),
+                },
+                Check {
+                    scenario: "both absent",
+                    input: rpc::forge::NetworkSegmentSearchFilter {
+                        name: None,
+                        tenant_org_id: None,
+                    },
+                    expect: (None, None),
+                },
+            ],
+            |proto| {
+                let filter = NetworkSegmentSearchFilter::from(proto);
+                (filter.name, filter.tenant_org_id)
+            },
         );
-        assert!(NewNetworkSegment::try_from(request).is_ok());
+    }
 
-        // /31 should be rejected
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/31", Some("192.0.2.1"))],
-            NetworkSegmentType::Tenant,
+    // NetworkSegmentSearchConfig::from is a direct bool copy; each row projects to
+    // (include_history, include_num_free_ips) across all four combinations.
+    #[test]
+    fn search_config_from_proto() {
+        check_values(
+            [
+                Check {
+                    scenario: "both false",
+                    input: rpc::forge::NetworkSegmentSearchConfig {
+                        include_history: false,
+                        include_num_free_ips: false,
+                    },
+                    expect: (false, false),
+                },
+                Check {
+                    scenario: "history only",
+                    input: rpc::forge::NetworkSegmentSearchConfig {
+                        include_history: true,
+                        include_num_free_ips: false,
+                    },
+                    expect: (true, false),
+                },
+                Check {
+                    scenario: "free ips only",
+                    input: rpc::forge::NetworkSegmentSearchConfig {
+                        include_history: false,
+                        include_num_free_ips: true,
+                    },
+                    expect: (false, true),
+                },
+                Check {
+                    scenario: "both true",
+                    input: rpc::forge::NetworkSegmentSearchConfig {
+                        include_history: true,
+                        include_num_free_ips: true,
+                    },
+                    expect: (true, true),
+                },
+            ],
+            |proto| {
+                let config = NetworkSegmentSearchConfig::from(proto);
+                (config.include_history, config.include_num_free_ips)
+            },
         );
-        assert!(NewNetworkSegment::try_from(request).is_err());
-
-        // /32 should be rejected
-        let request = make_test_creation_request(
-            vec![ipv4_prefix("192.0.2.0/32", None)],
-            NetworkSegmentType::Tenant,
-        );
-        assert!(NewNetworkSegment::try_from(request).is_err());
     }
 }

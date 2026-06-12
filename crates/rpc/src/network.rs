@@ -72,48 +72,144 @@ pub fn vpc_virtualization_type_try_from_rpc(
 #[cfg(test)]
 mod test {
     use carbide_network::virtualization::VpcVirtualizationType;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
+    // proto -> model: `From<rpc::VpcVirtualizationType>` (infallible). Every proto
+    // arm, including the deprecated etv-with-nvue / fnn-classic / fnn-l3 aliases
+    // that collapse onto a live model variant.
     #[test]
-    fn from_rpc_etv_with_nvue_maps_to_etv() {
+    fn from_rpc_maps_to_model() {
         #[allow(deprecated)]
-        let vtype: VpcVirtualizationType =
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
+        check_values(
+            [
+                Check {
+                    scenario: "etv maps to etv",
+                    input: rpc::VpcVirtualizationType::EthernetVirtualizer,
+                    expect: VpcVirtualizationType::EthernetVirtualizer,
+                },
+                Check {
+                    scenario: "etv-with-nvue maps to etv",
+                    input: rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: VpcVirtualizationType::EthernetVirtualizer,
+                },
+                Check {
+                    scenario: "fnn maps to fnn",
+                    input: rpc::VpcVirtualizationType::Fnn,
+                    expect: VpcVirtualizationType::Fnn,
+                },
+                Check {
+                    scenario: "deprecated fnn-classic maps to fnn",
+                    input: rpc::VpcVirtualizationType::FnnClassic,
+                    expect: VpcVirtualizationType::Fnn,
+                },
+                Check {
+                    scenario: "deprecated fnn-l3 maps to fnn",
+                    input: rpc::VpcVirtualizationType::FnnL3,
+                    expect: VpcVirtualizationType::Fnn,
+                },
+                Check {
+                    scenario: "flat round-trips to flat",
+                    input: rpc::VpcVirtualizationType::Flat,
+                    expect: VpcVirtualizationType::Flat,
+                },
+            ],
+            |v| v.into(),
+        );
     }
 
+    // model -> proto: `From<VpcVirtualizationType>` (infallible). Every model arm,
+    // including the deprecated etv-with-nvue alias that folds onto proto etv.
     #[test]
-    fn to_rpc_etv_maps_to_proto_etv() {
-        let rpc_vtype: rpc::VpcVirtualizationType =
-            VpcVirtualizationType::EthernetVirtualizer.into();
-        assert_eq!(rpc_vtype, rpc::VpcVirtualizationType::EthernetVirtualizer);
+    fn to_rpc_maps_to_proto() {
+        check_values(
+            [
+                Check {
+                    scenario: "etv maps to proto etv",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: rpc::VpcVirtualizationType::EthernetVirtualizer,
+                },
+                Check {
+                    scenario: "etv-with-nvue folds onto proto etv",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: rpc::VpcVirtualizationType::EthernetVirtualizer,
+                },
+                Check {
+                    scenario: "fnn maps to proto fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: rpc::VpcVirtualizationType::Fnn,
+                },
+                Check {
+                    scenario: "flat round-trips to proto flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: rpc::VpcVirtualizationType::Flat,
+                },
+            ],
+            |v| v.into(),
+        );
     }
 
+    // proto i32 -> model: `vpc_virtualization_type_try_from_rpc` (fallible). Each
+    // known proto discriminant on the Ok arm, plus the Err arm for an i32 that
+    // names no proto variant (negative, the retired gap value 1, out-of-range).
+    // `RpcDataConversionError` is not `PartialEq`, so use `Fails` with `map_err`.
     #[test]
-    fn proto_value_2_maps_to_etv() {
-        // Make sure our proto From implementation turns
-        // ETHERNET_VIRTUALIZER_WITH_NVUE into EthernetVirtualizer.
-        let vtype = vpc_virtualization_type_try_from_rpc(2).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn proto_value_0_maps_to_etv() {
-        let vtype = vpc_virtualization_type_try_from_rpc(0).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
-    }
-
-    #[test]
-    fn flat_round_trips() {
-        let rpc_vtype: rpc::VpcVirtualizationType = VpcVirtualizationType::Flat.into();
-        assert_eq!(rpc_vtype, rpc::VpcVirtualizationType::Flat);
-
-        let vtype: VpcVirtualizationType = rpc::VpcVirtualizationType::Flat.into();
-        assert_eq!(vtype, VpcVirtualizationType::Flat);
-
-        let vtype =
-            vpc_virtualization_type_try_from_rpc(rpc::VpcVirtualizationType::Flat as i32).unwrap();
-        assert_eq!(vtype, VpcVirtualizationType::Flat);
+    fn try_from_rpc_i32_maps_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "value 0 (etv) maps to etv",
+                    input: 0,
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    // proto field 2, ETHERNET_VIRTUALIZER_WITH_NVUE, maps to etv.
+                    scenario: "value 2 (etv-with-nvue) maps to etv",
+                    input: 2,
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    // The typed `From<rpc::VpcVirtualizationType>` collapses the
+                    // deprecated fnn-classic alias onto Fnn, but the i32 path does
+                    // not list it and rejects the raw discriminant.
+                    scenario: "fnn-classic (3) is rejected by the i32 path",
+                    input: rpc::VpcVirtualizationType::FnnClassic as i32,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "fnn-l3 (4) is rejected by the i32 path",
+                    input: rpc::VpcVirtualizationType::FnnL3 as i32,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "fnn (5) maps to fnn",
+                    input: rpc::VpcVirtualizationType::Fnn as i32,
+                    expect: Yields(VpcVirtualizationType::Fnn),
+                },
+                Case {
+                    scenario: "flat (6) round-trips from i32",
+                    input: rpc::VpcVirtualizationType::Flat as i32,
+                    expect: Yields(VpcVirtualizationType::Flat),
+                },
+                Case {
+                    scenario: "retired gap value 1 is invalid",
+                    input: 1,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "out-of-range high value is invalid",
+                    input: 7,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "negative value is invalid",
+                    input: -1,
+                    expect: Fails,
+                },
+            ],
+            |value| vpc_virtualization_type_try_from_rpc(value).map_err(drop),
+        );
     }
 }

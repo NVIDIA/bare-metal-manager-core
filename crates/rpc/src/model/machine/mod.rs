@@ -559,10 +559,247 @@ fn machine_instance_network_restrictions(
 
 #[cfg(test)]
 mod test {
+    use carbide_test_support::{Check, check_values};
+    use carbide_uuid::machine::MachineType;
+
     use crate as rpc;
+    use crate::forge_agent_control_response as fac;
     use crate::model::machine::{
         DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
+        MachineValidationFilter, RpcMachineTypeWrapper,
     };
+
+    #[test]
+    fn dpu_os_operational_state_to_rpc_maps_state_detail() {
+        check_values(
+            [
+                Check {
+                    scenario: "ready",
+                    input: "Ready".to_string(),
+                    expect: "Ready".to_string(),
+                },
+                Check {
+                    scenario: "empty detail",
+                    input: String::new(),
+                    expect: String::new(),
+                },
+            ],
+            |state_detail| {
+                let rpc: rpc::forge::DpuOsOperationalState =
+                    DpuOsOperationalState { state_detail }.into();
+                rpc.state_detail
+            },
+        );
+    }
+
+    #[test]
+    fn dpu_representor_status_to_rpc_maps_every_field() {
+        // (carrier_up, state) -> round-tripped tuple, exercising present/absent optionals.
+        check_values(
+            [
+                Check {
+                    scenario: "both present, up",
+                    input: (Some(true), Some("up".to_string())),
+                    expect: (Some(true), Some("up".to_string())),
+                },
+                Check {
+                    scenario: "both present, down",
+                    input: (Some(false), Some("down".to_string())),
+                    expect: (Some(false), Some("down".to_string())),
+                },
+                Check {
+                    scenario: "both absent",
+                    input: (None, None),
+                    expect: (None, None),
+                },
+                Check {
+                    scenario: "carrier present, state absent",
+                    input: (Some(true), None),
+                    expect: (Some(true), None),
+                },
+            ],
+            |(carrier_up, state)| {
+                let rpc: rpc::forge::DpuRepresentorStatus = DpuRepresentorStatus {
+                    name: "pf0hpf".to_string(),
+                    carrier_up,
+                    state,
+                }
+                .into();
+                assert_eq!(rpc.name, "pf0hpf");
+                (rpc.carrier_up, rpc.state)
+            },
+        );
+    }
+
+    #[test]
+    fn dpu_info_status_observation_to_rpc_handles_optionals() {
+        // (os_operational_state present?, firmware_version, representor count, heartbeat present?)
+        // -> a bool predicate folding the resulting rpc shape.
+        check_values(
+            [
+                Check {
+                    scenario: "fully populated",
+                    input: (true, Some("24.42.1000".to_string()), 2usize, true),
+                    expect: true,
+                },
+                Check {
+                    scenario: "all optionals absent, no representors",
+                    input: (false, None, 0usize, false),
+                    expect: true,
+                },
+                Check {
+                    scenario: "only firmware present",
+                    input: (false, Some("1.0".to_string()), 0usize, false),
+                    expect: true,
+                },
+            ],
+            |(has_os, firmware_version, representor_count, has_heartbeat)| {
+                let observation = DpuInfoStatusObservation {
+                    os_operational_state: has_os.then(|| DpuOsOperationalState {
+                        state_detail: "Ready".to_string(),
+                    }),
+                    firmware_version: firmware_version.clone(),
+                    representors: (0..representor_count)
+                        .map(|i| DpuRepresentorStatus {
+                            name: format!("rep{i}"),
+                            carrier_up: Some(true),
+                            state: Some("up".to_string()),
+                        })
+                        .collect(),
+                    last_heartbeat: has_heartbeat.then(chrono::Utc::now),
+                };
+                let rpc: rpc::forge::DpuInfoStatusObservation = observation.into();
+                rpc.os_operational_state.is_some() == has_os
+                    && rpc.firmware_version == firmware_version
+                    && rpc.representors.len() == representor_count
+                    && rpc.last_heartbeat.is_some() == has_heartbeat
+            },
+        );
+    }
+
+    #[test]
+    fn dpu_info_to_rpc_with_and_without_observed_status() {
+        // (id, loopback_ip, observed_status present?) -> (id, loopback_ip, observed present?)
+        check_values(
+            [
+                Check {
+                    scenario: "with observed status",
+                    input: ("dpu-1".to_string(), "10.0.0.1".to_string(), true),
+                    expect: ("dpu-1".to_string(), "10.0.0.1".to_string(), true),
+                },
+                Check {
+                    scenario: "without observed status",
+                    input: ("dpu-2".to_string(), "10.0.0.2".to_string(), false),
+                    expect: ("dpu-2".to_string(), "10.0.0.2".to_string(), false),
+                },
+            ],
+            |(id, loopback_ip, has_status)| {
+                let info = DpuInfo {
+                    id,
+                    loopback_ip,
+                    observed_status: has_status.then(|| DpuInfoStatusObservation {
+                        os_operational_state: None,
+                        firmware_version: None,
+                        representors: vec![],
+                        last_heartbeat: None,
+                    }),
+                };
+                let rpc: rpc::forge::DpuInfo = info.into();
+                (rpc.id, rpc.loopback_ip, rpc.observed_status.is_some())
+            },
+        );
+    }
+
+    #[test]
+    fn machine_type_to_rpc_wrapper_covers_every_arm() {
+        check_values(
+            [
+                Check {
+                    scenario: "host stays host",
+                    input: MachineType::Host,
+                    expect: rpc::forge::MachineType::Host,
+                },
+                Check {
+                    scenario: "predicted host folds to host",
+                    input: MachineType::PredictedHost,
+                    expect: rpc::forge::MachineType::Host,
+                },
+                Check {
+                    scenario: "dpu stays dpu",
+                    input: MachineType::Dpu,
+                    expect: rpc::forge::MachineType::Dpu,
+                },
+            ],
+            |machine_type| *RpcMachineTypeWrapper::from(machine_type),
+        );
+    }
+
+    #[test]
+    fn rpc_filter_to_domain_filter_maps_contexts() {
+        // contexts present/absent is the only optional in the filter.
+        check_values(
+            [
+                Check {
+                    scenario: "contexts present",
+                    input: Some(vec!["ctx-a".to_string(), "ctx-b".to_string()]),
+                    expect: MachineValidationFilter {
+                        tags: vec!["tag".to_string()],
+                        allowed_tests: vec!["test".to_string()],
+                        run_unverfied_tests: Some(true),
+                        contexts: Some(vec!["ctx-a".to_string(), "ctx-b".to_string()]),
+                    },
+                },
+                Check {
+                    scenario: "contexts absent",
+                    input: None,
+                    expect: MachineValidationFilter {
+                        tags: vec!["tag".to_string()],
+                        allowed_tests: vec!["test".to_string()],
+                        run_unverfied_tests: Some(true),
+                        contexts: None,
+                    },
+                },
+            ],
+            |items| {
+                let rpc_filter = fac::MachineValidationFilter {
+                    tags: vec!["tag".to_string()],
+                    allowed_tests: vec!["test".to_string()],
+                    run_unverfied_tests: Some(true),
+                    contexts: items.map(|items| rpc::common::StringList { items }),
+                };
+                MachineValidationFilter::from(rpc_filter)
+            },
+        );
+    }
+
+    #[test]
+    fn domain_filter_to_rpc_filter_maps_contexts() {
+        // contexts present (wrapped in StringList) vs absent -> the inner Vec is what we assert.
+        check_values(
+            [
+                Check {
+                    scenario: "contexts present",
+                    input: Some(vec!["ctx-a".to_string()]),
+                    expect: Some(vec!["ctx-a".to_string()]),
+                },
+                Check {
+                    scenario: "contexts absent",
+                    input: None,
+                    expect: None,
+                },
+            ],
+            |contexts| {
+                let filter = MachineValidationFilter {
+                    tags: vec![],
+                    allowed_tests: vec![],
+                    run_unverfied_tests: None,
+                    contexts,
+                };
+                let rpc_filter: fac::MachineValidationFilter = filter.into();
+                rpc_filter.contexts.map(|list| list.items)
+            },
+        );
+    }
 
     #[test]
     fn dpu_info_to_rpc() {

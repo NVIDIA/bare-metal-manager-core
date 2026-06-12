@@ -629,147 +629,144 @@ impl TryFrom<rpc::NetworkSecurityGroupStatus> for NetworkSecurityGroupStatusObse
 mod tests {
     use std::collections::HashMap;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use config_version::ConfigVersion;
     use model::metadata::Metadata;
 
     use super::*;
     use crate::forge as rpc;
 
+    // `From<NetworkSecurityGroupPropagationObjectStatus>` derives the propagation
+    // status (and any details) from the applied-vs-expected interface counts.
     #[test]
     fn test_model_nsg_prop_obj_status_to_rpc_conversion() {
-        // Full
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
-            details: None,
-            unpropagated_instance_ids: vec![],
-            related_instance_ids: vec![],
-        };
-
-        let status = NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            interfaces_expected: 0,
-            interfaces_applied: 0,
-            unpropagated_instance_ids: vec![],
-            related_instance_ids: vec![],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
-        );
-
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
-            details: None,
-            related_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+        check_values(
+            [
+                Check {
+                    scenario: "full, no interfaces",
+                    input: NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        interfaces_expected: 0,
+                        interfaces_applied: 0,
+                        unpropagated_instance_ids: vec![],
+                        related_instance_ids: vec![],
+                    },
+                    expect: rpc::NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
+                            .into(),
+                        details: None,
+                        unpropagated_instance_ids: vec![],
+                        related_instance_ids: vec![],
+                    },
+                },
+                Check {
+                    scenario: "full, all interfaces applied",
+                    input: NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        interfaces_expected: 2,
+                        interfaces_applied: 2,
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+                        ],
+                        unpropagated_instance_ids: vec![],
+                    },
+                    expect: rpc::NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
+                            .into(),
+                        details: None,
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+                        ],
+                        unpropagated_instance_ids: vec![],
+                    },
+                },
+                Check {
+                    scenario: "partial, some interfaces applied",
+                    input: NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        interfaces_expected: 2,
+                        interfaces_applied: 1,
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+                        ],
+                        unpropagated_instance_ids: vec![
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+                        ],
+                    },
+                    expect: rpc::NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial
+                            .into(),
+                        details: None,
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+                        ],
+                        unpropagated_instance_ids: vec![
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+                        ],
+                    },
+                },
+                Check {
+                    scenario: "none, no interfaces applied",
+                    input: NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        interfaces_expected: 2,
+                        interfaces_applied: 0,
+                        related_instance_ids: vec![],
+                        unpropagated_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+                        ],
+                    },
+                    expect: rpc::NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
+                            .into(),
+                        details: None,
+                        related_instance_ids: vec![],
+                        unpropagated_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+                        ],
+                    },
+                },
+                Check {
+                    scenario: "unknown, applied exceeds expected",
+                    input: NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        interfaces_expected: 1,
+                        interfaces_applied: 2,
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
+                        ],
+                        unpropagated_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
+                        ],
+                    },
+                    expect: rpc::NetworkSecurityGroupPropagationObjectStatus {
+                        id: "any_id".to_string(),
+                        status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown
+                            .into(),
+                        details: Some("propagated objects exceeds expected objects".to_string()),
+                        related_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
+                        ],
+                        unpropagated_instance_ids: vec![
+                            "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
+                            "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
+                        ],
+                    },
+                },
             ],
-            unpropagated_instance_ids: vec![],
-        };
-
-        let status = NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            interfaces_expected: 2,
-            interfaces_applied: 2,
-            related_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
-            ],
-            unpropagated_instance_ids: vec![],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
-        );
-
-        // Partial
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
-            details: None,
-            related_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
-            ],
-            unpropagated_instance_ids: vec!["fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string()],
-        };
-
-        let status = NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            interfaces_expected: 2,
-            interfaces_applied: 1,
-            related_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
-            ],
-            unpropagated_instance_ids: vec![
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
-            ],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
-        );
-
-        // None
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
-            details: None,
-            related_instance_ids: vec![],
-            unpropagated_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
-            ],
-        };
-
-        let status = NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            interfaces_expected: 2,
-            interfaces_applied: 0,
-            related_instance_ids: vec![],
-            unpropagated_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
-            ],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
-        );
-
-        // Unknown
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown.into(),
-            details: Some("propagated objects exceeds expected objects".to_string()),
-            related_instance_ids: vec!["200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap()],
-            unpropagated_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".to_string(),
-            ],
-        };
-
-        let status = NetworkSecurityGroupPropagationObjectStatus {
-            id: "any_id".to_string(),
-            interfaces_expected: 1,
-            interfaces_applied: 2,
-            related_instance_ids: vec!["200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap()],
-            unpropagated_instance_ids: vec![
-                "200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap(),
-                "fb02b51c-3f18-46b8-b2f1-bc4a6e9b2f3d".parse().unwrap(),
-            ],
-        };
-
-        assert_eq!(
-            req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            rpc::NetworkSecurityGroupPropagationObjectStatus::from,
         );
     }
 
@@ -854,182 +851,204 @@ mod tests {
         assert_eq!(req_type, rpc::NetworkSecurityGroup::try_from(nsg).unwrap());
     }
 
+    // `TryFrom<rpc::NetworkSecurityGroupRuleAttributes>` rejects ill-formed rules:
+    // ports on port-less protocols, and prefix/protocol IP-version mismatches.
     #[test]
     fn test_rpc_rule_to_nsg_model_rule_conversion_failures() {
-        // ICMP with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: false,
-            src_port_start: Some(80),
-            src_port_end: Some(32768),
-            dst_port_start: Some(80),
-            dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "0.0.0.0/0".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "0.0.0.0/0".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // ICMP6 with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: true,
-            src_port_start: Some(80),
-            src_port_end: Some(32768),
-            dst_port_start: Some(80),
-            dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // ANY with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: true,
-            src_port_start: Some(80),
-            src_port_end: Some(32768),
-            dst_port_start: Some(80),
-            dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // v4 prefixes with v6 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: true,
-            src_port_start: Some(80),
-            src_port_end: Some(32768),
-            dst_port_start: Some(80),
-            dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "0.0.0.0/0".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "0.0.0.0/0".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // v6 prefixes with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: false,
-            src_port_start: Some(80),
-            src_port_end: Some(32768),
-            dst_port_start: Some(80),
-            dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // ICMP6 with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: false,
-            src_port_start: None,
-            src_port_end: None,
-            dst_port_start: None,
-            dst_port_end: None,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "1.1.1.1/24".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "1.1.1.1/24".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
-
-        // ICMP6 with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
-            ipv6: true,
-            src_port_start: None,
-            src_port_end: None,
-            dst_port_start: None,
-            dst_port_end: None,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-            destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "2001:db8:1234::f350:2256:f3dd/64".to_string(),
-                ),
-            ),
-        };
-        NetworkSecurityGroupRule::try_from(req).unwrap_err();
+        check_cases(
+            [
+                Case {
+                    scenario: "ICMP with ports",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: false,
+                        src_port_start: Some(80),
+                        src_port_end: Some(32768),
+                        dst_port_start: Some(80),
+                        dst_port_end: Some(32768),
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "0.0.0.0/0".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "0.0.0.0/0".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "ICMP6 with ports",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: true,
+                        src_port_start: Some(80),
+                        src_port_end: Some(32768),
+                        dst_port_start: Some(80),
+                        dst_port_end: Some(32768),
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "ANY with ports",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: true,
+                        src_port_start: Some(80),
+                        src_port_end: Some(32768),
+                        dst_port_start: Some(80),
+                        dst_port_end: Some(32768),
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "v4 prefixes with v6 rule",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: true,
+                        src_port_start: Some(80),
+                        src_port_end: Some(32768),
+                        dst_port_start: Some(80),
+                        dst_port_end: Some(32768),
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "0.0.0.0/0".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "0.0.0.0/0".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "v6 prefixes with v4 rule",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: false,
+                        src_port_start: Some(80),
+                        src_port_end: Some(32768),
+                        dst_port_start: Some(80),
+                        dst_port_end: Some(32768),
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "ICMP6 with v4 prefixes on v4 rule",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: false,
+                        src_port_start: None,
+                        src_port_end: None,
+                        dst_port_start: None,
+                        dst_port_end: None,
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "1.1.1.1/24".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "1.1.1.1/24".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "ICMP on v6 rule",
+                    input: rpc::NetworkSecurityGroupRuleAttributes {
+                        id: Some("anything".to_string()),
+                        direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            .into(),
+                        ipv6: true,
+                        src_port_start: None,
+                        src_port_end: None,
+                        dst_port_start: None,
+                        dst_port_end: None,
+                        protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+                        action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                        priority: 9001,
+                        source_net: Some(
+                            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                        destination_net: Some(
+                            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                "2001:db8:1234::f350:2256:f3dd/64".to_string(),
+                            ),
+                        ),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |req| NetworkSecurityGroupRule::try_from(req).map_err(drop),
+        );
     }
 
     #[test]
@@ -1060,5 +1079,685 @@ mod tests {
         };
 
         assert_eq!(req_type, rpc::NetworkSecurityGroupAttachments::from(status));
+    }
+
+    // `From<NetworkSecurityGroupSource>` maps each domain source onto its rpc enum.
+    #[test]
+    fn test_model_source_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "none",
+                    input: NetworkSecurityGroupSource::None,
+                    expect: rpc::NetworkSecurityGroupSource::NsgSourceNone,
+                },
+                Check {
+                    scenario: "vpc",
+                    input: NetworkSecurityGroupSource::Vpc,
+                    expect: rpc::NetworkSecurityGroupSource::NsgSourceVpc,
+                },
+                Check {
+                    scenario: "instance",
+                    input: NetworkSecurityGroupSource::Instance,
+                    expect: rpc::NetworkSecurityGroupSource::NsgSourceInstance,
+                },
+            ],
+            rpc::NetworkSecurityGroupSource::from,
+        );
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupSource>`: each valid arm maps back, and the
+    // `Invalid` sentinel is rejected.
+    #[test]
+    fn test_rpc_source_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "none",
+                    input: rpc::NetworkSecurityGroupSource::NsgSourceNone,
+                    expect: Yields(NetworkSecurityGroupSource::None),
+                },
+                Case {
+                    scenario: "vpc",
+                    input: rpc::NetworkSecurityGroupSource::NsgSourceVpc,
+                    expect: Yields(NetworkSecurityGroupSource::Vpc),
+                },
+                Case {
+                    scenario: "instance",
+                    input: rpc::NetworkSecurityGroupSource::NsgSourceInstance,
+                    expect: Yields(NetworkSecurityGroupSource::Instance),
+                },
+                Case {
+                    scenario: "invalid is rejected",
+                    input: rpc::NetworkSecurityGroupSource::NsgSourceInvalid,
+                    expect: Fails,
+                },
+            ],
+            |s| NetworkSecurityGroupSource::try_from(s).map_err(drop),
+        );
+    }
+
+    // `From<NetworkSecurityGroupPropagationStatus>` maps each domain status onto its
+    // rpc enum.
+    #[test]
+    fn test_model_prop_status_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "unknown",
+                    input: NetworkSecurityGroupPropagationStatus::Unknown,
+                    expect: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown,
+                },
+                Check {
+                    scenario: "full",
+                    input: NetworkSecurityGroupPropagationStatus::Full,
+                    expect: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull,
+                },
+                Check {
+                    scenario: "partial",
+                    input: NetworkSecurityGroupPropagationStatus::Partial,
+                    expect: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial,
+                },
+                Check {
+                    scenario: "none",
+                    input: NetworkSecurityGroupPropagationStatus::None,
+                    expect: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone,
+                },
+                Check {
+                    scenario: "error",
+                    input: NetworkSecurityGroupPropagationStatus::Error,
+                    expect: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusError,
+                },
+            ],
+            rpc::NetworkSecurityGroupPropagationStatus::from,
+        );
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupPropagationStatus>` maps every arm back; this
+    // conversion is total over the rpc enum (no `Invalid` rejection path).
+    #[test]
+    fn test_rpc_prop_status_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "unknown",
+                    input: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown,
+                    expect: Yields(NetworkSecurityGroupPropagationStatus::Unknown),
+                },
+                Case {
+                    scenario: "full",
+                    input: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull,
+                    expect: Yields(NetworkSecurityGroupPropagationStatus::Full),
+                },
+                Case {
+                    scenario: "partial",
+                    input: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial,
+                    expect: Yields(NetworkSecurityGroupPropagationStatus::Partial),
+                },
+                Case {
+                    scenario: "none",
+                    input: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone,
+                    expect: Yields(NetworkSecurityGroupPropagationStatus::None),
+                },
+                Case {
+                    scenario: "error",
+                    input: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusError,
+                    expect: Yields(NetworkSecurityGroupPropagationStatus::Error),
+                },
+            ],
+            |s| NetworkSecurityGroupPropagationStatus::try_from(s).map_err(drop),
+        );
+    }
+
+    // `From<NetworkSecurityGroupRuleDirection>` maps both directions onto the rpc enum.
+    #[test]
+    fn test_model_direction_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "ingress",
+                    input: NetworkSecurityGroupRuleDirection::Ingress,
+                    expect: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                },
+                Check {
+                    scenario: "egress",
+                    input: NetworkSecurityGroupRuleDirection::Egress,
+                    expect: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress,
+                },
+            ],
+            rpc::NetworkSecurityGroupRuleDirection::from,
+        );
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupRuleDirection>`: both directions map back, the
+    // `Invalid` sentinel is rejected.
+    #[test]
+    fn test_rpc_direction_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ingress",
+                    input: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                    expect: Yields(NetworkSecurityGroupRuleDirection::Ingress),
+                },
+                Case {
+                    scenario: "egress",
+                    input: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress,
+                    expect: Yields(NetworkSecurityGroupRuleDirection::Egress),
+                },
+                Case {
+                    scenario: "invalid is rejected",
+                    input: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionInvalid,
+                    expect: Fails,
+                },
+            ],
+            |d| NetworkSecurityGroupRuleDirection::try_from(d).map_err(drop),
+        );
+    }
+
+    // `From<NetworkSecurityGroupRuleProtocol>` maps each protocol onto the rpc enum.
+    #[test]
+    fn test_model_protocol_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "any",
+                    input: NetworkSecurityGroupRuleProtocol::Any,
+                    expect: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                },
+                Check {
+                    scenario: "icmp",
+                    input: NetworkSecurityGroupRuleProtocol::Icmp,
+                    expect: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp,
+                },
+                Check {
+                    scenario: "icmp6",
+                    input: NetworkSecurityGroupRuleProtocol::Icmp6,
+                    expect: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6,
+                },
+                Check {
+                    scenario: "udp",
+                    input: NetworkSecurityGroupRuleProtocol::Udp,
+                    expect: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp,
+                },
+                Check {
+                    scenario: "tcp",
+                    input: NetworkSecurityGroupRuleProtocol::Tcp,
+                    expect: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp,
+                },
+            ],
+            rpc::NetworkSecurityGroupRuleProtocol::from,
+        );
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupRuleProtocol>`: each protocol maps back, the
+    // `Invalid` sentinel is rejected.
+    #[test]
+    fn test_rpc_protocol_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "any",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                    expect: Yields(NetworkSecurityGroupRuleProtocol::Any),
+                },
+                Case {
+                    scenario: "icmp",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp,
+                    expect: Yields(NetworkSecurityGroupRuleProtocol::Icmp),
+                },
+                Case {
+                    scenario: "icmp6",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6,
+                    expect: Yields(NetworkSecurityGroupRuleProtocol::Icmp6),
+                },
+                Case {
+                    scenario: "udp",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp,
+                    expect: Yields(NetworkSecurityGroupRuleProtocol::Udp),
+                },
+                Case {
+                    scenario: "tcp",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp,
+                    expect: Yields(NetworkSecurityGroupRuleProtocol::Tcp),
+                },
+                Case {
+                    scenario: "invalid is rejected",
+                    input: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoInvalid,
+                    expect: Fails,
+                },
+            ],
+            |p| NetworkSecurityGroupRuleProtocol::try_from(p).map_err(drop),
+        );
+    }
+
+    // `From<NetworkSecurityGroupRuleAction>` maps both actions onto the rpc enum.
+    #[test]
+    fn test_model_action_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "deny",
+                    input: NetworkSecurityGroupRuleAction::Deny,
+                    expect: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny,
+                },
+                Check {
+                    scenario: "permit",
+                    input: NetworkSecurityGroupRuleAction::Permit,
+                    expect: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionPermit,
+                },
+            ],
+            rpc::NetworkSecurityGroupRuleAction::from,
+        );
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupRuleAction>`: both actions map back, the
+    // `Invalid` sentinel is rejected.
+    #[test]
+    fn test_rpc_action_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "deny",
+                    input: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny,
+                    expect: Yields(NetworkSecurityGroupRuleAction::Deny),
+                },
+                Case {
+                    scenario: "permit",
+                    input: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionPermit,
+                    expect: Yields(NetworkSecurityGroupRuleAction::Permit),
+                },
+                Case {
+                    scenario: "invalid is rejected",
+                    input: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionInvalid,
+                    expect: Fails,
+                },
+            ],
+            |a| NetworkSecurityGroupRuleAction::try_from(a).map_err(drop),
+        );
+    }
+
+    // `TryFrom<rpc::...::SourceNet>` parses the prefix string into a `Prefix`, and a
+    // malformed prefix is rejected.
+    #[test]
+    fn test_rpc_source_net_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "v4 prefix parses",
+                    input: rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "10.0.0.0/8".to_string(),
+                    ),
+                    expect: Yields(NetworkSecurityGroupRuleNet::Prefix(
+                        "10.0.0.0/8".parse().unwrap(),
+                    )),
+                },
+                Case {
+                    scenario: "v6 prefix parses",
+                    input: rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "2001:db8::/32".to_string(),
+                    ),
+                    expect: Yields(NetworkSecurityGroupRuleNet::Prefix(
+                        "2001:db8::/32".parse().unwrap(),
+                    )),
+                },
+                Case {
+                    scenario: "garbage prefix is rejected",
+                    input: rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "not-an-ip".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |n| NetworkSecurityGroupRuleNet::try_from(n).map_err(drop),
+        );
+    }
+
+    // `TryFrom<rpc::...::DestinationNet>` parses the prefix string into a `Prefix`,
+    // and a malformed prefix is rejected.
+    #[test]
+    fn test_rpc_destination_net_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "v4 prefix parses",
+                    input: rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "192.168.0.0/16".to_string(),
+                    ),
+                    expect: Yields(NetworkSecurityGroupRuleNet::Prefix(
+                        "192.168.0.0/16".parse().unwrap(),
+                    )),
+                },
+                Case {
+                    scenario: "v6 prefix parses",
+                    input: rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "fd00::/8".to_string(),
+                    ),
+                    expect: Yields(NetworkSecurityGroupRuleNet::Prefix(
+                        "fd00::/8".parse().unwrap(),
+                    )),
+                },
+                Case {
+                    scenario: "garbage prefix is rejected",
+                    input: rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "999.0.0.0/8".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |n| NetworkSecurityGroupRuleNet::try_from(n).map_err(drop),
+        );
+    }
+
+    // `TryFrom<NetworkSecurityGroupRuleNet>` for the rpc `SourceNet` / `DestinationNet`
+    // renders the prefix back to its string form.
+    #[test]
+    fn test_model_net_to_rpc() {
+        check_cases(
+            [
+                Case {
+                    scenario: "source net renders v4 prefix",
+                    input: NetworkSecurityGroupRuleNet::Prefix("10.0.0.0/8".parse().unwrap()),
+                    expect: Yields(
+                        rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "10.0.0.0/8".to_string(),
+                        ),
+                    ),
+                },
+                Case {
+                    scenario: "source net renders v6 prefix",
+                    input: NetworkSecurityGroupRuleNet::Prefix("2001:db8::/32".parse().unwrap()),
+                    expect: Yields(
+                        rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                            "2001:db8::/32".to_string(),
+                        ),
+                    ),
+                },
+            ],
+            |n| {
+                rpc::network_security_group_rule_attributes::SourceNet::try_from(n).map_err(drop)
+            },
+        );
+
+        check_cases(
+            [Case {
+                scenario: "destination net renders v4 prefix",
+                input: NetworkSecurityGroupRuleNet::Prefix("192.168.0.0/16".parse().unwrap()),
+                expect: Yields(
+                    rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "192.168.0.0/16".to_string(),
+                    ),
+                ),
+            }],
+            |n| {
+                rpc::network_security_group_rule_attributes::DestinationNet::try_from(n)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // A well-formed rule that carries a fixed id round-trips through
+    // `TryFrom<rpc::NetworkSecurityGroupRuleAttributes>`.
+    #[test]
+    fn test_rpc_rule_to_model_succeeds() {
+        let attrs = rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(80),
+            dst_port_end: Some(32768),
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 9001,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+        };
+
+        Case {
+            scenario: "well-formed tcp rule converts",
+            input: attrs,
+            expect: Yields(NetworkSecurityGroupRule {
+                id: Some("anything".to_string()),
+                direction: NetworkSecurityGroupRuleDirection::Ingress,
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(32768),
+                dst_port_start: Some(80),
+                dst_port_end: Some(32768),
+                protocol: NetworkSecurityGroupRuleProtocol::Tcp,
+                action: NetworkSecurityGroupRuleAction::Deny,
+                priority: 9001,
+                src_net: NetworkSecurityGroupRuleNet::Prefix("0.0.0.0/0".parse().unwrap()),
+                dst_net: NetworkSecurityGroupRuleNet::Prefix("0.0.0.0/0".parse().unwrap()),
+            }),
+        }
+        .check(|req| NetworkSecurityGroupRule::try_from(req).map_err(drop));
+    }
+
+    // More `TryFrom<rpc::NetworkSecurityGroupRuleAttributes>` rejection paths: a
+    // priority over the cap, half-specified port ranges, an inverted range, and
+    // missing source/destination nets.
+    #[test]
+    fn test_rpc_rule_to_model_more_failures() {
+        // A v4 tcp rule template; rows below mutate just the field under test.
+        let base = || rpc::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: None,
+            src_port_end: None,
+            dst_port_start: None,
+            dst_port_end: None,
+            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            priority: 100,
+            source_net: Some(
+                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+            destination_net: Some(
+                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "0.0.0.0/0".to_string(),
+                ),
+            ),
+        };
+
+        let priority_too_high = rpc::NetworkSecurityGroupRuleAttributes {
+            priority: MAX_RULE_PRIORITY + 1,
+            ..base()
+        };
+        let src_port_half = rpc::NetworkSecurityGroupRuleAttributes {
+            src_port_start: Some(80),
+            src_port_end: None,
+            ..base()
+        };
+        let dst_port_half = rpc::NetworkSecurityGroupRuleAttributes {
+            dst_port_start: None,
+            dst_port_end: Some(80),
+            ..base()
+        };
+        let src_range_inverted = rpc::NetworkSecurityGroupRuleAttributes {
+            src_port_start: Some(200),
+            src_port_end: Some(100),
+            ..base()
+        };
+        let dst_range_inverted = rpc::NetworkSecurityGroupRuleAttributes {
+            dst_port_start: Some(200),
+            dst_port_end: Some(100),
+            ..base()
+        };
+        let missing_src_net = rpc::NetworkSecurityGroupRuleAttributes {
+            source_net: None,
+            ..base()
+        };
+        let missing_dst_net = rpc::NetworkSecurityGroupRuleAttributes {
+            destination_net: None,
+            ..base()
+        };
+
+        check_cases(
+            [
+                Case {
+                    scenario: "priority over the cap",
+                    input: priority_too_high,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "src port range half-specified",
+                    input: src_port_half,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "dst port range half-specified",
+                    input: dst_port_half,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "src port range inverted",
+                    input: src_range_inverted,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "dst port range inverted",
+                    input: dst_range_inverted,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing source net",
+                    input: missing_src_net,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing destination net",
+                    input: missing_dst_net,
+                    expect: Fails,
+                },
+            ],
+            |req| NetworkSecurityGroupRule::try_from(req).map_err(drop),
+        );
+    }
+
+    // `TryFrom<NetworkSecurityGroupRule>` for rpc renders the rule's nets, ports, and
+    // enums back into proto attribute form.
+    #[test]
+    fn test_model_rule_to_rpc_succeeds() {
+        let rule = NetworkSecurityGroupRule {
+            id: Some("anything".to_string()),
+            direction: NetworkSecurityGroupRuleDirection::Egress,
+            ipv6: false,
+            src_port_start: Some(80),
+            src_port_end: Some(32768),
+            dst_port_start: Some(81),
+            dst_port_end: Some(32769),
+            protocol: NetworkSecurityGroupRuleProtocol::Udp,
+            action: NetworkSecurityGroupRuleAction::Permit,
+            priority: 9001,
+            src_net: NetworkSecurityGroupRuleNet::Prefix("10.0.0.0/8".parse().unwrap()),
+            dst_net: NetworkSecurityGroupRuleNet::Prefix("192.168.0.0/16".parse().unwrap()),
+        };
+
+        Case {
+            scenario: "well-formed udp rule renders",
+            input: rule,
+            expect: Yields(rpc::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress.into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(32768),
+                dst_port_start: Some(81),
+                dst_port_end: Some(32769),
+                protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp.into(),
+                action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionPermit.into(),
+                priority: 9001,
+                source_net: Some(
+                    rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "10.0.0.0/8".to_string(),
+                    ),
+                ),
+                destination_net: Some(
+                    rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "192.168.0.0/16".to_string(),
+                    ),
+                ),
+            }),
+        }
+        .check(|r| rpc::NetworkSecurityGroupRuleAttributes::try_from(r).map_err(drop));
+    }
+
+    // `TryFrom<rpc::NetworkSecurityGroupStatus>`: a well-formed status parses, while a
+    // bad id, a bad version, and an invalid source each fail.
+    #[test]
+    fn test_rpc_status_to_observation() {
+        // Fixed, deterministic version so the parsed-back value equals the expected
+        // one; the real `initial()` constructor stamps the current time.
+        fn fixed_version() -> ConfigVersion {
+            use std::str::FromStr;
+            ConfigVersion::from_str("V1-T1700000000000000").unwrap()
+        }
+        let good = rpc::NetworkSecurityGroupStatus {
+            id: "60d92a18-e56b-11ef-8ecd-ef90f290abf4".to_string(),
+            version: fixed_version().to_string(),
+            source: rpc::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+        };
+        let bad_id = rpc::NetworkSecurityGroupStatus {
+            id: "not-a-uuid".to_string(),
+            ..good.clone()
+        };
+        let bad_version = rpc::NetworkSecurityGroupStatus {
+            version: "not-a-version".to_string(),
+            ..good.clone()
+        };
+        let invalid_source = rpc::NetworkSecurityGroupStatus {
+            source: rpc::NetworkSecurityGroupSource::NsgSourceInvalid.into(),
+            ..good.clone()
+        };
+
+        check_cases(
+            [
+                Case {
+                    scenario: "well-formed status parses",
+                    input: good,
+                    expect: Yields(NetworkSecurityGroupStatusObservation {
+                        id: "60d92a18-e56b-11ef-8ecd-ef90f290abf4".parse().unwrap(),
+                        version: fixed_version(),
+                        source: NetworkSecurityGroupSource::Vpc,
+                    }),
+                },
+                Case {
+                    // The id is a free-form string id, not UUID-validated, so a
+                    // non-uuid value passes through rather than being rejected.
+                    scenario: "non-uuid id passes through unvalidated",
+                    input: bad_id,
+                    expect: Yields(NetworkSecurityGroupStatusObservation {
+                        id: "not-a-uuid".parse().unwrap(),
+                        version: fixed_version(),
+                        source: NetworkSecurityGroupSource::Vpc,
+                    }),
+                },
+                Case {
+                    scenario: "bad version is rejected",
+                    input: bad_version,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid source is rejected",
+                    input: invalid_source,
+                    expect: Fails,
+                },
+            ],
+            |s| NetworkSecurityGroupStatusObservation::try_from(s).map_err(drop),
+        );
     }
 }

@@ -268,25 +268,52 @@ fn metadata_from_request(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+    use std::str::FromStr;
+
     use super::*;
 
-    /// Unspecified (0) on the wire means "use the default." Old clients
-    /// sending no value land here, and we want to preserve the DpuMode
-    /// default so existing deployments keep their behavior.
+    /// `DpuMode::from(rpc::forge::DpuMode)` maps each named variant onto its
+    /// model twin, and Unspecified (what old clients send) onto the default —
+    /// which keeps existing deployments behaving as before. The named rows also
+    /// stand in for the model -> rpc -> model round trip, since the rpc input is
+    /// exactly what `rpc::forge::DpuMode::from(model)` produces.
     #[test]
-    fn from_rpc_unspecified_maps_to_default() {
-        assert_eq!(
-            DpuMode::from(rpc::forge::DpuMode::Unspecified),
-            DpuMode::default()
+    fn rpc_dpu_mode_maps_to_model() {
+        check_values(
+            [
+                Check {
+                    scenario: "unspecified maps to default",
+                    input: rpc::forge::DpuMode::Unspecified,
+                    expect: DpuMode::default(),
+                },
+                Check {
+                    scenario: "dpu mode round trips",
+                    input: rpc::forge::DpuMode::DpuMode,
+                    expect: DpuMode::DpuMode,
+                },
+                Check {
+                    scenario: "nic mode round trips",
+                    input: rpc::forge::DpuMode::NicMode,
+                    expect: DpuMode::NicMode,
+                },
+                Check {
+                    scenario: "no dpu round trips",
+                    input: rpc::forge::DpuMode::NoDpu,
+                    expect: DpuMode::NoDpu,
+                },
+            ],
+            DpuMode::from,
         );
-        assert_eq!(DpuMode::default(), DpuMode::DpuMode);
     }
 
+    /// The DpuMode default is DpuMode, which is what the Unspecified mapping above
+    /// relies on.
     #[test]
-    fn rpc_enum_round_trips_all_named_variants() {
-        for mode in [DpuMode::DpuMode, DpuMode::NicMode, DpuMode::NoDpu] {
-            assert_eq!(DpuMode::from(rpc::forge::DpuMode::from(mode)), mode);
-        }
+    fn dpu_mode_default_is_dpu_mode() {
+        assert_eq!(DpuMode::default(), DpuMode::DpuMode);
     }
 
     #[test]
@@ -332,54 +359,632 @@ mod tests {
         }
     }
 
+    /// `rpc::forge::DpuMode::from(model)` -- the model -> rpc direction. Each
+    /// named model variant maps onto its rpc twin; the model has no
+    /// Unspecified arm so every variant is named.
     #[test]
-    fn disable_lockdown_true_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(Some(true));
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(true));
-
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
-        };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(
-            back.host_lifecycle_profile.unwrap().disable_lockdown,
-            Some(true)
+    fn model_dpu_mode_maps_to_rpc() {
+        check_values(
+            [
+                Check {
+                    scenario: "dpu mode",
+                    input: DpuMode::DpuMode,
+                    expect: rpc::forge::DpuMode::DpuMode,
+                },
+                Check {
+                    scenario: "nic mode",
+                    input: DpuMode::NicMode,
+                    expect: rpc::forge::DpuMode::NicMode,
+                },
+                Check {
+                    scenario: "no dpu",
+                    input: DpuMode::NoDpu,
+                    expect: rpc::forge::DpuMode::NoDpu,
+                },
+            ],
+            rpc::forge::DpuMode::from,
         );
     }
 
+    /// `ExpectedMachineRequest::try_from` parses the optional UUID id and the
+    /// (possibly empty) BMC MAC string. Empty MAC and absent id both become
+    /// `None`; a malformed UUID or MAC fails. The run closure projects the
+    /// parsed request to `(id.is_some(), bmc_mac_address.is_some())` so the
+    /// table is a single `bool`-pair shape.
     #[test]
-    fn disable_lockdown_false_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(Some(false));
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(false));
-
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
-        };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(
-            back.host_lifecycle_profile.unwrap().disable_lockdown,
-            Some(false)
+    fn expected_machine_request_try_from_parses_id_and_mac() {
+        let uuid = "550e8400-e29b-41d4-a716-446655440000";
+        check_cases(
+            [
+                Case {
+                    scenario: "id and mac both present",
+                    input: rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: "AA:BB:CC:DD:EE:FF".into(),
+                        id: Some(crate::common::Uuid {
+                            value: uuid.into(),
+                        }),
+                    },
+                    expect: Yields((true, true)),
+                },
+                Case {
+                    scenario: "id absent, mac empty",
+                    input: rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: "".into(),
+                        id: None,
+                    },
+                    expect: Yields((false, false)),
+                },
+                Case {
+                    scenario: "invalid uuid fails",
+                    input: rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: "".into(),
+                        id: Some(crate::common::Uuid {
+                            value: "not-a-uuid".into(),
+                        }),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid mac fails",
+                    input: rpc::forge::ExpectedMachineRequest {
+                        bmc_mac_address: "not-a-mac".into(),
+                        id: None,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |req| {
+                let parsed = ExpectedMachineRequest::try_from(req).map_err(drop)?;
+                Ok::<_, ()>((parsed.id.is_some(), parsed.bmc_mac_address.is_some()))
+            },
         );
     }
 
+    /// `rpc::forge::ExpectedHostNic::from(model)` -- the infallible model -> rpc
+    /// direction. Each row projects the produced proto to
+    /// `(mac_address, fixed_ip, fixed_gateway, primary)` so present vs absent
+    /// optionals and the MAC/IP stringification are all visible.
     #[test]
-    fn disable_lockdown_none_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(None);
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, None);
+    fn expected_host_nic_to_rpc_maps_fields() {
+        check_values(
+            [
+                Check {
+                    scenario: "all optionals present",
+                    input: ExpectedHostNic {
+                        mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        nic_type: Some("bf3".into()),
+                        fixed_ip: Some("10.0.0.5".parse().unwrap()),
+                        fixed_mask: Some("255.255.255.0".into()),
+                        fixed_gateway: Some("10.0.0.1".parse().unwrap()),
+                        primary: Some(true),
+                    },
+                    expect: (
+                        "AA:BB:CC:DD:EE:FF".to_string(),
+                        Some("10.0.0.5".to_string()),
+                        Some("10.0.0.1".to_string()),
+                        Some(true),
+                    ),
+                },
+                Check {
+                    scenario: "optionals absent",
+                    input: ExpectedHostNic {
+                        mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        nic_type: None,
+                        fixed_ip: None,
+                        fixed_mask: None,
+                        fixed_gateway: None,
+                        primary: None,
+                    },
+                    expect: ("AA:BB:CC:DD:EE:FF".to_string(), None, None, None),
+                },
+            ],
+            |nic| {
+                let rpc: rpc::forge::ExpectedHostNic = nic.into();
+                (rpc.mac_address, rpc.fixed_ip, rpc.fixed_gateway, rpc.primary)
+            },
+        );
+    }
 
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
+    /// `ExpectedHostNic::try_from(rpc)` -- the fallible rpc -> model direction.
+    /// Empty-string `fixed_ip` / `fixed_gateway` collapse to `None` (same as
+    /// absent); malformed MAC, IP, or gateway each fail. The run closure
+    /// projects success to `(fixed_ip.is_some(), fixed_gateway.is_some())`.
+    #[test]
+    fn expected_host_nic_try_from_handles_optionals_and_errors() {
+        let base = || rpc::forge::ExpectedHostNic {
+            mac_address: "AA:BB:CC:DD:EE:FF".into(),
+            ..Default::default()
         };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert!(back.host_lifecycle_profile.is_none());
+        check_cases(
+            [
+                Case {
+                    scenario: "valid ip and gateway",
+                    input: rpc::forge::ExpectedHostNic {
+                        fixed_ip: Some("10.0.0.5".into()),
+                        fixed_gateway: Some("10.0.0.1".into()),
+                        ..base()
+                    },
+                    expect: Yields((true, true)),
+                },
+                Case {
+                    scenario: "empty-string ip and gateway become none",
+                    input: rpc::forge::ExpectedHostNic {
+                        fixed_ip: Some("".into()),
+                        fixed_gateway: Some("".into()),
+                        ..base()
+                    },
+                    expect: Yields((false, false)),
+                },
+                Case {
+                    scenario: "absent ip and gateway are none",
+                    input: base(),
+                    expect: Yields((false, false)),
+                },
+                Case {
+                    scenario: "invalid mac fails",
+                    input: rpc::forge::ExpectedHostNic {
+                        mac_address: "not-a-mac".into(),
+                        ..Default::default()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid fixed ip fails",
+                    input: rpc::forge::ExpectedHostNic {
+                        fixed_ip: Some("not-an-ip".into()),
+                        ..base()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "invalid fixed gateway fails",
+                    input: rpc::forge::ExpectedHostNic {
+                        fixed_gateway: Some("not-an-ip".into()),
+                        ..base()
+                    },
+                    expect: Fails,
+                },
+            ],
+            |rpc_nic| {
+                let nic = ExpectedHostNic::try_from(rpc_nic).map_err(drop)?;
+                Ok::<_, ()>((nic.fixed_ip.is_some(), nic.fixed_gateway.is_some()))
+            },
+        );
+    }
+
+    /// `rpc::forge::LinkedExpectedMachine::from(model)` -- the infallible
+    /// projection. Each row checks `(interface_id, explored_endpoint_address,
+    /// machine_id.is_some(), expected_machine_id.is_some())` so present vs
+    /// absent optionals are all covered.
+    #[test]
+    fn linked_expected_machine_to_rpc_maps_fields() {
+        let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        check_values(
+            [
+                Check {
+                    scenario: "optionals present",
+                    input: LinkedExpectedMachine {
+                        serial_number: "SN-1".into(),
+                        bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        interface_id: Some(MachineInterfaceId::nil()),
+                        address: Some("10.0.0.5".parse().unwrap()),
+                        machine_id: Some(
+                            MachineId::from_str(
+                                "fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g",
+                            )
+                            .unwrap(),
+                        ),
+                        expected_machine_id: Some(uuid),
+                    },
+                    expect: (
+                        Some(MachineInterfaceId::nil().to_string()),
+                        Some("10.0.0.5".to_string()),
+                        true,
+                        true,
+                    ),
+                },
+                Check {
+                    scenario: "optionals absent",
+                    input: LinkedExpectedMachine {
+                        serial_number: "SN-1".into(),
+                        bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        interface_id: None,
+                        address: None,
+                        machine_id: None,
+                        expected_machine_id: None,
+                    },
+                    expect: (None, None, false, false),
+                },
+            ],
+            |m| {
+                let rpc: rpc::forge::LinkedExpectedMachine = m.into();
+                (
+                    rpc.interface_id,
+                    rpc.explored_endpoint_address,
+                    rpc.machine_id.is_some(),
+                    rpc.expected_machine_id.is_some(),
+                )
+            },
+        );
+    }
+
+    /// `rpc::forge::UnexpectedMachine::from(model)` -- the infallible
+    /// projection, including the optional `machine_id`. Each row checks
+    /// `(address, bmc_mac_address, machine_id.is_some())`.
+    #[test]
+    fn unexpected_machine_to_rpc_maps_fields() {
+        check_values(
+            [
+                Check {
+                    scenario: "machine id present",
+                    input: UnexpectedMachine {
+                        address: "10.0.0.5".parse().unwrap(),
+                        bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        machine_id: Some(
+                            MachineId::from_str(
+                                "fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g",
+                            )
+                            .unwrap(),
+                        ),
+                    },
+                    expect: (
+                        "10.0.0.5".to_string(),
+                        "AA:BB:CC:DD:EE:FF".to_string(),
+                        true,
+                    ),
+                },
+                Check {
+                    scenario: "machine id absent",
+                    input: UnexpectedMachine {
+                        address: "10.0.0.5".parse().unwrap(),
+                        bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                        machine_id: None,
+                    },
+                    expect: (
+                        "10.0.0.5".to_string(),
+                        "AA:BB:CC:DD:EE:FF".to_string(),
+                        false,
+                    ),
+                },
+            ],
+            |m| {
+                let rpc: rpc::forge::UnexpectedMachine = m.into();
+                (rpc.address, rpc.bmc_mac_address, rpc.machine_id.is_some())
+            },
+        );
+    }
+
+    /// `ExpectedMachineData::try_from(rpc)` resolves the optional `dpu_mode`
+    /// field: each named wire value maps to its model twin, while a missing
+    /// field and an Unspecified (0) value both fall back to the default
+    /// (`DpuMode::DpuMode`), preserving old-client behavior.
+    #[test]
+    fn expected_machine_data_resolves_dpu_mode() {
+        check_cases(
+            [
+                Case {
+                    scenario: "missing field falls back to default",
+                    input: None,
+                    expect: Yields(DpuMode::DpuMode),
+                },
+                Case {
+                    scenario: "unspecified falls back to default",
+                    input: Some(rpc::forge::DpuMode::Unspecified as i32),
+                    expect: Yields(DpuMode::DpuMode),
+                },
+                Case {
+                    scenario: "dpu mode",
+                    input: Some(rpc::forge::DpuMode::DpuMode as i32),
+                    expect: Yields(DpuMode::DpuMode),
+                },
+                Case {
+                    scenario: "nic mode",
+                    input: Some(rpc::forge::DpuMode::NicMode as i32),
+                    expect: Yields(DpuMode::NicMode),
+                },
+                Case {
+                    scenario: "no dpu",
+                    input: Some(rpc::forge::DpuMode::NoDpu as i32),
+                    expect: Yields(DpuMode::NoDpu),
+                },
+                Case {
+                    scenario: "unknown enum value falls back to default",
+                    input: Some(999),
+                    expect: Yields(DpuMode::DpuMode),
+                },
+            ],
+            |dpu_mode| {
+                let mut rpc = make_rpc_expected_machine(None);
+                rpc.dpu_mode = dpu_mode;
+                ExpectedMachineData::try_from(rpc)
+                    .map(|d| d.dpu_mode)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    /// `ExpectedMachineData::try_from(rpc)` parses the optional `bmc_ip_address`
+    /// wire string: empty and absent both become `None`, a valid v4/v6 string
+    /// parses, and a malformed string fails the whole conversion. The run
+    /// closure projects success to `bmc_ip_address.is_some()`.
+    #[test]
+    fn expected_machine_data_parses_bmc_ip_address() {
+        check_cases(
+            [
+                Case {
+                    scenario: "absent is none",
+                    input: None,
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "empty string is none",
+                    input: Some("".to_string()),
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "valid v4 parses",
+                    input: Some("10.0.0.5".to_string()),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "valid v6 parses",
+                    input: Some("2001:db8::1".to_string()),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "invalid string fails",
+                    input: Some("not-an-ip".to_string()),
+                    expect: Fails,
+                },
+            ],
+            |bmc_ip_address| {
+                let mut rpc = make_rpc_expected_machine(None);
+                rpc.bmc_ip_address = bmc_ip_address;
+                ExpectedMachineData::try_from(rpc)
+                    .map(|d| d.bmc_ip_address.is_some())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    /// `metadata_from_request` (via `ExpectedMachineData::try_from`): an absent
+    /// proto Metadata yields empty model metadata, a present-and-valid one is
+    /// carried through, and a present-but-invalid one (here an empty label key)
+    /// fails validation. The run closure projects success to the parsed
+    /// metadata name.
+    #[test]
+    fn expected_machine_data_validates_metadata() {
+        check_cases(
+            [
+                Case {
+                    scenario: "absent metadata yields empty name",
+                    input: None,
+                    expect: Yields(String::new()),
+                },
+                Case {
+                    scenario: "valid metadata is carried through",
+                    input: Some(rpc::forge::Metadata {
+                        name: "my-host".into(),
+                        description: "desc".into(),
+                        labels: vec![],
+                    }),
+                    expect: Yields("my-host".to_string()),
+                },
+                Case {
+                    scenario: "invalid metadata (empty label key) fails",
+                    input: Some(rpc::forge::Metadata {
+                        name: "my-host".into(),
+                        description: "desc".into(),
+                        labels: vec![rpc::forge::Label {
+                            key: "".into(),
+                            value: Some("v".into()),
+                        }],
+                    }),
+                    expect: Fails,
+                },
+            ],
+            |metadata| {
+                let mut rpc = make_rpc_expected_machine(None);
+                rpc.metadata = metadata;
+                ExpectedMachineData::try_from(rpc)
+                    .map(|d| d.metadata.name)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    /// `rpc::forge::ExpectedMachine::from(model)` only emits `dpu_mode` on the
+    /// wire when it's non-default -- the default `DpuMode` collapses to `None`
+    /// (matching the bmc_retain_credentials filter pattern), while `NicMode`
+    /// and `NoDpu` are emitted as their i32 wire values.
+    #[test]
+    fn expected_machine_to_rpc_emits_non_default_dpu_mode() {
+        check_values(
+            [
+                Check {
+                    scenario: "default dpu mode is omitted",
+                    input: DpuMode::DpuMode,
+                    expect: None,
+                },
+                Check {
+                    scenario: "nic mode is emitted",
+                    input: DpuMode::NicMode,
+                    expect: Some(rpc::forge::DpuMode::NicMode as i32),
+                },
+                Check {
+                    scenario: "no dpu is emitted",
+                    input: DpuMode::NoDpu,
+                    expect: Some(rpc::forge::DpuMode::NoDpu as i32),
+                },
+            ],
+            |dpu_mode| {
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                    data: ExpectedMachineData {
+                        dpu_mode,
+                        ..Default::default()
+                    },
+                };
+                let rpc: rpc::forge::ExpectedMachine = em.into();
+                rpc.dpu_mode
+            },
+        );
+    }
+
+    /// `rpc::forge::ExpectedMachine::from(model)` only emits
+    /// `bmc_retain_credentials` when it's `Some(true)`; `Some(false)` and
+    /// `None` both collapse to `None` on the wire (the filter pattern).
+    #[test]
+    fn expected_machine_to_rpc_filters_bmc_retain_credentials() {
+        check_values(
+            [
+                Check {
+                    scenario: "some true is emitted",
+                    input: Some(true),
+                    expect: Some(true),
+                },
+                Check {
+                    scenario: "some false is filtered out",
+                    input: Some(false),
+                    expect: None,
+                },
+                Check {
+                    scenario: "none stays none",
+                    input: None,
+                    expect: None,
+                },
+            ],
+            |bmc_retain_credentials| {
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                    data: ExpectedMachineData {
+                        bmc_retain_credentials,
+                        ..Default::default()
+                    },
+                };
+                let rpc: rpc::forge::ExpectedMachine = em.into();
+                rpc.bmc_retain_credentials
+            },
+        );
+    }
+
+    /// `rpc::forge::ExpectedMachine::from(model)` mirrors the optional
+    /// `dpf_enabled` onto both the deprecated `dpf_enabled` bool (defaulting to
+    /// `false` when unset) and the optional `is_dpf_enabled`. Each row checks
+    /// `(dpf_enabled, is_dpf_enabled)`.
+    #[test]
+    fn expected_machine_to_rpc_mirrors_dpf_enabled() {
+        #[allow(deprecated)]
+        check_values(
+            [
+                Check {
+                    scenario: "some true",
+                    input: Some(true),
+                    expect: (true, Some(true)),
+                },
+                Check {
+                    scenario: "some false",
+                    input: Some(false),
+                    expect: (false, Some(false)),
+                },
+                Check {
+                    scenario: "none defaults bool to false",
+                    input: None,
+                    expect: (false, None),
+                },
+            ],
+            |dpf_enabled| {
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                    data: ExpectedMachineData {
+                        dpf_enabled,
+                        ..Default::default()
+                    },
+                };
+                let rpc: rpc::forge::ExpectedMachine = em.into();
+                (rpc.dpf_enabled, rpc.is_dpf_enabled)
+            },
+        );
+    }
+
+    /// `rpc::forge::ExpectedMachine::from(model)` only emits the
+    /// `host_lifecycle_profile` message when the model profile is non-empty
+    /// (any field set); an empty profile collapses to `None` on the wire.
+    #[test]
+    fn expected_machine_to_rpc_omits_empty_host_lifecycle_profile() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty profile is omitted",
+                    input: HostLifecycleProfile::default(),
+                    expect: None,
+                },
+                Check {
+                    scenario: "disable_lockdown set is emitted",
+                    input: HostLifecycleProfile {
+                        disable_lockdown: Some(true),
+                    },
+                    expect: Some(Some(true)),
+                },
+            ],
+            |host_lifecycle_profile| {
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+                    data: ExpectedMachineData {
+                        host_lifecycle_profile,
+                        ..Default::default()
+                    },
+                };
+                let rpc: rpc::forge::ExpectedMachine = em.into();
+                rpc.host_lifecycle_profile.map(|p| p.disable_lockdown)
+            },
+        );
+    }
+
+    /// `disable_lockdown` survives the rpc -> data -> rpc round trip: each input
+    /// is projected to (data-side disable_lockdown, back-side host_lifecycle_profile
+    /// mapped to its disable_lockdown). A `None` input yields no profile on the way
+    /// back, so the back-side projection is `None` rather than `Some(None)`.
+    #[test]
+    fn disable_lockdown_round_trips_through_proto() {
+        check_cases(
+            [
+                Case {
+                    scenario: "true",
+                    input: Some(true),
+                    expect: Yields((Some(true), Some(Some(true)))),
+                },
+                Case {
+                    scenario: "false",
+                    input: Some(false),
+                    expect: Yields((Some(false), Some(Some(false)))),
+                },
+                Case {
+                    scenario: "none",
+                    input: None,
+                    expect: Yields((None, None)),
+                },
+            ],
+            |disable_lockdown| {
+                let data =
+                    ExpectedMachineData::try_from(make_rpc_expected_machine(disable_lockdown))
+                        .map_err(drop)?;
+                let data_side = data.host_lifecycle_profile.disable_lockdown;
+
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().map_err(drop)?,
+                    data,
+                };
+                let back: rpc::forge::ExpectedMachine = em.into();
+                let back_side = back.host_lifecycle_profile.map(|p| p.disable_lockdown);
+
+                Ok::<_, ()>((data_side, back_side))
+            },
+        );
     }
 }

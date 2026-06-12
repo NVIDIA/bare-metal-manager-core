@@ -300,6 +300,133 @@ mod tests {
         );
     }
 
+    /// Runs `instance_status_from_config_and_observation` with a minimal config and
+    /// the given `machine_state` / `delete_requested`, returning the resulting
+    /// tenant-visible state. Lets the table below enumerate the machine-state arms
+    /// the status pipeline projects onto a `TenantState`.
+    fn tenant_state_for(machine_state: ManagedHostState, delete_requested: bool) -> TenantState {
+        let config = minimal_instance_config();
+        let version = ConfigVersion::initial();
+        let health = HealthReportSources::default();
+
+        let status = instance_status_from_config_and_observation(
+            HashMap::new(),
+            None,
+            Versioned::new(&config, version),
+            Versioned::new(&config.network, version),
+            Versioned::new(&config.infiniband, version),
+            Versioned::new(&config.extension_services, version),
+            Versioned::new(&config.nvlink, version),
+            Versioned::new(&config.spxconfig, version),
+            &InstanceStatusObservations {
+                network: HashMap::new(),
+                extension_services: HashMap::new(),
+                phone_home_last_contact: None,
+            },
+            machine_state,
+            delete_requested,
+            None,
+            None,
+            None,
+            None,
+            false,
+            &health,
+        )
+        .unwrap();
+
+        status.tenant.unwrap().state
+    }
+
+    #[test]
+    fn sync_state_maps_each_arm_to_proto() {
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::{Case, check_cases};
+
+        check_cases(
+            [
+                Case {
+                    scenario: "synced -> proto synced",
+                    input: SyncState::Synced,
+                    expect: Yields(rpc::SyncState::Synced),
+                },
+                Case {
+                    scenario: "pending -> proto pending",
+                    input: SyncState::Pending,
+                    expect: Yields(rpc::SyncState::Pending),
+                },
+            ],
+            |state| rpc::SyncState::try_from(state).map_err(drop),
+        );
+    }
+
+    #[test]
+    fn pipeline_projects_machine_state_to_tenant_state() {
+        use carbide_test_support::{Check, check_values};
+
+        check_values(
+            [
+                // delete_requested short-circuits every machine state to Terminating.
+                Check {
+                    scenario: "delete requested while ready -> terminating",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Ready,
+                        },
+                        true,
+                    ),
+                    expect: TenantState::Terminating,
+                },
+                Check {
+                    scenario: "delete requested while provisioning -> terminating",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Init,
+                        },
+                        true,
+                    ),
+                    expect: TenantState::Terminating,
+                },
+                // Without delete, the machine state drives the tenant state.
+                Check {
+                    scenario: "assigned + ready + synced -> ready",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Ready,
+                        },
+                        false,
+                    ),
+                    expect: TenantState::Ready,
+                },
+                Check {
+                    scenario: "assigned + init -> provisioning",
+                    input: (
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::Init,
+                        },
+                        false,
+                    ),
+                    expect: TenantState::Provisioning,
+                },
+                Check {
+                    scenario: "host ready (unassigned) -> provisioning",
+                    input: (ManagedHostState::Ready, false),
+                    expect: TenantState::Provisioning,
+                },
+                Check {
+                    scenario: "force deletion -> terminating",
+                    input: (ManagedHostState::ForceDeletion, false),
+                    expect: TenantState::Terminating,
+                },
+                Check {
+                    scenario: "unmodelled state (created) -> invalid",
+                    input: (ManagedHostState::Created, false),
+                    expect: TenantState::Invalid,
+                },
+            ],
+            |(machine_state, delete_requested)| tenant_state_for(machine_state, delete_requested),
+        );
+    }
+
     #[test]
     fn test_tenant_state() {
         let machine_id: MachineId =

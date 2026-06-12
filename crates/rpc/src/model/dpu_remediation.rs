@@ -195,36 +195,579 @@ impl RpcTryFrom<(DisableRemediationRequest, String)> for DisableRemediation {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+    use carbide_uuid::dpu_remediations::RemediationId;
+    use carbide_uuid::machine::MachineId;
+    use std::str::FromStr;
+    use chrono::{TimeZone, Utc};
+
     use super::*;
 
-    #[test]
-    fn remediation_application_status_from_rpc_success_no_metadata() {
-        let rpc_status = rpc::forge::RemediationApplicationStatus {
-            succeeded: true,
-            metadata: None,
-        };
-        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
-        assert!(status.succeeded);
-        assert!(status.metadata.is_none());
+    fn label(key: &str, value: Option<&str>) -> rpc::forge::Label {
+        rpc::forge::Label {
+            key: key.to_string(),
+            value: value.map(str::to_string),
+        }
     }
 
+    fn metadata(name: &str, description: &str, labels: Vec<rpc::forge::Label>) -> rpc::Metadata {
+        rpc::Metadata {
+            name: name.to_string(),
+            description: description.to_string(),
+            labels,
+        }
+    }
+
+    // `rpc::forge::RemediationApplicationStatus -> RemediationApplicationStatus` is
+    // fallible only through its inner `Metadata` conversion. Project the Ok result
+    // to (succeeded, name, sorted labels); a duplicate label key is the one error
+    // arm and the conversion error is not `PartialEq`, so it uses `Fails`.
     #[test]
-    fn remediation_application_status_from_rpc_with_metadata() {
-        let rpc_status = rpc::forge::RemediationApplicationStatus {
-            succeeded: false,
-            metadata: Some(rpc::Metadata {
-                name: "test".to_string(),
-                description: "desc".to_string(),
-                labels: vec![rpc::forge::Label {
-                    key: "status".to_string(),
-                    value: Some("failed".to_string()),
-                }],
-            }),
-        };
-        let status = RemediationApplicationStatus::try_from(rpc_status).unwrap();
-        assert!(!status.succeeded);
-        let metadata = status.metadata.unwrap();
-        assert_eq!(metadata.name, "test");
-        assert_eq!(metadata.labels.get("status"), Some(&"failed".to_string()));
+    fn remediation_application_status_try_from_rpc() {
+        type Projected = (bool, Option<(String, Vec<(String, String)>)>);
+
+        check_cases(
+            [
+                Case {
+                    scenario: "succeeded, no metadata",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: true,
+                        metadata: None,
+                    },
+                    expect: Yields((true, None)),
+                },
+                Case {
+                    scenario: "failed, no metadata",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: false,
+                        metadata: None,
+                    },
+                    expect: Yields((false, None)),
+                },
+                Case {
+                    scenario: "failed, metadata with one label",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: false,
+                        metadata: Some(metadata(
+                            "test",
+                            "desc",
+                            vec![label("status", Some("failed"))],
+                        )),
+                    },
+                    expect: Yields((
+                        false,
+                        Some((
+                            "test".to_string(),
+                            vec![("status".to_string(), "failed".to_string())],
+                        )),
+                    )),
+                },
+                Case {
+                    scenario: "succeeded, metadata with no labels",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: true,
+                        metadata: Some(metadata("n", "d", vec![])),
+                    },
+                    expect: Yields((true, Some(("n".to_string(), vec![])))),
+                },
+                Case {
+                    scenario: "absent label value defaults to empty string",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: true,
+                        metadata: Some(metadata("n", "d", vec![label("k", None)])),
+                    },
+                    expect: Yields((
+                        true,
+                        Some(("n".to_string(), vec![("k".to_string(), String::new())])),
+                    )),
+                },
+                Case {
+                    scenario: "duplicate label key fails",
+                    input: rpc::forge::RemediationApplicationStatus {
+                        succeeded: true,
+                        metadata: Some(metadata(
+                            "n",
+                            "d",
+                            vec![label("k", Some("a")), label("k", Some("b"))],
+                        )),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |status| -> Result<Projected, ()> {
+                let domain = RemediationApplicationStatus::try_from(status).map_err(drop)?;
+                let metadata = domain.metadata.map(|m| {
+                    let mut labels: Vec<(String, String)> = m.labels.into_iter().collect();
+                    labels.sort();
+                    (m.name, labels)
+                });
+                Ok((domain.succeeded, metadata))
+            },
+        );
+    }
+
+    // `(CreateRemediationRequest, author) -> NewRemediation` is fallible: a negative
+    // retry count, an empty script, and an oversized script are the three explicit
+    // error arms; an inner duplicate-label `Metadata` conversion is a fourth. Project
+    // the Ok result to (script, retries, author, has-metadata) — the fields the
+    // conversion sets.
+    #[test]
+    fn new_remediation_rpc_try_from() {
+        type Projected = (String, i32, String, bool);
+
+        let oversized = "x".repeat(MAXIMUM_SCRIPT_LENGTH + 1);
+
+        check_cases(
+            [
+                Case {
+                    scenario: "minimal script, no metadata, zero retries",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "echo hi".to_string(),
+                            metadata: None,
+                            retries: 0,
+                        },
+                        "alice".to_string(),
+                    ),
+                    expect: Yields(("echo hi".to_string(), 0, "alice".to_string(), false)),
+                },
+                Case {
+                    scenario: "positive retries pass through",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "echo hi".to_string(),
+                            metadata: None,
+                            retries: 5,
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Yields(("echo hi".to_string(), 5, "bob".to_string(), false)),
+                },
+                Case {
+                    scenario: "metadata present is carried",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "echo hi".to_string(),
+                            metadata: Some(metadata("n", "d", vec![label("k", Some("v"))])),
+                            retries: 1,
+                        },
+                        "carol".to_string(),
+                    ),
+                    expect: Yields(("echo hi".to_string(), 1, "carol".to_string(), true)),
+                },
+                Case {
+                    scenario: "script at maximum length is accepted",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "y".repeat(MAXIMUM_SCRIPT_LENGTH),
+                            metadata: None,
+                            retries: 0,
+                        },
+                        "dave".to_string(),
+                    ),
+                    expect: Yields((
+                        "y".repeat(MAXIMUM_SCRIPT_LENGTH),
+                        0,
+                        "dave".to_string(),
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "negative retries fail",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "echo hi".to_string(),
+                            metadata: None,
+                            retries: -1,
+                        },
+                        "alice".to_string(),
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty script fails",
+                    input: (
+                        CreateRemediationRequest {
+                            script: String::new(),
+                            metadata: None,
+                            retries: 0,
+                        },
+                        "alice".to_string(),
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "oversized script fails",
+                    input: (
+                        CreateRemediationRequest {
+                            script: oversized,
+                            metadata: None,
+                            retries: 0,
+                        },
+                        "alice".to_string(),
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "duplicate metadata label fails",
+                    input: (
+                        CreateRemediationRequest {
+                            script: "echo hi".to_string(),
+                            metadata: Some(metadata(
+                                "n",
+                                "d",
+                                vec![label("k", Some("a")), label("k", Some("b"))],
+                            )),
+                            retries: 0,
+                        },
+                        "alice".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(request, author)| -> Result<Projected, ()> {
+                let new = NewRemediation::rpc_try_from((request, author)).map_err(drop)?;
+                Ok((
+                    new.script,
+                    new.retries,
+                    new.author.to_string(),
+                    new.metadata.is_some(),
+                ))
+            },
+        );
+    }
+
+    // `Remediation -> rpc::forge::Remediation` is a total conversion. Project the
+    // result to its scalar fields plus (reviewer, has-metadata) so each row pins the
+    // present/absent optional arms and the bool/int pass-throughs.
+    #[test]
+    fn remediation_into_rpc() {
+        type Projected = (String, String, Option<String>, bool, i32, bool);
+
+        fn remediation(
+            reviewer: Option<&str>,
+            metadata: Option<Metadata>,
+            enabled: bool,
+            retries: i32,
+        ) -> Remediation {
+            Remediation {
+                id: RemediationId::default(),
+                script: "echo".to_string(),
+                metadata,
+                reviewer: reviewer.map(|r| r.to_string().into()),
+                author: "alice".to_string().into(),
+                retries,
+                enabled,
+                creation_time: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+            }
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "no reviewer, no metadata, disabled",
+                    input: remediation(None, None, false, 0),
+                    expect: (
+                        "echo".to_string(),
+                        "alice".to_string(),
+                        None,
+                        false,
+                        0,
+                        false,
+                    ),
+                },
+                Check {
+                    scenario: "reviewer present, enabled, retries",
+                    input: remediation(Some("bob"), None, true, 3),
+                    expect: (
+                        "echo".to_string(),
+                        "alice".to_string(),
+                        Some("bob".to_string()),
+                        true,
+                        3,
+                        false,
+                    ),
+                },
+                Check {
+                    scenario: "metadata present",
+                    input: remediation(None, Some(Metadata::default()), false, 0),
+                    expect: (
+                        "echo".to_string(),
+                        "alice".to_string(),
+                        None,
+                        false,
+                        0,
+                        true,
+                    ),
+                },
+            ],
+            |remediation| -> Projected {
+                let proto = rpc::forge::Remediation::from(remediation);
+                (
+                    proto.script,
+                    proto.script_author,
+                    proto.script_reviewed_by,
+                    proto.enabled,
+                    proto.retries,
+                    proto.metadata.is_some(),
+                )
+            },
+        );
+    }
+
+    // `Remediation -> rpc::forge::CreateRemediationResponse` projects to just the id.
+    #[test]
+    fn remediation_into_create_response() {
+        let id = RemediationId::default();
+
+        Check {
+            scenario: "id passes through",
+            input: Remediation {
+                id,
+                script: "echo".to_string(),
+                metadata: None,
+                reviewer: None,
+                author: "alice".to_string().into(),
+                retries: 0,
+                enabled: false,
+                creation_time: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+            },
+            expect: id.into(),
+        }
+        .check(|remediation| rpc::forge::CreateRemediationResponse::from(remediation).remediation_id);
+    }
+
+    // `AppliedRemediation -> rpc::forge::AppliedRemediation` is total. Project to
+    // (dpu_machine_id, remediation_id, attempt, succeeded, sorted status labels) —
+    // the `status` map travels through `metadata.labels`.
+    #[test]
+    fn applied_remediation_into_rpc() {
+        type Projected = (
+            Option<MachineId>,
+            Option<RemediationId>,
+            i32,
+            bool,
+            Vec<(String, String)>,
+        );
+
+        let machine =
+            MachineId::from_str("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g")
+                .unwrap();
+        let remediation = RemediationId::default();
+
+        fn applied(
+            machine: MachineId,
+            remediation: RemediationId,
+            attempt: i32,
+            succeeded: bool,
+            status: HashMap<String, String>,
+        ) -> AppliedRemediation {
+            AppliedRemediation {
+                id: remediation,
+                dpu_machine_id: machine,
+                attempt,
+                succeeded,
+                status,
+                applied_time: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+            }
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "succeeded, empty status",
+                    input: applied(machine, remediation, 1, true, HashMap::new()),
+                    expect: (Some(machine), Some(remediation), 1, true, vec![]),
+                },
+                Check {
+                    scenario: "failed, status labels carried",
+                    input: applied(
+                        machine,
+                        remediation,
+                        2,
+                        false,
+                        HashMap::from([("err".to_string(), "boom".to_string())]),
+                    ),
+                    expect: (
+                        Some(machine),
+                        Some(remediation),
+                        2,
+                        false,
+                        vec![("err".to_string(), "boom".to_string())],
+                    ),
+                },
+            ],
+            |applied| -> Projected {
+                let proto = rpc::forge::AppliedRemediation::from(applied);
+                let mut labels: Vec<(String, String)> = proto
+                    .metadata
+                    .map(|m| {
+                        m.labels
+                            .into_iter()
+                            .map(|l| (l.key, l.value.unwrap_or_default()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                labels.sort();
+                (
+                    proto.dpu_machine_id,
+                    proto.remediation_id,
+                    proto.attempt,
+                    proto.succeeded,
+                    labels,
+                )
+            },
+        );
+    }
+
+    // `(ApproveRemediationRequest, reviewer) -> ApproveRemediation` is fallible: a
+    // missing remediation id is the one error arm. The error type is not `PartialEq`,
+    // so it uses `Fails`. Project the Ok result to (id, reviewer).
+    #[test]
+    fn approve_remediation_rpc_try_from() {
+        let id = RemediationId::default();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "id present",
+                    input: (
+                        ApproveRemediationRequest {
+                            remediation_id: Some(id),
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Yields((id, "bob".to_string())),
+                },
+                Case {
+                    scenario: "missing id fails",
+                    input: (
+                        ApproveRemediationRequest {
+                            remediation_id: None,
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(request, reviewer)| -> Result<(RemediationId, String), ()> {
+                let approve = ApproveRemediation::rpc_try_from((request, reviewer)).map_err(drop)?;
+                Ok((approve.id, approve.reviewer.to_string()))
+            },
+        );
+    }
+
+    // `(RevokeRemediationRequest, actor) -> RevokeRemediation` is fallible: a missing
+    // id is the one error arm; the actor is logged, not stored. Project to the id.
+    #[test]
+    fn revoke_remediation_rpc_try_from() {
+        let id = RemediationId::default();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "id present",
+                    input: (
+                        RevokeRemediationRequest {
+                            remediation_id: Some(id),
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Yields(id),
+                },
+                Case {
+                    scenario: "missing id fails",
+                    input: (
+                        RevokeRemediationRequest {
+                            remediation_id: None,
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(request, actor)| -> Result<RemediationId, ()> {
+                Ok(RevokeRemediation::rpc_try_from((request, actor))
+                    .map_err(drop)?
+                    .id)
+            },
+        );
+    }
+
+    // `(EnableRemediationRequest, actor) -> EnableRemediation` is fallible on a
+    // missing id; the actor is logged, not stored. Project to the id.
+    #[test]
+    fn enable_remediation_rpc_try_from() {
+        let id = RemediationId::default();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "id present",
+                    input: (
+                        EnableRemediationRequest {
+                            remediation_id: Some(id),
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Yields(id),
+                },
+                Case {
+                    scenario: "missing id fails",
+                    input: (
+                        EnableRemediationRequest {
+                            remediation_id: None,
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(request, actor)| -> Result<RemediationId, ()> {
+                Ok(EnableRemediation::rpc_try_from((request, actor))
+                    .map_err(drop)?
+                    .id)
+            },
+        );
+    }
+
+    // `(DisableRemediationRequest, actor) -> DisableRemediation` is fallible on a
+    // missing id; the actor is logged, not stored. Project to the id.
+    #[test]
+    fn disable_remediation_rpc_try_from() {
+        let id = RemediationId::default();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "id present",
+                    input: (
+                        DisableRemediationRequest {
+                            remediation_id: Some(id),
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Yields(id),
+                },
+                Case {
+                    scenario: "missing id fails",
+                    input: (
+                        DisableRemediationRequest {
+                            remediation_id: None,
+                        },
+                        "bob".to_string(),
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(request, actor)| -> Result<RemediationId, ()> {
+                Ok(DisableRemediation::rpc_try_from((request, actor))
+                    .map_err(drop)?
+                    .id)
+            },
+        );
     }
 }

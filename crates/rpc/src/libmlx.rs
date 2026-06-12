@@ -118,117 +118,450 @@ impl From<FirmwareFlashReportPb> for FirmwareFlashReport {
 
 #[cfg(test)]
 mod test {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
+    // Proto -> model `TryFrom`: every input proto should convert back to the
+    // expected `MlxDeviceInfo`, with empty proto strings (and an empty MAC)
+    // becoming `None`. The roundtrip rows feed a model through its own
+    // `Into<MlxDeviceInfoPb>` first.
     #[test]
-    fn test_device_info_roundtrip_conversion() {
-        let original = MlxDeviceInfo::create_test_device();
-        let proto: MlxDeviceInfoPb = original.clone().into();
-        let converted: MlxDeviceInfo = proto.try_into().unwrap();
-        assert_eq!(original, converted);
+    fn device_info_proto_to_model() {
+        check_cases(
+            [
+                Case {
+                    scenario: "full device roundtrips",
+                    input: MlxDeviceInfo::create_test_device().into(),
+                    expect: Yields(MlxDeviceInfo::create_test_device()),
+                },
+                Case {
+                    scenario: "missing-data device roundtrips",
+                    input: MlxDeviceInfo::create_test_device_with_missing_data().into(),
+                    expect: Yields(MlxDeviceInfo::create_test_device_with_missing_data()),
+                },
+                Case {
+                    scenario: "empty string fields become none",
+                    input: MlxDeviceInfoPb {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: "".to_string(), // Empty string should become None
+                        device_description: "".to_string(),
+                        part_number: "".to_string(),
+                        fw_version_current: "".to_string(),
+                        pxe_version_current: "".to_string(),
+                        uefi_version_current: "".to_string(),
+                        uefi_version_virtio_blk_current: "".to_string(),
+                        uefi_version_virtio_net_current: "".to_string(),
+                        base_mac: "".to_string(), // Empty MAC becomes None
+                        status: "".to_string(),
+                    },
+                    expect: Yields(MlxDeviceInfo {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: None,
+                        device_description: None,
+                        part_number: None,
+                        fw_version_current: None,
+                        pxe_version_current: None,
+                        uefi_version_current: None,
+                        uefi_version_virtio_blk_current: None,
+                        uefi_version_virtio_net_current: None,
+                        base_mac: None,
+                        status: None,
+                    }),
+                },
+                Case {
+                    scenario: "populated mac parses",
+                    input: MlxDeviceInfoPb {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: "".to_string(),
+                        device_description: "".to_string(),
+                        part_number: "".to_string(),
+                        fw_version_current: "".to_string(),
+                        pxe_version_current: "".to_string(),
+                        uefi_version_current: "".to_string(),
+                        uefi_version_virtio_blk_current: "".to_string(),
+                        uefi_version_virtio_net_current: "".to_string(),
+                        base_mac: "b8:3f:d2:12:34:56".to_string(),
+                        status: "".to_string(),
+                    },
+                    expect: Yields(MlxDeviceInfo {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: None,
+                        device_description: None,
+                        part_number: None,
+                        fw_version_current: None,
+                        pxe_version_current: None,
+                        uefi_version_current: None,
+                        uefi_version_virtio_blk_current: None,
+                        uefi_version_virtio_net_current: None,
+                        base_mac: Some(MacAddress::from_str("b8:3f:d2:12:34:56").unwrap()),
+                        status: None,
+                    }),
+                },
+                Case {
+                    scenario: "every optional string field present",
+                    input: MlxDeviceInfoPb {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "ConnectX-6 Dx".to_string(),
+                        psid: "MT_00000055".to_string(),
+                        device_description: "desc".to_string(),
+                        part_number: "MCX623106AN-CDAT".to_string(),
+                        fw_version_current: "22.32.1010".to_string(),
+                        pxe_version_current: "3.6.0502".to_string(),
+                        uefi_version_current: "14.25.1020".to_string(),
+                        uefi_version_virtio_blk_current: "1.0.0".to_string(),
+                        uefi_version_virtio_net_current: "1.0.0".to_string(),
+                        base_mac: "".to_string(),
+                        status: "ok".to_string(),
+                    },
+                    expect: Yields(MlxDeviceInfo {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "ConnectX-6 Dx".to_string(),
+                        psid: Some("MT_00000055".to_string()),
+                        device_description: Some("desc".to_string()),
+                        part_number: Some("MCX623106AN-CDAT".to_string()),
+                        fw_version_current: Some("22.32.1010".to_string()),
+                        pxe_version_current: Some("3.6.0502".to_string()),
+                        uefi_version_current: Some("14.25.1020".to_string()),
+                        uefi_version_virtio_blk_current: Some("1.0.0".to_string()),
+                        uefi_version_virtio_net_current: Some("1.0.0".to_string()),
+                        base_mac: None,
+                        status: Some("ok".to_string()),
+                    }),
+                },
+                Case {
+                    scenario: "malformed mac fails",
+                    input: MlxDeviceInfoPb {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: "".to_string(),
+                        device_description: "".to_string(),
+                        part_number: "".to_string(),
+                        fw_version_current: "".to_string(),
+                        pxe_version_current: "".to_string(),
+                        uefi_version_current: "".to_string(),
+                        uefi_version_virtio_blk_current: "".to_string(),
+                        uefi_version_virtio_net_current: "".to_string(),
+                        base_mac: "not-a-mac".to_string(),
+                        status: "".to_string(),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "mac with too few octets fails",
+                    input: MlxDeviceInfoPb {
+                        pci_name: "01:00.0".to_string(),
+                        device_type: "BlueField3".to_string(),
+                        psid: "".to_string(),
+                        device_description: "".to_string(),
+                        part_number: "".to_string(),
+                        fw_version_current: "".to_string(),
+                        pxe_version_current: "".to_string(),
+                        uefi_version_current: "".to_string(),
+                        uefi_version_virtio_blk_current: "".to_string(),
+                        uefi_version_virtio_net_current: "".to_string(),
+                        base_mac: "b8:3f:d2".to_string(),
+                        status: "".to_string(),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |proto: MlxDeviceInfoPb| MlxDeviceInfo::try_from(proto).map_err(drop),
+        );
     }
 
+    // Model -> proto `From`: the total mapping that fills each absent
+    // `Option` with the proto's empty-string default and renders the MAC via
+    // `to_string`. Each row pins the produced proto fields as one tuple.
     #[test]
-    fn test_device_info_with_missing_data_conversion() {
-        let original = MlxDeviceInfo::create_test_device_with_missing_data();
-        let proto: MlxDeviceInfoPb = original.clone().into();
-        let converted: MlxDeviceInfo = proto.try_into().unwrap();
-
-        // Required fields should be preserved
-        assert_eq!(original.pci_name, converted.pci_name);
-        assert_eq!(original.device_type, converted.device_type);
-
-        // Optional fields should become None
-        assert_eq!(converted.psid, None);
-        assert_eq!(converted.part_number, None);
-        assert_eq!(converted.base_mac, None);
-        assert_eq!(converted.status, Some("Failed to open device".to_string()));
-    }
-
-    #[test]
-    fn test_empty_string_fields_become_none() {
-        let proto = MlxDeviceInfoPb {
-            pci_name: "01:00.0".to_string(),
-            device_type: "BlueField3".to_string(),
-            psid: "".to_string(), // Empty string should become None
-            device_description: "".to_string(),
-            part_number: "".to_string(),
-            fw_version_current: "".to_string(),
-            pxe_version_current: "".to_string(),
-            uefi_version_current: "".to_string(),
-            uefi_version_virtio_blk_current: "".to_string(),
-            uefi_version_virtio_net_current: "".to_string(),
-            base_mac: "".to_string(), // Empty MAC becomes None
-            status: "".to_string(),
+    fn device_info_model_to_proto() {
+        type Fields = (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+        );
+        let project = |info: MlxDeviceInfo| -> Fields {
+            let pb: MlxDeviceInfoPb = info.into();
+            (
+                pb.pci_name,
+                pb.device_type,
+                pb.psid,
+                pb.device_description,
+                pb.part_number,
+                pb.fw_version_current,
+                pb.pxe_version_current,
+                pb.uefi_version_current,
+                pb.uefi_version_virtio_blk_current,
+                pb.uefi_version_virtio_net_current,
+                pb.base_mac,
+                pb.status,
+            )
         };
-
-        let converted: MlxDeviceInfo = proto.try_into().unwrap();
-
-        assert_eq!(converted.psid, None);
-        assert_eq!(converted.part_number, None);
-        assert_eq!(converted.base_mac, None);
-        assert_eq!(converted.fw_version_current, None);
-        assert_eq!(converted.status, None);
+        check_values(
+            [
+                Check {
+                    scenario: "fully populated model maps every field",
+                    input: MlxDeviceInfo::create_test_device(),
+                    expect: (
+                        "01:00.0".to_string(),
+                        "ConnectX-6 Dx".to_string(),
+                        "MT_00000055".to_string(),
+                        "Mellanox ConnectX-6 Dx EN 100GbE dual port".to_string(),
+                        "MCX623106AN-CDAT".to_string(),
+                        "22.32.1010".to_string(),
+                        "3.6.0502".to_string(),
+                        "14.25.1020".to_string(),
+                        "1.0.0".to_string(),
+                        "1.0.0".to_string(),
+                        "B8:3F:D2:12:34:56".to_string(),
+                        // status is None on the test device -> empty string
+                        "".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "missing-data model defaults absent options to empty",
+                    input: MlxDeviceInfo::create_test_device_with_missing_data(),
+                    expect: (
+                        "b4:00.0".to_string(),
+                        "BlueField3".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        // base_mac is None -> empty string
+                        "".to_string(),
+                        "Failed to open device".to_string(),
+                    ),
+                },
+            ],
+            project,
+        );
     }
 
+    // `FirmwareFlashReport` -> proto -> `FirmwareFlashReport` roundtrip. The
+    // report isn't `PartialEq`, so project to the tuple of fields the originals
+    // asserted; the conversions are total (`From`), hence `check_values`.
     #[test]
-    fn test_flasher_result_all_steps_success() {
-        let original = FirmwareFlashReport {
-            flashed: true,
-            reset: Some(true),
-            verified_image: Some(true),
-            verified_version: Some(true),
-            observed_version: Some("32.43.1014".to_string()),
-            expected_version: Some("32.43.1014".to_string()),
-        };
-        let proto: FirmwareFlashReportPb = original.clone().into();
-        let converted: FirmwareFlashReport = proto.into();
-
-        assert_eq!(original.flashed, converted.flashed);
-        assert_eq!(original.reset, converted.reset);
-        assert_eq!(original.verified_image, converted.verified_image);
-        assert_eq!(original.verified_version, converted.verified_version);
-        assert_eq!(original.observed_version, converted.observed_version);
-        assert_eq!(original.expected_version, converted.expected_version);
+    fn firmware_flash_report_roundtrip() {
+        check_values(
+            [
+                Check {
+                    scenario: "all steps success",
+                    input: FirmwareFlashReport {
+                        flashed: true,
+                        reset: Some(true),
+                        verified_image: Some(true),
+                        verified_version: Some(true),
+                        observed_version: Some("32.43.1014".to_string()),
+                        expected_version: Some("32.43.1014".to_string()),
+                    },
+                    expect: (
+                        true,
+                        Some(true),
+                        Some(true),
+                        Some(true),
+                        Some("32.43.1014".to_string()),
+                        Some("32.43.1014".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "flash only",
+                    input: FirmwareFlashReport {
+                        flashed: true,
+                        reset: None,
+                        verified_image: None,
+                        verified_version: None,
+                        observed_version: None,
+                        expected_version: None,
+                    },
+                    expect: (true, None, None, None, None, None),
+                },
+                Check {
+                    scenario: "partial failure",
+                    input: FirmwareFlashReport {
+                        flashed: true,
+                        reset: Some(false),
+                        verified_image: Some(false),
+                        verified_version: Some(false),
+                        observed_version: Some("32.42.900".to_string()),
+                        expected_version: Some("32.43.1014".to_string()),
+                    },
+                    expect: (
+                        true,
+                        Some(false),
+                        Some(false),
+                        Some(false),
+                        Some("32.42.900".to_string()),
+                        Some("32.43.1014".to_string()),
+                    ),
+                },
+            ],
+            |original: FirmwareFlashReport| {
+                let proto: FirmwareFlashReportPb = original.into();
+                let converted: FirmwareFlashReport = proto.into();
+                (
+                    converted.flashed,
+                    converted.reset,
+                    converted.verified_image,
+                    converted.verified_version,
+                    converted.observed_version,
+                    converted.expected_version,
+                )
+            },
+        );
     }
 
+    // Proto -> model `From` for `FirmwareFlashReport`, exercised directly
+    // (not via the roundtrip above). The report isn't `PartialEq`, so project
+    // to its field tuple; the conversion is total, hence `check_values`.
     #[test]
-    fn test_flasher_result_flash_only() {
-        let original = FirmwareFlashReport {
-            flashed: true,
-            reset: None,
-            verified_image: None,
-            verified_version: None,
-            observed_version: None,
-            expected_version: None,
+    fn firmware_flash_report_proto_to_model() {
+        type Fields = (
+            bool,
+            Option<bool>,
+            Option<bool>,
+            Option<bool>,
+            Option<String>,
+            Option<String>,
+        );
+        let project = |proto: FirmwareFlashReportPb| -> Fields {
+            let model: FirmwareFlashReport = proto.into();
+            (
+                model.flashed,
+                model.reset,
+                model.verified_image,
+                model.verified_version,
+                model.observed_version,
+                model.expected_version,
+            )
         };
-        let proto: FirmwareFlashReportPb = original.into();
-        let converted: FirmwareFlashReport = proto.into();
-
-        assert!(converted.flashed);
-        assert!(converted.reset.is_none());
-        assert!(converted.verified_image.is_none());
-        assert!(converted.verified_version.is_none());
-        assert!(converted.observed_version.is_none());
+        check_values(
+            [
+                Check {
+                    scenario: "every field populated",
+                    input: FirmwareFlashReportPb {
+                        flashed: true,
+                        reset: Some(true),
+                        verified_image: Some(true),
+                        verified_version: Some(true),
+                        observed_version: Some("32.43.1014".to_string()),
+                        expected_version: Some("32.43.1014".to_string()),
+                    },
+                    expect: (
+                        true,
+                        Some(true),
+                        Some(true),
+                        Some(true),
+                        Some("32.43.1014".to_string()),
+                        Some("32.43.1014".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "all optionals absent",
+                    input: FirmwareFlashReportPb {
+                        flashed: false,
+                        reset: None,
+                        verified_image: None,
+                        verified_version: None,
+                        observed_version: None,
+                        expected_version: None,
+                    },
+                    expect: (false, None, None, None, None, None),
+                },
+                Check {
+                    scenario: "false flags pass through distinct from none",
+                    input: FirmwareFlashReportPb {
+                        flashed: true,
+                        reset: Some(false),
+                        verified_image: Some(false),
+                        verified_version: Some(false),
+                        observed_version: Some("32.42.900".to_string()),
+                        expected_version: Some("32.43.1014".to_string()),
+                    },
+                    expect: (
+                        true,
+                        Some(false),
+                        Some(false),
+                        Some(false),
+                        Some("32.42.900".to_string()),
+                        Some("32.43.1014".to_string()),
+                    ),
+                },
+            ],
+            project,
+        );
     }
 
+    // Model -> proto `From` for `FirmwareFlashReport`, exercised directly. The
+    // proto carries the same field shape, so the mapping is a straight copy.
     #[test]
-    fn test_flasher_result_partial_failure() {
-        let original = FirmwareFlashReport {
-            flashed: true,
-            reset: Some(false),
-            verified_image: Some(false),
-            verified_version: Some(false),
-            observed_version: Some("32.42.900".to_string()),
-            expected_version: Some("32.43.1014".to_string()),
+    fn firmware_flash_report_model_to_proto() {
+        type Fields = (
+            bool,
+            Option<bool>,
+            Option<bool>,
+            Option<bool>,
+            Option<String>,
+            Option<String>,
+        );
+        let project = |model: FirmwareFlashReport| -> Fields {
+            let pb: FirmwareFlashReportPb = model.into();
+            (
+                pb.flashed,
+                pb.reset,
+                pb.verified_image,
+                pb.verified_version,
+                pb.observed_version,
+                pb.expected_version,
+            )
         };
-        let proto: FirmwareFlashReportPb = original.into();
-        let converted: FirmwareFlashReport = proto.into();
-
-        assert!(converted.flashed);
-        assert_eq!(converted.reset, Some(false));
-        assert_eq!(converted.verified_image, Some(false));
-        assert_eq!(converted.verified_version, Some(false));
+        check_values(
+            [
+                Check {
+                    scenario: "fully populated report",
+                    input: FirmwareFlashReport {
+                        flashed: true,
+                        reset: Some(true),
+                        verified_image: Some(true),
+                        verified_version: Some(true),
+                        observed_version: Some("32.43.1014".to_string()),
+                        expected_version: Some("32.43.1014".to_string()),
+                    },
+                    expect: (
+                        true,
+                        Some(true),
+                        Some(true),
+                        Some(true),
+                        Some("32.43.1014".to_string()),
+                        Some("32.43.1014".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "default report maps to all-absent proto",
+                    input: FirmwareFlashReport::default(),
+                    expect: (false, None, None, None, None, None),
+                },
+            ],
+            project,
+        );
     }
 
     #[test]
