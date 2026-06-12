@@ -40,6 +40,16 @@ pub struct TestManagedHost {
 }
 
 impl TestManagedHost {
+    pub async fn dhcp_discover_host_primary_iface(&self, api: &Api, segment: TestNetworkSegment) {
+        api.discover_dhcp(
+            DhcpDiscovery::builder(self.managed_host.dhcp_mac_address(), segment.relay_address)
+                .vendor_string("Bluefield")
+                .tonic_request(),
+        )
+        .await
+        .expect("host primary interface DHCP discovery should succeed");
+    }
+
     /// Simulate forge-dpu-agent fetching, applying, and reporting DPU network status.
     pub async fn report_dpu_network_status(&self, api: &Api) {
         for dpu_machine_id in self.dpu_machine_ids.values() {

@@ -23,6 +23,9 @@ use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 
+/// Keep this shared env to the setup common to most site-explorer tests.
+/// Tests that need extra domains, segments, or other one-off objects should
+/// create those objects locally instead of adding fields here.
 pub struct Env {
     pub pool: PgPool,
     pub underlay_segment: TestNetworkSegment,

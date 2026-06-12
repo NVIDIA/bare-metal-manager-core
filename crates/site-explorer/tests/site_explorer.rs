@@ -30,13 +30,13 @@ use db::ObjectFilter;
 use db::sku::CURRENT_SKU_VERSION;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::metadata::Metadata;
 use model::site_explorer::{
     ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredManagedHost, PreingestionState, UefiDevicePath,
+    ExploredManagedHost, NicMode, PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
@@ -2495,6 +2495,181 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     assert!(
         calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
         "expected at least one set_nic_mode(Nic) call triggered by the operator's NicMode declaration; calls so far: {calls:?}"
+    );
+
+    Ok(())
+}
+
+/// A queued `set_nic_mode` only takes effect after a host power cycle, and
+/// site-explorer drives that power cycle itself for every vendor -- the
+/// Redfish `ComputerSystem.Reset` action is standard across BMCs. This is
+/// the non-Dell guard for that behavior: a Lenovo host whose DPU needs the
+/// mode correction gets an automatic `PowerCycle` on its host BMC in the
+/// same pass that issued `set_nic_mode`, rather than parking on a manual
+/// power cycle.
+#[sqlx_test]
+async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    // DPU hardware reports DPU mode; the operator-declared NicMode override
+    // is what forces the correction (and therefore the power cycle).
+    let dpu_config = DpuConfig {
+        nic_mode: Some(NicMode::Dpu),
+        ..DpuConfig::default()
+    };
+    let mock_host = ManagedHostConfig {
+        dpus: vec![dpu_config.clone()],
+        vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+        ..ManagedHostConfig::default()
+    };
+    let host_bmc_mac = mock_host.bmc_mac_address;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: "EM-866-NIC-POWERCYCLE".to_string(),
+                metadata: Metadata::new_with_default_name(),
+                dpu_mode: DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu_config.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    // First iteration: initial endpoint exploration.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
+    db::explored_endpoints::set_preingestion_complete(dpu_bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    // Second iteration: the matching loop issues `set_nic_mode` and,
+    // with the DPU now needing reconfiguration, power-cycles the host
+    // so the queued mode change applies.
+    explorer.run_single_iteration().await.unwrap();
+
+    let nic_mode_calls = explorer
+        .endpoint_explorer()
+        .set_nic_mode_calls
+        .lock()
+        .unwrap();
+    assert!(
+        nic_mode_calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+        "expected set_nic_mode(Nic) before the power cycle; calls so far: {nic_mode_calls:?}"
+    );
+
+    let power_calls = explorer
+        .endpoint_explorer()
+        .redfish_power_control_calls
+        .lock()
+        .unwrap();
+    assert!(
+        power_calls
+            .iter()
+            .any(|(_, action)| matches!(action, libredfish::SystemPowerControl::PowerCycle)),
+        "expected an automatic host PowerCycle on the non-Dell (Lenovo) host to apply the queued NIC mode change; power calls so far: {power_calls:?}"
+    );
+
+    Ok(())
+}
+
+/// A managed host's DPU-facing `machine_interface` is created (via DHCP) with
+/// just a MAC and no `boot_interface_id`. The exploration that ingests the host
+/// then backfills the vendor-specific Redfish interface id onto that row, matched
+/// by MAC, at which the primary interface ends up with a full `MachineBootInterface`.
+/// This is the same backfill path any DHCP-derived interface takes (the capture is
+/// keyed on MAC, not on how the row was created).
+#[sqlx_test]
+async fn test_site_explorer_backfills_boot_interface_id_onto_machine_interface(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let test_harness = TestHarness::builder(pool).build().await;
+    let domain = test_harness.test_domain().await;
+    let network_controller = test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env::test_site_explorer(&test_harness, explorer_config);
+
+    let dpu = DpuConfig::default();
+    let host_pf_mac = dpu.host_mac_address;
+    let managed_host = ManagedHostConfig::with_dpus(vec![dpu]);
+    let created_host = test_harness
+        .managed_host_builder(&explorer, underlay_segment)
+        .with_config(managed_host)
+        .build()
+        .await;
+
+    // TestManagedHostBuilder runs initial endpoint exploration and marks
+    // preingestion complete. Its second iteration creates the predicted host-PF
+    // interface with the Redfish boot interface id from the endpoint report.
+    created_host
+        .dhcp_discover_host_primary_iface(test_harness.api(), admin_segment)
+        .await;
+
+    // Third iteration: the DHCP-created row is matched by MAC and receives
+    // the boot interface id from the predicted interface.
+    explorer.run_single_iteration().await.unwrap();
+
+    let mut txn = test_harness.db_txn().await;
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(&mut txn, &[created_host.host_machine_id])
+            .await?;
+    let primary = interfaces
+        .get(&created_host.host_machine_id)
+        .into_iter()
+        .flatten()
+        .find(|i| i.primary_interface)
+        .expect("ingested host should have a primary machine_interface");
+
+    // The primary row is the DPU host-PF interface (same factory MAC), now
+    // holding both halves of the pair: its MAC plus the Redfish interface id the
+    // host report named for it. The `ManagedHostConfig` fixture ids its DPU
+    // interfaces "NIC.Slot.{index + 5}-1", so the first DPU is "NIC.Slot.5-1".
+    assert_eq!(primary.mac_address, host_pf_mac);
+    assert_eq!(
+        primary.boot_interface_id.as_deref(),
+        Some("NIC.Slot.5-1"),
+        "exploration should backfill the Redfish interface id onto the machine_interface row",
     );
 
     Ok(())
