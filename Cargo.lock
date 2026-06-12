@@ -2628,6 +2628,7 @@ dependencies = [
  "carbide-network",
  "carbide-prost-builder",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",

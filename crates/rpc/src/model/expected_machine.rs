@@ -268,25 +268,50 @@ fn metadata_from_request(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
-    /// Unspecified (0) on the wire means "use the default." Old clients
-    /// sending no value land here, and we want to preserve the DpuMode
-    /// default so existing deployments keep their behavior.
+    /// `DpuMode::from(rpc::forge::DpuMode)` maps each named variant onto its
+    /// model twin, and Unspecified (what old clients send) onto the default —
+    /// which keeps existing deployments behaving as before. The named rows also
+    /// stand in for the model -> rpc -> model round trip, since the rpc input is
+    /// exactly what `rpc::forge::DpuMode::from(model)` produces.
     #[test]
-    fn from_rpc_unspecified_maps_to_default() {
-        assert_eq!(
-            DpuMode::from(rpc::forge::DpuMode::Unspecified),
-            DpuMode::default()
+    fn rpc_dpu_mode_maps_to_model() {
+        check_values(
+            [
+                Check {
+                    scenario: "unspecified maps to default",
+                    input: rpc::forge::DpuMode::Unspecified,
+                    expect: DpuMode::default(),
+                },
+                Check {
+                    scenario: "dpu mode round trips",
+                    input: rpc::forge::DpuMode::DpuMode,
+                    expect: DpuMode::DpuMode,
+                },
+                Check {
+                    scenario: "nic mode round trips",
+                    input: rpc::forge::DpuMode::NicMode,
+                    expect: DpuMode::NicMode,
+                },
+                Check {
+                    scenario: "no dpu round trips",
+                    input: rpc::forge::DpuMode::NoDpu,
+                    expect: DpuMode::NoDpu,
+                },
+            ],
+            DpuMode::from,
         );
-        assert_eq!(DpuMode::default(), DpuMode::DpuMode);
     }
 
+    /// The DpuMode default is DpuMode, which is what the Unspecified mapping above
+    /// relies on.
     #[test]
-    fn rpc_enum_round_trips_all_named_variants() {
-        for mode in [DpuMode::DpuMode, DpuMode::NicMode, DpuMode::NoDpu] {
-            assert_eq!(DpuMode::from(rpc::forge::DpuMode::from(mode)), mode);
-        }
+    fn dpu_mode_default_is_dpu_mode() {
+        assert_eq!(DpuMode::default(), DpuMode::DpuMode);
     }
 
     #[test]
@@ -332,54 +357,46 @@ mod tests {
         }
     }
 
+    /// `disable_lockdown` survives the rpc -> data -> rpc round trip: each input
+    /// is projected to (data-side disable_lockdown, back-side host_lifecycle_profile
+    /// mapped to its disable_lockdown). A `None` input yields no profile on the way
+    /// back, so the back-side projection is `None` rather than `Some(None)`.
     #[test]
-    fn disable_lockdown_true_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(Some(true));
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(true));
+    fn disable_lockdown_round_trips_through_proto() {
+        check_cases(
+            [
+                Case {
+                    scenario: "true",
+                    input: Some(true),
+                    expect: Yields((Some(true), Some(Some(true)))),
+                },
+                Case {
+                    scenario: "false",
+                    input: Some(false),
+                    expect: Yields((Some(false), Some(Some(false)))),
+                },
+                Case {
+                    scenario: "none",
+                    input: None,
+                    expect: Yields((None, None)),
+                },
+            ],
+            |disable_lockdown| {
+                let data =
+                    ExpectedMachineData::try_from(make_rpc_expected_machine(disable_lockdown))
+                        .map_err(drop)?;
+                let data_side = data.host_lifecycle_profile.disable_lockdown;
 
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
-        };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(
-            back.host_lifecycle_profile.unwrap().disable_lockdown,
-            Some(true)
+                let em = ExpectedMachine {
+                    id: None,
+                    bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().map_err(drop)?,
+                    data,
+                };
+                let back: rpc::forge::ExpectedMachine = em.into();
+                let back_side = back.host_lifecycle_profile.map(|p| p.disable_lockdown);
+
+                Ok::<_, ()>((data_side, back_side))
+            },
         );
-    }
-
-    #[test]
-    fn disable_lockdown_false_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(Some(false));
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(false));
-
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
-        };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(
-            back.host_lifecycle_profile.unwrap().disable_lockdown,
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn disable_lockdown_none_round_trips_through_proto() {
-        let rpc_em = make_rpc_expected_machine(None);
-        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
-        assert_eq!(data.host_lifecycle_profile.disable_lockdown, None);
-
-        let em = ExpectedMachine {
-            id: None,
-            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
-            data,
-        };
-        let back: rpc::forge::ExpectedMachine = em.into();
-        assert!(back.host_lifecycle_profile.is_none());
     }
 }

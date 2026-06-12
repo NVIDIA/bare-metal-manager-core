@@ -749,6 +749,7 @@ pub type ForgeHttpsClientResult<T> = Result<T, ForgeTlsClientError>;
 mod tests {
     use std::net::SocketAddr;
 
+    use carbide_test_support::{Check, check_values};
     use forge_http_connector::connector::ConnectorMetrics;
     use hyper_rustls::HttpsConnector;
 
@@ -855,7 +856,7 @@ mod tests {
     }
 
     #[test]
-    fn format_error_chain_walks_source_chain() {
+    fn format_error_chain_formats_each_error() {
         #[derive(thiserror::Error, Debug)]
         #[error("invalid peer certificate: UnknownIssuer")]
         struct Inner;
@@ -864,19 +865,27 @@ mod tests {
         #[error("client error (Connect)")]
         struct Outer(#[from] Inner);
 
-        let err: Outer = Inner.into();
-        assert_eq!(
-            format_error_chain(&err),
-            "client error (Connect): invalid peer certificate: UnknownIssuer"
-        );
-    }
-
-    #[test]
-    fn format_error_chain_with_no_source_returns_top_message() {
         #[derive(thiserror::Error, Debug)]
         #[error("only message")]
         struct Plain;
 
-        assert_eq!(format_error_chain(&Plain), "only message");
+        // `format_error_chain` appends the deepest `source()` when it differs
+        // from the top-level message, otherwise returns the top message alone.
+        check_values(
+            [
+                Check {
+                    scenario: "walks source chain to the root cause",
+                    input: Box::new(Outer::from(Inner)) as Box<dyn std::error::Error>,
+                    expect: "client error (Connect): invalid peer certificate: UnknownIssuer"
+                        .to_string(),
+                },
+                Check {
+                    scenario: "no source returns top message",
+                    input: Box::new(Plain) as Box<dyn std::error::Error>,
+                    expect: "only message".to_string(),
+                },
+            ],
+            |err| format_error_chain(err.as_ref()),
+        );
     }
 }
