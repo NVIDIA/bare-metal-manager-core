@@ -67,6 +67,7 @@ x509-parser = { workspace = true }
 serde_with = { workspace = true }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 
