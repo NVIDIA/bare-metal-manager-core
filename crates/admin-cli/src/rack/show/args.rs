@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all racks:
-    $ carbide-admin-cli rack show
+    $ nico-admin-cli rack show
 
 Show details for one rack:
-    $ carbide-admin-cli rack show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli rack show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

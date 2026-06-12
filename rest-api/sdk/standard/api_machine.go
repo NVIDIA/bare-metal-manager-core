@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -525,7 +525,7 @@ func (r ApiGetAllMachineCapabilitiesRequest) Vendor(vendor string) ApiGetAllMach
 	return r
 }
 
-// Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query params should be specified in correct order in order to filter. For example, to filter for [1, 3], specify inactiveDevices&#x3D;1&amp;inactiveDevices&#x3D;3
+// Filter Capabilities by Inactive Devices value. Since the value is an array, multiple query parameters should be specified in the correct order. For example, to filter for [1, 3], specify inactiveDevices&#x3D;1&amp;inactiveDevices&#x3D;3
 func (r ApiGetAllMachineCapabilitiesRequest) InactiveDevices(inactiveDevices string) ApiGetAllMachineCapabilitiesRequest {
 	r.inactiveDevices = &inactiveDevices
 	return r

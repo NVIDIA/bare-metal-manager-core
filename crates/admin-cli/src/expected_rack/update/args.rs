@@ -26,11 +26,11 @@ use crate::errors::CarbideCliError;
 EXAMPLES:
 
 Update an expected rack's rack profile:
-    $ carbide-admin-cli expected-rack update 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli expected-rack update 12345678-1234-5678-90ab-cdef01234567 \
     --rack-profile-id abcdef01-2345-6789-abcd-ef0123456789
 
 Update an expected rack's metadata name:
-    $ carbide-admin-cli expected-rack update 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli expected-rack update 12345678-1234-5678-90ab-cdef01234567 \
     --rack-profile-id abcdef01-2345-6789-abcd-ef0123456789 --meta-name rack-01
 
 ")]

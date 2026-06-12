@@ -24,7 +24,7 @@ use rpc::forge::VpcPrefixDeletionRequest;
 EXAMPLES:
 
 Delete a VPC prefix by ID:
-    $ carbide-admin-cli vpc-prefix delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli vpc-prefix delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

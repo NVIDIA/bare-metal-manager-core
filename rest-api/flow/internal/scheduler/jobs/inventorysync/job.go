@@ -6,6 +6,8 @@ package inventorysync
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/rs/zerolog/log"
 
@@ -17,11 +19,37 @@ import (
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico" //nolint
 )
 
+// envExpectedSyncEnabled gates the expected-inventory mirror that runs at
+// the start of each inventory cycle (see expected_mirror*.go). Default is
+// "off": Flow keeps using its existing ingestion path until an operator
+// opts in. Accepted truthy values are anything strconv.ParseBool accepts
+// (1, t, T, true, True, TRUE, ...). An unset, empty, or unparseable value
+// resolves to disabled — the conservative default given the mirror writes
+// directly to the rack / component tables.
+const envExpectedSyncEnabled = "FLOW_EXPECTED_INVENTORY_SYNC_ENABLED"
+
 // Job implements scheduler.Job for the inventory sync task.
 type Job struct {
-	dbConf     *cdb.Config
-	nicoClient nicoapi.Client
-	pool       *cdb.Session
+	dbConf              *cdb.Config
+	nicoClient          nicoapi.Client
+	pool                *cdb.Session
+	expectedSyncEnabled bool
+}
+
+func readExpectedSyncEnabled() bool {
+	raw := os.Getenv(envExpectedSyncEnabled)
+	if raw == "" {
+		return false
+	}
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Warn().
+			Str("env", envExpectedSyncEnabled).
+			Str("raw", raw).
+			Msg("Expected-inventory mirror toggle: env var value is not a boolean (use 1/0/true/false); treating as disabled")
+		return false
+	}
+	return enabled
 }
 
 // New constructs an inventory sync Job using clients sourced from the provider
@@ -69,10 +97,17 @@ func New(
 	//    the component manager so jobs receive ready-to-use domain clients
 	//    instead of low-level provider handles.
 
+	expectedSyncEnabled := readExpectedSyncEnabled()
+	log.Info().
+		Bool("enabled", expectedSyncEnabled).
+		Str("env", envExpectedSyncEnabled).
+		Msg("Expected-inventory mirror: feature gate resolved at job construction")
+
 	return &Job{
-		dbConf:     dbConf,
-		nicoClient: nicoProvider.Client(),
-		pool:       pool,
+		dbConf:              dbConf,
+		nicoClient:          nicoProvider.Client(),
+		pool:                pool,
+		expectedSyncEnabled: expectedSyncEnabled,
 	}, nil
 }
 
@@ -85,6 +120,6 @@ func (j *Job) Name() string { return "inventory-sync" }
 // error is also logged rather than propagated. A failed iteration is not
 // fatal — the scheduler will simply retry on the next trigger fire.
 func (j *Job) Run(ctx context.Context, _ types.Event) error {
-	runInventoryOne(ctx, j.pool, j.nicoClient)
+	runInventoryOne(ctx, j.pool, j.nicoClient, j.expectedSyncEnabled)
 	return nil
 }

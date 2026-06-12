@@ -56,8 +56,10 @@ where
 
         let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())?;
 
-        // ClientIp uses X-Forwarded-For when a proxy injects it, and falls
-        // back to the TCP socket peer otherwise.
+        // Note: This does *NOT* look at X-Forwarded-For, due to security issues with the header. We
+        // don't currently have use cases for a proxy in front of carbide-pxe... if that changes
+        // someday we will need to configure a request extractor that conditionally uses
+        // X-Forwarded-For if it's present and falling back on ClientIp if it's not.
         let client_ip = ClientIp::from_request_parts(parts, state)
             .await
             .map_err(PxeRequestError::MissingIp)?

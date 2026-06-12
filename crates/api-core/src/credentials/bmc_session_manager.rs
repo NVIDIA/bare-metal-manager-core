@@ -75,10 +75,10 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use carbide_redfish::nv_redfish::{BmcError, NvRedfishClientPool, RedfishBmc};
-use db::bmc_redfish_session;
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use db::bmc_redfish_session;
 use mac_address::MacAddress;
 use model::bmc_redfish_session::StoredSession;
 use nv_redfish::Error as NvError;
@@ -619,12 +619,12 @@ mod tests {
 
     use arc_swap::ArcSwap;
     use async_trait::async_trait;
-    use forge_secrets::SecretsError;
-    use forge_secrets::credentials::{
+    use carbide_secrets::SecretsError;
+    use carbide_secrets::credentials::{
         BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, CredentialWriter,
         Credentials,
     };
-    use forge_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use mac_address::MacAddress;
     use sqlx::types::chrono::Utc;
     use tokio::sync::Mutex;

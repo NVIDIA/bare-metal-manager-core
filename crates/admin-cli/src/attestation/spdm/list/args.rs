@@ -23,7 +23,7 @@ use clap::{Parser, ValueEnum};
 EXAMPLES:
 
 List all SPDM attestations recorded for a machine:
-    $ carbide-admin-cli attestation spdm list 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli attestation spdm list 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

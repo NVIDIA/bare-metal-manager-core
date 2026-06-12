@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file provides guidance for AI coding agents working in the
-`ncx-infra-controller-core` repository.
+`infra-controller` repository.
 
 ## Project Overview
 
@@ -26,7 +26,7 @@ to fast-track building next-generation AI Cloud offerings.
 ## Repository Structure
 
 ```
-ncx-infra-controller-core/
+infra-controller/
 ├── crates/              # Rust crate implementations. To discover all crates
 │                        # and their purpose, run `ls crates/` or see the
 │                        # [workspace] members list in `Cargo.toml` — each

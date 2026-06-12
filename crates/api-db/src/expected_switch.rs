@@ -149,7 +149,7 @@ pub async fn find_all_linked(txn: &mut PgConnection) -> DatabaseResult<Vec<Linke
   es.bmc_mac_address,
   s.id AS switch_id,
   es.expected_switch_id,
-  host(ee.address) AS address,
+  ee.address AS address,
   es.rack_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
@@ -172,9 +172,21 @@ pub async fn find_one_linked(
   es.serial_number,
   es.bmc_mac_address,
   s.id AS switch_id,
-  es.expected_switch_id
+  es.expected_switch_id,
+  linked_endpoint.address AS address,
+  es.rack_id
  FROM expected_switches es
   LEFT JOIN switches s ON es.bmc_mac_address = s.bmc_mac_address
+  LEFT JOIN LATERAL (
+   SELECT ee.address
+   FROM machine_interfaces mi
+    JOIN machine_interface_addresses mia ON mi.id = mia.interface_id
+    JOIN explored_endpoints ee ON mia.address = ee.address
+   WHERE mi.mac_address = es.bmc_mac_address
+   -- Keep this single-row lookup deterministic if a MAC has multiple explored addresses.
+   ORDER BY ee.address
+   LIMIT 1
+  ) linked_endpoint ON true
   ORDER BY es.bmc_mac_address
  LIMIT 1
  "#;

@@ -66,7 +66,7 @@ pub enum CmdSite {
 EXAMPLES:
 
 Import a site model (profiles + bundles) from a JSON file:
-    $ carbide-admin-cli attestation measured-boot site import ./site.json
+    $ nico-admin-cli attestation measured-boot site import ./site.json
 
 ")]
 pub struct Import {
@@ -80,10 +80,10 @@ pub struct Import {
 EXAMPLES:
 
 Export the site model to stdout:
-    $ carbide-admin-cli attestation measured-boot site export
+    $ nico-admin-cli attestation measured-boot site export
 
 Export the site model to a file:
-    $ carbide-admin-cli attestation measured-boot site export --path ./site.json
+    $ nico-admin-cli attestation measured-boot site export --path ./site.json
 
 ")]
 pub struct Export {
@@ -97,14 +97,14 @@ pub struct Export {
 EXAMPLES:
 
 Approve a machine for one-shot auto-promotion of its measurements:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine approve \
+    $ nico-admin-cli attestation measured-boot site trusted-machine approve \
     12345678-1234-5678-90ab-cdef01234567 oneshot
 
 List all active machine approvals:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine list
+    $ nico-admin-cli attestation measured-boot site trusted-machine list
 
 Remove an approval by machine ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    $ nico-admin-cli attestation measured-boot site trusted-machine remove \
     by-machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -132,14 +132,14 @@ pub enum TrustedMachine {
 EXAMPLES:
 
 Approve a profile for persistent auto-promotion of matching machines' measurements:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    $ nico-admin-cli attestation measured-boot site trusted-profile approve \
     12345678-1234-5678-90ab-cdef01234567 persist
 
 List all active profile approvals:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile list
+    $ nico-admin-cli attestation measured-boot site trusted-profile list
 
 Remove an approval by profile ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    $ nico-admin-cli attestation measured-boot site trusted-profile remove \
     by-profile-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -168,11 +168,11 @@ pub enum TrustedProfile {
 EXAMPLES:
 
 Approve a single machine for one-shot auto-promotion:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine approve \
+    $ nico-admin-cli attestation measured-boot site trusted-machine approve \
     12345678-1234-5678-90ab-cdef01234567 oneshot
 
 Approve all machines persistently, restricted to specific PCR registers, with a comment:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine approve '*' \
+    $ nico-admin-cli attestation measured-boot site trusted-machine approve '*' \
     persist --pcr-registers 0,7 --comments \"trusted fleet\"
 
 ")]
@@ -201,11 +201,11 @@ pub struct ApproveMachine {
 EXAMPLES:
 
 Remove a machine approval by approval ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    $ nico-admin-cli attestation measured-boot site trusted-machine remove \
     by-approval-id 12345678-1234-5678-90ab-cdef01234567
 
 Remove a machine approval by machine ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    $ nico-admin-cli attestation measured-boot site trusted-machine remove \
     by-machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -224,7 +224,7 @@ pub enum RemoveMachine {
 EXAMPLES:
 
 Remove a machine approval by approval ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    $ nico-admin-cli attestation measured-boot site trusted-machine remove \
     by-approval-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -240,7 +240,7 @@ pub struct RemoveMachineByApprovalId {
 EXAMPLES:
 
 Remove a machine approval by machine ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine remove \
+    $ nico-admin-cli attestation measured-boot site trusted-machine remove \
     by-machine-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -255,7 +255,7 @@ pub struct RemoveMachineByMachineId {
 EXAMPLES:
 
 List all active machine approvals:
-    $ carbide-admin-cli attestation measured-boot site trusted-machine list
+    $ nico-admin-cli attestation measured-boot site trusted-machine list
 
 ")]
 pub struct ListMachines {}
@@ -267,11 +267,11 @@ pub struct ListMachines {}
 EXAMPLES:
 
 Approve a profile for one-shot auto-promotion:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    $ nico-admin-cli attestation measured-boot site trusted-profile approve \
     12345678-1234-5678-90ab-cdef01234567 oneshot
 
 Approve a profile persistently, restricted to specific PCR registers, with a comment:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile approve \
+    $ nico-admin-cli attestation measured-boot site trusted-profile approve \
     12345678-1234-5678-90ab-cdef01234567 persist --pcr-registers 0,7 --comments \"trusted SKU\"
 
 ")]
@@ -300,11 +300,11 @@ pub struct ApproveProfile {
 EXAMPLES:
 
 Remove a profile approval by approval ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    $ nico-admin-cli attestation measured-boot site trusted-profile remove \
     by-approval-id 12345678-1234-5678-90ab-cdef01234567
 
 Remove a profile approval by profile ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    $ nico-admin-cli attestation measured-boot site trusted-profile remove \
     by-profile-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -323,7 +323,7 @@ pub enum RemoveProfile {
 EXAMPLES:
 
 Remove a profile approval by approval ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    $ nico-admin-cli attestation measured-boot site trusted-profile remove \
     by-approval-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -339,7 +339,7 @@ pub struct RemoveProfileByApprovalId {
 EXAMPLES:
 
 Remove a profile approval by profile ID:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile remove \
+    $ nico-admin-cli attestation measured-boot site trusted-profile remove \
     by-profile-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
@@ -354,7 +354,7 @@ pub struct RemoveProfileByProfileId {
 EXAMPLES:
 
 List all active profile approvals:
-    $ carbide-admin-cli attestation measured-boot site trusted-profile list
+    $ nico-admin-cli attestation measured-boot site trusted-profile list
 
 ")]
 pub struct ListProfiles {}

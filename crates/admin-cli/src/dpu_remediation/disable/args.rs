@@ -24,7 +24,7 @@ use rpc::forge::DisableRemediationRequest;
 EXAMPLES:
 
 Disable a remediation:
-    $ carbide-admin-cli dpu-remediation disable --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu-remediation disable --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

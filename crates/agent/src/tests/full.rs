@@ -89,7 +89,7 @@ async fn test_traffic_intercept_bridging() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/update_intercept_bridging.sh.expected");
     let bridging = traffic_intercept_bridging::build(
         traffic_intercept_bridging::TrafficInterceptBridgingConfig {
-            secondary_overlay_vtep_ip: "1.1.1.1".to_string(),
+            secondary_overlay_vtep_ip: "1.1.1.1".parse().unwrap(),
             secondary_vtep_aggregate_prefixes: vec!["1.1.1.0/24".to_string()],
             vf_intercept_bridge_ip: "10.10.10.2".to_string(),
             vf_intercept_bridge_name: "pfdpu000br-dpu".to_string(),

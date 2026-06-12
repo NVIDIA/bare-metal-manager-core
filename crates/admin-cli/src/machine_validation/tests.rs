@@ -105,7 +105,7 @@ fn parse_on_demand_start() {
     match cmd {
         Cmd::OnDemand(on_demand::Args::Start(args)) => {
             assert_eq!(args.machine.to_string(), TEST_MACHINE_ID);
-            assert!(!args.run_unverfied_tests);
+            assert!(!args.run_unverified_tests);
         }
         _ => panic!("expected OnDemand Start variant"),
     }

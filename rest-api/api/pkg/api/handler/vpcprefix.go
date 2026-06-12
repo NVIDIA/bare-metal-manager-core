@@ -495,18 +495,24 @@ func (gash GetAllVpcPrefixHandler) Handle(c echo.Context) error {
 
 	vpusageMap := map[uuid.UUID]*cip.Usage{}
 	if includeUsageStats {
+		vpcPrefixesForUsage := make([]*cdbm.VpcPrefix, 0, len(vpcPrefixes))
 		for i := range vpcPrefixes {
 			vp := &vpcPrefixes[i]
 			if vp.IPBlock == nil {
 				logger.Error().Str("vpcPrefixId", vp.ID.String()).Msg("VPC prefix missing IP Block relation for usage stats")
 				continue
 			}
-			vpusage, serr := vpcPrefixDAO.GetPrefixUsage(ctx, nil, vp)
+			vpcPrefixesForUsage = append(vpcPrefixesForUsage, vp)
+		}
+		if len(vpcPrefixesForUsage) > 0 {
+			prefixUsageMap, serr := vpcPrefixDAO.GetPrefixUsage(ctx, nil, vpcPrefixesForUsage...)
 			if serr != nil {
-				logger.Error().Err(serr).Msg("error retrieving usage stats for VPC prefix")
-				continue
+				logger.Error().Err(serr).Msg("error retrieving usage stats for VPC prefixes")
+			} else {
+				for id, usage := range prefixUsageMap {
+					vpusageMap[id] = usage
+				}
 			}
-			vpusageMap[vp.ID] = vpusage
 		}
 	}
 
@@ -686,9 +692,15 @@ func (gsh GetVpcPrefixHandler) Handle(c echo.Context) error {
 			logger.Error().Str("vpcPrefixId", vpcPrefix.ID.String()).Msg("VPC prefix missing IP Block relation for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
 		}
-		vpusage, err = vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
+		prefixUsageMap, err := vpDAO.GetPrefixUsage(ctx, nil, vpcPrefix)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving usage stats for VPC prefix")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
+		}
+		var ok bool
+		vpusage, ok = prefixUsageMap[vpcPrefix.ID]
+		if !ok {
+			logger.Error().Str("vpcPrefixId", vpcPrefix.ID.String()).Msg("VPC prefix missing CIDR for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for VPC prefix", nil)
 		}
 	}

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 use tonic::transport::Channel;
 use tracing::instrument;

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,32 +23,46 @@ var _ MappedNullable = &Subnet{}
 
 // Subnet Subnets are network grouping constructs for baremetal machines.
 type Subnet struct {
-	Id                         *string        `json:"id,omitempty"`
-	Name                       *string        `json:"name,omitempty"`
-	Description                NullableString `json:"description,omitempty"`
-	SiteId                     *string        `json:"siteId,omitempty"`
-	VpcId                      *string        `json:"vpcId,omitempty"`
-	TenantId                   *string        `json:"tenantId,omitempty"`
+	// Unique UUID v4 identifier for the Subnet
+	Id *string `json:"id,omitempty"`
+	// Name of the Subnet
+	Name *string `json:"name,omitempty"`
+	// Description of the Subnet
+	Description NullableString `json:"description,omitempty"`
+	// ID of the Site containing the Subnet
+	SiteId *string `json:"siteId,omitempty"`
+	// ID of the VPC containing the Subnet
+	VpcId *string `json:"vpcId,omitempty"`
+	// ID of the Site Controller network segment corresponding to the Subnet
 	ControllerNetworkSegmentId NullableString `json:"controllerNetworkSegmentId,omitempty"`
 	// The prefix that gets assigned to the subnet if ipv4 block is chosen
-	Ipv4Prefix  NullableString `json:"ipv4Prefix,omitempty"`
+	Ipv4Prefix NullableString `json:"ipv4Prefix,omitempty"`
+	// ID of the derived Tenant IPv4 Block from an Allocation
 	Ipv4BlockId NullableString `json:"ipv4BlockId,omitempty"`
+	// Address of the IPv4 gateway in the Subnet
 	Ipv4Gateway NullableString `json:"ipv4Gateway,omitempty"`
-	Ipv6Prefix  NullableString `json:"ipv6Prefix,omitempty"`
+	// Prefix of the network in CIDR notation
+	Ipv6Prefix NullableString `json:"ipv6Prefix,omitempty"`
+	// ID of the derived Tenant IPv6 Block from an Allocation
 	Ipv6BlockId NullableString `json:"ipv6BlockId,omitempty"`
+	// Address of the IPv6 gateway in the Subnet
 	Ipv6Gateway NullableString `json:"ipv6Gateway,omitempty"`
 	// Maximum Transmission Unit size in bytes. This property is system-determined and read-only.
 	Mtu *int32 `json:"mtu,omitempty"`
 	// Max value depends on prefix length of parent IP Block
-	PrefixLength *int32         `json:"prefixLength,omitempty"`
-	RoutingType  NullableString `json:"routingType,omitempty"`
-	Status       *SubnetStatus  `json:"status,omitempty"`
-	// Present when query param `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, 1 gateway and 1 broadcast IP address is reserved per Subnet.
-	UsageStats    *IpBlockUsageStats `json:"usageStats,omitempty"`
-	StatusHistory []StatusDetail     `json:"statusHistory,omitempty"`
-	Created       *time.Time         `json:"created,omitempty"`
-	Updated       *time.Time         `json:"updated,omitempty"`
-	Deprecations  []Deprecation      `json:"deprecations,omitempty"`
+	PrefixLength *int32 `json:"prefixLength,omitempty"`
+	// Routing type of the Subnet
+	RoutingType NullableString `json:"routingType,omitempty"`
+	// Status of the Subnet
+	Status *SubnetStatus `json:"status,omitempty"`
+	// Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
+	UsageStats *IpBlockUsageStats `json:"usageStats,omitempty"`
+	// Chronological status history for the Subnet
+	StatusHistory []StatusDetail `json:"statusHistory,omitempty"`
+	// Date/time when the Subnet was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Subnet was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewSubnet instantiates a new Subnet object
@@ -237,38 +251,6 @@ func (o *Subnet) HasVpcId() bool {
 // SetVpcId gets a reference to the given string and assigns it to the VpcId field.
 func (o *Subnet) SetVpcId(v string) {
 	o.VpcId = &v
-}
-
-// GetTenantId returns the TenantId field value if set, zero value otherwise.
-func (o *Subnet) GetTenantId() string {
-	if o == nil || IsNil(o.TenantId) {
-		var ret string
-		return ret
-	}
-	return *o.TenantId
-}
-
-// GetTenantIdOk returns a tuple with the TenantId field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Subnet) GetTenantIdOk() (*string, bool) {
-	if o == nil || IsNil(o.TenantId) {
-		return nil, false
-	}
-	return o.TenantId, true
-}
-
-// HasTenantId returns a boolean if a field has been set.
-func (o *Subnet) HasTenantId() bool {
-	if o != nil && !IsNil(o.TenantId) {
-		return true
-	}
-
-	return false
-}
-
-// SetTenantId gets a reference to the given string and assigns it to the TenantId field.
-func (o *Subnet) SetTenantId(v string) {
-	o.TenantId = &v
 }
 
 // GetControllerNetworkSegmentId returns the ControllerNetworkSegmentId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -839,38 +821,6 @@ func (o *Subnet) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
-// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
-func (o *Subnet) GetDeprecations() []Deprecation {
-	if o == nil || IsNil(o.Deprecations) {
-		var ret []Deprecation
-		return ret
-	}
-	return o.Deprecations
-}
-
-// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Subnet) GetDeprecationsOk() ([]Deprecation, bool) {
-	if o == nil || IsNil(o.Deprecations) {
-		return nil, false
-	}
-	return o.Deprecations, true
-}
-
-// HasDeprecations returns a boolean if a field has been set.
-func (o *Subnet) HasDeprecations() bool {
-	if o != nil && !IsNil(o.Deprecations) {
-		return true
-	}
-
-	return false
-}
-
-// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
-func (o *Subnet) SetDeprecations(v []Deprecation) {
-	o.Deprecations = v
-}
-
 func (o Subnet) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -895,9 +845,6 @@ func (o Subnet) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.VpcId) {
 		toSerialize["vpcId"] = o.VpcId
-	}
-	if !IsNil(o.TenantId) {
-		toSerialize["tenantId"] = o.TenantId
 	}
 	if o.ControllerNetworkSegmentId.IsSet() {
 		toSerialize["controllerNetworkSegmentId"] = o.ControllerNetworkSegmentId.Get()
@@ -943,9 +890,6 @@ func (o Subnet) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
-	}
-	if !IsNil(o.Deprecations) {
-		toSerialize["deprecations"] = o.Deprecations
 	}
 	return toSerialize, nil
 }

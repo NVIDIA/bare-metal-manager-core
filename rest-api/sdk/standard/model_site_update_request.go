@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -41,9 +41,11 @@ type SiteUpdateRequest struct {
 	SerialConsoleMaxSessionLength *int32 `json:"serialConsoleMaxSessionLength,omitempty"`
 	// Enable/disable Serial Console access using SSH Keys. Previously updateable only by Tenants, modifying this value is no longer supported, update SSH Key Groups to remove Site instead.
 	// Deprecated
-	IsSerialConsoleSSHKeysEnabled *bool         `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
-	Location                      *SiteLocation `json:"location,omitempty"`
-	Contact                       *SiteContact  `json:"contact,omitempty"`
+	IsSerialConsoleSSHKeysEnabled *bool `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
+	// Updated Site location information
+	Location *SiteLocation `json:"location,omitempty"`
+	// Updated Site contact information
+	Contact *SiteContact `json:"contact,omitempty"`
 	// Modify Site capabilities. Can only be updated by Provider. Partial update allowed, only specify capabilities that should be updated.
 	Capabilities *SiteCapabilitiesUpdateRequest `json:"capabilities,omitempty"`
 }

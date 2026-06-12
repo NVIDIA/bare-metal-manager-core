@@ -24,7 +24,7 @@ use rpc::forge as forgerpc;
 EXAMPLES:
 
 Check the lockdown status of a machine:
-    $ carbide-admin-cli bmc-machine lockdown-status \
+    $ nico-admin-cli bmc-machine lockdown-status \
     --machine 12345678-1234-5678-90ab-cdef01234567
 
 ")]

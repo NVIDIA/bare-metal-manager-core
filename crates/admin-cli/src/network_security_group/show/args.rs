@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all network security groups:
-    $ carbide-admin-cli network-security-group show
+    $ nico-admin-cli network-security-group show
 
 Show one network security group by ID:
-    $ carbide-admin-cli network-security-group show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli network-security-group show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

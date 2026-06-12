@@ -150,45 +150,63 @@ pub enum HostPortParseError {
 mod tests {
     use std::str::FromStr;
 
-    use crate::host_port_pair::{HostPortPair, HostPortParseError};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
+    use crate::host_port_pair::HostPortPair;
+    use crate::host_port_pair::HostPortParseError::{EmptyString, InvalidPort, UriUnsupported};
 
     #[test]
     fn test_proxy_address_parsing() {
-        assert_eq!(
-            HostPortPair::from_str("proxyhost:1234"),
-            Ok(HostPortPair::HostAndPort("proxyhost".to_string(), 1234))
+        check_cases(
+            [
+                Case {
+                    scenario: "host and port",
+                    input: "proxyhost:1234",
+                    expect: Yields(HostPortPair::HostAndPort("proxyhost".to_string(), 1234)),
+                },
+                Case {
+                    scenario: "host only, no port",
+                    input: "proxyhost",
+                    expect: Yields(HostPortPair::HostOnly("proxyhost".to_string())),
+                },
+                Case {
+                    scenario: "port only, no host",
+                    input: ":1234",
+                    expect: Yields(HostPortPair::PortOnly(1234)),
+                },
+                Case {
+                    scenario: "empty port keeps the offending text in the error",
+                    input: "proxyhost:",
+                    expect: FailsWith(InvalidPort("".to_string())),
+                },
+                Case {
+                    scenario: "non-numeric port keeps the offending text in the error",
+                    input: "proxyhost:notaport",
+                    expect: FailsWith(InvalidPort("notaport".to_string())),
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "",
+                    expect: FailsWith(EmptyString),
+                },
+                Case {
+                    scenario: "a URI with a bad port is rejected as a URI, not a bad port",
+                    input: "https://proxyhost:notaport",
+                    expect: FailsWith(UriUnsupported),
+                },
+                Case {
+                    scenario: "a URI with a good port is still rejected",
+                    input: "https://proxyhost:1234",
+                    expect: FailsWith(UriUnsupported),
+                },
+                Case {
+                    scenario: "a URI with no port is still rejected",
+                    input: "https://proxyhost",
+                    expect: FailsWith(UriUnsupported),
+                },
+            ],
+            HostPortPair::from_str,
         );
-        assert_eq!(
-            HostPortPair::from_str("proxyhost"),
-            Ok(HostPortPair::HostOnly("proxyhost".to_string()))
-        );
-        assert_eq!(
-            HostPortPair::from_str(":1234"),
-            Ok(HostPortPair::PortOnly(1234))
-        );
-        assert!(matches!(
-            HostPortPair::from_str("proxyhost:"),
-            Err(HostPortParseError::InvalidPort(_)),
-        ));
-        assert!(matches!(
-            HostPortPair::from_str("proxyhost:notaport"),
-            Err(HostPortParseError::InvalidPort(_)),
-        ));
-        assert!(matches!(
-            HostPortPair::from_str(""),
-            Err(HostPortParseError::EmptyString),
-        ));
-        assert!(matches!(
-            HostPortPair::from_str("https://proxyhost:notaport"),
-            Err(HostPortParseError::UriUnsupported),
-        ));
-        assert!(matches!(
-            HostPortPair::from_str("https://proxyhost:1234"),
-            Err(HostPortParseError::UriUnsupported),
-        ));
-        assert!(matches!(
-            HostPortPair::from_str("https://proxyhost"),
-            Err(HostPortParseError::UriUnsupported),
-        ));
     }
 }

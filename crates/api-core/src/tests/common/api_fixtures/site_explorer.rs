@@ -19,6 +19,7 @@ use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
 
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
@@ -29,7 +30,6 @@ use db::{
     DatabaseError, expected_machine as db_expected_machine, power_shelf as db_power_shelf,
     rack as db_rack, switch as db_switch,
 };
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
 use model::address_selection_strategy::AddressSelectionStrategy;
@@ -1972,6 +1972,7 @@ pub async fn create_expected_switches(
                 nvos_mac,
                 false,
                 AddressSelectionStrategy::NextAvailableIp,
+                None,
             )
             .await
             .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
@@ -1988,6 +1989,7 @@ pub async fn create_expected_switches(
             &result.bmc_mac_address.clone(),
             false,
             AddressSelectionStrategy::NextAvailableIp,
+            None,
         )
         .await
         .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))

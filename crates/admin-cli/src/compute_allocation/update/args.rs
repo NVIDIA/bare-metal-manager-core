@@ -23,15 +23,15 @@ use clap::Parser;
 EXAMPLES:
 
 Change the allocated count:
-    $ carbide-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --count 16
 
 Rename and re-describe an allocation:
-    $ carbide-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --name \"prod-pool\" --description \"Production capacity\"
 
 Replace labels with optimistic-concurrency check on version:
-    $ carbide-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef01234567 \
     --tenant-organization-id fds34511233a --labels '{\"team\":\"research\"}' --version 3
 
 ")]

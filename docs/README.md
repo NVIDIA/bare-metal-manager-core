@@ -100,7 +100,7 @@ The REST layer can be deployed in the datacenter with Infra Controller Core, or 
 in Cloud with Site Agent connecting from the datacenter. Multiple Infra Controller Cores running
 in different datacenters can also connect to Infra Controller REST through respective Site Agents.
 
-For details on NICo REST, please refer to [NICo REST Github Repository](https://github.com/NVIDIA/infra-controller-rest) and [NICo REST API Schema](https://nvidia.github.io/infra-controller-rest/).
+For details on NICo REST, please refer to the [infra-controller GitHub repository](https://github.com/NVIDIA/infra-controller) and the [REST API Reference](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference).
 
 ### Managed Hosts
 

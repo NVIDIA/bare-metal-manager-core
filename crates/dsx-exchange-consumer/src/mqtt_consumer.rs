@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use forge_secrets::credentials::CredentialReader;
+use carbide_secrets::credentials::CredentialReader;
 use mqttea::QoS;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::JsonRegistration;
@@ -140,8 +140,8 @@ async fn build_credentials_provider(
     config: &MqttConfig,
     credential_reader: Arc<dyn CredentialReader>,
 ) -> Result<Option<Arc<dyn mqttea::auth::CredentialsProvider>>, DsxConsumerError> {
-    let credential_key = forge_secrets::credentials::CredentialKey::MqttAuth {
-        credential_type: forge_secrets::credentials::MqttCredentialType::DsxExchangeConsumer,
+    let credential_key = carbide_secrets::credentials::CredentialKey::MqttAuth {
+        credential_type: carbide_secrets::credentials::MqttCredentialType::DsxExchangeConsumer,
     };
 
     match config.auth.auth_mode {
@@ -157,7 +157,7 @@ async fn build_credentials_provider(
                         credential_key.to_key_str()
                     ))
                 })?;
-            let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
+            let carbide_secrets::credentials::Credentials::UsernamePassword { username, password } =
                 creds;
             Ok(Some(Arc::new(mqttea::auth::StaticCredentials::new(
                 username, password,
@@ -193,7 +193,7 @@ async fn build_credentials_provider(
 }
 
 struct SecretBackedOAuth2Credentials {
-    credential_key: forge_secrets::credentials::CredentialKey,
+    credential_key: carbide_secrets::credentials::CredentialKey,
     credential_reader: Arc<dyn CredentialReader>,
 }
 
@@ -213,7 +213,7 @@ impl mqttea::auth::ClientCredentialsProvider for SecretBackedOAuth2Credentials {
                     self.credential_key.to_key_str()
                 ))
             })?;
-        let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
+        let carbide_secrets::credentials::Credentials::UsernamePassword { username, password } =
             creds;
         Ok((
             mqttea::ClientId::new(username),

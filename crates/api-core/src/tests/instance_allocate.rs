@@ -446,6 +446,18 @@ async fn test_zero_dpu_instance_allocation_auto(
         "Machine that was just ingested should have instance network restrictions listing its network segment ID's",
     );
 
+    // Flat VPCs are operator-managed; tenant status should not wait for a NICo
+    // data-plane readiness signal after allocation.
+    let tenant_status = instance
+        .status
+        .as_ref()
+        .and_then(|status| status.tenant.as_ref())
+        .expect("allocated instance should include tenant status");
+    assert_eq!(
+        forge::TenantState::try_from(tenant_status.state).unwrap(),
+        forge::TenantState::Ready
+    );
+
     // On the wire: `auto: true` with empty interfaces. The resolved
     // interface lives in status, not config, which takes place as
     // part of `into_external_view()`.

@@ -24,7 +24,7 @@ use rpc::InstanceInfinibandConfig;
 EXAMPLES:
 
 Update an instance's InfiniBand configuration:
-    $ carbide-admin-cli instance update-ib-config --instance 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli instance update-ib-config --instance 12345678-1234-5678-90ab-cdef01234567 \
     --config '{\"partitions\":[]}'
 
 ")]

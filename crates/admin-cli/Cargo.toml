@@ -15,15 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-admin-cli"
+name = "nico-admin-cli"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
-# TODO: rename to carbide-admin-cli
-name = "carbide-admin-cli"
+name = "nico-admin-cli"
 path = "src/main.rs"
 
 [dependencies]

@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,14 +25,17 @@ type MachineInstanceTypeStats struct {
 	// Unique identifier for the InstanceType
 	Id *string `json:"id,omitempty"`
 	// Name of the InstanceType
-	Name                 *string                 `json:"name,omitempty"`
+	Name *string `json:"name,omitempty"`
+	// AssignedMachineStats captures the status of all Machines assigned to this Instance Type
 	AssignedMachineStats *MachineStatusBreakdown `json:"assignedMachineStats,omitempty"`
 	// Number of Machines of this Instance Type allocated to Tenants
 	Allocated *int32 `json:"allocated,omitempty"`
 	// Number of Ready Machines of this Instance Type available for additional allocation to Tenants
-	MaxAllocatable   *int32                  `json:"maxAllocatable,omitempty"`
+	MaxAllocatable *int32 `json:"maxAllocatable,omitempty"`
+	// UsedMachineStats captures the usage status of machines assigned to this instance type that are currently associated with Tenant Instances
 	UsedMachineStats *MachineStatusBreakdown `json:"usedMachineStats,omitempty"`
-	Tenants          []InstanceTypeStats     `json:"tenants,omitempty"`
+	// Per-tenant breakdown for this instance type
+	Tenants []InstanceTypeStats `json:"tenants,omitempty"`
 }
 
 // NewMachineInstanceTypeStats instantiates a new MachineInstanceTypeStats object

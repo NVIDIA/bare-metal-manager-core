@@ -3,7 +3,7 @@
 
 .PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers
 .PHONY: build docker-build docker-build-local
-.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
+.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
 
@@ -189,7 +189,17 @@ test-cert-manager:
 test-site-workflow:
 	cd site-workflow && go test -p 1 ./... -count=1
 
-test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent
+test-flow:
+	$(MAKE) ensure-postgres
+	cd flow && \
+		DB_HOST=localhost \
+		DB_PORT=$(POSTGRES_PORT) \
+		DB_USER=$(POSTGRES_USER) \
+		DB_PASSWORD=$(POSTGRES_PASSWORD) \
+		DB_NAME=$(POSTGRES_DB) \
+		go test -p 1 ./... -count=1
+
+test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow
 
 build:
 	mkdir -p $(BUILD_DIR)

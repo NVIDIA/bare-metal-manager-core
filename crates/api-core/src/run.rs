@@ -17,13 +17,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use carbide_utils::HostPortPair;
-use eyre::WrapErr;
-use forge_secrets::credentials::{CredentialManager, CredentialReader};
-use forge_secrets::{
+use carbide_secrets::credentials::{CredentialManager, CredentialReader};
+use carbide_secrets::{
     CredentialConfig, MemoryCredentialStore, VaultConfig, create_credential_manager_from,
     create_vault_client,
 };
+use carbide_utils::HostPortPair;
+use eyre::WrapErr;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -218,7 +218,7 @@ pub async fn run(
     // that this comes first if configured.
     if credential_config.env.enabled() {
         readers.push(Box::new(
-            forge_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
+            carbide_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
         ));
     }
 
@@ -227,7 +227,7 @@ pub async fn run(
     // EnvCredentials.
     if credential_config.file.enabled() {
         readers.push(Box::new(
-            forge_secrets::local_credentials::FileCredentialsWatcher::new(
+            carbide_secrets::local_credentials::FileCredentialsWatcher::new(
                 credential_config.file.clone(),
             )
             .await?,

@@ -16,18 +16,23 @@
  */
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use librms::protos::rack_manager as rms;
 use librms::{RackManagerError, RmsApi};
 use mac_address::MacAddress;
 use model::component_manager::{
-    FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
+    ComputeTrayComponent, FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
 };
 use sqlx::PgPool;
 use tracing::instrument;
 
+use crate::compute_tray_manager::{
+    Backend as ComputeTrayBackend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus,
+    ComputeTrayManager, ComputeTrayResult,
+};
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
@@ -64,6 +69,7 @@ const RMS_SWITCH_SYSTEM_IMAGE_SOFTWARE_TYPE: &str = "prod";
 const RMS_FIRMWARE_OBJECT_HARDWARE_TYPE: &str = "any";
 const RMS_NOAUTH_ACCESS_TOKEN: &str = "NOAUTH";
 const RMS_SWITCH_NODE_TYPE: rms::NodeType = rms::NodeType::Switch;
+const RMS_COMPUTE_NODE_TYPE: rms::NodeType = rms::NodeType::Compute;
 
 pub struct RmsBackend {
     client: Arc<dyn RmsApi>,
@@ -138,6 +144,45 @@ async fn resolve_power_shelf_identities(
             RmsIdentity {
                 node_id: row.id,
                 rack_id: rack_id.to_string(),
+            },
+        );
+    }
+    Ok(map)
+}
+
+/// Resolved RMS identity for a compute tray, keyed by BMC IP.
+struct ComputeTrayRmsIdentity {
+    identity: RmsIdentity,
+    bmc_mac: MacAddress,
+}
+
+/// Resolve compute tray BMC IP addresses to RMS identities via the api-db layer.
+async fn resolve_compute_tray_identities(
+    db: &PgPool,
+    bmc_ips: &[IpAddr],
+) -> Result<HashMap<IpAddr, ComputeTrayRmsIdentity>, ComponentManagerError> {
+    let rows = db::machine::find_rms_identities_by_bmc_ips(db, bmc_ips)
+        .await
+        .map_err(|e| {
+            ComponentManagerError::Internal(format!(
+                "failed to resolve compute tray RMS identities: {e}"
+            ))
+        })?;
+
+    let mut map = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let Some(rack_id) = row.rack_id else {
+            tracing::warn!(bmc_ip = %row.bmc_ip, "compute tray has no rack_id, skipping");
+            continue;
+        };
+        map.insert(
+            row.bmc_ip,
+            ComputeTrayRmsIdentity {
+                identity: RmsIdentity {
+                    node_id: row.id,
+                    rack_id: rack_id.to_string(),
+                },
+                bmc_mac: row.bmc_mac_address,
             },
         );
     }
@@ -624,6 +669,10 @@ async fn list_firmware_object_ids(
 /// switches. Mirrors the value used by `crate::rack::firmware_update`.
 const SWITCH_BMC_PORT: u32 = 443;
 
+/// Default BMC HTTPS port used when populating `rms::Endpoint` for compute
+/// trays.
+const COMPUTE_TRAY_BMC_PORT: u32 = 443;
+
 fn credentials_to_rms(creds: &Credentials) -> rms::Credentials {
     let Credentials::UsernamePassword { username, password } = creds;
     rms::Credentials {
@@ -869,6 +918,43 @@ fn switch_firmware_object_component_filters(components: &[NvSwitchComponent]) ->
             NvSwitchComponent::Nvos => None,
         })
         .collect()
+}
+
+fn compute_tray_firmware_object_component_filters(
+    components: &[ComputeTrayComponent],
+) -> Vec<String> {
+    if components.is_empty() {
+        Vec::new()
+    } else {
+        components
+            .iter()
+            .map(|component| component.to_string())
+            .collect()
+    }
+}
+
+/// Build the `rms::NodeInfo` describing a compute tray for inclusion in an
+/// RMS batch request. Compute trays expose only a BMC endpoint.
+fn build_compute_tray_node_info(
+    ep: &ComputeTrayEndpoint,
+    identity: &RmsIdentity,
+    bmc_mac: MacAddress,
+) -> rms::NodeInfo {
+    rms::NodeInfo {
+        node_id: identity.node_id.clone(),
+        rack_id: identity.rack_id.clone(),
+        r#type: Some(RMS_COMPUTE_NODE_TYPE as i32),
+        bmc_endpoint: Some(rms::Endpoint {
+            interface: Some(rms::NetworkInterface {
+                ip_address: ep.bmc_ip.to_string(),
+                mac_address: bmc_mac.to_string(),
+            }),
+            port: COMPUTE_TRAY_BMC_PORT,
+            credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
+            dangerously_accept_invalid_certs: true,
+        }),
+        host_endpoint: None,
+    }
 }
 
 fn summarize_firmware_object_apply_response(
@@ -1437,14 +1523,263 @@ impl NvSwitchManager for RmsBackend {
     }
 }
 
+#[async_trait::async_trait]
+impl ComputeTrayManager for RmsBackend {
+    fn name(&self) -> &str {
+        "rms"
+    }
+
+    fn backend(&self) -> ComputeTrayBackend {
+        ComputeTrayBackend::Rms
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn power_control(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        action: PowerAction,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
+        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+        let operation = to_rms_power_operation(action);
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.bmc_ip) else {
+                results.push(ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    success: false,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_compute_tray_node_info(ep, &identity.identity, identity.bmc_mac);
+            let request = rms::BatchSetPowerStateRequest {
+                nodes: Some(rms::NodeSet {
+                    nodes: vec![device],
+                }),
+                operation,
+            };
+
+            match self.client.batch_set_power_state(request).await {
+                Ok(response) => {
+                    let (success, error) =
+                        summarize_power_batch(response.response.unwrap_or_default());
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success,
+                        error,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        bmc_ip = %ep.bmc_ip,
+                        error = %e,
+                        "RMS power control failed for compute tray"
+                    );
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    #[instrument(skip(self, target_version, options), fields(backend = "rms", force_update = options.force_update))]
+    async fn update_firmware(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        target_version: &str,
+        components: &[ComputeTrayComponent],
+        options: &FirmwareUpdateOptions,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
+        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+        let component_filters = compute_tray_firmware_object_component_filters(components);
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.bmc_ip) else {
+                results.push(ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    success: false,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_compute_tray_node_info(ep, &identity.identity, identity.bmc_mac);
+            let request = match apply_firmware_object_request(
+                device,
+                &identity.identity,
+                target_version,
+                options,
+                RMS_COMPUTE_NODE_TYPE,
+                component_filters.clone(),
+            ) {
+                Ok(request) => request,
+                Err(e) => {
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                    continue;
+                }
+            };
+
+            match self.client.apply_firmware_object(request).await {
+                Ok(response) => {
+                    let (success, error, job_id) = summarize_firmware_object_apply_response(
+                        response,
+                        &identity.identity.node_id,
+                    );
+
+                    if success {
+                        if let Some(job_id) = job_id {
+                            self.firmware_jobs.lock().unwrap().insert(
+                                identity.bmc_mac,
+                                vec![RmsTrackedFirmwareJob::FirmwareObject(job_id)],
+                            );
+                        } else {
+                            self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                        }
+                    } else {
+                        self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                    }
+
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success,
+                        error,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        bmc_ip = %ep.bmc_ip,
+                        error = %e,
+                        "RMS firmware update failed for compute tray"
+                    );
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_firmware_status(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+    ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
+        let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
+        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+
+        let endpoint_jobs: Vec<(IpAddr, Option<String>)> = {
+            let jobs = self.firmware_jobs.lock().unwrap();
+            endpoints
+                .iter()
+                .map(|ep| {
+                    let job_id = ids.get(&ep.bmc_ip).and_then(|identity| {
+                        jobs.get(&identity.bmc_mac).and_then(|jobs| {
+                            jobs.iter().find_map(|job| match job {
+                                RmsTrackedFirmwareJob::FirmwareObject(job_id) => {
+                                    Some(job_id.clone())
+                                }
+                                RmsTrackedFirmwareJob::SwitchSystemImage { .. } => None,
+                            })
+                        })
+                    });
+                    (ep.bmc_ip, job_id)
+                })
+                .collect()
+        };
+
+        let mut statuses = Vec::with_capacity(endpoints.len());
+
+        for (bmc_ip, job_id) in &endpoint_jobs {
+            let Some(job_id) = job_id else {
+                statuses.push(ComputeTrayFirmwareUpdateStatus {
+                    bmc_ip: *bmc_ip,
+                    state: FirmwareState::Unknown,
+                    target_version: String::new(),
+                    error: Some("no firmware job tracked for this compute tray".into()),
+                });
+                continue;
+            };
+
+            let request = rms::GetFirmwareJobStatusRequest {
+                job_id: job_id.clone(),
+            };
+
+            match self.client.get_firmware_job_status(request).await {
+                Ok(response) => {
+                    let status_success = response.status == rms::ReturnCode::Success as i32;
+                    let state = if status_success {
+                        map_rms_firmware_job_state(response.job_state)
+                    } else {
+                        FirmwareState::Unknown
+                    };
+                    let error = if response.error_message.is_empty() {
+                        (!status_success).then(|| {
+                            format!("RMS could not report status for firmware job {job_id}")
+                        })
+                    } else {
+                        Some(response.error_message)
+                    };
+                    statuses.push(ComputeTrayFirmwareUpdateStatus {
+                        bmc_ip: *bmc_ip,
+                        state,
+                        target_version: String::new(),
+                        error,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        bmc_ip = %bmc_ip,
+                        job_id = %job_id,
+                        error = %e,
+                        "RMS firmware job status query failed"
+                    );
+                    statuses.push(ComputeTrayFirmwareUpdateStatus {
+                        bmc_ip: *bmc_ip,
+                        state: FirmwareState::Unknown,
+                        target_version: String::new(),
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(statuses)
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
+        list_firmware_object_ids(self.client.as_ref()).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
+    use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::SwitchId;
 
     use super::*;
+    use crate::compute_tray_manager::{ComputeTrayManager, ComputeTrayVendor};
     use crate::power_shelf_manager::PowerShelfVendor;
 
     #[async_trait::async_trait]
@@ -1457,7 +1792,8 @@ mod tests {
         }
     }
     use crate::test_support::{
-        PS_MAC_1, PS_MAC_2, SW_MAC_1, SW_MAC_2, UNKNOWN_MAC, seed_test_data,
+        CT_IP_1, CT_IP_2, CT_MAC_1, CT_MAC_2, PS_MAC_1, PS_MAC_2, SW_MAC_1, SW_MAC_2, UNKNOWN_MAC,
+        seed_machine, seed_test_data,
     };
 
     // ---- Mapping unit tests ----
@@ -1637,6 +1973,18 @@ mod tests {
     }
 
     #[test]
+    fn compute_tray_component_filters_map_to_rms_names() {
+        assert_eq!(
+            compute_tray_firmware_object_component_filters(&[
+                ComputeTrayComponent::Bmc,
+                ComputeTrayComponent::Bios,
+            ]),
+            vec!["BMC".to_owned(), "BIOS".to_owned()]
+        );
+        assert!(compute_tray_firmware_object_component_filters(&[]).is_empty());
+    }
+
+    #[test]
     fn firmware_update_missing_batch_response_is_failure() {
         let response = rms::ApplyFirmwareObjectResponse {
             response: None,
@@ -1657,7 +2005,7 @@ mod tests {
     // ---- Test helpers ----
 
     fn make_ps_endpoint(mac: &str) -> PowerShelfEndpoint {
-        use forge_secrets::credentials::Credentials;
+        use carbide_secrets::credentials::Credentials;
         PowerShelfEndpoint {
             pmc_ip: "10.0.0.1".parse().unwrap(),
             pmc_mac: mac.parse().unwrap(),
@@ -1670,7 +2018,7 @@ mod tests {
     }
 
     fn make_sw_endpoint(mac: &str) -> SwitchEndpoint {
-        use forge_secrets::credentials::Credentials;
+        use carbide_secrets::credentials::Credentials;
         SwitchEndpoint {
             bmc_ip: "10.0.0.1".parse().unwrap(),
             bmc_mac: mac.parse().unwrap(),
@@ -1703,6 +2051,41 @@ mod tests {
         let mock = Arc::new(MockRmsApi::new());
         let backend = RmsBackend::new(mock.clone(), Some(mock.clone()), pool.clone());
         (mock, backend, rack_id, ps1, ps2, sw1, sw2)
+    }
+
+    async fn make_compute_tray_backend(
+        pool: &sqlx::PgPool,
+    ) -> (Arc<MockRmsApi>, RmsBackend, RackId, MachineId, MachineId) {
+        let mut txn = pool.begin().await.unwrap();
+        let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+        db::rack::create(
+            &mut txn,
+            &rack_id,
+            None,
+            &model::rack::RackConfig::default(),
+            None,
+        )
+        .await
+        .expect("failed to create rack");
+        let ct1 = seed_machine(&mut txn, CT_MAC_1, CT_IP_1, "CT-001", &rack_id).await;
+        let ct2 = seed_machine(&mut txn, CT_MAC_2, CT_IP_2, "CT-002", &rack_id).await;
+        txn.commit().await.unwrap();
+
+        let mock = Arc::new(MockRmsApi::new());
+        let backend = RmsBackend::new(mock.clone(), Some(mock.clone()), pool.clone());
+        (mock, backend, rack_id, ct1, ct2)
+    }
+
+    fn make_ct_endpoint(bmc_ip: &str) -> ComputeTrayEndpoint {
+        use carbide_secrets::credentials::Credentials;
+        ComputeTrayEndpoint {
+            vendor: ComputeTrayVendor::Nvidia,
+            bmc_ip: bmc_ip.parse().unwrap(),
+            bmc_credentials: Credentials::UsernamePassword {
+                username: "admin".into(),
+                password: "pass".into(),
+            },
+        }
     }
 
     fn firmware_update_options() -> FirmwareUpdateOptions {
@@ -1887,15 +2270,15 @@ mod tests {
         .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1), make_ps_endpoint(PS_MAC_2)];
-        let results = backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        let results = PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         assert!(results[0].success);
         assert!(results[1].success);
@@ -1940,15 +2323,15 @@ mod tests {
         .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        let results = backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc, PowerShelfComponent::Psu],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        let results = PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc, PowerShelfComponent::Psu],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         assert!(results[0].success);
 
@@ -1967,15 +2350,15 @@ mod tests {
         .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        let results = backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        let results = PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         assert!(!results[0].success);
         assert_eq!(results[0].error.as_deref(), Some("bad firmware file"));
@@ -1991,30 +2374,30 @@ mod tests {
             "job-old",
         )))
         .await;
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         mock.enqueue_apply_firmware_object(Ok(MockRmsApi::firmware_object_apply_fail(
             &ps1.to_string(),
             "bad firmware file",
         )))
         .await;
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         let jobs = backend.firmware_jobs.lock().unwrap();
         assert!(!jobs.contains_key(&PS_MAC_1.parse::<MacAddress>().unwrap()));
@@ -2030,15 +2413,15 @@ mod tests {
         )))
         .await;
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         mock.enqueue_get_firmware_job_status(Ok(MockRmsApi::firmware_job_status_ok(
             rms::FirmwareJobState::Running,
@@ -2085,15 +2468,15 @@ mod tests {
         )))
         .await;
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         mock.enqueue_get_firmware_job_status(Ok(MockRmsApi::firmware_job_status_ok(
             rms::FirmwareJobState::Completed,
@@ -2116,15 +2499,15 @@ mod tests {
         )))
         .await;
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         mock.enqueue_get_firmware_job_status(Ok(rms::GetFirmwareJobStatusResponse {
             status: rms::ReturnCode::Success as i32,
@@ -2151,15 +2534,15 @@ mod tests {
         )))
         .await;
         let eps = vec![make_ps_endpoint(PS_MAC_1)];
-        backend
-            .update_firmware(
-                &eps,
-                r#"{"Id":"fw-json"}"#,
-                &[PowerShelfComponent::Pmc],
-                &firmware_update_options(),
-            )
-            .await
-            .unwrap();
+        PowerShelfManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[PowerShelfComponent::Pmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
 
         mock.enqueue_get_firmware_job_status(Ok(rms::GetFirmwareJobStatusResponse {
             status: rms::ReturnCode::Failure as i32,
@@ -2634,8 +3017,116 @@ mod tests {
         }))
         .await;
 
-        let bundles = backend.list_firmware_bundles().await.unwrap();
+        let bundles = NvSwitchManager::list_firmware_bundles(&backend)
+            .await
+            .unwrap();
 
         assert!(bundles.is_empty());
+    }
+
+    // ---- ComputeTrayManager tests ----
+
+    #[carbide_macros::sqlx_test]
+    async fn ct_power_control_success(pool: sqlx::PgPool) {
+        let (mock, backend, rack_id, ct1, ct2) = make_compute_tray_backend(&pool).await;
+        mock.enqueue_batch_set_power_state(Ok(MockRmsApi::batch_set_power_state_ok(
+            &ct1.to_string(),
+        )))
+        .await;
+        mock.enqueue_batch_set_power_state(Ok(MockRmsApi::batch_set_power_state_ok(
+            &ct2.to_string(),
+        )))
+        .await;
+
+        let eps = vec![make_ct_endpoint(CT_IP_1), make_ct_endpoint(CT_IP_2)];
+        let results = ComputeTrayManager::power_control(&backend, &eps, PowerAction::On)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].success);
+        assert!(results[1].success);
+
+        let calls = mock.batch_set_power_state_calls().await;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].operation, rms::PowerOperation::On as i32);
+        let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
+        assert_eq!(dev0.node_id, ct1.to_string());
+        assert_eq!(dev0.rack_id, rack_id.to_string());
+        assert_eq!(dev0.r#type, Some(rms::NodeType::Compute as i32));
+        assert!(dev0.bmc_endpoint.is_some());
+        assert!(dev0.host_endpoint.is_none());
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn ct_update_firmware_success(pool: sqlx::PgPool) {
+        let (mock, backend, rack_id, ct1, _) = make_compute_tray_backend(&pool).await;
+        mock.enqueue_apply_firmware_object(Ok(MockRmsApi::firmware_object_apply_ok(
+            &ct1.to_string(),
+            "ct-job-1",
+        )))
+        .await;
+
+        let eps = vec![make_ct_endpoint(CT_IP_1)];
+        let results = ComputeTrayManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[ComputeTrayComponent::Bmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
+
+        assert!(results[0].success);
+
+        let calls = mock.apply_firmware_object_calls().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].rack_id, rack_id.to_string());
+        let filters = component_filters_for(&calls[0], rms::NodeType::Compute);
+        assert_eq!(filters, &["BMC".to_owned()]);
+        let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
+        assert_eq!(dev0.r#type, Some(rms::NodeType::Compute as i32));
+
+        let jobs = backend.firmware_jobs.lock().unwrap();
+        assert_eq!(
+            jobs.get(&CT_MAC_1.parse::<MacAddress>().unwrap()),
+            Some(&vec![RmsTrackedFirmwareJob::FirmwareObject(
+                "ct-job-1".to_string()
+            )])
+        );
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn ct_firmware_status_tracks_job(pool: sqlx::PgPool) {
+        let (mock, backend, _, ct1, _) = make_compute_tray_backend(&pool).await;
+        mock.enqueue_apply_firmware_object(Ok(MockRmsApi::firmware_object_apply_ok(
+            &ct1.to_string(),
+            "ct-job-status",
+        )))
+        .await;
+
+        let eps = vec![make_ct_endpoint(CT_IP_1)];
+        ComputeTrayManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[ComputeTrayComponent::Bmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
+
+        mock.enqueue_get_firmware_job_status(Ok(MockRmsApi::firmware_job_status_ok(
+            rms::FirmwareJobState::Completed,
+        )))
+        .await;
+
+        let statuses = ComputeTrayManager::get_firmware_status(&backend, &eps)
+            .await
+            .unwrap();
+
+        assert_eq!(statuses[0].state, FirmwareState::Completed);
+        assert!(statuses[0].error.is_none());
     }
 }

@@ -441,21 +441,21 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:                   "GetAll with ip filter returns objects",
-			filter:                 AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter:                 AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			infrastructureProvider: ip,
 			expectedCount:          totalCount,
 			expectedError:          false,
 		},
 		{
 			desc:                   "GetAll with ip and name filters returns objects",
-			filter:                 AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID},
+			filter:                 AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			infrastructureProvider: ip,
 			expectedCount:          2,
 			expectedError:          false,
 		},
 		{
 			desc:                                   "GetAll with include relation returns objects",
-			filter:                                 AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter:                                 AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			infrastructureProvider:                 ip,
 			expectedCount:                          totalCount,
 			expectedError:                          false,
@@ -463,7 +463,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:                                   "GetAll with ip, Tenant filter and relation returns objects",
-			filter:                                 AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:                                 AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount:                          totalCount / 2,
 			expectedError:                          false,
 			includeTenantRelations:                 true,
@@ -471,14 +471,14 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:                 "GetAll with ip, Site filter and relation returns objects",
-			filter:               AllocationFilterInput{InfrastructureProviderID: &ip.ID, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:               AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount:        totalCount / 2,
 			expectedError:        false,
 			includeSiteRelations: true,
 		},
 		{
 			desc:                                   "GetAll with ip, Tenant, and site relation returns objects",
-			filter:                                 AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:                                 AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount:                          totalCount / 2,
 			expectedError:                          false,
 			includeInfrastructureProviderRelations: true,
@@ -487,19 +487,19 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with ip filter returns no objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: cutil.GetPtr(uuid.New())},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{uuid.New()}},
 			expectedCount: 0,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with Tenant filter returns objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: totalCount / 2,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with Tenant and name filters returns objects",
-			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: 1,
 			expectedError: false,
 		},
@@ -511,43 +511,43 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with Site filter returns objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount: totalCount / 2,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with Site filter returns no objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site3.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site3.ID}},
 			expectedCount: 0,
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with Resource Type filter returns objects",
 			filter: AllocationFilterInput{
-				InfrastructureProviderID: &ip.ID,
-				TenantIDs:                []uuid.UUID{tenant1.ID},
-				SiteIDs:                  []uuid.UUID{site1.ID},
-				ResourceTypes:            []string{AllocationResourceTypeInstanceType},
-				SearchQuery:              cutil.GetPtr("test-"),
+				InfrastructureProviderIDs: []uuid.UUID{ip.ID},
+				TenantIDs:                 []uuid.UUID{tenant1.ID},
+				SiteIDs:                   []uuid.UUID{site1.ID},
+				ResourceTypes:             []string{AllocationResourceTypeInstanceType},
+				SearchQuery:               cutil.GetPtr("test-"),
 			},
 			expectedCount: totalCount / 4,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with ip, Tenant, and site filters returns objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount: totalCount / 2,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with ip and Tenant filters returns no objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant3.ID}, SiteIDs: []uuid.UUID{site3.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant3.ID}, SiteIDs: []uuid.UUID{site3.ID}},
 			expectedCount: 0,
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with limit returns objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			page:          paginator.PageInput{Offset: cutil.GetPtr(0), Limit: cutil.GetPtr(5)},
 			expectedCount: 5,
 			expectedTotal: cutil.GetPtr(totalCount),
@@ -555,7 +555,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:          "GetAll with offset returns objects",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			page:          paginator.PageInput{Offset: cutil.GetPtr(3)},
 			expectedCount: 7,
 			expectedTotal: cutil.GetPtr(totalCount / 2),
@@ -563,7 +563,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by returns objects",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: "name",
 				Order: paginator.OrderAscending,
@@ -630,8 +630,8 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with multiple tenant IDs filter",
 			filter: AllocationFilterInput{
-				InfrastructureProviderID: &ip.ID,
-				TenantIDs:                []uuid.UUID{tenant1.ID, tenant2.ID},
+				InfrastructureProviderIDs: []uuid.UUID{ip.ID},
+				TenantIDs:                 []uuid.UUID{tenant1.ID, tenant2.ID},
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -684,7 +684,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by site name no site relation",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderBySiteNameExt,
 				Order: paginator.OrderAscending,
@@ -695,7 +695,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by site name and site relation",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderBySiteNameExt,
 				Order: paginator.OrderAscending,
@@ -707,7 +707,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by tenant name no tenant relation",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByTenantOrgDisplayNameExt,
 				Order: paginator.OrderAscending,
@@ -718,7 +718,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by tenant name and tenant relation",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByTenantOrgDisplayNameExt,
 				Order: paginator.OrderAscending,
@@ -730,7 +730,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by instance type name",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByInstanceTypeName,
 				Order: paginator.OrderAscending,
@@ -741,7 +741,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by ip block name",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByIPBlockName,
 				Order: paginator.OrderAscending,
@@ -752,7 +752,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by constraint value",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByConstraintValue,
 				Order: paginator.OrderAscending,
@@ -763,7 +763,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		},
 		{
 			desc:   "GetAll with order by instance type name and filter on resource type",
-			filter: AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, ResourceTypes: []string{"InstanceType"}},
+			filter: AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, ResourceTypes: []string{"InstanceType"}},
 			page: paginator.PageInput{OrderBy: &paginator.OrderBy{
 				Field: allocationOrderByInstanceTypeName,
 				Order: paginator.OrderAscending,
@@ -802,7 +802,7 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 			}
 
 			if tc.includeInfrastructureProviderRelations {
-				assert.Equal(t, tc.filter.InfrastructureProviderID.String(), got[0].InfrastructureProvider.ID.String())
+				assert.Equal(t, tc.filter.InfrastructureProviderIDs[0].String(), got[0].InfrastructureProvider.ID.String())
 			}
 			if tc.includeTenantRelations && len(tc.filter.TenantIDs) > 0 {
 				assert.Equal(t, tc.filter.TenantIDs[0].String(), got[0].Tenant.ID.String())
@@ -1138,42 +1138,42 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 		},
 		{
 			desc:          "GetCount with ip filter",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			expectedCount: totalCount,
 		},
 		{
 			desc:          "GetCount with ip and name filter",
-			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderIDs: []uuid.UUID{ip.ID}},
 			expectedCount: 2,
 		},
 		{
 			desc:          "GetCount with ip, Tenant filter",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: totalCount / 2,
 		},
 		{
 			desc:          "GetCount with ip, Site filter",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount: totalCount / 2,
 		},
 		{
 			desc:          "GetCount with ip, Tenant, and site",
-			filter:        AllocationFilterInput{InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
+			filter:        AllocationFilterInput{InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}, SiteIDs: []uuid.UUID{site1.ID}},
 			expectedCount: totalCount / 2,
 		},
 		{
 			desc:          "GetCount with Tenant and name filters",
-			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderID: &ip.ID, TenantIDs: []uuid.UUID{tenant1.ID}},
+			filter:        AllocationFilterInput{Name: cutil.GetPtr("test-0"), InfrastructureProviderIDs: []uuid.UUID{ip.ID}, TenantIDs: []uuid.UUID{tenant1.ID}},
 			expectedCount: 1,
 		},
 		{
 			desc: "GetCount with Resource Type filter",
 			filter: AllocationFilterInput{
-				InfrastructureProviderID: &ip.ID,
-				TenantIDs:                []uuid.UUID{tenant1.ID},
-				SiteIDs:                  []uuid.UUID{site1.ID},
-				ResourceTypes:            []string{AllocationResourceTypeInstanceType},
-				SearchQuery:              cutil.GetPtr("test-"),
+				InfrastructureProviderIDs: []uuid.UUID{ip.ID},
+				TenantIDs:                 []uuid.UUID{tenant1.ID},
+				SiteIDs:                   []uuid.UUID{site1.ID},
+				ResourceTypes:             []string{AllocationResourceTypeInstanceType},
+				SearchQuery:               cutil.GetPtr("test-"),
 			},
 			expectedCount: totalCount / 4,
 		},

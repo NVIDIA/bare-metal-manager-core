@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,12 +22,18 @@ var _ MappedNullable = &InstanceTypeStats{}
 
 // InstanceTypeStats Stats for an instance type including allocation details
 type InstanceTypeStats struct {
-	Id               *string                 `json:"id,omitempty"`
-	Name             *string                 `json:"name,omitempty"`
-	Allocated        *int32                  `json:"allocated,omitempty"`
+	// Unique UUID v4 identifier for the Instance Type
+	Id *string `json:"id,omitempty"`
+	// Name of the Instance Type
+	Name *string `json:"name,omitempty"`
+	// Number of Machines allocated for this Instance Type
+	Allocated *int32 `json:"allocated,omitempty"`
+	// Usage statistics for Machines allocated to this Instance Type
 	UsedMachineStats *MachineStatusBreakdown `json:"usedMachineStats,omitempty"`
-	MaxAllocatable   *int32                  `json:"maxAllocatable,omitempty"`
-	Allocations      []AllocationStats       `json:"allocations,omitempty"`
+	// Maximum number of Machines of this Instance Type that can be allocated
+	MaxAllocatable *int32 `json:"maxAllocatable,omitempty"`
+	// Allocation statistics for this Instance Type
+	Allocations []TenantInstanceTypeAllocationStats `json:"allocations,omitempty"`
 }
 
 // NewInstanceTypeStats instantiates a new InstanceTypeStats object
@@ -208,9 +214,9 @@ func (o *InstanceTypeStats) SetMaxAllocatable(v int32) {
 }
 
 // GetAllocations returns the Allocations field value if set, zero value otherwise.
-func (o *InstanceTypeStats) GetAllocations() []AllocationStats {
+func (o *InstanceTypeStats) GetAllocations() []TenantInstanceTypeAllocationStats {
 	if o == nil || IsNil(o.Allocations) {
-		var ret []AllocationStats
+		var ret []TenantInstanceTypeAllocationStats
 		return ret
 	}
 	return o.Allocations
@@ -218,7 +224,7 @@ func (o *InstanceTypeStats) GetAllocations() []AllocationStats {
 
 // GetAllocationsOk returns a tuple with the Allocations field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeStats) GetAllocationsOk() ([]AllocationStats, bool) {
+func (o *InstanceTypeStats) GetAllocationsOk() ([]TenantInstanceTypeAllocationStats, bool) {
 	if o == nil || IsNil(o.Allocations) {
 		return nil, false
 	}
@@ -234,8 +240,8 @@ func (o *InstanceTypeStats) HasAllocations() bool {
 	return false
 }
 
-// SetAllocations gets a reference to the given []AllocationStats and assigns it to the Allocations field.
-func (o *InstanceTypeStats) SetAllocations(v []AllocationStats) {
+// SetAllocations gets a reference to the given []TenantInstanceTypeAllocationStats and assigns it to the Allocations field.
+func (o *InstanceTypeStats) SetAllocations(v []TenantInstanceTypeAllocationStats) {
 	o.Allocations = v
 }
 

@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete an operating system definition by ID:
-    $ carbide-admin-cli operating-system delete 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli operating-system delete 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

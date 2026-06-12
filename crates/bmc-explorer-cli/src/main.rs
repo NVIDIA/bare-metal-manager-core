@@ -21,11 +21,11 @@ use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_secrets::credentials::Credentials;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_site_explorer::BmcEndpointExplorer;
 use carbide_site_explorer::config::SiteExplorerExploreMode;
 use clap::Parser;
-use forge_secrets::credentials::Credentials;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use mac_address::MacAddress;
 use tracing_subscriber::fmt;
 

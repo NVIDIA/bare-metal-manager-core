@@ -522,7 +522,7 @@ func TestStatsHandlers(t *testing.T) {
 		assert.Equal(t, 0, gpuLStats.UsedMachineStats.Unknown)
 		assert.Equal(t, 2, len(gpuLStats.Tenants)) // alpha, beta
 
-		gpuLTenantByName := make(map[string]model.APIMachineInstanceTypeTenant)
+		gpuLTenantByName := make(map[string]model.APIMachineInstanceTypeTenantStats)
 		for _, tn := range gpuLStats.Tenants {
 			gpuLTenantByName[tn.Name] = tn
 		}
@@ -563,7 +563,7 @@ func TestStatsHandlers(t *testing.T) {
 		assert.Equal(t, 1, gpuSStats.UsedMachineStats.Initializing)
 		assert.Equal(t, 3, len(gpuSStats.Tenants)) // alpha, beta, gamma
 
-		gpuSTenantByName := make(map[string]model.APIMachineInstanceTypeTenant)
+		gpuSTenantByName := make(map[string]model.APIMachineInstanceTypeTenantStats)
 		for _, tn := range gpuSStats.Tenants {
 			gpuSTenantByName[tn.Name] = tn
 		}

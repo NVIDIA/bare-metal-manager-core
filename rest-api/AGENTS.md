@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This file provides guidance for AI coding agents working in the
-`infra-controller-rest` repository.
+`rest-api/` tree of the `infra-controller` repository.
 
 ## Project Overview
 
@@ -27,7 +27,7 @@ concert with Core services for on-site hardware operations.
 ## Repository Structure
 
 ```text
-infra-controller-rest/
+rest-api/
 ├── api/                  # Main REST API server (Echo-based)
 ├── auth/                 # Authentication (Keycloak, JWT, service accounts)
 ├── cert-manager/         # Native PKI certificate management (credsmgr)

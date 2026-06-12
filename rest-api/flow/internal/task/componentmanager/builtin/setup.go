@@ -14,6 +14,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 )
 
 // LoadConfig loads the component manager config for the Flow service.
@@ -127,12 +128,15 @@ func NewProviderRegistry(
 
 // NewComponentManagerRegistry creates the component manager registry for the
 // Flow service using all component manager implementations compiled into the
-// binary.
+// binary. gate is the shared readiness gate that NICo-backed managers consult
+// before disruptive operations; pass nil to skip readiness gating (e.g. in
+// tests that do not exercise it).
 func NewComponentManagerRegistry(
 	config cmconfig.Config,
 	providers *providerapi.ProviderRegistry,
+	gate readiness.Gate,
 ) (*componentmanager.Registry, error) {
-	factorySpecs, err := serviceFactorySpecs(config)
+	factorySpecs, err := serviceFactorySpecs(config, gate)
 	if err != nil {
 		return nil, err
 	}

@@ -27,6 +27,10 @@ pub struct PredictedMachineInterface {
     pub machine_id: MachineId,
     pub mac_address: MacAddress,
     pub expected_network_segment_type: NetworkSegmentType,
+    /// The last known vendor-named Redfish `EthernetInterface.Id` for this
+    /// MAC, handed to the `machine_interfaces` row at DHCP promotion so
+    /// the host's boot target is a full pair from its first owned interface.
+    pub boot_interface_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,4 +38,5 @@ pub struct NewPredictedMachineInterface<'a> {
     pub machine_id: &'a MachineId,
     pub mac_address: MacAddress,
     pub expected_network_segment_type: NetworkSegmentType,
+    pub boot_interface_id: Option<String>,
 }

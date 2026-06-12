@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -23,19 +23,26 @@ var _ MappedNullable = &TenantIdentityConfig{}
 
 // TenantIdentityConfig Current tenant identity configuration plus the per-org signing key metadata (`signingKeys`). During a JWKS overlap window two entries appear; under steady state only the active signer is listed. Use `signingKeys[].kid` (filtering by `currentSigner`) instead of the legacy single `keyId` field, which was removed with the key-rotation change in NICo-core.
 type TenantIdentityConfig struct {
-	Org             *string `json:"org,omitempty"`
-	Enabled         *bool   `json:"enabled,omitempty"`
-	Issuer          *string `json:"issuer,omitempty"`
+	// Organization that owns the Tenant identity configuration
+	Org *string `json:"org,omitempty"`
+	// Whether Tenant identity token delegation is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+	// Issuer URL for Tenant identity tokens
+	Issuer *string `json:"issuer,omitempty"`
+	// Default audience used for Tenant identity tokens
 	DefaultAudience *string `json:"defaultAudience,omitempty"`
 	// Stored allowlist of audience strings. Always non-empty: when a PUT supplied an empty list, the Core gRPC API substituted `[defaultAudience]` before persisting. Issuance rejects audiences outside this list.
 	AllowedAudiences []string `json:"allowedAudiences,omitempty"`
-	TokenTtlSeconds  *int32   `json:"tokenTtlSeconds,omitempty"`
+	// Lifetime of issued Tenant identity tokens, in seconds
+	TokenTtlSeconds *int32 `json:"tokenTtlSeconds,omitempty"`
 	// SPIFFE ID prefix used in the JWT `sub` claim. When the PUT body omitted `subjectPrefix`, Core stored `spiffe://<trust-domain-from-issuer>` here, so the value returned by GET may differ from what was submitted.
 	SubjectPrefix *string `json:"subjectPrefix,omitempty"`
 	// Per-org signing keys currently published in JWKS. Exactly one entry has `currentSigner: true`. During a rotation overlap window a second entry is present with `currentSigner: false` and a populated `expireAt`; once the overlap window elapses the Core gRPC API deletes the expired entry and only the current signer remains.
 	SigningKeys []TenantIdentitySigningKey `json:"signingKeys,omitempty"`
-	Created     *time.Time                 `json:"created,omitempty"`
-	Updated     *time.Time                 `json:"updated,omitempty"`
+	// Date/time when the Tenant identity configuration was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date/time when the Tenant identity configuration was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewTenantIdentityConfig instantiates a new TenantIdentityConfig object

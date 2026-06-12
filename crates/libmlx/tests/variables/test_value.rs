@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use libmlx::variables::spec::MlxVariableSpec;
 use libmlx::variables::value::{MlxValueError, MlxValueType};
 use libmlx::variables::variable::MlxConfigVariable;
-use nico_test_support::Outcome::*;
-use nico_test_support::{Case, check_cases};
 
 // create_test_variable creates a test variable with a given spec
 // to use for testing. This is leveraged for basically each test.
@@ -79,7 +79,7 @@ fn test_string_value_creation() {
 }
 
 // enum_values_validate_against_the_spec migrates the old hand-written enum test
-// onto nico-test-support: each row is a labeled input + an expected `Outcome`,
+// onto carbide-test-support: each row is a labeled input + an expected `Outcome`,
 // and `check_cases` runs the operation under test (`var.with`) over them. A valid
 // option yields an Enum value; an unknown option fails with the exact
 // InvalidEnumOption error — no `match … panic!` to read past.

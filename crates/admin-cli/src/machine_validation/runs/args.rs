@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show all validation runs:
-    $ carbide-admin-cli machine-validation runs show
+    $ nico-admin-cli machine-validation runs show
 
 Show runs for one machine, including history:
-    $ carbide-admin-cli machine-validation runs show --machine 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine-validation runs show --machine 12345678-1234-5678-90ab-cdef01234567 \
     --history
 
 ")]

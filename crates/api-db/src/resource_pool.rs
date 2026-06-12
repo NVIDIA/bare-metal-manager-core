@@ -1030,8 +1030,8 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
-    use nico_test_support::Outcome::*;
-    use nico_test_support::{Case, check_cases};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
 
     use super::*;
 

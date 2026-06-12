@@ -34,10 +34,8 @@ pub(crate) struct Machine {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MachineInterface {
     pub architecture: Option<machine_architecture::MachineArchitecture>,
-    /// IP carbide-pxe observed for the booting machine: `X-Forwarded-For`
-    /// when fronted by a proxy that injects it, TCP socket peer otherwise.
-    /// Forwarded to carbide-api which resolves it via `find_by_ip` to
-    /// fetch the machine_interface_id.
+    /// IP carbide-pxe observed for the booting machine: Does not support `X-Forwarded-For` for
+    /// proxying, it is the real IP of the connecting client.
     pub client_ip: IpAddr,
     pub platform: Option<String>,
     pub manufacturer: Option<String>,

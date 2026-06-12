@@ -1266,6 +1266,7 @@ enum CredentialType {
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
   BgpSiteWideLeafPassword = 11;
+  SiteWideNicLockdownIkm = 12;
 }
 
 message CredentialCreationRequest {
@@ -1694,6 +1695,9 @@ message VpcPrefixStatus {
   uint64 total_linknet_segments = 3;
   uint64 available_linknet_segments = 4;
   LifecycleStatus lifecycle = 5;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 6;
 }
 
 message VpcPrefixCreationRequest {

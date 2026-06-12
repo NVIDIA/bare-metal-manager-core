@@ -37,7 +37,7 @@ pub enum Args {
 EXAMPLES:
 
 Show a power shelf's metadata:
-    $ carbide-admin-cli power-shelf metadata show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf metadata show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct PowerShelfMetadataCommandShow {
@@ -50,7 +50,7 @@ pub struct PowerShelfMetadataCommandShow {
 EXAMPLES:
 
 Set a power shelf's name and description:
-    $ carbide-admin-cli power-shelf metadata set 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli power-shelf metadata set 12345678-1234-5678-90ab-cdef01234567 \
     --name ps-01 --description \"Rack 4 power shelf\"
 
 ")]
@@ -68,10 +68,10 @@ pub struct PowerShelfMetadataCommandSet {
 EXAMPLES:
 
 Add a key-only label:
-    $ carbide-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
+    $ nico-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 --key edge
 
 Add a key/value label:
-    $ carbide-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli power-shelf metadata add-label 12345678-1234-5678-90ab-cdef01234567 \
     --key row --value C
 
 ")]
@@ -89,7 +89,7 @@ pub struct PowerShelfMetadataCommandAddLabel {
 EXAMPLES:
 
 Remove one or more labels by key:
-    $ carbide-admin-cli power-shelf metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli power-shelf metadata remove-labels 12345678-1234-5678-90ab-cdef01234567 \
     --keys row --keys edge
 
 ")]
@@ -105,10 +105,10 @@ pub struct PowerShelfMetadataCommandRemoveLabels {
 EXAMPLES:
 
 Fill in missing metadata from the expected-power-shelf (leaving existing values intact):
-    $ carbide-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567
 
 Overwrite the power shelf's metadata with the expected-power-shelf's values:
-    $ carbide-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678-90ab-cdef01234567 \
     --replace-all
 
 ")]

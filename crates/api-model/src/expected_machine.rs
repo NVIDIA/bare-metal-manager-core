@@ -225,7 +225,7 @@ pub struct LinkedExpectedMachine {
     pub serial_number: String,
     pub bmc_mac_address: MacAddress, // from expected_machines table
     pub interface_id: Option<MachineInterfaceId>, // from machine_interfaces table
-    pub address: Option<String>,     // The explored endpoint
+    pub address: Option<IpAddr>,     // The explored endpoint
     pub machine_id: Option<MachineId>, // The machine
     pub expected_machine_id: Option<Uuid>, // The expected machine ID
 }

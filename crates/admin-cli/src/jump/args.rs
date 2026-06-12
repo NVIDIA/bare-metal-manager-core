@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 Find an object by its UUID (machine, instance, VPC, etc.):
-    $ carbide-admin-cli jump 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli jump 12345678-1234-5678-90ab-cdef01234567
 
 Find whatever owns an IP address:
-    $ carbide-admin-cli jump 192.0.2.10
+    $ nico-admin-cli jump 192.0.2.10
 
 Find a machine interface by its MAC address:
-    $ carbide-admin-cli jump 00:11:22:33:44:55
+    $ nico-admin-cli jump 00:11:22:33:44:55
 
 ")]
 pub struct Cmd {

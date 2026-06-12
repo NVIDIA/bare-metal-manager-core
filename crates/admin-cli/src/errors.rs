@@ -36,6 +36,9 @@ pub enum CarbideCliError {
     #[error("Generic Error: {0}")]
     GenericError(String),
 
+    #[error("Operation not allowed due to potential inconsistencies with cloud database.")]
+    CloudUnsafeOp,
+
     #[error("Cannot specify both {0} and {1}. Please provide only one.")]
     ChooseOneError(&'static str, &'static str),
 

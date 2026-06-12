@@ -1,6 +1,6 @@
-# Operator-facing grouping of top-level `carbide-admin-cli` commands, used to
-# organize the generated CLI reference under docs/cli (run
-# `carbide-admin-cli generate-cli-docs`).
+# Operator-facing grouping of top-level `nico-admin-cli` commands, used to
+# organize the generated CLI reference under docs/manuals/nico-admin-cli (run
+# `nico-admin-cli generate-cli-docs`).
 #
 # Keyed by domain; each value is the list of command names (as rendered in
 # --help, e.g. "managed-host", "tenant-key-set") in that domain. When you add a

@@ -22,7 +22,7 @@ use clap::Parser;
 EXAMPLES:
 
 Get the artifact list for an OS definition:
-    $ carbide-admin-cli operating-system get-artifacts 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli operating-system get-artifacts 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

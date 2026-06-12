@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::forge as rpc;
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
@@ -46,7 +46,7 @@ use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, VpcPeeringPolicy};
 #[derive(Default, Clone)]
 pub struct EthVirtData {
     pub asn: u32,
-    pub dhcp_servers: Vec<String>,
+    pub dhcp_servers: Vec<Ipv4Addr>,
     pub deny_prefixes: Vec<Ipv4Network>,
     pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
 }

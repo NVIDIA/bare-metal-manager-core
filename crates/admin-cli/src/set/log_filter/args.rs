@@ -22,10 +22,10 @@ use clap::Parser;
 EXAMPLES:
 
 Raise the server's log level, reverting after the default 1h:
-    $ carbide-admin-cli set log-filter --filter debug
+    $ nico-admin-cli set log-filter --filter debug
 
 Set a targeted filter that reverts after 30 minutes:
-    $ carbide-admin-cli set log-filter --filter carbide_api=trace,info --expiry 30min
+    $ nico-admin-cli set log-filter --filter carbide_api=trace,info --expiry 30min
 
 ")]
 pub struct Args {

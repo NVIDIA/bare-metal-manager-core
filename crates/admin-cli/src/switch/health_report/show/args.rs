@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 List the health report sources for a switch:
-    $ carbide-admin-cli switch health-report show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli switch health-report show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

@@ -18,6 +18,9 @@
 //! SDK types for the DPF SDK.
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
+
+use serde::{Deserialize, Serialize};
 
 use crate::crds::dpus_generated::DpuStatusPhase;
 
@@ -58,6 +61,8 @@ pub struct InitDpfResourcesConfig {
     /// Service templates and configs for M4 DPUDeployment.
     /// When empty, `default_services()` is used automatically.
     pub services: Vec<ServiceDefinition>,
+
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -67,8 +72,16 @@ impl Default for InitDpfResourcesConfig {
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
+            proxy: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfProxyDetails {
+    pub https_proxy: String,
+    #[serde(default)]
+    pub no_proxy: Vec<String>,
 }
 
 /// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
@@ -233,9 +246,9 @@ pub struct DpuDeviceInfo {
     /// Used as the DPUDevice CR name.
     pub device_id: String,
     /// BMC IP address for the DPU.
-    pub dpu_bmc_ip: String,
+    pub dpu_bmc_ip: IpAddr,
     /// BMC IP address for the host.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
     /// Serial number of the DPU.
     pub serial_number: String,
     /// Caller-defined identifier for the DPU machine.
@@ -252,7 +265,7 @@ pub struct DpuNodeInfo {
     /// Used to build the DPUNode CR name via `dpu_node_cr_name()`.
     pub node_id: String,
     /// BMC IP of the host.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
     /// Identifiers of each device attached to this node.
     pub device_ids: Vec<String>,
 }
@@ -351,7 +364,7 @@ pub struct RebootRequiredEvent {
     /// Name of the DPUNode resource.
     pub node_name: String,
     /// Host BMC IP.
-    pub host_bmc_ip: String,
+    pub host_bmc_ip: IpAddr,
 }
 
 /// Event emitted when a DPU is in the NodeEffect phase.

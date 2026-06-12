@@ -23,6 +23,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::vpc_prefix::VpcId;
@@ -30,7 +31,6 @@ use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
-use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -588,7 +588,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let resp = rpc::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
-        dhcp_servers: api.eth_data.dhcp_servers.clone(),
+        dhcp_servers: api
+            .eth_data
+            .dhcp_servers
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect(),
         route_servers,
         // TODO: Automatically add the prefix(es?) from the IPv4 loopback
         // pool to deny_prefixes. The database stores the pool in an
@@ -895,8 +900,39 @@ pub(crate) async fn record_dpu_network_status(
     let mut txn = api.txn_begin().await?;
 
     if let Some(policy) = dpu_agent_upgrade_policy::get(&mut txn).await? {
-        let _needs_upgrade =
-            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
+        let snapshot =
+            db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, Default::default())
+                .await?
+                .ok_or(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: dpu_machine_id.to_string(),
+                })?;
+
+        let dpu_machine = snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|x| x.id == dpu_machine_id)
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu",
+                id: dpu_machine_id.to_string(),
+            })?;
+
+        if snapshot.host_snapshot.dpf.used_for_ingestion {
+            // DPF-managed DPUs don't use this upgrade path. Clear any stale flag so the DPU
+            // doesn't keep receiving upgrade signals after the host was switched to DPF.
+            if dpu_machine.needs_agent_upgrade() {
+                db::machine::set_dpu_agent_upgrade_requested(
+                    &mut txn,
+                    &dpu_machine_id,
+                    false,
+                    carbide_version::v!(build_version),
+                )
+                .await?;
+            }
+        } else {
+            let _needs_upgrade =
+                db::machine::apply_agent_upgrade_policy(&mut txn, policy, dpu_machine).await?;
+        }
     }
 
     txn.commit().await?;
@@ -1253,8 +1289,8 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
 
 /// Get the configured BGP password.
 pub(crate) async fn get_bgp_password(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
-    credential_key: forge_secrets::credentials::CredentialKey,
+    credential_reader: &dyn carbide_secrets::credentials::CredentialReader,
+    credential_key: carbide_secrets::credentials::CredentialKey,
 ) -> Result<String, CarbideError> {
     let credential = credential_reader
         .get_credentials(&credential_key)

@@ -287,8 +287,8 @@ impl PartialOrd for BuildVersion<'_> {
 
 #[test]
 fn test_parse_version() {
-    use nico_test_support::Outcome::*;
-    use nico_test_support::{Case, check_cases};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
 
     check_cases(
         [

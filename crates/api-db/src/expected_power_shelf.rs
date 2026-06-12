@@ -115,7 +115,7 @@ pub async fn find_all_linked(
  eps.bmc_mac_address,
  ps.id AS power_shelf_id,
  eps.expected_power_shelf_id,
- host(ee.address) AS address,
+ ee.address AS address,
  eps.rack_id
 FROM expected_power_shelves eps
  LEFT JOIN power_shelves ps ON eps.serial_number = ps.config->>'name'

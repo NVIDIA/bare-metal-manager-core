@@ -22,8 +22,8 @@
 //! Decrypt uses the `key_id` embedded in each ciphertext envelope. Encrypt uses site
 //! `[machine_identity].current_encryption_key_id`.
 
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-use forge_secrets::key_encryption;
+use carbide_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use carbide_secrets::key_encryption;
 use model::tenant::{
     ClientSecretBasic, EncryptedTokenDelegationAuthConfig, EncryptionKeyId,
     TokenDelegationAuthMethod,
@@ -166,8 +166,8 @@ pub(crate) fn token_delegation_credentials(
 #[cfg(test)]
 mod tests {
     use base64::Engine;
-    use forge_secrets::credentials::{CredentialKey, CredentialWriter, Credentials};
-    use forge_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_secrets::credentials::{CredentialKey, CredentialWriter, Credentials};
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use model::tenant::EncryptionKeyId;
 
     use super::*;

@@ -22,14 +22,14 @@ use clap::Parser;
 EXAMPLES:
 
 List supported tests (optionally including unverified):
-    $ carbide-admin-cli machine-validation tests show
+    $ nico-admin-cli machine-validation tests show
 
 Verify a test version:
-    $ carbide-admin-cli machine-validation tests verify --test-id gpu_bandwidth --version 1.2.0
+    $ nico-admin-cli machine-validation tests verify --test-id gpu_bandwidth --version 1.2.0
 
 Enable / disable a test version:
-    $ carbide-admin-cli machine-validation tests enable --test-id gpu_bandwidth --version 1.2.0
-    $ carbide-admin-cli machine-validation tests disable --test-id gpu_bandwidth --version 1.2.0
+    $ nico-admin-cli machine-validation tests enable --test-id gpu_bandwidth --version 1.2.0
+    $ nico-admin-cli machine-validation tests disable --test-id gpu_bandwidth --version 1.2.0
 
 ")]
 pub enum Args {

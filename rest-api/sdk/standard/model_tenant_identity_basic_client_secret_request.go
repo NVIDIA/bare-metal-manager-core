@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,6 +24,7 @@ var _ MappedNullable = &TenantIdentityBasicClientSecretRequest{}
 
 // TenantIdentityBasicClientSecretRequest Raw OAuth2 `client_secret_basic` credentials. `clientSecret` is accepted on input but never returned in responses.
 type TenantIdentityBasicClientSecretRequest struct {
+	// Client identifier used for basic client-secret authentication
 	ClientId string `json:"clientId"`
 	// Raw OAuth2 client secret. Transmitted over TLS to the Core gRPC API, which encrypts it at rest in its database using a per-site key. Never echoed in responses; subsequent reads return only a `sha256:` hash prefix in `clientSecretHash`.
 	ClientSecret string `json:"clientSecret"`

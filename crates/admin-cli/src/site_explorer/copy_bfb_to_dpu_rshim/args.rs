@@ -23,11 +23,11 @@ use mac_address::MacAddress;
 EXAMPLES:
 
 Copy a BFB to a DPU's rshim via its BMC, power-cycling the host afterward:
-    $ carbide-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
+    $ nico-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
     --host-bmc-ip 192.0.2.20
 
 Power-cycle the host first to release rshim control to the DPU BMC:
-    $ carbide-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
+    $ nico-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 \
     --host-bmc-ip 192.0.2.20 --pre-copy-powercycle
 
 ")]

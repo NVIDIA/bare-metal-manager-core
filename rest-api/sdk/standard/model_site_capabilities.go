@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -22,10 +22,15 @@ var _ MappedNullable = &SiteCapabilities{}
 
 // SiteCapabilities Boolean flags to indicate features supported by a Site
 type SiteCapabilities struct {
-	NativeNetworking          *bool `json:"nativeNetworking,omitempty"`
-	NetworkSecurityGroup      *bool `json:"networkSecurityGroup,omitempty"`
-	NvLinkPartition           *bool `json:"nvLinkPartition,omitempty"`
-	Flow                      *bool `json:"flow,omitempty"`
+	// Whether the Site supports native networking
+	NativeNetworking *bool `json:"nativeNetworking,omitempty"`
+	// Whether the Site supports Network Security Groups
+	NetworkSecurityGroup *bool `json:"networkSecurityGroup,omitempty"`
+	// Whether the Site supports NVLink partitioning
+	NvLinkPartition *bool `json:"nvLinkPartition,omitempty"`
+	// Whether the Site supports Flow-based operations
+	Flow *bool `json:"flow,omitempty"`
+	// Whether the Site supports image-based operating system provisioning
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`
 }
 
