@@ -515,7 +515,7 @@ func (epsd ExpectedPowerShelfSQLDAO) Update(ctx context.Context, tx *db.Tx, inpu
 		eps.Description = input.Description
 		columnsSet["description"] = true
 	}
-		if input.SlotID != nil {
+	if input.SlotID != nil {
 		eps.SlotID = input.SlotID
 		columnsSet["slot_id"] = true
 	}

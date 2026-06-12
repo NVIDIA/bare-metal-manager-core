@@ -521,7 +521,7 @@ func (essd ExpectedSwitchSQLDAO) Update(ctx context.Context, tx *db.Tx, input Ex
 		es.Description = input.Description
 		columnsSet["description"] = true
 	}
-		if input.SlotID != nil {
+	if input.SlotID != nil {
 		es.SlotID = input.SlotID
 		columnsSet["slot_id"] = true
 	}

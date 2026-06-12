@@ -2002,6 +2002,7 @@ dependencies = [
  "carbide-libmlx",
  "carbide-rpc",
  "carbide-rpc-utils",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
