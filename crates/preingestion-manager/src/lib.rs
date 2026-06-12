@@ -1425,21 +1425,16 @@ impl PreingestionManagerStatic {
                 };
                 match redfish_client.get_service_root().await {
                     Ok(_) => {
-                        // BMC is back. Force a fresh exploration and wait for it
-                        // before running checks, so pairing/ingestion reads the
-                        // post-reset inventory (e.g. a DPU that reappeared), not the
-                        // stale pre-reset report.
+                        // BMC is back. Wait for a fresh exploration before running
+                        // checks, so pairing/ingestion reads the post-reset
+                        // inventory (e.g. a DPU that reappeared), not the stale
+                        // pre-reset report.
                         let address = endpoint.address;
                         db.with_txn(|txn| {
                             async move {
                                 db::explored_endpoints::set_preingestion_initial_bmc_reset(
                                     address,
                                     InitialBmcResetPhase::WaitForExplorerRefresh,
-                                    txn,
-                                )
-                                .await?;
-                                db::explored_endpoints::request_exploration_for_addresses(
-                                    &[address],
                                     txn,
                                 )
                                 .await?;

@@ -735,6 +735,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
@@ -756,22 +759,33 @@ mod tests {
         }
     }
 
+    // Serde JSON round-trip for each InterfaceFunctionId variant: each row
+    // asserts the exact serialized form, and the closure confirms the value
+    // round-trips back equal before yielding that string.
     #[test]
     fn serialize_function_id() {
-        let function_id = InterfaceFunctionId::Physical {};
-        let serialized = serde_json::to_string(&function_id).unwrap();
-        assert_eq!(serialized, "{\"type\":\"physical\"}");
-        assert_eq!(
-            serde_json::from_str::<InterfaceFunctionId>(&serialized).unwrap(),
-            function_id
-        );
-
-        let function_id = InterfaceFunctionId::Virtual { id: 24 };
-        let serialized = serde_json::to_string(&function_id).unwrap();
-        assert_eq!(serialized, "{\"type\":\"virtual\",\"id\":24}");
-        assert_eq!(
-            serde_json::from_str::<InterfaceFunctionId>(&serialized).unwrap(),
-            function_id
+        check_cases(
+            [
+                Case {
+                    scenario: "physical",
+                    input: InterfaceFunctionId::Physical {},
+                    expect: Yields(r#"{"type":"physical"}"#.to_string()),
+                },
+                Case {
+                    scenario: "virtual",
+                    input: InterfaceFunctionId::Virtual { id: 24 },
+                    expect: Yields(r#"{"type":"virtual","id":24}"#.to_string()),
+                },
+            ],
+            // Serialize, confirm it round-trips back equal, then yield the JSON.
+            // serde_json::Error is not PartialEq, so collapse failures to ().
+            |function_id| {
+                let serialized = serde_json::to_string(&function_id).map_err(|_| ())?;
+                let round_tripped =
+                    serde_json::from_str::<InterfaceFunctionId>(&serialized).map_err(|_| ())?;
+                assert_eq!(round_tripped, function_id);
+                Ok::<_, ()>(serialized)
+            },
         );
     }
 
@@ -850,43 +864,80 @@ mod tests {
         }
     }
 
+    // InstanceNetworkConfig::validate over a base valid config mutated per row.
+    // Input is (config, allow_instance_vf). ConfigValidationError is not
+    // PartialEq, so rejections assert only that validation errs (Fails); the
+    // exact error value is not part of the contract here.
     #[test]
     fn validate_network_config() {
-        let config = create_valid_network_config();
-        config.validate(true).unwrap();
-
-        // Same config with virtual function, but virtual functions are disabled
-        assert!(config.validate(false).is_err());
-
-        // Duplicate virtual function
-        let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 0 };
-        assert!(config.validate(true).is_err());
-
-        // Out of bounds virtual function
-        let mut config = create_valid_network_config();
-        config.interfaces[2].function_id = InterfaceFunctionId::Virtual { id: 16 };
-        assert!(config.validate(true).is_err());
-
-        // No physical function
-        let mut config = create_valid_network_config();
-        config.interfaces.swap_remove(0);
-        assert!(config.validate(true).is_err());
-
-        // Missing virtual function id in between is now a valid scenario.
-        // The last virtual function is ok to be missing
-        let mut config = create_valid_network_config();
-        config
-            .interfaces
-            .swap_remove(INTERFACE_VFID_MAX as usize + 1);
-        config.validate(true).unwrap();
-
-        // Duplicate network segment
         const DUPLICATE_SEGMENT_ID: uuid::Uuid =
             uuid::uuid!("91609f10-c91d-470d-a260-1234560c0000");
-        let mut config = create_valid_network_config();
-        config.interfaces[0].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
-        config.interfaces[1].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
-        assert!(config.validate(true).is_err());
+
+        let valid = create_valid_network_config();
+
+        let virtual_functions_disabled = create_valid_network_config();
+
+        let mut duplicate_virtual_function = create_valid_network_config();
+        duplicate_virtual_function.interfaces[2].function_id =
+            InterfaceFunctionId::Virtual { id: 0 };
+
+        let mut out_of_bounds_virtual_function = create_valid_network_config();
+        out_of_bounds_virtual_function.interfaces[2].function_id =
+            InterfaceFunctionId::Virtual { id: 16 };
+
+        let mut no_physical_function = create_valid_network_config();
+        no_physical_function.interfaces.swap_remove(0);
+
+        let mut missing_middle_virtual_function = create_valid_network_config();
+        missing_middle_virtual_function
+            .interfaces
+            .swap_remove(INTERFACE_VFID_MAX as usize + 1);
+
+        let mut duplicate_network_segment = create_valid_network_config();
+        duplicate_network_segment.interfaces[0].network_segment_id =
+            Some(DUPLICATE_SEGMENT_ID.into());
+        duplicate_network_segment.interfaces[1].network_segment_id =
+            Some(DUPLICATE_SEGMENT_ID.into());
+
+        check_cases(
+            [
+                Case {
+                    scenario: "valid config with virtual functions allowed",
+                    input: (valid, true),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "virtual functions disabled by site configuration",
+                    input: (virtual_functions_disabled, false),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "duplicate virtual function id",
+                    input: (duplicate_virtual_function, true),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "out of bounds virtual function id",
+                    input: (out_of_bounds_virtual_function, true),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "no physical function",
+                    input: (no_physical_function, true),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing middle virtual function id is allowed",
+                    input: (missing_middle_virtual_function, true),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "duplicate network segment",
+                    input: (duplicate_network_segment, true),
+                    expect: Fails,
+                },
+            ],
+            |(config, allow_instance_vf)| config.validate(allow_instance_vf).map_err(drop),
+        );
     }
 }

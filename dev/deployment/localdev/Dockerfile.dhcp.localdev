@@ -19,4 +19,5 @@
 FROM runtime-container-localdev:latest as carbide
 WORKDIR ./carbide
 
-COPY ".skaffold/target/carbide-dhcp/debug/libdhcp.so" "/usr/lib/x86_64-linux-gnu/kea/hooks"
+RUN mkdir -p /usr/lib/x86_64-linux-gnu/kea/hooks
+COPY ".skaffold/target/carbide-dhcp/debug/libdhcp.so" "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so"

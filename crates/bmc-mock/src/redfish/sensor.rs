@@ -302,7 +302,7 @@ impl SensorBuilder {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum SensorKind {
+pub enum SensorKind {
     Temperature,
     Fan,
     Power,
@@ -475,6 +475,10 @@ pub fn generate_chassis_sensors(chassis_id: &str, layout: Layout) -> Vec<Sensor>
     sensors
 }
 
+pub fn sensor_id(kind: SensorKind, index: usize) -> String {
+    format!("{}_{}", kind.id_prefix(), index)
+}
+
 fn append_sensors(
     sensors: &mut Vec<Sensor>,
     chassis_id: &str,
@@ -483,7 +487,7 @@ fn append_sensors(
     rng: &mut impl Rng,
 ) {
     for index in 1..=count {
-        let sensor_id = format!("{}_{}", kind.id_prefix(), index);
+        let sensor_id = sensor_id(kind, index);
         let sensor_name = format!("{} {}", kind.name_prefix(), index);
         let sensor = builder(&chassis_resource(chassis_id, &sensor_id))
             .name(&sensor_name)

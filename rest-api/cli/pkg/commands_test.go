@@ -98,9 +98,9 @@ func TestOperationAction(t *testing.T) {
 		{"get-all-site", "list"},
 		{"get-all-instance", "list"},
 		{"get-all-allocation-constraint", "list"},
-		{"get-current-infrastructure-provider", "get"},
-		{"get-current-tenant", "get"},
-		{"get-current-service-account", "get"},
+		{"get-current-infrastructure-provider", "current"},
+		{"get-current-tenant", "current"},
+		{"get-current-service-account", "current"},
 		{"create-site", "create"},
 		{"create-allocation-constraint", "create"},
 		{"update-site", "update"},
@@ -110,9 +110,13 @@ func TestOperationAction(t *testing.T) {
 		{"get-site-status-history", "status-history"},
 		{"get-instance-status-history", "status-history"},
 		{"get-machine-status-history", "status-history"},
-		// get-current-* matches before -stats suffix check
-		{"get-current-infrastructure-provider-stats", "get"},
-		{"get-current-tenant-stats", "get"},
+		// get-current-<resource> singletons resolve to `current`; their
+		// -stats endpoints resolve to `stats` (distinct actions, no collision).
+		// service-account has no -stats endpoint in the spec today, but the
+		// suffix mapping is resource-independent, so it is asserted here too.
+		{"get-current-infrastructure-provider-stats", "stats"},
+		{"get-current-tenant-stats", "stats"},
+		{"get-current-service-account-stats", "stats"},
 		{"batch-create-instance", "batch-create"},
 		{"batch-create-expected-machines", "batch-create"},
 		{"batch-update-expected-machines", "batch-update"},
@@ -674,6 +678,12 @@ func TestIsActionModifier(t *testing.T) {
 // short alias non-deterministically points at one of the two operations
 // depending on map iteration order, so the same binary exposes a different
 // command surface depending on whether the config file was loaded.
+//
+// NOTE: this exercises the collision resolver with synthetic ops (action
+// "get" injected on both). In the embedded spec these two operations now map
+// to distinct `current` / `stats` actions, so this exact collision no longer
+// arises there; the live singleton-surface guard is
+// TestNewApp_CurrentSingletonCommandSurface.
 func TestBuildTagSubcommands_AliasCollisionExpandsAllNames(t *testing.T) {
 	infraProviderGet := &Operation{
 		OperationID: "get-current-infrastructure-provider",
@@ -704,14 +714,16 @@ func TestBuildTagSubcommands_AliasCollisionExpandsAllNames(t *testing.T) {
 
 // TestBuildTagSubcommands_NonCollidingActionKeepsShortAlias is the negative
 // counterpart to the collision test above: when there is exactly one
-// operation per short action, the short alias is preserved.
+// operation per short action, the short alias is preserved. Uses a plain
+// get-<resource> op (a genuine `get` action) so the fixture is self-consistent
+// -- get-current-* singletons now map to `current`, not `get`.
 func TestBuildTagSubcommands_NonCollidingActionKeepsShortAlias(t *testing.T) {
 	op := &Operation{
-		OperationID: "get-current-infrastructure-provider",
-		Tags:        []string{"Infrastructure Provider"},
+		OperationID: "get-site",
+		Tags:        []string{"Site"},
 	}
 	ops := []resolvedOp{
-		{tag: "Infrastructure Provider", action: "get", method: "GET", path: "/p1", op: op},
+		{tag: "Site", action: "get", method: "GET", path: "/p1", op: op},
 	}
 
 	cmds := buildTagSubcommands(&Spec{}, ops)
@@ -726,6 +738,9 @@ func TestBuildTagSubcommands_NonCollidingActionKeepsShortAlias(t *testing.T) {
 // running the resolver against both possible orderings of the colliding
 // operations. The resulting command tree must be identical, so the binary's
 // command surface no longer depends on Go map iteration order.
+//
+// NOTE: synthetic action "get" is injected on both ops to force the collision;
+// in the embedded spec these resolve to distinct `current` / `stats` actions.
 func TestBuildTagSubcommands_AliasCollisionIsOrderIndependent(t *testing.T) {
 	infraProviderGet := &Operation{
 		OperationID: "get-current-infrastructure-provider",
@@ -761,27 +776,27 @@ func TestBuildTagSubcommands_AliasCollisionIsOrderIndependent(t *testing.T) {
 		"command surface must not depend on the order primaryOps is built in")
 }
 
-// TestNewApp_NoConfigDependentCommandSurface walks the embedded production
-// spec and asserts that the two known alias-collision pairs (Infrastructure
-// Provider and Tenant) expose the full operationId-derived names with no
-// short `get` alias. This is the regression guard that fires if a future
-// change re-introduces a "first one wins" alias resolver.
-func TestNewApp_NoConfigDependentCommandSurface(t *testing.T) {
+// TestNewApp_CurrentSingletonCommandSurface walks the embedded production spec
+// and asserts that the get-current-<resource> singletons expose the `current`
+// action (and `stats` for their -stats endpoints) instead of the bare `get`
+// action or the full operationId. Because `current` and `stats` are distinct
+// actions there is no get-action collision, so the command surface is
+// deterministic and never depends on Go map iteration order. This is the
+// regression guard for NVBug 6100988 (`tenant current` must be runnable from
+// the command line, matching what the interactive TUI prints) and replaces the
+// old guard that asserted the colliding pair expanded to full operationIds.
+func TestNewApp_CurrentSingletonCommandSurface(t *testing.T) {
 	app, err := NewApp(openapi.Spec)
 	require.NoError(t, err, "NewApp failed")
 
-	collidingPairs := map[string][]string{
-		"infrastructure-provider": {
-			"get-current-infrastructure-provider",
-			"get-current-infrastructure-provider-stats",
-		},
-		"tenant": {
-			"get-current-tenant",
-			"get-current-tenant-stats",
-		},
+	// tag -> actions that must be present, with no bare `get` and no
+	// full-operationId leftovers.
+	want := map[string][]string{
+		"infrastructure-provider": {"current", "stats"},
+		"tenant":                  {"current", "stats"},
 	}
 
-	for tag, expected := range collidingPairs {
+	for tag, actions := range want {
 		t.Run(tag, func(t *testing.T) {
 			var found *cli.Command
 			for _, c := range app.Commands {
@@ -796,15 +811,82 @@ func TestNewApp_NoConfigDependentCommandSurface(t *testing.T) {
 			for _, sc := range found.Subcommands {
 				subNames[sc.Name] = true
 			}
-			for _, want := range expected {
-				assert.Truef(t, subNames[want],
-					"tag %q must expose %q as a deterministic, full-name command", tag, want)
+			for _, a := range actions {
+				assert.Truef(t, subNames[a], "tag %q must expose the %q command", tag, a)
 			}
 			assert.Falsef(t, subNames["get"],
-				"tag %q must NOT expose `get` as a short alias when there are %d colliding operations",
-				tag, len(expected))
+				"tag %q must NOT expose a bare `get`; the singleton getter is `current`", tag)
+			assert.Falsef(t, subNames["get-current-"+tag],
+				"tag %q must NOT expose the full-operationId command; it collapses to `current`", tag)
 		})
 	}
+}
+
+// TestBuildCommands_CurrentSingletonsAreRunnable asserts that every
+// get-current-<resource> singleton in the embedded spec is reachable from the
+// non-interactive CLI under the `current` action that the interactive TUI
+// prints (NVBug 6100988). Driven off the spec so it stays honest as singletons
+// are added or removed.
+func TestBuildCommands_CurrentSingletonsAreRunnable(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+	cmds := BuildCommands(spec)
+
+	cmdByName := func(list []*cli.Command, name string) *cli.Command {
+		for _, c := range list {
+			if c.HasName(name) {
+				return c
+			}
+		}
+		return nil
+	}
+
+	for _, tag := range []string{"tenant", "infrastructure-provider", "service-account"} {
+		t.Run(tag, func(t *testing.T) {
+			parent := cmdByName(cmds, tag)
+			require.NotNilf(t, parent, "tag %q must be a top-level command", tag)
+			assert.NotNilf(t, cmdByName(parent.Subcommands, "current"),
+				"tag %q must expose a `current` command runnable from the CLI", tag)
+		})
+	}
+}
+
+// TestBuildCommands_AllocationConstraintIsUpdateOnly is the CLI-side guard for
+// NVBug 6232163: the server only registers PATCH for the AllocationConstraint
+// sub-resource, and the stale create/get/list/delete endpoints were removed
+// from the OpenAPI spec. Because the CLI is generated from the embedded spec,
+// the `allocation constraint` sub-resource must therefore expose only `update`.
+// This test fails if the removed endpoints are ever reintroduced into the spec.
+func TestBuildCommands_AllocationConstraintIsUpdateOnly(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+	cmds := BuildCommands(spec)
+
+	var allocation *cli.Command
+	for _, c := range cmds {
+		if c.Name == "allocation" {
+			allocation = c
+			break
+		}
+	}
+	require.NotNil(t, allocation, "allocation command must exist")
+
+	var constraint *cli.Command
+	for _, sc := range allocation.Subcommands {
+		if sc.Name == "constraint" {
+			constraint = sc
+			break
+		}
+	}
+	require.NotNil(t, constraint, "allocation `constraint` sub-resource must exist")
+
+	actions := make([]string, 0, len(constraint.Subcommands))
+	for _, sc := range constraint.Subcommands {
+		actions = append(actions, sc.Name)
+	}
+	assert.Equal(t, []string{"update"}, actions,
+		"allocation constraint must expose only `update`; create/get/list/delete were "+
+			"removed from the OpenAPI spec because the server never registered those routes (NVBug 6232163)")
 }
 
 // sortStrings is a tiny stable sort used by the order-independence test so it

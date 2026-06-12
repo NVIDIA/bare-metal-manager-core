@@ -77,6 +77,9 @@ uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
 zip = { workspace = true, default-features = false, features = ["deflate"] }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [build-dependencies]
 clap = { workspace = true }
 carbide-version = { path = "../version" }

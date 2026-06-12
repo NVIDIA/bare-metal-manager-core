@@ -130,6 +130,7 @@ const (
 	Forge_FindRackStateHistories_FullMethodName                             = "/forge.Forge/FindRackStateHistories"
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
+	Forge_FindVpcPrefixStateHistories_FullMethodName                        = "/forge.Forge/FindVpcPrefixStateHistories"
 	Forge_FindTenantOrganizationIds_FullMethodName                          = "/forge.Forge/FindTenantOrganizationIds"
 	Forge_FindTenantsByOrganizationIds_FullMethodName                       = "/forge.Forge/FindTenantsByOrganizationIds"
 	Forge_FindConnectedDevicesByDpuMachineIds_FullMethodName                = "/forge.Forge/FindConnectedDevicesByDpuMachineIds"
@@ -654,6 +655,7 @@ type ForgeClient interface {
 	FindRackStateHistories(ctx context.Context, in *RackStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindTenantOrganizationIds(ctx context.Context, in *TenantSearchFilter, opts ...grpc.CallOption) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(ctx context.Context, in *TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *MachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error)
@@ -2312,6 +2314,16 @@ func (c *forgeClient) FindNetworkSegmentStateHistories(ctx context.Context, in *
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StateHistories)
 	err := c.cc.Invoke(ctx, Forge_FindNetworkSegmentStateHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StateHistories)
+	err := c.cc.Invoke(ctx, Forge_FindVpcPrefixStateHistories_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -5876,6 +5888,7 @@ type ForgeServer interface {
 	FindRackStateHistories(context.Context, *RackStateHistoriesRequest) (*StateHistories, error)
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
+	FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error)
 	FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(context.Context, *TenantByOrganizationIdsRequest) (*TenantList, error)
 	FindConnectedDevicesByDpuMachineIds(context.Context, *MachineIdList) (*ConnectedDeviceList, error)
@@ -6782,6 +6795,9 @@ func (UnimplementedForgeServer) FindSwitchStateHistories(context.Context, *Switc
 }
 func (UnimplementedForgeServer) FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindNetworkSegmentStateHistories not implemented")
+}
+func (UnimplementedForgeServer) FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindVpcPrefixStateHistories not implemented")
 }
 func (UnimplementedForgeServer) FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindTenantOrganizationIds not implemented")
@@ -9736,6 +9752,24 @@ func _Forge_FindNetworkSegmentStateHistories_Handler(srv interface{}, ctx contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).FindNetworkSegmentStateHistories(ctx, req.(*NetworkSegmentStateHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindVpcPrefixStateHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VpcPrefixStateHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindVpcPrefixStateHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindVpcPrefixStateHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindVpcPrefixStateHistories(ctx, req.(*VpcPrefixStateHistoriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16229,6 +16263,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindNetworkSegmentStateHistories",
 			Handler:    _Forge_FindNetworkSegmentStateHistories_Handler,
+		},
+		{
+			MethodName: "FindVpcPrefixStateHistories",
+			Handler:    _Forge_FindVpcPrefixStateHistories_Handler,
 		},
 		{
 			MethodName: "FindTenantOrganizationIds",

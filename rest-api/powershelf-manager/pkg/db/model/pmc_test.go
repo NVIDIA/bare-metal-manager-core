@@ -9,6 +9,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -30,11 +31,11 @@ func mustParseMAC(s string) MacAddr {
 }
 
 // Helper to parse IP address
-func mustParseIP(s string) IPAddr {
+func mustParseIP(s string) sqltypes.IPAddr {
 	if s == "" {
 		return nil
 	}
-	return IPAddr(net.ParseIP(s))
+	return sqltypes.IPAddr(net.ParseIP(s))
 }
 
 type testPMC struct {

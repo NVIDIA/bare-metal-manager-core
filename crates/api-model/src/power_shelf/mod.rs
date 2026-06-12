@@ -230,122 +230,170 @@ pub struct PowerShelfSearchFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     #[test]
     fn serialize_controller_state() {
-        let state = PowerShelfControllerState::Initializing {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"initializing\"}");
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::FetchingData {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"fetchingdata\"}");
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Configuring {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"configuring\"}");
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Ready {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"ready\"}");
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Error {
-            cause: "cause goes here".to_string(),
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, r#"{"state":"error","cause":"cause goes here"}"#);
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Deleting {};
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"deleting\"}");
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Maintenance {
-            operation: PowerShelfMaintenanceOperation::PowerOn,
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#
-        );
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = PowerShelfControllerState::Maintenance {
-            operation: PowerShelfMaintenanceOperation::PowerOff,
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#
-        );
-        assert_eq!(
-            serde_json::from_str::<PowerShelfControllerState>(&serialized).unwrap(),
-            state
+        // Each controller-state variant serializes to its tagged JSON and round-trips
+        // back to the same value. The op yields (serialized, deserialized) so both the
+        // exact JSON string and the round-trip equality are asserted per row.
+        check_cases(
+            [
+                Case {
+                    scenario: "initializing",
+                    input: PowerShelfControllerState::Initializing {},
+                    expect: Yields((
+                        "{\"state\":\"initializing\"}".to_string(),
+                        PowerShelfControllerState::Initializing {},
+                    )),
+                },
+                Case {
+                    scenario: "fetching data",
+                    input: PowerShelfControllerState::FetchingData {},
+                    expect: Yields((
+                        "{\"state\":\"fetchingdata\"}".to_string(),
+                        PowerShelfControllerState::FetchingData {},
+                    )),
+                },
+                Case {
+                    scenario: "configuring",
+                    input: PowerShelfControllerState::Configuring {},
+                    expect: Yields((
+                        "{\"state\":\"configuring\"}".to_string(),
+                        PowerShelfControllerState::Configuring {},
+                    )),
+                },
+                Case {
+                    scenario: "ready",
+                    input: PowerShelfControllerState::Ready {},
+                    expect: Yields((
+                        "{\"state\":\"ready\"}".to_string(),
+                        PowerShelfControllerState::Ready {},
+                    )),
+                },
+                Case {
+                    scenario: "error with cause",
+                    input: PowerShelfControllerState::Error {
+                        cause: "cause goes here".to_string(),
+                    },
+                    expect: Yields((
+                        r#"{"state":"error","cause":"cause goes here"}"#.to_string(),
+                        PowerShelfControllerState::Error {
+                            cause: "cause goes here".to_string(),
+                        },
+                    )),
+                },
+                Case {
+                    scenario: "deleting",
+                    input: PowerShelfControllerState::Deleting {},
+                    expect: Yields((
+                        "{\"state\":\"deleting\"}".to_string(),
+                        PowerShelfControllerState::Deleting {},
+                    )),
+                },
+                Case {
+                    scenario: "maintenance power-on",
+                    input: PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOn,
+                    },
+                    expect: Yields((
+                        r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#
+                            .to_string(),
+                        PowerShelfControllerState::Maintenance {
+                            operation: PowerShelfMaintenanceOperation::PowerOn,
+                        },
+                    )),
+                },
+                Case {
+                    scenario: "maintenance power-off",
+                    input: PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOff,
+                    },
+                    expect: Yields((
+                        r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#
+                            .to_string(),
+                        PowerShelfControllerState::Maintenance {
+                            operation: PowerShelfMaintenanceOperation::PowerOff,
+                        },
+                    )),
+                },
+            ],
+            // Serialize the state, then deserialize the produced JSON back.
+            |state: PowerShelfControllerState| {
+                let serialized = serde_json::to_string(&state).map_err(drop)?;
+                let parsed =
+                    serde_json::from_str::<PowerShelfControllerState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((serialized, parsed))
+            },
         );
     }
 
     #[test]
-    fn serialize_maintenance_operation_round_trip() {
-        for operation in [
-            PowerShelfMaintenanceOperation::PowerOn,
-            PowerShelfMaintenanceOperation::PowerOff,
-        ] {
-            let serialized = serde_json::to_string(&operation).unwrap();
-            let parsed: PowerShelfMaintenanceOperation = serde_json::from_str(&serialized).unwrap();
-            assert_eq!(parsed, operation);
-        }
-    }
-
-    #[test]
-    fn serialize_maintenance_operation_lowercase_tags() {
-        assert_eq!(
-            serde_json::to_string(&PowerShelfMaintenanceOperation::PowerOn).unwrap(),
-            r#"{"operation":"poweron"}"#
-        );
-        assert_eq!(
-            serde_json::to_string(&PowerShelfMaintenanceOperation::PowerOff).unwrap(),
-            r#"{"operation":"poweroff"}"#
+    fn serialize_maintenance_operation() {
+        // Each maintenance operation serializes to its lowercase-tagged JSON and
+        // round-trips back. The op yields (serialized, deserialized), folding the
+        // exact-tag and round-trip assertions into one table.
+        check_cases(
+            [
+                Case {
+                    scenario: "power on",
+                    input: PowerShelfMaintenanceOperation::PowerOn,
+                    expect: Yields((
+                        r#"{"operation":"poweron"}"#.to_string(),
+                        PowerShelfMaintenanceOperation::PowerOn,
+                    )),
+                },
+                Case {
+                    scenario: "power off",
+                    input: PowerShelfMaintenanceOperation::PowerOff,
+                    expect: Yields((
+                        r#"{"operation":"poweroff"}"#.to_string(),
+                        PowerShelfMaintenanceOperation::PowerOff,
+                    )),
+                },
+            ],
+            |operation: PowerShelfMaintenanceOperation| {
+                let serialized = serde_json::to_string(&operation).map_err(drop)?;
+                let parsed = serde_json::from_str::<PowerShelfMaintenanceOperation>(&serialized)
+                    .map_err(drop)?;
+                Ok::<_, ()>((serialized, parsed))
+            },
         );
     }
 
     #[test]
     fn serialize_maintenance_request_round_trip() {
+        // A maintenance request round-trips through JSON for each operation. Only the
+        // operation varies; the timestamp and initiator are fixed across rows.
         let now = chrono::DateTime::parse_from_rfc3339("2026-05-13T12:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        for operation in [
-            PowerShelfMaintenanceOperation::PowerOn,
-            PowerShelfMaintenanceOperation::PowerOff,
-        ] {
-            let request = PowerShelfMaintenanceRequest {
-                requested_at: now,
-                initiator: "operator (TICKET-1)".to_string(),
-                operation,
-            };
-            let serialized = serde_json::to_string(&request).unwrap();
-            let parsed: PowerShelfMaintenanceRequest = serde_json::from_str(&serialized).unwrap();
-            assert_eq!(parsed, request);
-        }
+        let request = |operation| PowerShelfMaintenanceRequest {
+            requested_at: now,
+            initiator: "operator (TICKET-1)".to_string(),
+            operation,
+        };
+        check_cases(
+            [
+                Case {
+                    scenario: "power on",
+                    input: PowerShelfMaintenanceOperation::PowerOn,
+                    expect: Yields(request(PowerShelfMaintenanceOperation::PowerOn)),
+                },
+                Case {
+                    scenario: "power off",
+                    input: PowerShelfMaintenanceOperation::PowerOff,
+                    expect: Yields(request(PowerShelfMaintenanceOperation::PowerOff)),
+                },
+            ],
+            |operation| {
+                let serialized = serde_json::to_string(&request(operation)).map_err(drop)?;
+                serde_json::from_str::<PowerShelfMaintenanceRequest>(&serialized).map_err(drop)
+            },
+        );
     }
 
     #[test]

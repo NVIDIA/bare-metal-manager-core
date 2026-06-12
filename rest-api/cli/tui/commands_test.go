@@ -1538,3 +1538,41 @@ func TestAllocationConstraintValueHint(t *testing.T) {
 	assert.Contains(t, allocationConstraintValueHint("InstanceType"), "machine")
 	assert.NotEmpty(t, allocationConstraintValueHint("Unknown"), "unknown types still get a generic hint")
 }
+
+// --- VPC prefix create IP block picker tests (NVBug 6105076) ---
+
+func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T) {
+	blocks := []NamedItem{
+		{Name: "block-a", ID: "id-a", Status: "Ready"},
+		{Name: "block-b", ID: "id-b"},
+	}
+
+	items := buildIPBlockSelectItems(blocks)
+
+	require.Len(t, items, 3, "two IP blocks plus the manual-entry sentinel")
+	assert.Equal(t, "id-a", items[0].ID, "select ID must be the IP block UUID")
+	assert.Contains(t, items[0].Label, "block-a")
+	assert.Contains(t, items[0].Label, "Ready", "status should be surfaced in the label")
+	assert.Equal(t, "id-b", items[1].ID)
+	assert.Equal(t, ipBlockManualEntrySentinel, items[2].ID)
+}
+
+func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
+	items := buildIPBlockSelectItems(nil)
+	require.Len(t, items, 1, "an empty list still offers manual entry")
+	assert.Equal(t, ipBlockManualEntrySentinel, items[0].ID)
+}
+
+func TestBuildIPBlockSelectItems_SkipsBlocksWithoutIDAndFallsBackLabelToID(t *testing.T) {
+	blocks := []NamedItem{
+		{Name: "no-id", ID: "  "},
+		{Name: "  ", ID: "id-x"},
+	}
+
+	items := buildIPBlockSelectItems(blocks)
+
+	require.Len(t, items, 2, "one usable block (id-x) plus the manual-entry sentinel")
+	assert.Equal(t, "id-x", items[0].ID)
+	assert.Equal(t, "id-x", items[0].Label, "blank name must fall back to the ID")
+	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
+}

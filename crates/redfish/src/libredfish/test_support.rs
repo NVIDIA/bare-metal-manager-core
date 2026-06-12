@@ -201,6 +201,10 @@ pub enum RedfishSimAction {
     SetUtcTimezone,
     MachineSetup {
         oem_manager_profiles: libredfish::BiosProfileVendor,
+        /// The boot interface the setup call targeted (`None` when the caller
+        /// ran setup without one, e.g. DPU setup), letting tests assert which
+        /// NIC boot-device configuration was applied for.
+        boot_interface_mac: Option<String>,
     },
     /// Records a call to `Redfish::is_boot_order_setup`, letting
     /// tests assert that the managed-host state controller actually
@@ -300,7 +304,7 @@ impl Redfish for RedfishSimClient {
 
     fn machine_setup<'a>(
         &'a self,
-        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
+        boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
         _bios_profiles: &'a HashMap<
             libredfish::model::service_root::RedfishVendor,
             HashMap<
@@ -322,6 +326,7 @@ impl Redfish for RedfishSimClient {
             let host_state = state.hosts.get_mut(&self._host).unwrap();
             host_state.actions.push(RedfishSimAction::MachineSetup {
                 oem_manager_profiles: oem_manager_profiles.clone(),
+                boot_interface_mac: boot_interface.map(boot_interface_ref_to_string),
             });
             Ok(state.machine_setup_bios_job_id.clone())
         })

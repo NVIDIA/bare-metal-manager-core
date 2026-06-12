@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, Check, check_cases, check_values};
 use libmlx::device::discovery::{convert_pci_name_to_address, parse_mlxfwmanager_xml};
 
 // Test XML to use for a single DPU with failed access due to lockdown.
@@ -182,47 +184,46 @@ fn test_parse_mixed_devices() {
     assert!(third_device.base_mac.is_some());
 }
 
+// convert_pci_name_to_address strips a single leading "0000:" domain prefix from a
+// PCI name and passes everything else (clean addresses, mst paths, arbitrary
+// strings) through untouched.
 #[test]
-fn test_convert_pci_name_removes_domain_prefix() {
-    let input = "0000:01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "01:00.0");
-}
-
-#[test]
-fn test_convert_pci_name_passthrough_clean_address() {
-    let input = "01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "01:00.0");
-}
-
-#[test]
-fn test_convert_pci_name_passthrough_mst_path() {
-    let input = "/dev/mst/mt41692_pciconf0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "/dev/mst/mt41692_pciconf0");
-}
-
-#[test]
-fn test_convert_pci_name_passthrough_other_format() {
-    let input = "custom_device_path";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "custom_device_path");
-}
-
-#[test]
-fn test_convert_pci_name_multiple_domain_prefixes() {
-    let input = "0000:0000:01:00.0";
-    let result = convert_pci_name_to_address(input).unwrap();
-    // Should only remove the first "0000:" prefix
-    assert_eq!(result, "0000:01:00.0");
-}
-
-#[test]
-fn test_convert_pci_name_empty_string() {
-    let input = "";
-    let result = convert_pci_name_to_address(input).unwrap();
-    assert_eq!(result, "");
+fn test_convert_pci_name_to_address() {
+    check_cases(
+        [
+            Case {
+                scenario: "removes domain prefix",
+                input: "0000:01:00.0",
+                expect: Yields("01:00.0".to_string()),
+            },
+            Case {
+                scenario: "passes through a clean address",
+                input: "01:00.0",
+                expect: Yields("01:00.0".to_string()),
+            },
+            Case {
+                scenario: "passes through an mst path",
+                input: "/dev/mst/mt41692_pciconf0",
+                expect: Yields("/dev/mst/mt41692_pciconf0".to_string()),
+            },
+            Case {
+                scenario: "passes through an unrelated format",
+                input: "custom_device_path",
+                expect: Yields("custom_device_path".to_string()),
+            },
+            Case {
+                scenario: "removes only the first of multiple domain prefixes",
+                input: "0000:0000:01:00.0",
+                expect: Yields("0000:01:00.0".to_string()),
+            },
+            Case {
+                scenario: "passes through an empty string",
+                input: "",
+                expect: Yields("".to_string()),
+            },
+        ],
+        convert_pci_name_to_address,
+    );
 }
 
 #[test]
@@ -239,19 +240,52 @@ fn test_mac_address_parsing() {
     );
 }
 
+// get_field_value renders a None optional field as "--" and returns the value of a
+// present field. Exercised against the failed-DPU device, whose optionals are all
+// absent while pci_name/device_type/status are set.
 #[test]
 fn test_optional_field_handling() {
     let devices = parse_mlxfwmanager_xml(DPU_FAILED_XML).unwrap();
     let device = &devices[0];
 
-    // Test that get_field_value handles None values correctly
-    assert_eq!(device.get_field_value("psid"), "--");
-    assert_eq!(device.get_field_value("part_number"), "--");
-    assert_eq!(device.get_field_value("base_mac"), "--");
-    assert_eq!(device.get_field_value("fw_version_current"), "--");
-
-    // Test that non-None fields work correctly
-    assert_eq!(device.get_field_value("pci_name"), "b4:00.0");
-    assert_eq!(device.get_field_value("device_type"), "BlueField3");
-    assert_eq!(device.get_field_value("status"), "Failed to open device");
+    check_values(
+        [
+            Check {
+                scenario: "None psid renders as --",
+                input: "psid",
+                expect: "--".to_string(),
+            },
+            Check {
+                scenario: "None part_number renders as --",
+                input: "part_number",
+                expect: "--".to_string(),
+            },
+            Check {
+                scenario: "None base_mac renders as --",
+                input: "base_mac",
+                expect: "--".to_string(),
+            },
+            Check {
+                scenario: "None fw_version_current renders as --",
+                input: "fw_version_current",
+                expect: "--".to_string(),
+            },
+            Check {
+                scenario: "present pci_name",
+                input: "pci_name",
+                expect: "b4:00.0".to_string(),
+            },
+            Check {
+                scenario: "present device_type",
+                input: "device_type",
+                expect: "BlueField3".to_string(),
+            },
+            Check {
+                scenario: "present status",
+                input: "status",
+                expect: "Failed to open device".to_string(),
+            },
+        ],
+        |field| device.get_field_value(field),
+    );
 }

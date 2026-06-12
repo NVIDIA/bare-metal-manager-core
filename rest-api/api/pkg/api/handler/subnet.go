@@ -548,18 +548,24 @@ func (gash GetAllSubnetHandler) Handle(c echo.Context) error {
 
 	sbusageMap := map[uuid.UUID]*cip.Usage{}
 	if includeUsageStats {
+		subnetsForUsage := make([]*cdbm.Subnet, 0, len(subnets))
 		for i := range subnets {
 			sn := &subnets[i]
 			if sn.IPv4Block == nil {
 				logger.Error().Str("subnetId", sn.ID.String()).Msg("Subnet missing IPv4 Block relation for usage stats")
 				continue
 			}
-			prefixUsage, serr := sDAO.GetPrefixUsage(ctx, nil, sn)
+			subnetsForUsage = append(subnetsForUsage, sn)
+		}
+		if len(subnetsForUsage) > 0 {
+			prefixUsageMap, serr := sDAO.GetPrefixUsage(ctx, nil, subnetsForUsage...)
 			if serr != nil {
-				logger.Error().Err(serr).Str("subnetId", sn.ID.String()).Msg("error retrieving usage stats for Subnet")
-				continue
+				logger.Error().Err(serr).Msg("error retrieving usage stats for Subnets")
+			} else {
+				for id, usage := range prefixUsageMap {
+					sbusageMap[id] = usage
+				}
 			}
-			sbusageMap[sn.ID] = prefixUsage
 		}
 	}
 
@@ -739,9 +745,15 @@ func (gsh GetSubnetHandler) Handle(c echo.Context) error {
 			logger.Error().Str("subnetId", subnet.ID.String()).Msg("Subnet missing IPv4 Block relation for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for Subnet", nil)
 		}
-		sbusage, err = sDAO.GetPrefixUsage(ctx, nil, subnet)
+		prefixUsageMap, err := sDAO.GetPrefixUsage(ctx, nil, subnet)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving usage stats for Subnet")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for Subnet", nil)
+		}
+		var ok bool
+		sbusage, ok = prefixUsageMap[subnet.ID]
+		if !ok {
+			logger.Error().Str("subnetId", subnet.ID.String()).Msg("Subnet missing IPv4 prefix for usage stats")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Usage Stats for Subnet", nil)
 		}
 	}

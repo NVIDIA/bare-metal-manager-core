@@ -631,6 +631,9 @@ func (mcgsc *MockCoreGrpcServiceClient) SearchVpcPrefixes(ctx context.Context, i
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpcprefix ids")
 	}
+	if wantDeletedFilter, ok := ctx.Value("wantDeletedFilter").(wflows.DeletedFilter); ok && in.GetDeleted() != wantDeletedFilter {
+		return nil, status.Errorf(codes.InvalidArgument, "expected deleted filter %s, got %s", wantDeletedFilter, in.GetDeleted())
+	}
 
 	out := &wflows.VpcPrefixIdList{}
 
@@ -648,6 +651,9 @@ func (mcgsc *MockCoreGrpcServiceClient) GetVpcPrefixes(ctx context.Context, in *
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpcprefixes")
+	}
+	if wantDeletedFilter, ok := ctx.Value("wantDeletedFilter").(wflows.DeletedFilter); ok && in.GetDeleted() != wantDeletedFilter {
+		return nil, status.Errorf(codes.InvalidArgument, "expected deleted filter %s, got %s", wantDeletedFilter, in.GetDeleted())
 	}
 
 	out := &wflows.VpcPrefixList{}

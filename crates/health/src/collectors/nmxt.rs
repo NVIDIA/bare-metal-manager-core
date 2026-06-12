@@ -29,7 +29,7 @@ use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
-use crate::sink::{CollectorEvent, DataSink, EventContext, SensorHealthData};
+use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -243,7 +243,7 @@ impl NmxtCollector {
             ];
 
             self.emit_event(CollectorEvent::Metric(
-                SensorHealthData {
+                MetricSample {
                     key: metric_key,
                     name: "switch_nmxt".to_string(),
                     metric_type: metric_type.to_string(),

@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 
+mod discovery;
+mod entity_metrics;
 mod firmware;
+pub(crate) mod inventory;
 mod leak_detector;
 mod logs;
 mod nmxt;
@@ -23,7 +26,10 @@ mod nvue;
 mod runtime;
 mod sensors;
 
+pub use discovery::{EntityDiscoveryCollector, EntityDiscoveryCollectorConfig};
+pub use entity_metrics::{MetricsCollector, MetricsCollectorConfig};
 pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
+pub(crate) use inventory::SharedInventory;
 pub use leak_detector::{LeakDetectorCollector, LeakDetectorCollectorConfig};
 pub(crate) use logs::auto::{AutoFailureBudget, BudgetDecision, FailureKind};
 pub use logs::{

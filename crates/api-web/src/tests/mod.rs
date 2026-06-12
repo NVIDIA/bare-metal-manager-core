@@ -26,6 +26,7 @@ use hyper::http::request::Builder;
 
 use crate::routes;
 
+mod explored_endpoint;
 mod health;
 mod managed_host;
 mod vpc;

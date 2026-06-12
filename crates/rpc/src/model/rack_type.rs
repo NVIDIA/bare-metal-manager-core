@@ -182,69 +182,125 @@ impl From<&RackProfile> for rpc::forge::RackProfile {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
     // Proto conversion tests.
 
+    // Each topology round-trips: model -> proto matches the expected proto, and the
+    // proto -> model TryFrom yields the original model. The op asserts the forward
+    // direction, then yields the recovered model so the row pins both directions.
     #[test]
     fn test_rack_hardware_topology_proto_round_trip() {
-        let cases = [
-            (
-                RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb200Nvl36r1C2g4,
-            ),
-            (
-                RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb300Nvl36r1C2g4,
-            ),
-            (
-                RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4,
-            ),
-            (
-                RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::Gb300Nvl72r1C2g4,
-            ),
-            (
-                RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
-                rpc::forge::RackHardwareTopology::VrNvl8r1C2g4Rtf,
-            ),
-            (
-                RackHardwareTopology::VrNvl72r1C2g4Topology,
-                rpc::forge::RackHardwareTopology::VrNvl72r1C2g4,
-            ),
-        ];
-        for (model, proto) in cases {
-            let converted: rpc::forge::RackHardwareTopology = model.into();
-            assert_eq!(converted, proto);
-            let back: RackHardwareTopology = proto.try_into().unwrap();
-            assert_eq!(back, model);
+        struct Row {
+            scenario: &'static str,
+            model: RackHardwareTopology,
+            proto: rpc::forge::RackHardwareTopology,
         }
+
+        check_cases(
+            [
+                Row {
+                    scenario: "gb200 nvl36",
+                    model: RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
+                    proto: rpc::forge::RackHardwareTopology::Gb200Nvl36r1C2g4,
+                },
+                Row {
+                    scenario: "gb300 nvl36",
+                    model: RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
+                    proto: rpc::forge::RackHardwareTopology::Gb300Nvl36r1C2g4,
+                },
+                Row {
+                    scenario: "gb200 nvl72",
+                    model: RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
+                    proto: rpc::forge::RackHardwareTopology::Gb200Nvl72r1C2g4,
+                },
+                Row {
+                    scenario: "gb300 nvl72",
+                    model: RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
+                    proto: rpc::forge::RackHardwareTopology::Gb300Nvl72r1C2g4,
+                },
+                Row {
+                    scenario: "vr nvl8 rtf",
+                    model: RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
+                    proto: rpc::forge::RackHardwareTopology::VrNvl8r1C2g4Rtf,
+                },
+                Row {
+                    scenario: "vr nvl72",
+                    model: RackHardwareTopology::VrNvl72r1C2g4Topology,
+                    proto: rpc::forge::RackHardwareTopology::VrNvl72r1C2g4,
+                },
+            ]
+            .map(|row| Case {
+                scenario: row.scenario,
+                input: (row.model, row.proto),
+                expect: Yields(row.model),
+            }),
+            |(model, proto)| {
+                let converted: rpc::forge::RackHardwareTopology = model.into();
+                assert_eq!(converted, proto);
+                RackHardwareTopology::try_from(proto).map_err(drop)
+            },
+        );
     }
 
+    // The Unspecified proto value has no model counterpart, so TryFrom rejects it.
     #[test]
     fn test_rack_hardware_topology_proto_unspecified_errors() {
-        let result = RackHardwareTopology::try_from(rpc::forge::RackHardwareTopology::Unspecified);
-        assert!(result.is_err());
+        Case {
+            scenario: "unspecified topology rejected",
+            input: rpc::forge::RackHardwareTopology::Unspecified,
+            expect: Fails,
+        }
+        .check(|proto| RackHardwareTopology::try_from(proto).map_err(drop));
     }
 
+    // Each class round-trips: model -> proto matches, and proto -> model recovers the
+    // original. The op asserts the forward direction, then yields the model.
     #[test]
     fn test_rack_hardware_class_proto_round_trip() {
-        let cases = [
-            (RackHardwareClass::Dev, rpc::forge::RackHardwareClass::Dev),
-            (RackHardwareClass::Prod, rpc::forge::RackHardwareClass::Prod),
-        ];
-        for (model, proto) in cases {
-            let converted: rpc::forge::RackHardwareClass = model.into();
-            assert_eq!(converted, proto);
-            let back: RackHardwareClass = proto.try_into().unwrap();
-            assert_eq!(back, model);
+        struct Row {
+            scenario: &'static str,
+            model: RackHardwareClass,
+            proto: rpc::forge::RackHardwareClass,
         }
+
+        check_cases(
+            [
+                Row {
+                    scenario: "dev",
+                    model: RackHardwareClass::Dev,
+                    proto: rpc::forge::RackHardwareClass::Dev,
+                },
+                Row {
+                    scenario: "prod",
+                    model: RackHardwareClass::Prod,
+                    proto: rpc::forge::RackHardwareClass::Prod,
+                },
+            ]
+            .map(|row| Case {
+                scenario: row.scenario,
+                input: (row.model, row.proto),
+                expect: Yields(row.model),
+            }),
+            |(model, proto)| {
+                let converted: rpc::forge::RackHardwareClass = model.into();
+                assert_eq!(converted, proto);
+                RackHardwareClass::try_from(proto).map_err(drop)
+            },
+        );
     }
 
+    // The Unspecified proto value has no model counterpart, so TryFrom rejects it.
     #[test]
     fn test_rack_hardware_class_proto_unspecified_errors() {
-        let result = RackHardwareClass::try_from(rpc::forge::RackHardwareClass::Unspecified);
-        assert!(result.is_err());
+        Case {
+            scenario: "unspecified class rejected",
+            input: rpc::forge::RackHardwareClass::Unspecified,
+            expect: Fails,
+        }
+        .check(|proto| RackHardwareClass::try_from(proto).map_err(drop));
     }
 
     #[test]

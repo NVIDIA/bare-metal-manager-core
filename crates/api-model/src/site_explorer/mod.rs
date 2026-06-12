@@ -1553,6 +1553,9 @@ pub fn is_bluefield_model(model: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
@@ -1613,28 +1616,36 @@ mod tests {
         }
     }
 
+    /// `find_version` locates the firmware version matching a component regex,
+    /// yielding the version string when an inventory matches and absent otherwise.
     #[test]
-    fn test_find_version_single_match() {
+    fn test_find_version() {
         let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware", Some("1.2.3")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
-
-        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(result, Some(&"1.2.3".to_string()));
-    }
-
-    #[test]
-    fn test_find_version_no_match() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("DPU_UEFI", Some("4.5.6")),
-            ("Other_Component", Some("7.8.9")),
-        ]);
-
-        let result = endpoint.find_version(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(result, None);
+        check_cases(
+            [
+                Case {
+                    scenario: "single match",
+                    input: vec![("BMC_Firmware", Some("1.2.3")), ("DPU_UEFI", Some("4.5.6"))],
+                    expect: Yields("1.2.3".to_string()),
+                },
+                Case {
+                    scenario: "no match",
+                    input: vec![
+                        ("DPU_UEFI", Some("4.5.6")),
+                        ("Other_Component", Some("7.8.9")),
+                    ],
+                    expect: Fails,
+                },
+            ],
+            // Build an endpoint from the inventories, then look up the BMC
+            // version; absent -> error so the no-match row reads as a failure.
+            |inventories| {
+                create_test_endpoint(inventories)
+                    .find_version(&fw_info, FirmwareComponentType::Bmc)
+                    .cloned()
+                    .ok_or(())
+            },
+        );
     }
 
     #[test]
@@ -1969,28 +1980,45 @@ mod tests {
         assert_eq!(deserialized.machine_id.unwrap(), machine_id);
     }
 
+    /// `UefiDevicePath::from_str` parses a UEFI PciRoot/Pci device path into a
+    /// dotted decimal address, requiring at least one Pci node after PciRoot.
     #[test]
     fn test_uefi_device_path() {
-        let path = "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "2.1.0.0.1");
-
-        let path = "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "17.1.0.0.10");
-
-        // NIC attached directly to a root port (no PCI-PCI bridge upstream).
-        let path = "PciRoot(0x7)/Pci(0x0,0x0)/MAC(525400A8282F,0x1)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "7.0.0");
-
-        // Three Pci nodes (NIC behind two upstream bridges/switches).
-        let path = "PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)";
-        let converted: UefiDevicePath = UefiDevicePath::from_str(path).unwrap();
-        assert_eq!(converted.0, "0.1.0.0.0.0.0");
-
-        // PciRoot without any Pci node should fail.
-        assert!(UefiDevicePath::from_str("PciRoot(0x7)/MAC(525400A8282F,0x1)").is_err());
+        check_cases(
+            [
+                Case {
+                    scenario: "two Pci nodes",
+                    input: "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)",
+                    expect: Yields("2.1.0.0.1".to_string()),
+                },
+                Case {
+                    scenario: "trailing MAC discarded",
+                    input: "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)",
+                    expect: Yields("17.1.0.0.10".to_string()),
+                },
+                Case {
+                    // NIC attached directly to a root port (no PCI-PCI bridge upstream).
+                    scenario: "single Pci node on a root port",
+                    input: "PciRoot(0x7)/Pci(0x0,0x0)/MAC(525400A8282F,0x1)",
+                    expect: Yields("7.0.0".to_string()),
+                },
+                Case {
+                    // Three Pci nodes (NIC behind two upstream bridges/switches).
+                    scenario: "three Pci nodes",
+                    input: "PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)",
+                    expect: Yields("0.1.0.0.0.0.0".to_string()),
+                },
+                Case {
+                    // PciRoot without any Pci node should fail.
+                    scenario: "PciRoot without any Pci node",
+                    input: "PciRoot(0x7)/MAC(525400A8282F,0x1)",
+                    expect: Fails,
+                },
+            ],
+            // The error type is String, but the failing row only asserts that it
+            // errors, so discard it; yield the dotted address on success.
+            |path| UefiDevicePath::from_str(path).map(|u| u.0).map_err(drop),
+        );
     }
 
     #[test]
@@ -2078,11 +2106,16 @@ mod tests {
         assert!(report.is_power_shelf());
     }
 
+    /// `find_interface_id_for_mac` returns the Redfish interface id of the host
+    /// ethernet interface whose MAC matches, treating a missing or empty id (and
+    /// an unknown MAC) as absent so a last-known-good capture is never clobbered.
     #[test]
-    fn find_interface_id_for_mac_matches_host_ethernet_interface() {
+    fn find_interface_id_for_mac() {
         let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
         let other = MacAddress::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
-        let report = EndpointExplorationReport {
+
+        // Report with two interfaces: `other` then `mac`, both with ids.
+        let two_iface_report = EndpointExplorationReport {
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![
                     EthernetInterface {
@@ -2100,25 +2133,11 @@ mod tests {
             }],
             ..Default::default()
         };
-
-        assert_eq!(
-            report.find_interface_id_for_mac(mac),
-            Some("NIC.Slot.7-1-1")
-        );
-        // Unknown MAC -> None (so the capture keeps the last-known-good record).
-        assert_eq!(
-            report.find_interface_id_for_mac(MacAddress::new([0, 0, 0, 0, 0, 0])),
-            None
-        );
-    }
-
-    #[test]
-    fn find_interface_id_for_mac_none_when_id_missing() {
-        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
-        let report = EndpointExplorationReport {
+        // Single interface carrying `mac` but no usable id.
+        let single_iface_report = |id: Option<String>| EndpointExplorationReport {
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![EthernetInterface {
-                    id: None,
+                    id,
                     mac_address: Some(mac),
                     ..Default::default()
                 }],
@@ -2126,28 +2145,37 @@ mod tests {
             }],
             ..Default::default()
         };
-        // MAC present but no interface id -> can't form a fully-populated pair.
-        assert_eq!(report.find_interface_id_for_mac(mac), None);
-    }
 
-    #[test]
-    fn find_interface_id_for_mac_none_when_id_empty() {
-        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]);
-        let report = EndpointExplorationReport {
-            systems: vec![ComputerSystem {
-                ethernet_interfaces: vec![EthernetInterface {
-                    id: Some(String::new()),
-                    mac_address: Some(mac),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        // An empty id is not a usable interface id, so it's treated as absent --
-        // the capture then keeps the last-known-good stored boot interface
-        // rather than clobbering it with an empty string.
-        assert_eq!(report.find_interface_id_for_mac(mac), None);
+        check_cases(
+            [
+                Case {
+                    scenario: "matching MAC yields its interface id",
+                    input: (two_iface_report.clone(), mac),
+                    expect: Yields("NIC.Slot.7-1-1".to_string()),
+                },
+                Case {
+                    scenario: "unknown MAC -> None (keeps last-known-good record)",
+                    input: (two_iface_report, MacAddress::new([0, 0, 0, 0, 0, 0])),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "MAC present but no interface id -> no complete pair",
+                    input: (single_iface_report(None), mac),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty id treated as absent (don't clobber stored boot interface)",
+                    input: (single_iface_report(Some(String::new())), mac),
+                    expect: Fails,
+                },
+            ],
+            |(report, mac)| {
+                report
+                    .find_interface_id_for_mac(mac)
+                    .map(str::to_string)
+                    .ok_or(())
+            },
+        );
     }
 
     #[test]
@@ -2265,78 +2293,80 @@ mod tests {
         assert!(!report.is_power_shelf());
     }
 
+    /// A `ComputerSystem` deserializes regardless of the `BaseMac` field: a valid
+    /// value parses through, while an invalid, null, or missing one becomes `None`.
+    /// Each row projects to the resulting `base_mac`.
     #[test]
-    fn test_computer_system_with_invalid_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": "pe:",
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize despite invalid BaseMac");
-        assert_eq!(system.base_mac, None);
-    }
-
-    #[test]
-    fn test_computer_system_with_valid_base_mac_deserializes_correctly() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": "A088C208804C",
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize valid BaseMac");
-        assert_eq!(system.base_mac, Some("A088C208804C".parse().unwrap()));
-    }
-
-    #[test]
-    fn test_computer_system_with_null_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "BaseMac": null,
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize null BaseMac");
-        assert_eq!(system.base_mac, None);
-    }
-
-    #[test]
-    fn test_computer_system_with_missing_base_mac_deserializes_as_none() {
-        let json = serde_json::json!({
-            "EthernetInterfaces": [],
-            "Id": "Bluefield",
-            "Manufacturer": "Nvidia",
-            "Model": "Bluefield-3 DPU",
-            "SerialNumber": "ABC1234",
-            "Attributes": {},
-            "PcieDevices": [],
-            "PowerState": "On"
-        });
-
-        let system: ComputerSystem =
-            serde_json::from_value(json).expect("should deserialize missing BaseMac");
-        assert_eq!(system.base_mac, None);
+    fn test_computer_system_base_mac_deserialization() {
+        check_cases(
+            [
+                Case {
+                    scenario: "invalid BaseMac -> None",
+                    input: serde_json::json!({
+                        "EthernetInterfaces": [],
+                        "Id": "Bluefield",
+                        "Manufacturer": "Nvidia",
+                        "Model": "Bluefield-3 DPU",
+                        "SerialNumber": "ABC1234",
+                        "Attributes": {},
+                        "PcieDevices": [],
+                        "BaseMac": "pe:",
+                        "PowerState": "On"
+                    }),
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "valid BaseMac parses through",
+                    input: serde_json::json!({
+                        "EthernetInterfaces": [],
+                        "Id": "Bluefield",
+                        "Manufacturer": "Nvidia",
+                        "Model": "Bluefield-3 DPU",
+                        "SerialNumber": "ABC1234",
+                        "Attributes": {},
+                        "PcieDevices": [],
+                        "BaseMac": "A088C208804C",
+                        "PowerState": "On"
+                    }),
+                    expect: Yields(Some("A088C208804C".parse().unwrap())),
+                },
+                Case {
+                    scenario: "null BaseMac -> None",
+                    input: serde_json::json!({
+                        "EthernetInterfaces": [],
+                        "Id": "Bluefield",
+                        "Manufacturer": "Nvidia",
+                        "Model": "Bluefield-3 DPU",
+                        "SerialNumber": "ABC1234",
+                        "Attributes": {},
+                        "PcieDevices": [],
+                        "BaseMac": null,
+                        "PowerState": "On"
+                    }),
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "missing BaseMac -> None",
+                    input: serde_json::json!({
+                        "EthernetInterfaces": [],
+                        "Id": "Bluefield",
+                        "Manufacturer": "Nvidia",
+                        "Model": "Bluefield-3 DPU",
+                        "SerialNumber": "ABC1234",
+                        "Attributes": {},
+                        "PcieDevices": [],
+                        "PowerState": "On"
+                    }),
+                    expect: Yields(None),
+                },
+            ],
+            // Deserialize and project to base_mac; every row is expected to
+            // deserialize, so the (non-PartialEq) serde error is discarded.
+            |json| {
+                serde_json::from_value::<ComputerSystem>(json)
+                    .map(|system| system.base_mac)
+                    .map_err(drop)
+            },
+        );
     }
 }

@@ -34,6 +34,7 @@ pub mod oem;
 pub mod pcie_device;
 pub mod power_subsystem;
 pub mod power_supply;
+pub mod processor;
 pub mod resource;
 pub mod secure_boot;
 pub mod sensor;
