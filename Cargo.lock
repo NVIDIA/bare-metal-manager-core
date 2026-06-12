@@ -7173,6 +7173,7 @@ dependencies = [
  "carbide-rpc-utils",
  "carbide-secrets",
  "carbide-ssh",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",

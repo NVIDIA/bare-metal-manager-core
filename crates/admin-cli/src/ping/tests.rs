@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::args::*;
@@ -40,27 +42,33 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_default_interval ensures ping parses with default interval.
+// ping parses the --interval value, defaulting to 1.0 when omitted and
+// honoring both the long --interval flag and its -i short form. These decimals
+// are exactly representable in f32, so equality is exact.
 #[test]
-fn parse_default_interval() {
-    let opts = Opts::try_parse_from(["ping"]).expect("should parse ping");
-
-    assert!((opts.interval - 1.0).abs() < f32::EPSILON);
-}
-
-// parse_custom_interval ensures ping parses with a custom interval.
-#[test]
-fn parse_custom_interval() {
-    let opts = Opts::try_parse_from(["ping", "--interval", "2.5"])
-        .expect("should parse ping with interval");
-
-    assert!((opts.interval - 2.5).abs() < f32::EPSILON);
-}
-
-// parse_short_interval_flag ensures ping parses with -i short flag.
-#[test]
-fn parse_short_interval_flag() {
-    let opts = Opts::try_parse_from(["ping", "-i", "0.5"]).expect("should parse ping with -i");
-
-    assert!((opts.interval - 0.5).abs() < f32::EPSILON);
+fn parse_interval() {
+    check_cases(
+        [
+            Case {
+                scenario: "default interval",
+                input: &["ping"][..],
+                expect: Yields(1.0f32),
+            },
+            Case {
+                scenario: "custom --interval",
+                input: &["ping", "--interval", "2.5"][..],
+                expect: Yields(2.5f32),
+            },
+            Case {
+                scenario: "short -i flag",
+                input: &["ping", "-i", "0.5"][..],
+                expect: Yields(0.5f32),
+            },
+        ],
+        |argv| {
+            Opts::try_parse_from(argv.iter().copied())
+                .map(|opts| opts.interval)
+                .map_err(drop)
+        },
+    );
 }

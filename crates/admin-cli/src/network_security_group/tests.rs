@@ -23,6 +23,8 @@
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -44,191 +46,228 @@ fn verify_cmd_structure() {
 // including testing required arguments, as well as optional
 // flag-specific checking.
 
-// parse_create ensures create parses with required
-// arguments.
+// create routes to the Create variant and threads through the tenant org id
+// plus its optional id/name/stateful-egress flags: bare invocation leaves the
+// options unset, the fully-flagged invocation carries them through.
 #[test]
-fn parse_create() {
-    let cmd = Cmd::try_parse_from([
-        "network-security-group",
-        "create",
-        "--tenant-organization-id",
-        "tenant-123",
-    ])
-    .expect("should parse create");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.tenant_organization_id, "tenant-123");
-            assert!(args.id.is_none());
-            assert!(args.name.is_none());
-            assert!(!args.stateful_egress);
-        }
-        _ => panic!("expected Create variant"),
-    }
+fn parse_create_routes_to_create_variant() {
+    check_cases(
+        [
+            Case {
+                scenario: "create with only the required tenant org id",
+                input: &[
+                    "network-security-group",
+                    "create",
+                    "--tenant-organization-id",
+                    "tenant-123",
+                ][..],
+                expect: Yields(("tenant-123".to_string(), None, None, false)),
+            },
+            Case {
+                scenario: "create with all options",
+                input: &[
+                    "network-security-group",
+                    "create",
+                    "--tenant-organization-id",
+                    "tenant-123",
+                    "--id",
+                    "nsg-123",
+                    "--name",
+                    "my-nsg",
+                    "--description",
+                    "Test NSG",
+                    "--stateful-egress",
+                ][..],
+                expect: Yields((
+                    "tenant-123".to_string(),
+                    Some("nsg-123".to_string()),
+                    Some("my-nsg".to_string()),
+                    true,
+                )),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Create(args) => (
+                        args.tenant_organization_id,
+                        args.id,
+                        args.name,
+                        args.stateful_egress,
+                    ),
+                    _ => panic!("expected Create variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_create_with_options ensures create parses with
-// all options.
+// show routes to the Show variant with an optional positional id: bare leaves
+// it unset, a supplied id is captured.
 #[test]
-fn parse_create_with_options() {
-    let cmd = Cmd::try_parse_from([
-        "network-security-group",
-        "create",
-        "--tenant-organization-id",
-        "tenant-123",
-        "--id",
-        "nsg-123",
-        "--name",
-        "my-nsg",
-        "--description",
-        "Test NSG",
-        "--stateful-egress",
-    ])
-    .expect("should parse create with options");
-
-    match cmd {
-        Cmd::Create(args) => {
-            assert_eq!(args.id, Some("nsg-123".to_string()));
-            assert_eq!(args.name, Some("my-nsg".to_string()));
-            assert!(args.stateful_egress);
-        }
-        _ => panic!("expected Create variant"),
-    }
+fn parse_show_routes_to_show_variant() {
+    check_cases(
+        [
+            Case {
+                scenario: "show with no args (all groups)",
+                input: &["network-security-group", "show"][..],
+                expect: Yields(None),
+            },
+            Case {
+                scenario: "show with a group id",
+                input: &["network-security-group", "show", "nsg-123"][..],
+                expect: Yields(Some("nsg-123".to_string())),
+            },
+        ],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Show(args) => args.id,
+                    _ => panic!("expected Show variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_no_args ensures show parses with no
-// arguments (all groups).
+// delete routes to the Delete variant, threading through the required id and
+// tenant org id.
 #[test]
-fn parse_show_no_args() {
-    let cmd = Cmd::try_parse_from(["network-security-group", "show"]).expect("should parse show");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert!(args.id.is_none());
-        }
-        _ => panic!("expected Show variant"),
-    }
+fn parse_delete_routes_to_delete_variant() {
+    check_cases(
+        [Case {
+            scenario: "delete with required id and tenant org id",
+            input: &[
+                "network-security-group",
+                "delete",
+                "--id",
+                "nsg-123",
+                "--tenant-organization-id",
+                "tenant-123",
+            ][..],
+            expect: Yields(("nsg-123".to_string(), "tenant-123".to_string())),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Delete(args) => (args.id, args.tenant_organization_id),
+                    _ => panic!("expected Delete variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_with_id ensures show parses with group ID.
+// update routes to the Update variant, threading through the required id and
+// tenant org id.
 #[test]
-fn parse_show_with_id() {
-    let cmd = Cmd::try_parse_from(["network-security-group", "show", "nsg-123"])
-        .expect("should parse show with id");
-
-    match cmd {
-        Cmd::Show(args) => {
-            assert_eq!(args.id, Some("nsg-123".to_string()));
-        }
-        _ => panic!("expected Show variant"),
-    }
+fn parse_update_routes_to_update_variant() {
+    check_cases(
+        [Case {
+            scenario: "update with required id and tenant org id",
+            input: &[
+                "network-security-group",
+                "update",
+                "--id",
+                "nsg-123",
+                "--tenant-organization-id",
+                "tenant-123",
+            ][..],
+            expect: Yields(("nsg-123".to_string(), "tenant-123".to_string())),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Update(args) => (args.id, args.tenant_organization_id),
+                    _ => panic!("expected Update variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_delete ensures delete parses with required
-// arguments.
+// show-attachments routes to the ShowAttachments variant, threading through the
+// required id; --include-indirect defaults off.
 #[test]
-fn parse_delete() {
-    let cmd = Cmd::try_parse_from([
-        "network-security-group",
-        "delete",
-        "--id",
-        "nsg-123",
-        "--tenant-organization-id",
-        "tenant-123",
-    ])
-    .expect("should parse delete");
-
-    match cmd {
-        Cmd::Delete(args) => {
-            assert_eq!(args.id, "nsg-123");
-            assert_eq!(args.tenant_organization_id, "tenant-123");
-        }
-        _ => panic!("expected Delete variant"),
-    }
+fn parse_show_attachments_routes_to_show_attachments_variant() {
+    check_cases(
+        [Case {
+            scenario: "show-attachments with required id",
+            input: &[
+                "network-security-group",
+                "show-attachments",
+                "--id",
+                "nsg-123",
+            ][..],
+            expect: Yields(("nsg-123".to_string(), false)),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::ShowAttachments(args) => (args.id, args.include_indirect),
+                    _ => panic!("expected ShowAttachments variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_update ensures update parses with required
-// arguments.
+// attach routes to the Attach variant, threading through the required NSG id;
+// the optional vpc/instance targets default unset.
 #[test]
-fn parse_update() {
-    let cmd = Cmd::try_parse_from([
-        "network-security-group",
-        "update",
-        "--id",
-        "nsg-123",
-        "--tenant-organization-id",
-        "tenant-123",
-    ])
-    .expect("should parse update");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert_eq!(args.id, "nsg-123");
-            assert_eq!(args.tenant_organization_id, "tenant-123");
-        }
-        _ => panic!("expected Update variant"),
-    }
+fn parse_attach_routes_to_attach_variant() {
+    check_cases(
+        [Case {
+            scenario: "attach with NSG id",
+            input: &["network-security-group", "attach", "--id", "nsg-123"][..],
+            expect: Yields(("nsg-123".to_string(), None, None)),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Attach(args) => (args.id, args.vpc_id, args.instance_id),
+                    _ => panic!("expected Attach variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_show_attachments ensures show-attachments
-// parses with required ID.
+// detach routes to the Detach variant with no required args; the optional
+// vpc/instance targets default unset.
 #[test]
-fn parse_show_attachments() {
-    let cmd = Cmd::try_parse_from([
-        "network-security-group",
-        "show-attachments",
-        "--id",
-        "nsg-123",
-    ])
-    .expect("should parse show-attachments");
-
-    match cmd {
-        Cmd::ShowAttachments(args) => {
-            assert_eq!(args.id, "nsg-123");
-            assert!(!args.include_indirect);
-        }
-        _ => panic!("expected ShowAttachments variant"),
-    }
+fn parse_detach_routes_to_detach_variant() {
+    check_cases(
+        [Case {
+            scenario: "detach with no required args",
+            input: &["network-security-group", "detach"][..],
+            expect: Yields((None, None)),
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Detach(args) => (args.vpc_id, args.instance_id),
+                    _ => panic!("expected Detach variant"),
+                })
+                .map_err(drop)
+        },
+    );
 }
 
-// parse_attach ensures attach parses with NSG ID.
+// Every malformed invocation is rejected at parse time -- here, create without
+// its required --tenant-organization-id.
 #[test]
-fn parse_attach() {
-    let cmd = Cmd::try_parse_from(["network-security-group", "attach", "--id", "nsg-123"])
-        .expect("should parse attach");
-
-    match cmd {
-        Cmd::Attach(args) => {
-            assert_eq!(args.id, "nsg-123");
-            assert!(args.vpc_id.is_none());
-            assert!(args.instance_id.is_none());
-        }
-        _ => panic!("expected Attach variant"),
-    }
-}
-
-// parse_detach ensures detach parses with no required args.
-#[test]
-fn parse_detach() {
-    let cmd =
-        Cmd::try_parse_from(["network-security-group", "detach"]).expect("should parse detach");
-
-    match cmd {
-        Cmd::Detach(args) => {
-            assert!(args.vpc_id.is_none());
-            assert!(args.instance_id.is_none());
-        }
-        _ => panic!("expected Detach variant"),
-    }
-}
-
-// parse_create_missing_required_fails ensures create
-// fails without tenant org ID.
-#[test]
-fn parse_create_missing_required_fails() {
-    let result = Cmd::try_parse_from(["network-security-group", "create"]);
-    assert!(
-        result.is_err(),
-        "should fail without --tenant-organization-id"
+fn invalid_invocations_are_rejected() {
+    check_cases(
+        [Case {
+            scenario: "create without --tenant-organization-id",
+            input: &["network-security-group", "create"][..],
+            expect: Fails,
+        }],
+        |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        },
     );
 }
