@@ -123,6 +123,8 @@ navigation:
           path: configuration/org-permissions.md
         - page: Machine Identity
           path: configuration/machine_identity.md
+        - page: Host Naming
+          path: configuration/host-naming.md
 
     - section: Operations (Day 2)
       contents:
