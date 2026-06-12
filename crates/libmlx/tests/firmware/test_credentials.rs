@@ -15,70 +15,83 @@
  * limitations under the License.
  */
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, check_cases};
 use libmlx::firmware::credentials::Credentials;
 
 // -- validate_http --
 
 #[test]
-fn test_bearer_token_valid_for_http() {
-    let cred = Credentials::bearer_token("my-token");
-    assert!(cred.validate_http().is_ok());
-}
-
-#[test]
-fn test_basic_auth_valid_for_http() {
-    let cred = Credentials::basic_auth("user", "pass");
-    assert!(cred.validate_http().is_ok());
-}
-
-#[test]
-fn test_header_valid_for_http() {
-    let cred = Credentials::header("X-API-Key", "abc123");
-    assert!(cred.validate_http().is_ok());
-}
-
-#[test]
-fn test_ssh_key_invalid_for_http() {
-    let cred = Credentials::ssh_key("/home/user/.ssh/id_rsa");
-    assert!(cred.validate_http().is_err());
-}
-
-#[test]
-fn test_ssh_agent_invalid_for_http() {
-    let cred = Credentials::ssh_agent();
-    assert!(cred.validate_http().is_err());
+fn validate_http_accepts_http_creds_and_rejects_ssh_creds() {
+    check_cases(
+        [
+            Case {
+                scenario: "bearer token is valid for http",
+                input: Credentials::bearer_token("my-token"),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "basic auth is valid for http",
+                input: Credentials::basic_auth("user", "pass"),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "header is valid for http",
+                input: Credentials::header("X-API-Key", "abc123"),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "ssh key is invalid for http",
+                input: Credentials::ssh_key("/home/user/.ssh/id_rsa"),
+                expect: Fails,
+            },
+            Case {
+                scenario: "ssh agent is invalid for http",
+                input: Credentials::ssh_agent(),
+                expect: Fails,
+            },
+        ],
+        |cred| cred.validate_http().map_err(drop),
+    );
 }
 
 // -- validate_ssh --
 
 #[test]
-fn test_ssh_key_valid_for_ssh() {
-    let cred = Credentials::ssh_key("/home/user/.ssh/id_rsa");
-    assert!(cred.validate_ssh().is_ok());
-}
-
-#[test]
-fn test_ssh_key_with_passphrase_valid_for_ssh() {
-    let cred = Credentials::ssh_key_with_passphrase("/home/user/.ssh/id_rsa", "my-passphrase");
-    assert!(cred.validate_ssh().is_ok());
-}
-
-#[test]
-fn test_ssh_agent_valid_for_ssh() {
-    let cred = Credentials::ssh_agent();
-    assert!(cred.validate_ssh().is_ok());
-}
-
-#[test]
-fn test_bearer_token_invalid_for_ssh() {
-    let cred = Credentials::bearer_token("my-token");
-    assert!(cred.validate_ssh().is_err());
-}
-
-#[test]
-fn test_basic_auth_invalid_for_ssh() {
-    let cred = Credentials::basic_auth("user", "pass");
-    assert!(cred.validate_ssh().is_err());
+fn validate_ssh_accepts_ssh_creds_and_rejects_http_creds() {
+    check_cases(
+        [
+            Case {
+                scenario: "ssh key is valid for ssh",
+                input: Credentials::ssh_key("/home/user/.ssh/id_rsa"),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "ssh key with passphrase is valid for ssh",
+                input: Credentials::ssh_key_with_passphrase(
+                    "/home/user/.ssh/id_rsa",
+                    "my-passphrase",
+                ),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "ssh agent is valid for ssh",
+                input: Credentials::ssh_agent(),
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "bearer token is invalid for ssh",
+                input: Credentials::bearer_token("my-token"),
+                expect: Fails,
+            },
+            Case {
+                scenario: "basic auth is invalid for ssh",
+                input: Credentials::basic_auth("user", "pass"),
+                expect: Fails,
+            },
+        ],
+        |cred| cred.validate_ssh().map_err(drop),
+    );
 }
 
 // -- serde roundtrip --

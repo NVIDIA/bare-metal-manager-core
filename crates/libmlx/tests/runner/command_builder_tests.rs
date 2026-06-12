@@ -20,18 +20,23 @@
 
 use std::path::Path;
 
+use carbide_test_support::Outcome::*;
+use carbide_test_support::{Case, Check, check_cases, check_values};
 use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
 use libmlx::runner::exec_options::ExecOptions;
 
 use super::common;
 
+// A CommandBuilder over `device` with the given options -- the struct-literal dance
+// every test below would otherwise repeat.
+fn builder<'a>(options: &'a ExecOptions, device: &'a str) -> CommandBuilder<'a> {
+    CommandBuilder { device, options }
+}
+
 #[test]
 fn test_build_query_command_spec_basic() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let temp_file = Path::new("/tmp/test.json");
     let variables = vec!["SRIOV_EN".to_string(), "NUM_OF_VFS".to_string()];
@@ -57,10 +62,7 @@ fn test_build_query_command_spec_basic() {
 #[test]
 fn test_build_query_command_spec_empty_variables() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "02:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "02:00.0");
 
     let temp_file = Path::new("/tmp/test_empty.json");
     let variables: Vec<String> = vec![];
@@ -79,10 +81,7 @@ fn test_build_query_command_spec_empty_variables() {
 #[test]
 fn test_build_query_command_spec_many_variables() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let temp_file = Path::new("/tmp/test_many.json");
     let variables = vec![
@@ -103,10 +102,7 @@ fn test_build_query_command_spec_many_variables() {
 #[test]
 fn test_build_set_command_spec_basic() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let assignments = vec!["SRIOV_EN=true".to_string(), "NUM_OF_VFS=16".to_string()];
 
@@ -124,10 +120,7 @@ fn test_build_set_command_spec_basic() {
 #[test]
 fn test_build_set_command_spec_empty_assignments() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let assignments: Vec<String> = vec![];
 
@@ -140,23 +133,29 @@ fn test_build_set_command_spec_empty_assignments() {
     assert!(command_spec.args.contains(&"set".to_string()));
 }
 
+// CommandSpec's Display joins the program and its args with spaces; an arg-less
+// spec is just the program.
 #[test]
-fn test_command_spec_display_trait() {
-    let spec = CommandSpec::new("mlxconfig")
-        .arg("-d")
-        .arg("01:00.0")
-        .arg("q")
-        .arg("SRIOV_EN");
-
-    let display_str = format!("{spec}");
-    assert_eq!(display_str, "mlxconfig -d 01:00.0 q SRIOV_EN");
-}
-
-#[test]
-fn test_command_spec_display_trait_no_args() {
-    let spec = CommandSpec::new("mlxconfig");
-    let display_str = format!("{spec}");
-    assert_eq!(display_str, "mlxconfig");
+fn command_spec_displays_program_then_args() {
+    check_values(
+        [
+            Check {
+                scenario: "program with args",
+                input: CommandSpec::new("mlxconfig")
+                    .arg("-d")
+                    .arg("01:00.0")
+                    .arg("q")
+                    .arg("SRIOV_EN"),
+                expect: "mlxconfig -d 01:00.0 q SRIOV_EN".to_string(),
+            },
+            Check {
+                scenario: "program with no args",
+                input: CommandSpec::new("mlxconfig"),
+                expect: "mlxconfig".to_string(),
+            },
+        ],
+        |spec| format!("{spec}"),
+    );
 }
 
 #[test]
@@ -176,233 +175,141 @@ fn test_command_spec_builder_pattern() {
     assert_eq!(spec.args[7], "VAR2");
 }
 
+// build_set_assignments turns each MlxConfigValue into one or more `VAR=value`
+// (or `VAR[index]=value`) strings, in input order, skipping the None slots of a
+// sparse array. The assignments come back in a deterministic order, so each row
+// pins the exact Vec<String>. Scalars, every array variant (dense and sparse),
+// binary hex encoding, multiple variables, and the empty case all fold here; the
+// per-row config values are pre-built from the shared test registry.
 #[test]
-fn test_build_set_assignments_boolean() {
+fn build_set_assignments_formats_each_value() {
     let registry = common::create_test_registry();
-    let sriov_var = registry.get_variable("SRIOV_EN").unwrap();
-    let config_value = sriov_var.with(true).unwrap();
+    // Pull a registry variable by name; each row then `.with(...)`s a concrete value.
+    let var = |name: &str| registry.get_variable(name).unwrap();
 
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0], "SRIOV_EN=true");
-}
-
-#[test]
-fn test_build_set_assignments_integer() {
-    let registry = common::create_test_registry();
-    let vfs_var = registry.get_variable("NUM_OF_VFS").unwrap();
-    let config_value = vfs_var.with(32i64).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0], "NUM_OF_VFS=32");
-}
-
-#[test]
-fn test_build_set_assignments_enum() {
-    let registry = common::create_test_registry();
-    let power_var = registry.get_variable("POWER_MODE").unwrap();
-    let config_value = power_var.with("HIGH").unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0], "POWER_MODE=HIGH");
-}
-
-#[test]
-fn test_build_set_assignments_preset() {
-    let registry = common::create_test_registry();
-    let preset_var = registry.get_variable("PERFORMANCE_PRESET").unwrap();
-    let config_value = preset_var.with(7u8).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0], "PERFORMANCE_PRESET=7");
-}
-
-#[test]
-fn test_build_set_assignments_boolean_array_dense() {
-    let registry = common::create_test_registry();
-    let gpio_var = registry.get_variable("GPIO_ENABLED").unwrap();
-    let config_value = gpio_var.with(vec![true, false, true, false]).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 4);
-    assert!(assignments.contains(&"GPIO_ENABLED[0]=true".to_string()));
-    assert!(assignments.contains(&"GPIO_ENABLED[1]=false".to_string()));
-    assert!(assignments.contains(&"GPIO_ENABLED[2]=true".to_string()));
-    assert!(assignments.contains(&"GPIO_ENABLED[3]=false".to_string()));
-}
-
-#[test]
-fn test_build_set_assignments_boolean_array_sparse() {
-    let registry = common::create_test_registry();
-    let gpio_var = registry.get_variable("GPIO_ENABLED").unwrap();
-    let sparse_values = vec![Some(true), None, Some(false), None];
-    let config_value = gpio_var.with(sparse_values).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    // Should only have assignments for non-None values
-    assert_eq!(assignments.len(), 2);
-    assert!(assignments.contains(&"GPIO_ENABLED[0]=true".to_string()));
-    assert!(assignments.contains(&"GPIO_ENABLED[2]=false".to_string()));
-    assert!(!assignments.iter().any(|a| a.contains("GPIO_ENABLED[1]")));
-    assert!(!assignments.iter().any(|a| a.contains("GPIO_ENABLED[3]")));
-}
-
-#[test]
-fn test_build_set_assignments_integer_array_sparse() {
-    let registry = common::create_test_registry();
-    let thermal_var = registry.get_variable("THERMAL_SENSORS").unwrap();
-    let sparse_values = vec![Some(45i64), None, Some(42i64), None, Some(39i64), None];
-    let config_value = thermal_var.with(sparse_values).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    // Should only have assignments for non-None values
-    assert_eq!(assignments.len(), 3);
-    assert!(assignments.contains(&"THERMAL_SENSORS[0]=45".to_string()));
-    assert!(assignments.contains(&"THERMAL_SENSORS[2]=42".to_string()));
-    assert!(assignments.contains(&"THERMAL_SENSORS[4]=39".to_string()));
-}
-
-#[test]
-fn test_build_set_assignments_enum_array_sparse() {
-    let registry = common::create_test_registry();
-    let gpio_modes_var = registry.get_variable("GPIO_MODES").unwrap();
-    let sparse_values = vec![
-        Some("input".to_string()),
-        Some("output".to_string()),
-        None,
-        Some("bidirectional".to_string()),
-        None,
-        None,
-        None,
-        None,
-    ];
-    let config_value = gpio_modes_var.with(sparse_values).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    // Should only have assignments for non-None values
-    assert_eq!(assignments.len(), 3);
-    assert!(assignments.contains(&"GPIO_MODES[0]=input".to_string()));
-    assert!(assignments.contains(&"GPIO_MODES[1]=output".to_string()));
-    assert!(assignments.contains(&"GPIO_MODES[3]=bidirectional".to_string()));
-}
-
-#[test]
-fn test_build_set_assignments_binary_hex() {
-    let registry = common::create_test_registry();
-    let uuid_var = registry.get_variable("DEVICE_UUID").unwrap();
-    let binary_data = vec![0x1au8, 0x2bu8, 0x3cu8, 0x4du8];
-    let config_value = uuid_var.with(binary_data).unwrap();
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[config_value]).unwrap();
-
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0], "DEVICE_UUID=0x1a2b3c4d");
-}
-
-#[test]
-fn test_build_set_assignments_multiple_variables() {
-    let registry = common::create_test_registry();
-
-    let sriov_var = registry.get_variable("SRIOV_EN").unwrap();
-    let vfs_var = registry.get_variable("NUM_OF_VFS").unwrap();
-    let power_var = registry.get_variable("POWER_MODE").unwrap();
-
-    let config_values = vec![
-        sriov_var.with(true).unwrap(),
-        vfs_var.with(16i64).unwrap(),
-        power_var.with("HIGH").unwrap(),
-    ];
-
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&config_values).unwrap();
-
-    assert_eq!(assignments.len(), 3);
-    assert!(assignments.contains(&"SRIOV_EN=true".to_string()));
-    assert!(assignments.contains(&"NUM_OF_VFS=16".to_string()));
-    assert!(assignments.contains(&"POWER_MODE=HIGH".to_string()));
-}
-
-#[test]
-fn test_build_set_assignments_empty() {
-    let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
-
-    let assignments = builder.build_set_assignments(&[]).unwrap();
-
-    assert!(assignments.is_empty());
+    check_cases(
+        [
+            Case {
+                scenario: "boolean scalar",
+                input: vec![var("SRIOV_EN").with(true).unwrap()],
+                expect: Yields(vec!["SRIOV_EN=true".to_string()]),
+            },
+            Case {
+                scenario: "integer scalar",
+                input: vec![var("NUM_OF_VFS").with(32i64).unwrap()],
+                expect: Yields(vec!["NUM_OF_VFS=32".to_string()]),
+            },
+            Case {
+                scenario: "enum scalar",
+                input: vec![var("POWER_MODE").with("HIGH").unwrap()],
+                expect: Yields(vec!["POWER_MODE=HIGH".to_string()]),
+            },
+            Case {
+                scenario: "preset scalar",
+                input: vec![var("PERFORMANCE_PRESET").with(7u8).unwrap()],
+                expect: Yields(vec!["PERFORMANCE_PRESET=7".to_string()]),
+            },
+            Case {
+                scenario: "binary scalar is hex-encoded",
+                input: vec![
+                    var("DEVICE_UUID")
+                        .with(vec![0x1au8, 0x2bu8, 0x3cu8, 0x4du8])
+                        .unwrap(),
+                ],
+                expect: Yields(vec!["DEVICE_UUID=0x1a2b3c4d".to_string()]),
+            },
+            Case {
+                scenario: "dense boolean array sets every index",
+                input: vec![
+                    var("GPIO_ENABLED")
+                        .with(vec![true, false, true, false])
+                        .unwrap(),
+                ],
+                expect: Yields(vec![
+                    "GPIO_ENABLED[0]=true".to_string(),
+                    "GPIO_ENABLED[1]=false".to_string(),
+                    "GPIO_ENABLED[2]=true".to_string(),
+                    "GPIO_ENABLED[3]=false".to_string(),
+                ]),
+            },
+            Case {
+                scenario: "sparse boolean array skips None slots",
+                input: vec![
+                    var("GPIO_ENABLED")
+                        .with(vec![Some(true), None, Some(false), None])
+                        .unwrap(),
+                ],
+                expect: Yields(vec![
+                    "GPIO_ENABLED[0]=true".to_string(),
+                    "GPIO_ENABLED[2]=false".to_string(),
+                ]),
+            },
+            Case {
+                scenario: "sparse integer array skips None slots",
+                input: vec![
+                    var("THERMAL_SENSORS")
+                        .with(vec![
+                            Some(45i64),
+                            None,
+                            Some(42i64),
+                            None,
+                            Some(39i64),
+                            None,
+                        ])
+                        .unwrap(),
+                ],
+                expect: Yields(vec![
+                    "THERMAL_SENSORS[0]=45".to_string(),
+                    "THERMAL_SENSORS[2]=42".to_string(),
+                    "THERMAL_SENSORS[4]=39".to_string(),
+                ]),
+            },
+            Case {
+                scenario: "sparse enum array skips None slots",
+                input: vec![
+                    var("GPIO_MODES")
+                        .with(vec![
+                            Some("input".to_string()),
+                            Some("output".to_string()),
+                            None,
+                            Some("bidirectional".to_string()),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ])
+                        .unwrap(),
+                ],
+                expect: Yields(vec![
+                    "GPIO_MODES[0]=input".to_string(),
+                    "GPIO_MODES[1]=output".to_string(),
+                    "GPIO_MODES[3]=bidirectional".to_string(),
+                ]),
+            },
+            Case {
+                scenario: "multiple variables, each in input order",
+                input: vec![
+                    var("SRIOV_EN").with(true).unwrap(),
+                    var("NUM_OF_VFS").with(16i64).unwrap(),
+                    var("POWER_MODE").with("HIGH").unwrap(),
+                ],
+                expect: Yields(vec![
+                    "SRIOV_EN=true".to_string(),
+                    "NUM_OF_VFS=16".to_string(),
+                    "POWER_MODE=HIGH".to_string(),
+                ]),
+            },
+            Case {
+                scenario: "no values yields no assignments",
+                input: vec![],
+                expect: Yields(vec![]),
+            },
+        ],
+        |config_values| builder.build_set_assignments(&config_values).map_err(drop),
+    );
 }
 
 #[test]
@@ -413,10 +320,7 @@ fn test_different_devices() {
     let devices = ["01:00.0", "02:00.0", "03:00.1", "0000:01:00.0"];
 
     for device in &devices {
-        let builder = CommandBuilder {
-            device,
-            options: &options,
-        };
+        let builder = builder(&options, device);
         let temp_file = Path::new("/tmp/test.json");
         let variables = vec!["TEST_VAR".to_string()];
 
@@ -428,10 +332,7 @@ fn test_different_devices() {
 #[test]
 fn test_verbose_logging() {
     let options = ExecOptions::new().with_verbose(true);
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let temp_file = Path::new("/tmp/test.json");
     let variables = vec!["TEST_VAR".to_string()];
@@ -458,10 +359,7 @@ fn test_command_spec_to_command_conversion() {
 #[test]
 fn test_realistic_mlxconfig_query_spec() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let variables = vec![
         "SRIOV_EN".to_string(),
@@ -481,10 +379,7 @@ fn test_realistic_mlxconfig_query_spec() {
 #[test]
 fn test_realistic_mlxconfig_set_spec() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let assignments = vec!["SRIOV_EN=true".to_string(), "NUM_OF_VFS=16".to_string()];
 
@@ -497,10 +392,7 @@ fn test_realistic_mlxconfig_set_spec() {
 #[test]
 fn test_command_spec_args_order() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let variables = vec!["VAR1".to_string(), "VAR2".to_string()];
     let temp_file = Path::new("/tmp/test.json");
@@ -523,10 +415,7 @@ fn test_command_spec_args_order() {
 #[test]
 fn test_command_spec_complex_path() {
     let options = ExecOptions::default();
-    let builder = CommandBuilder {
-        device: "01:00.0",
-        options: &options,
-    };
+    let builder = builder(&options, "01:00.0");
 
     let temp_file = Path::new("/tmp/very/deep/directory/structure/test.json");
     let variables = vec!["TEST_VAR".to_string()];
