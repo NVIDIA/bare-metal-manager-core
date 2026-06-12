@@ -15,9 +15,12 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::iter;
+use std::net::IpAddr;
 use std::str::FromStr;
 
+use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 
@@ -34,6 +37,42 @@ use crate::test_support::dpu::DpuConfig;
 
 pub const X86_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/x86_info.json");
 pub const REQUIRED_IB_GUIDS: usize = 6;
+
+pub struct ManagedDpuExplorationReport {
+    pub dpu_index: u8,
+    pub bmc_ip: IpAddr,
+    pub report: EndpointExplorationReport,
+}
+
+pub struct ManagedHostExplorationResults {
+    pub host_report: Option<(IpAddr, EndpointExplorationReport)>,
+    pub dpu_reports: Vec<ManagedDpuExplorationReport>,
+}
+
+impl ManagedHostExplorationResults {
+    pub fn dpu_machine_ids(&self) -> HashMap<u8, MachineId> {
+        self.dpu_reports
+            .iter()
+            .map(|dpu_report| {
+                (
+                    dpu_report.dpu_index,
+                    dpu_report
+                        .report
+                        .machine_id
+                        .expect("DPU exploration report should have a generated machine id"),
+                )
+            })
+            .collect()
+    }
+
+    pub fn into_endpoints(self) -> Vec<(IpAddr, EndpointExplorationReport)> {
+        self.dpu_reports
+            .into_iter()
+            .map(|dpu_report| (dpu_report.bmc_ip, dpu_report.report))
+            .chain(self.host_report)
+            .collect()
+    }
+}
 
 /// Describes a Managed Host
 #[derive(Clone)]
@@ -77,6 +116,35 @@ impl ManagedHostConfig {
             panic!("Expected a single-DPU host, got {} DPUs", self.dpus.len());
         };
         single_dpu
+    }
+
+    pub fn exploration_results(
+        &self,
+        host_bmc_ip: Option<IpAddr>,
+        dpu_bmc_ips: &[(u8, IpAddr)],
+    ) -> eyre::Result<ManagedHostExplorationResults> {
+        let mut dpu_reports = Vec::new();
+
+        for (dpu_index, bmc_ip) in dpu_bmc_ips {
+            let dpu = self
+                .dpus
+                .get(*dpu_index as usize)
+                .ok_or_else(|| eyre::eyre!("DPU index {dpu_index} is not in the managed host"))?;
+            let mut report: EndpointExplorationReport = dpu.clone().into();
+            report.generate_machine_id(false)?;
+            dpu_reports.push(ManagedDpuExplorationReport {
+                dpu_index: *dpu_index,
+                bmc_ip: *bmc_ip,
+                report,
+            });
+        }
+
+        let host_report = host_bmc_ip.map(|host_bmc_ip| (host_bmc_ip, self.clone().into()));
+
+        Ok(ManagedHostExplorationResults {
+            host_report,
+            dpu_reports,
+        })
     }
 }
 

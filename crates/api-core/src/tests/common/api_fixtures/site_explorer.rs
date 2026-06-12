@@ -45,7 +45,6 @@ use model::machine::{
 use model::power_shelf::power_shelf_id::from_hardware_info;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack::RackConfig;
-use model::site_explorer::EndpointExplorationReport;
 use model::switch::{NewSwitch, SwitchConfig};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
@@ -282,31 +281,22 @@ impl<'a> MockExploredHost<'a> {
         Ok(self)
     }
 
-    // Create an EndpointExplorationReport for the host and DPUs, and seed them into the
+    // Create EndpointExplorationReports for the host and DPUs, and seed them into the
     // MockEndpointExplorer in this test env. If any of the host BMC or DPU BMC's have not run DHCP
     // yet, they will be skipped (as we won't yet know their IP.)
     pub fn insert_site_exploration_results(mut self) -> eyre::Result<Self> {
-        self.test_env.endpoint_explorer.insert_endpoints(
-            self.managed_host
-                .dpus
-                .iter()
-                .enumerate()
-                .filter_map(|(index, dpu)| {
-                    let mut report: EndpointExplorationReport = dpu.clone().into();
-                    report.generate_machine_id(false).unwrap();
-                    self.dpu_machine_ids
-                        .insert(index.try_into().unwrap(), report.machine_id.unwrap());
-                    Some((*self.dpu_bmc_ips.get(&(index as u8))?, dpu.clone().into()))
-                })
-                .chain(
-                    iter::once(
-                        self.host_bmc_ip
-                            .map(|ip| (ip, self.managed_host.clone().into())),
-                    )
-                    .flatten(),
-                )
-                .collect(),
-        );
+        let dpu_bmc_ips = self
+            .dpu_bmc_ips
+            .iter()
+            .map(|(idx, ip)| (*idx, *ip))
+            .collect::<Vec<_>>();
+        let results = self
+            .managed_host
+            .exploration_results(self.host_bmc_ip, &dpu_bmc_ips)?;
+        self.dpu_machine_ids.extend(results.dpu_machine_ids());
+        self.test_env
+            .endpoint_explorer
+            .insert_endpoints(results.into_endpoints());
         Ok(self)
     }
 
