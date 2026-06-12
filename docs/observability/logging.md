@@ -266,14 +266,16 @@ Splunk, etc.
 
 ### 4.1 Collector configuration
 
-Below is a reference OpenTelemetry Collector configuration for collecting NICo logs. Adapt
-the exporter section for your backend.
+Below is a reference Helm values file for deploying the
+[OpenTelemetry Collector Helm chart](https://opentelemetry.io/docs/platforms/kubernetes/helm/collector/) to collect NICo logs.
+Adapt the exporter section for your backend.
 
 ```yaml
-# otel-collector-config.yaml
+# values.yaml for opentelemetry-collector Helm chart
+# Install: helm install otel-collector open-telemetry/opentelemetry-collector -f values.yaml
 mode: daemonset
 image:
-  repository: otel/opentelemetry-collector-contrib
+  repository: otel/opentelemetry-collector-k8s
 
 presets:
   kubernetesAttributes:
