@@ -17,7 +17,7 @@ import (
 // APIUpdateFirmwareRequest is the request body for firmware update operations
 type APIUpdateFirmwareRequest struct {
 	SiteID  string  `json:"siteId"`
-	Version *string `json:"version,omitempty"`
+	Version *string `json:"version"`
 	// Targets, when non-empty, restricts the update to a subset of
 	// firmware sub-parts within the targeted tray (e.g. ["bmc", "nvos"]
 	// for switch trays). Names are lowercase. The authoritative supported
@@ -26,13 +26,13 @@ type APIUpdateFirmwareRequest struct {
 	// carbide-core/crates/rpc/proto/forge.proto); see
 	// flow/pkg/common/firmwarecomponents for the resolution logic and
 	// helpers like SupportedNICoNVSwitchNames.
-	// Empty/nil means "update everything in the bundle" for the
+	// Empty/nil means "update the default targets" for the
 	// compute-tray-internal targets. When non-empty, requires Version.
 	//
 	// On compute trays, the special target "dpu" requests DPU
 	// reprovisioning on each matched host. Unlike every other target,
-	// "dpu" is NOT covered by the "empty means everything" default;
-	// the caller has to list it explicitly. Version is ignored on the
+	// "dpu" is NOT part of the empty/nil "default targets" set; the
+	// caller has to list it explicitly. Version is ignored on the
 	// "dpu" branch; the target firmware version comes from site
 	// configuration.
 	//
@@ -40,7 +40,7 @@ type APIUpdateFirmwareRequest struct {
 	// with carbide's tray-level "Component" vocabulary; the downstream
 	// Flow proto field is named `sub_targets` and represents the same
 	// enum subset.
-	Targets []string `json:"targets,omitempty"`
+	Targets []string `json:"targets"`
 	// RuleID, when set, overrides the default rule resolution and pins this
 	// firmware operation to the named Operation Rule.
 	RuleID *string `json:"ruleId"`
@@ -89,8 +89,8 @@ func NewAPIUpdateFirmwareResponse(resp *flowv1.SubmitTaskResponse) *APIUpdateFir
 // APIBatchRackFirmwareUpdateRequest is the JSON body for batch rack firmware update.
 type APIBatchRackFirmwareUpdateRequest struct {
 	SiteID  string      `json:"siteId"`
-	Filter  *RackFilter `json:"filter,omitempty"`
-	Version *string     `json:"version,omitempty"`
+	Filter  *RackFilter `json:"filter"`
+	Version *string     `json:"version"`
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
 	RuleID *string `json:"ruleId"`
@@ -109,12 +109,12 @@ func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
 // APIBatchTrayFirmwareUpdateRequest is the JSON body for batch tray firmware update.
 type APIBatchTrayFirmwareUpdateRequest struct {
 	SiteID  string      `json:"siteId"`
-	Filter  *TrayFilter `json:"filter,omitempty"`
-	Version *string     `json:"version,omitempty"`
+	Filter  *TrayFilter `json:"filter"`
+	Version *string     `json:"version"`
 	// Targets, when non-empty, restricts the update to a subset of
 	// firmware sub-parts within each matched tray. Same semantics as the
 	// single-tray variant. When non-empty, requires Version.
-	Targets []string `json:"targets,omitempty"`
+	Targets []string `json:"targets"`
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
 	RuleID *string `json:"ruleId"`
