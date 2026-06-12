@@ -51,8 +51,10 @@ impl FromRequestParts<AppState> for Machine {
                 PxeRequestError::MissingClientConfig
             })?;
 
-        // the implementation defaults to a proxied XFF header with the correct IP,
-        // and falls back to client IP from socket if not
+        // Note: This does *NOT* look at X-Forwarded-For, due to security issues with the header. We
+        // don't currently have use cases for a proxy in front of carbide-pxe... if that changes
+        // someday we will need to configure a request extractor that conditionally uses
+        // X-Forwarded-For if it's present and falling back on ClientIp if it's not.
         let client_ip = ClientIp::from_request_parts(parts, state)
             .await
             .map_err(PxeRequestError::MissingIp)?

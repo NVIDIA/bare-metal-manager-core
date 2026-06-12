@@ -119,7 +119,7 @@ docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devs
 
 DevSpace then deploys the Helm chart with the built `nico-api` image wired into `global.image.repository` and `global.image.tag`, the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec.
 
-## Re-initializing ncx-infra-controller-core to a clean slate
+## Re-initializing infra-controller to a clean slate
 
 Once deployed, the `nico-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
 

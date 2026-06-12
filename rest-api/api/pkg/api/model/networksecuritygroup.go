@@ -105,6 +105,21 @@ var NetworkSecurityGroupRuleAPIPropagationStatusFromProtobufPropagationStatus = 
 	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR:   APINetworkSecurityGroupPropagationStatusError,
 }
 
+var (
+	// Time when the NetworkSecurityGroup propagation object_id attribute will be deprecated
+	networkSecurityGroupPropagationObjectIDDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	// Deprecations for the NetworkSecurityGroup model
+	networkSecurityGroupPropagationDetailsDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "object_id",
+			NewValue:     cutil.GetPtr("objectId"),
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: networkSecurityGroupPropagationObjectIDDeprecationTime,
+		},
+	}
+)
+
 // APINetworkSecurityGroupCreateRequest is the data structure to capture instance request to create a new NetworkSecurityGroup
 type APINetworkSecurityGroupCreateRequest struct {
 	// Name is the name of the NetworkSecurityGroup
@@ -117,7 +132,7 @@ type APINetworkSecurityGroupCreateRequest struct {
 	Rules []APINetworkSecurityGroupRule `json:"rules"`
 	// StatefulEgress defines whether a NetworkSecurityGroup's egress rules will be automatically stateful
 	StatefulEgress bool `json:"statefulEgress"`
-	// Labels to be associted with the NetworkSecurityGroup
+	// Labels to be associated with the NetworkSecurityGroup
 	Labels map[string]string `json:"labels"`
 }
 
@@ -624,7 +639,9 @@ func NewAPINetworkSecurityGroupSummary(dbsg *cdbm.NetworkSecurityGroup) *APINetw
 
 type APINetworkSecurityGroupPropagationDetails struct {
 	// The ID of the object (VPC/Instance/etc) for these details
-	ObjectID string `json:"object_id"`
+	ObjectIDDeprecated *string `json:"object_id,omitempty"`
+	// The ID of the object (VPC/Instance/etc) for these details
+	ObjectID string `json:"objectId"`
 	// The detailed propagation status that was
 	// actually returned from NICo
 	DetailedStatus string `json:"detailedStatus"`
@@ -640,6 +657,8 @@ type APINetworkSecurityGroupPropagationDetails struct {
 	// IDs of any instances associated with the ObjectID that have
 	// not yet updated their NSG rules.
 	UnpropagatedInstanceIds []string `json:"unpropagatedInstanceIds"`
+	// Deprecations is the list of deprecations for the NetworkSecurityGroupPropagationDetails
+	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
 }
 
 func NewAPINetworkSecurityGroupPropagationDetails(s *cdbm.NetworkSecurityGroupPropagationDetails) *APINetworkSecurityGroupPropagationDetails {
@@ -652,6 +671,10 @@ func NewAPINetworkSecurityGroupPropagationDetails(s *cdbm.NetworkSecurityGroupPr
 		Details:                 s.NetworkSecurityGroupPropagationObjectStatus.Details,
 		RelatedInstanceIds:      s.NetworkSecurityGroupPropagationObjectStatus.RelatedInstanceIds,
 		UnpropagatedInstanceIds: s.NetworkSecurityGroupPropagationObjectStatus.UnpropagatedInstanceIds,
+	}
+
+	if time.Now().Before(networkSecurityGroupPropagationObjectIDDeprecationTime) {
+		details.ObjectIDDeprecated = cutil.GetPtr(s.NetworkSecurityGroupPropagationObjectStatus.Id)
 	}
 
 	status, found := NetworkSecurityGroupRuleAPIPropagationDetailedStatusFromProtobufPropagationStatus[s.Status]
@@ -674,6 +697,10 @@ func NewAPINetworkSecurityGroupPropagationDetails(s *cdbm.NetworkSecurityGroupPr
 	}
 
 	details.Status = status
+
+	for _, deprecation := range networkSecurityGroupPropagationDetailsDeprecations {
+		details.Deprecations = append(details.Deprecations, NewAPIDeprecation(deprecation))
+	}
 
 	return details
 }

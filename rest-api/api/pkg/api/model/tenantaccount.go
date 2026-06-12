@@ -18,6 +18,29 @@ const (
 	validationErrorTenantIDOrOrgRequired = "Either Tenant ID or Tenant Org must be specified"
 )
 
+var (
+	// Time when the AccountNumber, SubscriptionID, and SubscriptionTier attributes will be deprecated
+	accountNumberSubscriptionIDTierDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+
+	tenantAccountDeprecations = []DeprecatedEntity{
+		{
+			OldValue:     "accountNumber",
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: accountNumberSubscriptionIDTierDeprecationTime,
+		},
+		{
+			OldValue:     "subscriptionId",
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: accountNumberSubscriptionIDTierDeprecationTime,
+		},
+		{
+			OldValue:     "subscriptionTier",
+			Type:         DeprecationTypeAttribute,
+			TakeActionBy: accountNumberSubscriptionIDTierDeprecationTime,
+		},
+	}
+)
+
 // APITenantAccountCreateRequest is the data structure to capture user request to create a new Tenant
 type APITenantAccountCreateRequest struct {
 	// InfrastructureProviderID is the ID of the infrastructureProvider in the org
@@ -32,8 +55,7 @@ type APITenantAccountCreateRequest struct {
 func (tacr APITenantAccountCreateRequest) Validate() error {
 	return validation.ValidateStruct(&tacr,
 		validation.Field(&tacr.InfrastructureProviderID,
-			validation.Required.Error(validationErrorValueRequired),
-			validationis.UUID.Error(validationErrorInvalidUUID)),
+			validation.When(tacr.InfrastructureProviderID != "", validationis.UUID.Error(validationErrorInvalidUUID))),
 		validation.Field(&tacr.TenantID,
 			validation.When(tacr.TenantOrg == nil, validation.Required.Error(validationErrorTenantIDOrOrgRequired)),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -62,7 +84,7 @@ type APITenantAccount struct {
 	// ID is the unique UUID v4 identifier for the TenantAccount
 	ID string `json:"id"`
 	// AccountNumber is the account number of the TenantAccount
-	AccountNumber string `json:"accountNumber"`
+	AccountNumberDeprecated *string `json:"accountNumber,omitempty"`
 	// InfrastructureProviderID is the ID of the InfrastructureProvider
 	InfrastructureProviderID string `json:"infrastructureProviderId"`
 	// InfrastructureProvider is the summary of the InfrastructureProvider
@@ -70,9 +92,9 @@ type APITenantAccount struct {
 	// InfrastructureProviderOrg is the org of the InfrastructureProvider
 	InfrastructureProviderOrg string `json:"infrastructureProviderOrg"`
 	// SubscriptionID is the ID of the subscription
-	SubscriptionID *string `json:"subscriptionId"`
+	SubscriptionIDDeprecated *string `json:"subscriptionId,omitempty"`
 	// SubscriptionTier is the tier of the subscription
-	SubscriptionTier *string `json:"subscriptionTier"`
+	SubscriptionTierDeprecated *string `json:"subscriptionTier,omitempty"`
 	// TenantID is the ID of the Tenant
 	TenantID *string `json:"tenantId"`
 	// Tenant is the summary of the Tenant
@@ -91,6 +113,8 @@ type APITenantAccount struct {
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
 	Updated time.Time `json:"updated"`
+	// Deprecations is the list of deprecations for the TenantAccount
+	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
 // APITenantAccountStats is a data structure to capture information about a TenantAccount stats at the API layer
@@ -111,11 +135,8 @@ type APITenantAccountStats struct {
 func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, allocationCount int) *APITenantAccount {
 	apiTenantAccount := APITenantAccount{
 		ID:                        dbta.ID.String(),
-		AccountNumber:             dbta.AccountNumber,
 		InfrastructureProviderID:  dbta.InfrastructureProviderID.String(),
 		InfrastructureProviderOrg: dbta.InfrastructureProviderOrg,
-		SubscriptionID:            dbta.SubscriptionID,
-		SubscriptionTier:          dbta.SubscriptionTier,
 		TenantOrg:                 dbta.TenantOrg,
 		AllocationCount:           allocationCount,
 		Status:                    dbta.Status,
@@ -139,8 +160,19 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 		apiTenantAccount.Tenant = NewAPITenantSummary(dbta.Tenant)
 	}
 
+	apiTenantAccount.StatusHistory = []APIStatusDetail{}
 	for _, dbsd := range dbsds {
 		apiTenantAccount.StatusHistory = append(apiTenantAccount.StatusHistory, NewAPIStatusDetail(dbsd))
+	}
+
+	if time.Now().Before(accountNumberSubscriptionIDTierDeprecationTime) {
+		apiTenantAccount.AccountNumberDeprecated = cutil.GetPtr(dbta.AccountNumber)
+		apiTenantAccount.SubscriptionIDDeprecated = dbta.SubscriptionID
+		apiTenantAccount.SubscriptionTierDeprecated = dbta.SubscriptionTier
+	}
+
+	for _, deprecation := range tenantAccountDeprecations {
+		apiTenantAccount.Deprecations = append(apiTenantAccount.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	return &apiTenantAccount

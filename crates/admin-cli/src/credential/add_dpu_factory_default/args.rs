@@ -23,7 +23,7 @@ use rpc::{CredentialType, forge as forgerpc};
 EXAMPLES:
 
 Add the factory-default DPU BMC credential:
-    $ carbide-admin-cli credential add-dpu-factory-default --username admin --password mypassword
+    $ nico-admin-cli credential add-dpu-factory-default --username admin --password mypassword
 
 ")]
 pub struct Args {

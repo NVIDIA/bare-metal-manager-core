@@ -125,28 +125,28 @@ Currently, NICo only supports GB200 NVL72 racks, where a rack and a NVL domain o
 
 ### Rack Endpoints
 
-- [GET /v2/org/{org}/carbide/rack](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/get-all-rack): Retrieve all racks in the specified site.  
-- [GET /v2/org/{org}/carbide/rack/{rack_id}](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/get-rack): Retrieve a rack with the specified ID.  
-- [GET /v2/org/{org}/carbide/rack/validation](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/validate-racks): Validate components of all racks in the specified site by comparing the expected inventory data to the actual inventory data.  
-- [GET /v2/org/{org}/carbide/rack/{rack_id}/validation](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/validate-rack): Validate components of the specified rack by comparing the expected inventory data to the actual inventory data.  
-- [PATCH /v2/org/{org}/carbide/rack/power](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/power-control-racks): Control power of all or selected racks in the site. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
-- [PATCH /v2/org/{org}/carbide/rack/{id}/power](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/firmware-update-rack): Control power of the specified rack. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
-- [PATCH /v2/org/{org}/carbide/rack/firmware](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/firmware-update-racks): Update firmware on all or selected racks in the site.  
-- [PATCH /v2/org/{org}/carbide/rack/{id}/firmware](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/firmware-update-rack): Update firmware on the specified rack.  
-- [POST /v2/org/{org}/carbide/rack/bringup](hhttps://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/bringup-racks): Bring up all or selected racks in the site.  
-- [POST /v2/org/{org}/carbide/rack/{id}/bringup](hhttps://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/bringup-racks): Bring up the specified rack.  
-- [GET /v2/org/{org}/carbide/rack/task/{id}](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/get-rack-task): Retrieve the status of the specified rack task.  
-- [GET /v2/org/{org}/carbide/rack/task/{id}/cancel](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Rack/operation/get-rack-task): Cancel the specified rack task.
+- [GET /v2/org/{org}/carbide/rack](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/get-all-rack): Retrieve all racks in the specified site.  
+- [GET /v2/org/{org}/carbide/rack/{rack_id}](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/get-rack): Retrieve a rack with the specified ID.  
+- [GET /v2/org/{org}/carbide/rack/validation](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/validate-racks): Validate components of all racks in the specified site by comparing the expected inventory data to the actual inventory data.  
+- [GET /v2/org/{org}/carbide/rack/{rack_id}/validation](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/validate-rack): Validate components of the specified rack by comparing the expected inventory data to the actual inventory data.  
+- [PATCH /v2/org/{org}/carbide/rack/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/power-control-racks): Control power of all or selected racks in the site. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
+- [PATCH /v2/org/{org}/carbide/rack/{id}/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/power-control-rack): Control power of the specified rack. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
+- [PATCH /v2/org/{org}/carbide/rack/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/firmware-update-racks): Update firmware on all or selected racks in the site.  
+- [PATCH /v2/org/{org}/carbide/rack/{id}/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/firmware-update-rack): Update firmware on the specified rack.  
+- [POST /v2/org/{org}/carbide/rack/bringup](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/bringup-racks): Bring up all or selected racks in the site.  
+- [POST /v2/org/{org}/carbide/rack/{id}/bringup](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/bringup-racks): Bring up the specified rack.  
+- [GET /v2/org/{org}/carbide/rack/task/{id}](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/get-rack-task): Retrieve the status of the specified rack task.  
+- [GET /v2/org/{org}/carbide/rack/task/{id}/cancel](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/rack/get-rack-task): Cancel the specified rack task.
 
 ### Tray (Rack Component) Endpoints
 
-- [GET /v2/org/{org}/carbide/tray](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/get-all-trays): Retrieve all trays in the specified site.  
-- [GET /v2/org/{org}/carbide/tray/{id}](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/get-tray): Retrieve a tray with the specified id.  
-- [GET /v2/org/{org}/carbide/tray/validation](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/validate-trays): Validate all or selected trays in the site by comparing the expected inventory data to the actual inventory data.  
-- [GET /v2/org/{org}/carbide/tray/{id}/validation](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/validate-tray): Validate the specified tray by comparing the expected inventory data to the actual inventory data.  
-- [PATCH /v2/org/{org}/carbide/tray/power](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/power-control-trays): Control the power of all or selected trays in the site. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
-- [PATCH /v2/org/{org}/carbide/tray/{id}/power](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/power-control-tray): Control the power of the specified tray. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
-- [PATCH /v2/org/{org}/carbide/tray/firmware](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/firmware-update-trays): Update the firmware on all or selected trays in the site.  
-- [PATCH /v2/org/{org}/carbide/tray/{id}/firmware](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Tray/operation/firmware-update-tray): Update the firmware on the specified tray.
+- [GET /v2/org/{org}/carbide/tray](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/get-all-trays): Retrieve all trays in the specified site.  
+- [GET /v2/org/{org}/carbide/tray/{id}](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/get-tray): Retrieve a tray with the specified id.  
+- [GET /v2/org/{org}/carbide/tray/validation](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/validate-trays): Validate all or selected trays in the site by comparing the expected inventory data to the actual inventory data.  
+- [GET /v2/org/{org}/carbide/tray/{id}/validation](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/validate-tray): Validate the specified tray by comparing the expected inventory data to the actual inventory data.  
+- [PATCH /v2/org/{org}/carbide/tray/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/power-control-trays): Control the power of all or selected trays in the site. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
+- [PATCH /v2/org/{org}/carbide/tray/{id}/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/power-control-tray): Control the power of the specified tray. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
+- [PATCH /v2/org/{org}/carbide/tray/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-trays): Update the firmware on all or selected trays in the site.  
+- [PATCH /v2/org/{org}/carbide/tray/{id}/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-tray): Update the firmware on the specified tray.
 
 

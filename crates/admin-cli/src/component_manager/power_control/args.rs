@@ -24,15 +24,15 @@ use crate::component_manager::common::{PowerActionArg, PowerControlTargetArgs};
 EXAMPLES:
 
 Power on a switch:
-    $ carbide-admin-cli component-manager component-power-control switch \
+    $ nico-admin-cli component-manager component-power-control switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567 --action on
 
 Force off a compute tray:
-    $ carbide-admin-cli component-manager component-power-control compute-tray \
+    $ nico-admin-cli component-manager component-power-control compute-tray \
     --machine-id 12345678-1234-5678-90ab-cdef01234567 --action force-off
 
 AC power-cycle a power shelf:
-    $ carbide-admin-cli component-manager component-power-control power-shelf \
+    $ nico-admin-cli component-manager component-power-control power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --action ac-powercycle
 
 ")]

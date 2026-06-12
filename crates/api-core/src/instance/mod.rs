@@ -1408,8 +1408,8 @@ pub fn allocate_spx_port_mac(
 
 #[cfg(test)]
 mod tests {
-    use nico_test_support::Outcome::*;
-    use nico_test_support::{Case, check_cases};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
 
     use super::*;
 

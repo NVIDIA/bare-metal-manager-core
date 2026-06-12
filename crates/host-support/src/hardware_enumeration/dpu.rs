@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -63,7 +64,7 @@ pub struct LldpChassisData {
     pub descr: String,
     #[serde(rename = "mgmt-ip", default)]
     #[serde_as(as = "OneOrMany<_>")]
-    pub management_ip_address: Vec<String>, // we get an array with ipv4 and ipv6 addresses
+    pub management_ip_address: Vec<IpAddr>, // we get an array with ipv4 and ipv6 addresses
     #[serde(default)]
     pub capability: Vec<LldpCapabilityData>,
 }
@@ -178,7 +179,11 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
             lldp_info.local_port = port.to_string();
 
             // management_ip_address if missing we just replace it with empty list.
-            lldp_info.ip_address = tor_data.management_ip_address.clone();
+            lldp_info.ip_address = tor_data
+                .management_ip_address
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect();
         }
         lldp_info.remote_port =
             format!("{}={}", lldp_data.port.id.id_type, lldp_data.port.id.value);

@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Delete a VPC peering:
-    $ carbide-admin-cli vpc-peering delete --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli vpc-peering delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

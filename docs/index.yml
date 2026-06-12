@@ -243,7 +243,7 @@ navigation:
               path: development/vm_pxe_client.md
             - page: TLS and SPIFFE Certificates
               path: development/tls.md
-            - page: SPIFFE and casbin policies with admin-cli
+            - page: nico-admin-cli
               path: manuals/nico-admin-cli.md
             - page: Re-creating Issuer/CA in Local Dev
               path: development/issuer_ca_recreate.md
@@ -265,6 +265,9 @@ navigation:
     - page: Getting Started
       path: ../rest-api/openapi/getting-started.md
       icon: circle-play
+    - page: Example REST API Workflows
+      path: ../rest-api/openapi/example_workflows.md
+      icon: gear
     - page: Deprecations
       path: ../rest-api/openapi/deprecations.md
       icon: bell

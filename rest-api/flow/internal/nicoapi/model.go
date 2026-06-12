@@ -370,3 +370,147 @@ func bringUpStateFromPb(
 		return BringUpStateNotDiscovered
 	}
 }
+
+// ExpectedRackDetail is the canonical expected-rack representation returned by
+// GetAllExpectedRacks. RackID is the operator-supplied stable identifier (the
+// same string referenced by ExpectedMachine.RackID, ExpectedSwitchDetail.RackID,
+// and ExpectedPowerShelfDetail.RackID). Labels carries well-known keys such as
+// chassis.manufacturer / chassis.serial-number / chassis.model and location.*.
+type ExpectedRackDetail struct {
+	RackID        string
+	RackProfileID string
+	Name          string
+	Description   string
+	Labels        map[string]string
+}
+
+// ExpectedMachineDetail is the canonical expected-machine representation
+// returned by GetAllExpectedMachines. ExpectedMachineID is the Core-side UUID
+// for the expected_machines row (distinct from the runtime machine_id assigned
+// after discovery). Labels carries the component metadata cloud REST writes
+// alongside the typed fields: manufacturer, model, firmware_version, slot_id,
+// tray_idx, host_id.
+type ExpectedMachineDetail struct {
+	ExpectedMachineID   string
+	BMCMACAddress       string
+	BMCIPAddress        string
+	ChassisSerialNumber string
+	RackID              string
+	Name                string
+	Description         string
+	Labels              map[string]string
+}
+
+// ExpectedSwitchDetail is the canonical expected-switch representation returned
+// by GetAllExpectedMachines's switch peer (GetAllExpectedSwitches has a
+// different shape keyed by BMC MAC). ExpectedSwitchID is the Core-side UUID for
+// the expected_switches row. Labels carries the same component metadata keys as
+// ExpectedMachineDetail.
+type ExpectedSwitchDetail struct {
+	ExpectedSwitchID   string
+	BMCMACAddress      string
+	BMCIPAddress       string
+	SwitchSerialNumber string
+	RackID             string
+	Name               string
+	Description        string
+	Labels             map[string]string
+}
+
+// ExpectedPowerShelfDetail is the canonical expected-power-shelf representation
+// returned by GetAllExpectedPowerShelves. ExpectedPowerShelfID is the Core-side
+// UUID for the expected_power_shelves row.
+type ExpectedPowerShelfDetail struct {
+	ExpectedPowerShelfID string
+	BMCMACAddress        string
+	BMCIPAddress         string
+	ShelfSerialNumber    string
+	RackID               string
+	Name                 string
+	Description          string
+	Labels               map[string]string
+}
+
+// metadataToGo extracts name, description and labels from a proto Metadata
+// message into plain Go values. A nil metadata yields zero values and a nil
+// labels map.
+func metadataToGo(md *pb.Metadata) (name, description string, labels map[string]string) {
+	if md == nil {
+		return "", "", nil
+	}
+	name = md.GetName()
+	description = md.GetDescription()
+	if pbLabels := md.GetLabels(); len(pbLabels) > 0 {
+		labels = make(map[string]string, len(pbLabels))
+		for _, l := range pbLabels {
+			if l == nil {
+				continue
+			}
+			if l.Value != nil {
+				labels[l.GetKey()] = l.GetValue()
+			}
+		}
+	}
+	return name, description, labels
+}
+
+func expectedRackDetailFromPb(er *pb.ExpectedRack) ExpectedRackDetail {
+	d := ExpectedRackDetail{
+		RackProfileID: er.GetRackProfileId().GetId(),
+	}
+	if er.GetRackId() != nil {
+		d.RackID = er.GetRackId().GetId()
+	}
+	d.Name, d.Description, d.Labels = metadataToGo(er.GetMetadata())
+	return d
+}
+
+func expectedMachineDetailFromPb(em *pb.ExpectedMachine) ExpectedMachineDetail {
+	d := ExpectedMachineDetail{
+		BMCMACAddress:       em.GetBmcMacAddress(),
+		ChassisSerialNumber: em.GetChassisSerialNumber(),
+	}
+	if em.Id != nil {
+		d.ExpectedMachineID = em.GetId().GetValue()
+	}
+	if em.BmcIpAddress != nil {
+		d.BMCIPAddress = em.GetBmcIpAddress()
+	}
+	if em.RackId != nil {
+		d.RackID = em.GetRackId().GetId()
+	}
+	d.Name, d.Description, d.Labels = metadataToGo(em.GetMetadata())
+	return d
+}
+
+func expectedSwitchDetailFromPb(es *pb.ExpectedSwitch) ExpectedSwitchDetail {
+	d := ExpectedSwitchDetail{
+		BMCMACAddress:      es.GetBmcMacAddress(),
+		BMCIPAddress:       es.GetBmcIpAddress(),
+		SwitchSerialNumber: es.GetSwitchSerialNumber(),
+	}
+	if es.ExpectedSwitchId != nil {
+		d.ExpectedSwitchID = es.GetExpectedSwitchId().GetValue()
+	}
+	if es.RackId != nil {
+		d.RackID = es.GetRackId().GetId()
+	}
+	d.Name, d.Description, d.Labels = metadataToGo(es.GetMetadata())
+	return d
+}
+
+func expectedPowerShelfDetailFromPb(eps *pb.ExpectedPowerShelf) ExpectedPowerShelfDetail {
+	d := ExpectedPowerShelfDetail{
+		BMCMACAddress:     eps.GetBmcMacAddress(),
+		BMCIPAddress:      eps.GetBmcIpAddress(),
+		ShelfSerialNumber: eps.GetShelfSerialNumber(),
+	}
+	if eps.ExpectedPowerShelfId != nil {
+		d.ExpectedPowerShelfID = eps.GetExpectedPowerShelfId().GetValue()
+	}
+	if eps.RackId != nil {
+		d.RackID = eps.GetRackId().GetId()
+	}
+	d.Name, d.Description, d.Labels = metadataToGo(eps.GetMetadata())
+	return d
+}

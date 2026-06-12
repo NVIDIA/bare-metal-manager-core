@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Show the addresses on a machine interface:
-    $ carbide-admin-cli machine-interfaces show-addresses 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine-interfaces show-addresses 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

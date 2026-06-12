@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::net::IpAddr;
 use std::path::Path;
 
 use ::rpc::forge as rpc;
@@ -524,11 +525,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         // IPv4 only for now. Internal HBN bridge plumbing uses 169.254.x.x
         // link-local addressing for DPU to HBN communication. An IPv6 equivalent
         // (fe80:: or similar) may be needed in the future for dual-stack bridging.
-    ) = if let Some(bridge_prefix) = conf
-        .internal_bridge_routing_prefix
-        .map(|p| p.parse::<Ipv4Net>())
-        .transpose()?
-    {
+    ) = if let Some(bridge_prefix) = conf.internal_bridge_routing_prefix {
         let prefix_len = bridge_prefix.prefix_len();
         let mut hosts = bridge_prefix.hosts();
 
@@ -596,12 +593,15 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         HasBgpLeafSessionPassword: conf.bgp_leaf_session_password.is_some(),
         BgpLeafSessionPassword: conf.bgp_leaf_session_password.unwrap_or_default(),
         UseAdminNetwork: conf.use_admin_network,
-        LoopbackIP: conf.loopback_ip,
+        LoopbackIP: conf.loopback_ip.to_string(),
         HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
         SiteGlobalVpcVni: conf.site_global_vpc_vni.unwrap_or_default(),
         HasStaticAdvertisements: has_static_advertisements,
         HasSecondaryOverlayVTEP: conf.secondary_overlay_vtep_ip.is_some(),
-        SecondaryOverlayVtepIP: conf.secondary_overlay_vtep_ip.unwrap_or_default(),
+        SecondaryOverlayVtepIP: conf
+            .secondary_overlay_vtep_ip
+            .map(|ip| ip.to_string())
+            .unwrap_or_default(),
         HasInternalBridgeRouting: has_internal_bridging,
         VfInterceptBridgeIP: vf_intercept_bridge_ip,
         InterceptBridgePrefixLen: intercept_bridge_prefix_len,
@@ -632,8 +632,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         DPUHostname: conf.dpu_hostname,
         SearchDomain: conf.dpu_search_domain,
         Uplinks: conf.uplinks.clone(),
-        RouteServers: conf.route_servers.clone(),
-        DHCPServers: conf.dhcp_servers.clone(),
+        RouteServers: conf.route_servers.iter().map(|ip| ip.to_string()).collect(),
+        DHCPServers: conf.dhcp_servers.iter().map(|ip| ip.to_string()).collect(),
         AnycastSitePrefixes: anycast_ipv4,
         AnycastSitePrefixesIpv6: anycast_ipv6,
         HasSiteFabricPrefixes: !site_fabric_ipv4.is_empty(),
@@ -1124,7 +1124,7 @@ pub struct NvueConfig {
     pub vpc_virtualization_type: VpcVirtualizationType,
     pub use_admin_network: bool,
     pub tenancy_enabled: bool,
-    pub loopback_ip: String,
+    pub loopback_ip: IpAddr,
     pub asn: u32,
     pub datacenter_asn: u32,
     pub site_global_vpc_vni: Option<u32>,
@@ -1132,19 +1132,19 @@ pub struct NvueConfig {
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
     pub bgp_leaf_session_password: Option<String>,
 
-    pub secondary_overlay_vtep_ip: Option<String>,
+    pub secondary_overlay_vtep_ip: Option<IpAddr>,
     pub vf_intercept_bridge_port_name: Option<String>,
     pub vf_intercept_bridge_sf: Option<String>,
     pub host_intercept_bridge_port_name: Option<String>,
-    pub internal_bridge_routing_prefix: Option<String>,
+    pub internal_bridge_routing_prefix: Option<Ipv4Net>,
     pub traffic_intercept_public_prefixes: Vec<String>,
 
     pub dpu_hostname: String,
     pub dpu_search_domain: String,
     pub hbn_version: Option<String>,
     pub uplinks: Vec<String>,
-    pub route_servers: Vec<String>,
-    pub dhcp_servers: Vec<String>,
+    pub route_servers: Vec<IpAddr>,
+    pub dhcp_servers: Vec<IpAddr>,
     pub l3_domains: Vec<L3Domain>,
     pub deny_prefixes: Vec<String>,
     pub site_fabric_prefixes: Vec<String>,
@@ -1822,7 +1822,7 @@ mod tests {
             vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
             use_admin_network: false,
             tenancy_enabled: true,
-            loopback_ip: "10.0.0.1".to_string(),
+            loopback_ip: "10.0.0.1".parse().unwrap(),
             asn: 65000,
             datacenter_asn: 11414,
             site_global_vpc_vni: None,

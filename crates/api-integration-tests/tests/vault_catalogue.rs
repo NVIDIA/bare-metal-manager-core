@@ -17,11 +17,11 @@
 
 use std::net::TcpListener;
 
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialPrefix, CredentialWriter, Credentials,
     MqttCredentialType,
 };
-use forge_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
+use carbide_secrets::{ForgeVaultClient, VaultConfig, create_vault_client};
 use mac_address::MacAddress;
 use serial_test::serial;
 

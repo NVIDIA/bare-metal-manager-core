@@ -528,7 +528,7 @@ mod key_id_tests {
     #[test]
     fn generate_es256_key_pair_produces_valid_outputs() {
         let (private_pem, public_pem) =
-            forge_secrets::key_encryption::generate_es256_key_pair().unwrap();
+            carbide_secrets::key_encryption::generate_es256_key_pair().unwrap();
         assert!(private_pem.starts_with(b"-----BEGIN"));
         assert!(public_pem.contains("PUBLIC KEY"));
         let key_id = KeyId::key_id_from_public_key(&public_pem);

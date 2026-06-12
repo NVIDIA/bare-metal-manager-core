@@ -23,7 +23,7 @@ use rpc::{CredentialType, forge as forgerpc};
 EXAMPLES:
 
 Add an NMX-M credential:
-    $ carbide-admin-cli credential add-nmx-m --username admin --password mypassword
+    $ nico-admin-cli credential add-nmx-m --username admin --password mypassword
 
 ")]
 pub struct Args {

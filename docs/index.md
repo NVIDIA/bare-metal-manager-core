@@ -19,4 +19,4 @@ NICo is open source under the Apache 2.0 license.
 - [Hardware Compatibility List](hcl.md) — Supported servers and DPUs
 - [Release Notes](release-notes.md) — What's new in each version
 - [FAQs](faq.md) — Common questions answered
-- [GitHub: NICo Core](https://github.com/NVIDIA/ncx-infra-controller-core) | [NICo REST](https://github.com/NVIDIA/ncx-infra-controller-rest)
+- [GitHub](https://github.com/NVIDIA/infra-controller)

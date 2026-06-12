@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{
-    BgpCredentialType, CredentialKey, CredentialReader, CredentialType, CredentialWriter,
-    Credentials,
+use carbide_secrets::credentials::{
+    BgpCredentialType, BmcCredentialType, CredentialKey, CredentialReader, CredentialType,
+    CredentialWriter, Credentials,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -311,4 +311,87 @@ async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()
     assert_eq!(username_password.password, "nvos-secret");
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_missing_default_credentials(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let bmc_root = CredentialKey::BmcCredentials {
+        credential_type: BmcCredentialType::SiteWideRoot,
+    };
+    let host_uefi = CredentialKey::HostUefi {
+        credential_type: CredentialType::SiteDefault,
+    };
+    let dpu_uefi = CredentialKey::DpuUefi {
+        credential_type: CredentialType::SiteDefault,
+    };
+    let bmc_root_key = bmc_root.to_key_str().to_string();
+    let host_uefi_key = host_uefi.to_key_str().to_string();
+    let dpu_uefi_key = dpu_uefi.to_key_str().to_string();
+
+    let creds = |password: &str| Credentials::UsernamePassword {
+        username: String::new(),
+        password: password.to_string(),
+    };
+
+    // A fresh environment has none of the site-wide defaults configured.
+    let keys: Vec<String> = env
+        .api
+        .missing_default_credentials()
+        .await
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    assert_eq!(keys.len(), 3, "expected all defaults missing, got {keys:?}");
+    assert!(keys.contains(&bmc_root_key));
+    assert!(keys.contains(&host_uefi_key));
+    assert!(keys.contains(&dpu_uefi_key));
+
+    // Configuring one credential removes it from the missing set.
+    env.test_credential_manager
+        .set_credentials(&bmc_root, &creds("bmc-root-pw"))
+        .await
+        .unwrap();
+    let keys: Vec<String> = env
+        .api
+        .missing_default_credentials()
+        .await
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    assert_eq!(keys.len(), 2, "got {keys:?}");
+    assert!(!keys.contains(&bmc_root_key));
+
+    // An empty password still counts as "not configured".
+    env.test_credential_manager
+        .set_credentials(&host_uefi, &creds(""))
+        .await
+        .unwrap();
+    let keys: Vec<String> = env
+        .api
+        .missing_default_credentials()
+        .await
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    assert!(
+        keys.contains(&host_uefi_key),
+        "empty password must count as missing, got {keys:?}"
+    );
+
+    // Configuring the remaining two with real passwords clears the warning.
+    env.test_credential_manager
+        .set_credentials(&host_uefi, &creds("host-uefi-pw"))
+        .await
+        .unwrap();
+    env.test_credential_manager
+        .set_credentials(&dpu_uefi, &creds("dpu-uefi-pw"))
+        .await
+        .unwrap();
+    let missing = env.api.missing_default_credentials().await;
+    assert!(
+        missing.is_empty(),
+        "expected no missing defaults, got {missing:?}"
+    );
 }

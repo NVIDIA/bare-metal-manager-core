@@ -22,16 +22,16 @@ use clap::Parser;
 EXAMPLES:
 
 List all NvLink partitions:
-    $ carbide-admin-cli nvl-partition show
+    $ nico-admin-cli nvl-partition show
 
 Show one NvLink partition by ID:
-    $ carbide-admin-cli nvl-partition show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli nvl-partition show 12345678-1234-5678-90ab-cdef01234567
 
 Filter by tenant org:
-    $ carbide-admin-cli nvl-partition show --tenant-org-id fds34511233a
+    $ nico-admin-cli nvl-partition show --tenant-org-id fds34511233a
 
 Filter by name:
-    $ carbide-admin-cli nvl-partition show --name my-partition
+    $ nico-admin-cli nvl-partition show --name my-partition
 
 ")]
 pub struct Args {

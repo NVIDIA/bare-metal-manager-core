@@ -78,57 +78,81 @@ impl From<&&'static Location<'static>> for PersistentSourceReference {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
+
+    // Serialize each outcome variant to JSON. The serialized String is the
+    // contract, so we yield it directly. serde_json::Error is not PartialEq, so
+    // the (unreachable here) failing path would use Fails; every row succeeds.
     #[test]
     fn test_state_outcome_serialize() {
-        let wait_state = PersistentStateHandlerOutcome::Wait {
-            reason: "Reason goes here".to_string(),
-            source_ref: None,
-        };
-        let serialized = serde_json::to_string(&wait_state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"outcome":"wait","reason":"Reason goes here"}"#
+        check_cases(
+            [
+                Case {
+                    scenario: "wait with reason",
+                    input: PersistentStateHandlerOutcome::Wait {
+                        reason: "Reason goes here".to_string(),
+                        source_ref: None,
+                    },
+                    expect: Yields(r#"{"outcome":"wait","reason":"Reason goes here"}"#.to_string()),
+                },
+                Case {
+                    scenario: "transition, no source ref",
+                    input: PersistentStateHandlerOutcome::Transition { source_ref: None },
+                    expect: Yields(r#"{"outcome":"transition"}"#.to_string()),
+                },
+                Case {
+                    scenario: "donothing with source ref details",
+                    input: PersistentStateHandlerOutcome::DoNothing {
+                        source_ref: Some(PersistentSourceReference {
+                            file: "a.rs".to_string(),
+                            line: 100,
+                        }),
+                    },
+                    expect: Yields(
+                        r#"{"outcome":"donothing","source_ref":{"file":"a.rs","line":100}}"#
+                            .to_string(),
+                    ),
+                },
+            ],
+            |outcome| serde_json::to_string(&outcome).map_err(drop),
         );
     }
 
+    // Deserialize JSON back into the outcome variant (the round-trip targets and
+    // the standalone deserialize case). The deserialized type is PartialEq+Debug,
+    // so we yield it directly. serde_json::Error is not PartialEq, hence map_err.
     #[test]
     fn test_state_outcome_deserialize() {
-        let serialized = r#"{"outcome":"error","err":"Error message here"}"#;
-        let expected_error_state = PersistentStateHandlerOutcome::Error {
-            err: "Error message here".to_string(),
-            source_ref: None,
-        };
-        let deserialized: PersistentStateHandlerOutcome = serde_json::from_str(serialized).unwrap();
-        assert_eq!(deserialized, expected_error_state);
-    }
-
-    #[test]
-    fn test_state_outcome_serialize_deserialize_basic() {
-        let transition_state = PersistentStateHandlerOutcome::Transition { source_ref: None };
-        let serialized = serde_json::to_string(&transition_state).unwrap();
-        assert_eq!(serialized, r#"{"outcome":"transition"}"#);
-
-        let deserialized: PersistentStateHandlerOutcome =
-            serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized, transition_state);
-    }
-
-    #[test]
-    fn test_state_outcome_serialize_details() {
-        let state = PersistentStateHandlerOutcome::DoNothing {
-            source_ref: Some(PersistentSourceReference {
-                file: "a.rs".to_string(),
-                line: 100,
-            }),
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"outcome":"donothing","source_ref":{"file":"a.rs","line":100}}"#
+        check_cases(
+            [
+                Case {
+                    scenario: "error variant",
+                    input: r#"{"outcome":"error","err":"Error message here"}"#,
+                    expect: Yields(PersistentStateHandlerOutcome::Error {
+                        err: "Error message here".to_string(),
+                        source_ref: None,
+                    }),
+                },
+                Case {
+                    scenario: "transition round-trip",
+                    input: r#"{"outcome":"transition"}"#,
+                    expect: Yields(PersistentStateHandlerOutcome::Transition { source_ref: None }),
+                },
+                Case {
+                    scenario: "donothing with source ref round-trip",
+                    input: r#"{"outcome":"donothing","source_ref":{"file":"a.rs","line":100}}"#,
+                    expect: Yields(PersistentStateHandlerOutcome::DoNothing {
+                        source_ref: Some(PersistentSourceReference {
+                            file: "a.rs".to_string(),
+                            line: 100,
+                        }),
+                    }),
+                },
+            ],
+            |json| serde_json::from_str::<PersistentStateHandlerOutcome>(json).map_err(drop),
         );
-        let deserialized: PersistentStateHandlerOutcome =
-            serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized, state);
     }
 }

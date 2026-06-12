@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -25,12 +25,17 @@ var _ MappedNullable = &MachineInstanceType{}
 type MachineInstanceType struct {
 	// Deprecated: Use `machineId` when identifying a Machine/Instance Type association. This field will be removed on July 9th, 2026 0:00 UTC.
 	// Deprecated
-	Id             *string       `json:"id,omitempty"`
-	MachineId      *string       `json:"machineId,omitempty"`
-	InstanceTypeId *string       `json:"instanceTypeId,omitempty"`
-	Deprecations   []Deprecation `json:"deprecations,omitempty"`
-	Created        *time.Time    `json:"created,omitempty"`
-	Updated        *time.Time    `json:"updated,omitempty"`
+	Id *string `json:"id,omitempty"`
+	// ID of the associated Machine
+	MachineId *string `json:"machineId,omitempty"`
+	// ID of the associated Instance Type
+	InstanceTypeId *string `json:"instanceTypeId,omitempty"`
+	// Deprecation notices for fields returned by this resource
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
+	// Date and time the Machine Instance Type was created
+	Created *time.Time `json:"created,omitempty"`
+	// Date and time the Machine Instance Type was last updated
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewMachineInstanceType instantiates a new MachineInstanceType object

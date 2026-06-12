@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -29,16 +29,18 @@ type AllocationConstraint struct {
 	AllocationId *string `json:"allocationId,omitempty"`
 	// Type of the Resource that the Allocation Constraint applies to
 	ResourceType *string `json:"resourceType,omitempty"`
-	// ID of the Resource Type that acts as the source of the Allocation. For resource type: `InstanceType`, this is the ID of the Instance Type whose associated Machines are allocated to the Tenant. For resource type `IPBlock`, this is the ID of the Site level IP Block from where a prefix is allocated to the Tenant.
+	// ID of the resource that acts as the source of the Allocation. For resource type `InstanceType`, this is the ID of the Instance Type whose associated Machines are allocated to the Tenant. For resource type `IPBlock`, this is the ID of the Site-level IP Block from which a prefix is allocated to the Tenant.
 	ResourceTypeId *string `json:"resourceTypeId,omitempty"`
 	// Type of the Allocation Constraint. `Reserved` is the only constraint type supported by current implementation.
 	ConstraintType *string `json:"constraintType,omitempty"`
 	// Value of the Allocation Constraint. For resource type: `InstanceType`, this value represents number of Machines associated with the Instance Type that is allocated to the Tenant. For resource type `IPBlock`, this value represents the prefix length of the IP Block allocated to the Tenant.
 	ConstraintValue *int32 `json:"constraintValue,omitempty"`
 	// ID of the allocated Tenant IP Block when resource type is IPBlock
-	DerivedResourceId NullableString       `json:"derivedResourceId,omitempty"`
-	InstanceType      *InstanceTypeSummary `json:"instanceType,omitempty"`
-	IpBlock           *IpBlockSummary      `json:"ipBlock,omitempty"`
+	DerivedResourceId NullableString `json:"derivedResourceId,omitempty"`
+	// Summary of the Instance Type
+	InstanceType *InstanceTypeSummary `json:"instanceType,omitempty"`
+	// Summary of the IP Block
+	IpBlock *IpBlockSummary `json:"ipBlock,omitempty"`
 	// Date/time when the Allocation Constraint was created
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Allocation Constraint was last updated

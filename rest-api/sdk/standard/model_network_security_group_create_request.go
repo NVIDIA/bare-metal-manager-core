@@ -4,7 +4,7 @@
 /*
 NVIDIA Infra Controller REST API
 
-NVIDIA Infra Controller REST API allows users to create and manage resources e.g. VPC, Subnets, Instances across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
+NVIDIA Infra Controller REST API allows users to create and manage resources, e.g., VPCs, Subnets, and Instances, across all connected NVIDIA Infra Controller datacenters, also referred to as Sites.
 
 API version: 1.6.0
 */
@@ -24,13 +24,18 @@ var _ MappedNullable = &NetworkSecurityGroupCreateRequest{}
 
 // NetworkSecurityGroupCreateRequest Request data to create a Network Security Group
 type NetworkSecurityGroupCreateRequest struct {
-	Name        string         `json:"name"`
+	// Name of the Network Security Group
+	Name string `json:"name"`
+	// Description of the Network Security Group
 	Description NullableString `json:"description,omitempty"`
-	SiteId      string         `json:"siteId"`
+	// ID of the Site
+	SiteId string `json:"siteId"`
 	// Egress rules with protocol and destination ports defined but without source ports defined should automatically be made stateful.
-	StatefulEgress *bool                      `json:"statefulEgress,omitempty"`
-	Rules          []NetworkSecurityGroupRule `json:"rules,omitempty"`
-	Labels         map[string]string          `json:"labels,omitempty"`
+	StatefulEgress *bool `json:"statefulEgress,omitempty"`
+	// Rules that belong to the Network Security Group
+	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
+	// User-defined key-value labels for the Network Security Group
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type _NetworkSecurityGroupCreateRequest NetworkSecurityGroupCreateRequest

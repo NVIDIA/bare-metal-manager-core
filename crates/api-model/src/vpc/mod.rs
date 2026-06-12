@@ -61,6 +61,14 @@ pub struct Vpc {
     pub status: Option<VpcStatus>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct VpcDefinition {
+    pub organization_id: Option<String>,
+    pub network_virtualization_type: VpcVirtualizationType,
+    pub routing_profile_type: Option<String>,
+    pub vni: Option<i32>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct VpcSearchFilter {
     pub name: Option<String>,

@@ -23,7 +23,7 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use carbide_api_core::Api;
+use carbide_api_core::{Api, DefaultCredential};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
@@ -46,6 +46,7 @@ struct ExploredEndpointsShow {
     active_vendor_filter: String,
     is_errors_only: bool,
     page: PageContext,
+    missing_default_credentials: Vec<DefaultCredential>,
 }
 
 #[derive(Template)]
@@ -53,6 +54,7 @@ struct ExploredEndpointsShow {
 struct ExploredEndpointsShowPaired {
     managed_hosts: Vec<ExploredManagedHostDisplay>,
     page: PageContext,
+    missing_default_credentials: Vec<DefaultCredential>,
 }
 
 fn managed_hosts_from_report(report: &SiteExplorationReport) -> Vec<ExploredManagedHostDisplay> {
@@ -258,6 +260,7 @@ pub async fn show_html_all(
         is_errors_only,
         page: PageContext::new(info, "/admin/explored-endpoint")
             .with_extra_params(extra_query_params),
+        missing_default_credentials: state.missing_default_credentials().await,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -284,6 +287,7 @@ pub async fn show_html_paired(
     let tmpl = ExploredEndpointsShowPaired {
         managed_hosts,
         page: PageContext::new(info, "/admin/explored-endpoint/paired"),
+        missing_default_credentials: state.missing_default_credentials().await,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -377,6 +381,7 @@ pub async fn show_html_unpaired(
         is_errors_only,
         page: PageContext::new(info, "/admin/explored-endpoint/unpaired")
             .with_extra_params(extra_query_params),
+        missing_default_credentials: state.missing_default_credentials().await,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -741,15 +746,15 @@ fn vendors(endpoints: &[ExploredEndpointDisplay]) -> Vec<String> {
 
 fn query_filter_for(
     mut params: HashMap<String, String>,
-) -> Box<dyn Fn(&ExploredEndpointDisplay) -> bool> {
-    let vf: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> =
+) -> Box<dyn Fn(&ExploredEndpointDisplay) -> bool + Send> {
+    let vf: Box<dyn Fn(&ExploredEndpointDisplay) -> bool + Send> =
         match params.remove("vendor-filter").map(|v| v.trim().to_string()) {
             Some(v) if v != "all" => Box::new(move |ep: &ExploredEndpointDisplay| {
                 ep.vendor.to_lowercase() == v || v == "none" && ep.vendor.is_empty()
             }),
             _ => Box::new(|_| true),
         };
-    let ef: Box<dyn Fn(&ExploredEndpointDisplay) -> bool> = if params
+    let ef: Box<dyn Fn(&ExploredEndpointDisplay) -> bool + Send> = if params
         .get("errors-only")
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false)

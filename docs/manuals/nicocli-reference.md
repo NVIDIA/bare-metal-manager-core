@@ -6,9 +6,10 @@ The [Day One Operations](day_one_operations.md) guide uses this reference for al
 
 ## Installation
 
-Build and install from the `infra-controller-rest` repo:
+Build and install from the `rest-api/` directory of the `infra-controller` repo:
 
 ```
+cd rest-api
 make nico-cli                                # installs to $(go env GOPATH)/bin/nicocli
 make nico-cli INSTALL_DIR=/usr/local/bin     # install elsewhere
 ```

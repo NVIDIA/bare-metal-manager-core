@@ -25,14 +25,14 @@ use crate::machine::HealthReportTemplates;
 EXAMPLES:
 
 List the health report sources for a DPU:
-    $ carbide-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
 
 Add a health report source from a predefined template:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance
 
 Remove a health report source from a DPU:
-    $ carbide-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
     internal-maintenance
 
 ")]
@@ -42,7 +42,7 @@ pub enum Args {
 EXAMPLES:
 
 List the health report sources for a DPU:
-    $ carbide-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpu health-report show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
     Show { dpu_id: MachineId },
@@ -55,7 +55,7 @@ List the health report sources for a DPU:
 EXAMPLES:
 
 Remove a health report source from a DPU:
-    $ carbide-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report remove 12345678-1234-5678-90ab-cdef01234567 \
     internal-maintenance
 
 ")]
@@ -71,23 +71,23 @@ Remove a health report source from a DPU:
 EXAMPLES:
 
 Add a health report source from a predefined template:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance
 
 Add a template-based source with a custom message:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template out-for-repair --message \"awaiting replacement part\"
 
 Add a raw JSON health report source:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --health-report '{\"status\":\"Degraded\"}'
 
 Replace the DPU's health contribution with this source:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance --replace
 
 Preview the report without sending it to carbide:
-    $ carbide-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli dpu health-report add 12345678-1234-5678-90ab-cdef01234567 \
     --template internal-maintenance --print-only
 
 ")]

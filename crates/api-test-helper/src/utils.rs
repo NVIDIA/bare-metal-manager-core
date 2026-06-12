@@ -21,10 +21,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
+use carbide_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use carbide_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use carbide_utils::HostPortPair;
 use eyre::Report;
-use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
-use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use metrics_endpoint::MetricsSetup;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Pool, Postgres};
@@ -293,7 +293,7 @@ pub async fn populate_initial_vault_secrets(
     credential_manager
         .set_credentials(
             &CredentialKey::BmcCredentials {
-                credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+                credential_type: carbide_secrets::credentials::BmcCredentialType::SiteWideRoot,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),

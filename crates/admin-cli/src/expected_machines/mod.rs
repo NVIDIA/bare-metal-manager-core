@@ -45,10 +45,10 @@ pub enum Cmd {
     ///
     /// Examples:
     ///   # Update only SKU, preserve all other fields including metadata
-    ///   carbide-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
+    ///   nico-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f --sku-id new_sku
     ///
     ///   # Update only labels, preserve name and description
-    ///   carbide-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
+    ///   nico-admin-cli expected-machine patch --bmc-mac-address 1a:1b:1c:1d:1e:1f \
     ///     --sku-id sku123 --label env:prod --label team:platform
     #[clap(verbatim_doc_comment)]
     Patch(patch::Args),
@@ -73,7 +73,7 @@ pub enum Cmd {
     ///    }
     ///
     /// Usage:
-    ///   carbide-admin-cli expected-machine update --filename machine.json
+    ///   nico-admin-cli expected-machine update --filename machine.json
     #[clap(verbatim_doc_comment)]
     Update(update::Args),
     /// Replace all entries in the expected machines table with the entries from an inputted json file.

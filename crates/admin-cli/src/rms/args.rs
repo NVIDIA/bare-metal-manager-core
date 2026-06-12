@@ -22,13 +22,13 @@ use clap::Parser;
 EXAMPLES:
 
 Get the full RMS inventory (RMS URL taken from --url or config):
-    $ carbide-admin-cli rms --url https://rms.example.com:8443 inventory
+    $ nico-admin-cli rms --url https://rms.example.com:8443 inventory
 
 Get a rack's power-on sequence (URL from config):
-    $ carbide-admin-cli rms power-on-sequence rack-1
+    $ nico-admin-cli rms power-on-sequence rack-1
 
 Talk to RMS over mTLS with explicit certs:
-    $ carbide-admin-cli rms --url https://rms.example.com:8443 \
+    $ nico-admin-cli rms --url https://rms.example.com:8443 \
     --root-ca /etc/rms/ca.crt --client-cert /etc/rms/client.crt \
     --client-key /etc/rms/client.key inventory
 
@@ -71,7 +71,7 @@ pub enum Cmd {
 EXAMPLES:
 
 Get the power-on sequence for a rack:
-    $ carbide-admin-cli rms power-on-sequence rack-1
+    $ nico-admin-cli rms power-on-sequence rack-1
 
 ")]
 pub struct PowerOnSequence {
@@ -92,7 +92,7 @@ impl From<PowerOnSequence> for librms::protos::rack_manager::GetRackPowerOnSeque
 EXAMPLES:
 
 Get the power state of a node in a rack:
-    $ carbide-admin-cli rms power-state rack-1 node-1
+    $ nico-admin-cli rms power-state rack-1 node-1
 
 ")]
 pub struct PowerState {
@@ -116,7 +116,7 @@ impl From<PowerState> for librms::protos::rack_manager::GetPowerStateRequest {
 EXAMPLES:
 
 Get the firmware inventory for a node in a rack:
-    $ carbide-admin-cli rms firmware-inventory rack-1 node-1
+    $ nico-admin-cli rms firmware-inventory rack-1 node-1
 
 ")]
 pub struct FirmwareInventory {

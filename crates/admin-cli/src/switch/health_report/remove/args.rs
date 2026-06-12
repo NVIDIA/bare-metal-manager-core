@@ -23,7 +23,7 @@ use clap::Parser;
 EXAMPLES:
 
 Remove a health report source from a switch (source name from `health-report show`):
-    $ carbide-admin-cli switch health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report remove 12345678-1234-5678-90ab-cdef01234567 \
     internal-maintenance
 
 ")]

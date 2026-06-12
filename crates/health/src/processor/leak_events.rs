@@ -215,7 +215,7 @@ mod tests {
     fn ignores_non_health_report_events() {
         let processor = LeakEventProcessor::new(1);
         let metric_event = CollectorEvent::Metric(
-            crate::sink::SensorHealthData {
+            crate::sink::MetricSample {
                 key: "k".to_string(),
                 name: "n".to_string(),
                 metric_type: "gauge".to_string(),

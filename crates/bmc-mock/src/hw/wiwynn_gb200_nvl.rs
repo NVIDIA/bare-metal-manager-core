@@ -94,6 +94,8 @@ impl WiwynnGB200Nvl<'_> {
                 .build()
         })).collect();
 
+        let hgx_baseboard_id = "HGX_Baseboard_0";
+
         redfish::computer_system::Config {
             systems: vec![
                 redfish::computer_system::SingleSystemConfig {
@@ -117,10 +119,11 @@ impl WiwynnGB200Nvl<'_> {
                     ),
                     log_services: None,
                     storage: None,
+                    processors: None,
                     secure_boot_available: true,
                 },
                 redfish::computer_system::SingleSystemConfig {
-                    id: "HGX_Baseboard_0".into(),
+                    id: hgx_baseboard_id.into(),
                     manufacturer: Some("NVIDIA".into()),
                     model: Some("GB200 NVL".into()),
                     chassis: vec!["HGX_Chassis_0".into()],
@@ -134,6 +137,12 @@ impl WiwynnGB200Nvl<'_> {
                     base_bios: None,
                     log_services: None,
                     storage: None,
+                    processors: Some(
+                        self.compute_board
+                            .iter()
+                            .flat_map(|board| board.hgx_gpu_processors(hgx_baseboard_id))
+                            .collect(),
+                    ),
                     secure_boot_available: false,
                 },
             ],
@@ -203,36 +212,9 @@ impl WiwynnGB200Nvl<'_> {
                     .map(|(index, id)| self.compute_board[index].hgx_cpu_chassis(id.into())),
             )
             .chain(
-                [
-                    (
-                        0,
-                        [
-                            hw::nvidia_gb200::GpuChassisIds {
-                                chassis_id: "HGX_GPU_0".into(),
-                                pcie_device_id: "GPU_0".into(),
-                            },
-                            hw::nvidia_gb200::GpuChassisIds {
-                                chassis_id: "HGX_GPU_1".into(),
-                                pcie_device_id: "GPU_1".into(),
-                            },
-                        ],
-                    ),
-                    (
-                        1,
-                        [
-                            hw::nvidia_gb200::GpuChassisIds {
-                                chassis_id: "HGX_GPU_2".into(),
-                                pcie_device_id: "GPU_2".into(),
-                            },
-                            hw::nvidia_gb200::GpuChassisIds {
-                                chassis_id: "HGX_GPU_3".into(),
-                                pcie_device_id: "GPU_3".into(),
-                            },
-                        ],
-                    ),
-                ]
-                .into_iter()
-                .flat_map(|(index, ids)| self.compute_board[index].hgx_gpu_chassis(ids)),
+                self.compute_board
+                    .iter()
+                    .flat_map(|board| board.hgx_gpu_chassis()),
             )
             .chain(
                 self.io_board

@@ -926,6 +926,40 @@ async fn test_find_all_linked_joins_on_bmc_mac(pool: sqlx::PgPool) {
     );
 }
 
+#[crate::sqlx_test]
+async fn test_find_one_linked_returns_explored_endpoint_address(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    create_expected_switches(&mut txn).await;
+
+    let linked = db::expected_switch::find_one_linked(&mut txn)
+        .await
+        .unwrap()
+        .expect("expected a linked switch row");
+    assert_eq!(linked.address, None);
+
+    let address =
+        db::machine_interface::lookup_bmc_ip_by_mac_address(&mut *txn, linked.bmc_mac_address)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("expected a BMC interface address");
+
+    db::explored_endpoints::insert(address, &Default::default(), false, &mut txn)
+        .await
+        .unwrap();
+
+    let linked = db::expected_switch::find_one_linked(&mut txn)
+        .await
+        .unwrap()
+        .expect("expected a linked switch row");
+    assert_eq!(linked.address, Some(address));
+
+    txn.commit().await.unwrap();
+}
+
 /// Verify that update persists nvos_mac_addresses.
 #[crate::sqlx_test]
 async fn test_update_persists_nvos_mac_addresses(pool: sqlx::PgPool) {
@@ -996,6 +1030,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
         bmc_ip.parse().unwrap(),
         model::machine_interface::InterfaceType::Bmc,
         "expected_switch BMC",
+        None,
     )
     .await;
 

@@ -10,13 +10,12 @@
 package nicoapigrpc
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -7900,8 +7899,8 @@ const file_mlx_device_proto_rawDesc = "" +
 	"LockStatus\x12\x17\n" +
 	"\x13LOCK_STATUS_UNKNOWN\x10\x00\x12\x16\n" +
 	"\x12LOCK_STATUS_LOCKED\x10\x01\x12\x18\n" +
-	"\x14LOCK_STATUS_UNLOCKED\x10\x02B\xa7\x01\n" +
-	"\x0ecom.mlx_deviceB\x0eMlxDeviceProtoP\x01ZAgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\tMlxDevice\xca\x02\tMlxDevice\xe2\x02\x15MlxDevice\\GPBMetadata\xea\x02\tMlxDeviceb\x06proto3"
+	"\x14LOCK_STATUS_UNLOCKED\x10\x02B\xab\x01\n" +
+	"\x0ecom.mlx_deviceB\x0eMlxDeviceProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\tMlxDevice\xca\x02\tMlxDevice\xe2\x02\x15MlxDevice\\GPBMetadata\xea\x02\tMlxDeviceb\x06proto3"
 
 var (
 	file_mlx_device_proto_rawDescOnce sync.Once

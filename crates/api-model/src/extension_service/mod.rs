@@ -236,3 +236,97 @@ pub struct ExtensionServiceObservabilityConfig {
 pub struct ExtensionServiceObservability {
     pub configs: Vec<ExtensionServiceObservabilityConfig>,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
+    use super::*;
+
+    // ExtensionServiceType parses case-insensitively from its wire form, and an
+    // unknown string is rejected.
+    #[test]
+    fn extension_service_type_from_str() {
+        check_cases(
+            [
+                Case {
+                    scenario: "canonical kubernetes_pod",
+                    input: "kubernetes_pod",
+                    expect: Yields(ExtensionServiceType::KubernetesPod),
+                },
+                Case {
+                    scenario: "mixed case is normalized",
+                    input: "Kubernetes_Pod",
+                    expect: Yields(ExtensionServiceType::KubernetesPod),
+                },
+                Case {
+                    scenario: "unknown type is rejected",
+                    input: "virtual_machine",
+                    expect: Fails,
+                },
+            ],
+            |s| ExtensionServiceType::from_str(s).map_err(drop),
+        );
+    }
+
+    // Display is the inverse of from_str: each variant's wire form parses back to it.
+    #[test]
+    fn extension_service_type_display_round_trips() {
+        check_cases(
+            [Case {
+                scenario: "kubernetes_pod",
+                input: ExtensionServiceType::KubernetesPod,
+                expect: Yields(ExtensionServiceType::KubernetesPod),
+            }],
+            |t| ExtensionServiceType::from_str(&t.to_string()).map_err(drop),
+        );
+    }
+
+    // The observability config tree round-trips through JSON for each variant,
+    // exercising the nested enum and its Prometheus / Logging payloads.
+    #[test]
+    fn observability_config_json_round_trip() {
+        let prometheus = ExtensionServiceObservability {
+            configs: vec![ExtensionServiceObservabilityConfig {
+                name: Some("metrics".to_string()),
+                config: ExtensionServiceObservabilityConfigType::Prometheus(
+                    ExtensionServiceObservabilityConfigTypePrometheus {
+                        scrape_interval_seconds: 30,
+                        endpoint: "/metrics".to_string(),
+                    },
+                ),
+            }],
+        };
+        let logging = ExtensionServiceObservability {
+            configs: vec![ExtensionServiceObservabilityConfig {
+                name: None,
+                config: ExtensionServiceObservabilityConfigType::Logging(
+                    ExtensionServiceObservabilityConfigTypeLogging {
+                        path: "/var/log/svc.log".to_string(),
+                    },
+                ),
+            }],
+        };
+        check_cases(
+            [
+                Case {
+                    scenario: "prometheus config",
+                    input: prometheus.clone(),
+                    expect: Yields(prometheus),
+                },
+                Case {
+                    scenario: "logging config",
+                    input: logging.clone(),
+                    expect: Yields(logging),
+                },
+            ],
+            |obs| {
+                let json = serde_json::to_string(&obs).map_err(drop)?;
+                serde_json::from_str::<ExtensionServiceObservability>(&json).map_err(drop)
+            },
+        );
+    }
+}

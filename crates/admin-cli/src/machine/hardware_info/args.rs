@@ -23,10 +23,10 @@ use clap::Parser;
 EXAMPLES:
 
 Show a machine's hardware info:
-    $ carbide-admin-cli machine hardware-info show --machine 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli machine hardware-info show --machine 12345678-1234-5678-90ab-cdef01234567
 
 Update a machine's GPUs from a JSON file:
-    $ carbide-admin-cli machine hardware-info update gpus --machine 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli machine hardware-info update gpus --machine 12345678-1234-5678-90ab-cdef01234567 \
     --gpu-json-file ./gpus.json
 
 ")]

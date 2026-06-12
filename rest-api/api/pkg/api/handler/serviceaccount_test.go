@@ -15,6 +15,7 @@ import (
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +110,35 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 			} else {
 				assert.Nil(t, sa.InfrastructureProviderID)
 				assert.Nil(t, sa.TenantID)
+			}
+
+			// For the org with no pre-existing Tenant Account (org1), the handler
+			// creates one and must record an initial Ready status detail so the
+			// account's status history is never empty.
+			if test.org == org1 {
+				ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)
+				tnDAO := cdbm.NewTenantDAO(dbSession)
+				taDAO := cdbm.NewTenantAccountDAO(dbSession)
+				sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+				ips, ipErr := ipDAO.GetAllByOrg(ctx, nil, org1, nil)
+				require.NoError(t, ipErr)
+				require.Len(t, ips, 1)
+				tns, tnErr := tnDAO.GetAllByOrg(ctx, nil, org1, nil)
+				require.NoError(t, tnErr)
+				require.Len(t, tns, 1)
+
+				tas, _, taErr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+					InfrastructureProviderID: &ips[0].ID,
+					TenantIDs:                []uuid.UUID{tns[0].ID},
+				}, cdbp.PageInput{}, nil)
+				require.NoError(t, taErr)
+				require.Len(t, tas, 1)
+
+				sds, sdErr := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{tas[0].ID.String()}, common.RECENT_STATUS_DETAIL_COUNT)
+				require.NoError(t, sdErr)
+				require.NotEmpty(t, sds, "service-account-created tenant account should have a status detail")
+				assert.Equal(t, cdbm.TenantAccountStatusReady, sds[0].Status)
 			}
 		})
 	}

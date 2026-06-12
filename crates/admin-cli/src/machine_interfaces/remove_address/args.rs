@@ -25,7 +25,7 @@ use clap::Parser;
 EXAMPLES:
 
 Remove a static address from a machine interface:
-    $ carbide-admin-cli machine-interfaces remove-address 12345678-1234-5678-90ab-cdef01234567 10.0.0.5
+    $ nico-admin-cli machine-interfaces remove-address 12345678-1234-5678-90ab-cdef01234567 10.0.0.5
 
 ")]
 pub struct Args {

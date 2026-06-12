@@ -81,11 +81,11 @@ pub enum CmdProfile {
 EXAMPLES:
 
 Create a profile for a vendor/product pair:
-    $ carbide-admin-cli attestation measured-boot profile create my-profile dell \
+    $ nico-admin-cli attestation measured-boot profile create my-profile dell \
     poweredge_r750
 
 Create a profile with extra attributes:
-    $ carbide-admin-cli attestation measured-boot profile create my-profile dell \
+    $ nico-admin-cli attestation measured-boot profile create my-profile dell \
     poweredge_r750 --extra-attrs region:us-west,rack:r1
 
 ")]
@@ -119,10 +119,10 @@ pub struct Create {
 EXAMPLES:
 
 Delete a profile by name:
-    $ carbide-admin-cli attestation measured-boot profile delete my-profile
+    $ nico-admin-cli attestation measured-boot profile delete my-profile
 
 Delete a profile selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot profile delete \
+    $ nico-admin-cli attestation measured-boot profile delete \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 ")]
@@ -155,10 +155,10 @@ impl IdNameIdentifier for Delete {
 EXAMPLES:
 
 Rename a profile, letting the CLI detect ID vs name:
-    $ carbide-admin-cli attestation measured-boot profile rename old-name new-name
+    $ nico-admin-cli attestation measured-boot profile rename old-name new-name
 
 Rename a profile selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot profile rename \
+    $ nico-admin-cli attestation measured-boot profile rename \
     12345678-1234-5678-90ab-cdef01234567 new-name --is-id
 
 ")]
@@ -193,14 +193,14 @@ impl IdNameIdentifier for Rename {
 EXAMPLES:
 
 Show all profiles:
-    $ carbide-admin-cli attestation measured-boot profile show
+    $ nico-admin-cli attestation measured-boot profile show
 
 Show one profile by ID:
-    $ carbide-admin-cli attestation measured-boot profile show \
+    $ nico-admin-cli attestation measured-boot profile show \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 Show one profile by name:
-    $ carbide-admin-cli attestation measured-boot profile show my-profile --is-name
+    $ nico-admin-cli attestation measured-boot profile show my-profile --is-name
 
 ")]
 pub struct Show {
@@ -230,13 +230,13 @@ impl IdNameIdentifier for Show {
 EXAMPLES:
 
 List all profiles:
-    $ carbide-admin-cli attestation measured-boot profile list all
+    $ nico-admin-cli attestation measured-boot profile list all
 
 List all bundles for a profile:
-    $ carbide-admin-cli attestation measured-boot profile list bundles my-profile
+    $ nico-admin-cli attestation measured-boot profile list bundles my-profile
 
 List all machines for a profile:
-    $ carbide-admin-cli attestation measured-boot profile list machines my-profile
+    $ nico-admin-cli attestation measured-boot profile list machines my-profile
 
 ")]
 pub enum List {
@@ -262,7 +262,7 @@ pub enum List {
 EXAMPLES:
 
 List all profiles:
-    $ carbide-admin-cli attestation measured-boot profile list all
+    $ nico-admin-cli attestation measured-boot profile list all
 
 ")]
 pub struct ListAll {}
@@ -273,10 +273,10 @@ pub struct ListAll {}
 EXAMPLES:
 
 List all bundles for a profile by name:
-    $ carbide-admin-cli attestation measured-boot profile list bundles my-profile
+    $ nico-admin-cli attestation measured-boot profile list bundles my-profile
 
 List all bundles for a profile selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot profile list bundles \
+    $ nico-admin-cli attestation measured-boot profile list bundles \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 ")]
@@ -307,10 +307,10 @@ impl IdNameIdentifier for ListBundles {
 EXAMPLES:
 
 List all machines for a profile by name:
-    $ carbide-admin-cli attestation measured-boot profile list machines my-profile
+    $ nico-admin-cli attestation measured-boot profile list machines my-profile
 
 List all machines for a profile selected explicitly by ID:
-    $ carbide-admin-cli attestation measured-boot profile list machines \
+    $ nico-admin-cli attestation measured-boot profile list machines \
     12345678-1234-5678-90ab-cdef01234567 --is-id
 
 ")]

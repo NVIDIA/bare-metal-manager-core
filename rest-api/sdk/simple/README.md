@@ -42,7 +42,7 @@ go get github.com/NVIDIA/infra-controller/rest-api/sdk/simple
 For local development, use a `replace` directive:
 
 ```go
-replace github.com/NVIDIA/infra-controller/rest-api => /path/to/infra-controller-rest
+replace github.com/NVIDIA/infra-controller/rest-api => /path/to/infra-controller/rest-api
 ```
 
 ### Local development (kind)

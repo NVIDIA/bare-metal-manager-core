@@ -45,7 +45,7 @@ async fn test_oem_manager_profiles_passed_to_machine_setup() {
     )]);
 
     use carbide_redfish::libredfish::RedfishAuth;
-    use forge_secrets::credentials::{CredentialKey, CredentialType};
+    use carbide_secrets::credentials::{CredentialKey, CredentialType};
 
     let sim = RedfishSim::default();
     let timepoint = sim.timepoint();

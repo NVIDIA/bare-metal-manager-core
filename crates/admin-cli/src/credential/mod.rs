@@ -18,6 +18,7 @@
 mod add_bmc;
 mod add_dpu_factory_default;
 mod add_host_factory_default;
+mod add_nic_lockdown_ikm;
 mod add_nmxm;
 mod add_uefi;
 mod add_ufm;
@@ -48,6 +49,8 @@ pub enum Cmd {
     AddBMC(add_bmc::Args),
     #[clap(about = "Delete BMC credentials")]
     DeleteBMC(delete_bmc::Args),
+    #[clap(about = "Set the site-wide SuperNIC lockdown IKM (input key material)")]
+    AddNicLockdownIkm(add_nic_lockdown_ikm::Args),
     #[clap(
         about = "Add site-wide DPU UEFI default credential (NOTE: this parameter can be set only once)"
     )]

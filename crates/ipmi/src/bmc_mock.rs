@@ -20,10 +20,10 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 use crate::IPMITool;
 

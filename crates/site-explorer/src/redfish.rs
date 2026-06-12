@@ -29,7 +29,7 @@ use carbide_redfish::libredfish::{
     RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
 };
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
@@ -1454,10 +1454,12 @@ mod tests {
     use arc_swap::ArcSwap;
     use carbide_redfish::libredfish::test_support::RedfishSim;
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
-    use forge_secrets::credentials::Credentials;
+    use carbide_secrets::credentials::Credentials;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async};
     use libredfish::model::service_root::RedfishVendor;
 
-    use super::RedfishClient;
+    use super::{EndpointExplorationError, RedfishClient};
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 443)
@@ -1469,25 +1471,17 @@ mod tests {
         RedfishClient::new(sim, nv_pool)
     }
 
-    /// Test to check that when site-explorer rotates a BMC's root password,
-    /// it first uses an uninitialized client (`Some(RedfishVendor::Unknown)`)
-    /// to make the actual `change_password_by_id` call, and NOT a
-    /// vendor-specific client.
+    /// Rotate a BMC's root password against the sim and report the vendor
+    /// each `create_client` call was made with, in order.
     ///
-    /// The vendor-specific client triggers libredfish's full init path
-    /// (fetches `/Systems`, `/Managers`, `/Chassis`) which is unnecessary
-    /// just to PATCH `/AccountService`. Worse, factory BMCs like NVIDIA
-    /// GBx00 authenticate the supplied creds but return HTTP 403
-    /// `Base.1.18.1.PasswordChangeRequired` on `/Systems` until the
-    /// password is rotated -- so an init-first flow blocks the very PATCH
-    /// that would unblock it.
-    ///
-    /// Only the SECOND client (used to set the password policy after the
-    /// rotation has succeeded) should be vendor-specific so we get the right
-    /// `set_machine_password_policy` impl (e.g. Lite-On omits
-    /// `AccountLockoutCounterResetAfter`).
-    #[tokio::test]
-    async fn set_bmc_root_password_uses_unknown_vendor_for_password_change_client() {
+    /// This is what the password-rotation contract is asserted against: the
+    /// FIRST client (which makes the actual `change_password_by_id` PATCH to
+    /// `/AccountService`) must be uninitialized (`Some(RedfishVendor::Unknown)`),
+    /// and only the SECOND client (which sets the password policy afterward)
+    /// should carry the real `vendor`.
+    async fn password_change_client_vendors(
+        vendor: RedfishVendor,
+    ) -> Result<Vec<Option<RedfishVendor>>, EndpointExplorationError> {
         let sim = Arc::new(RedfishSim::default());
         sim.seed_user("root", "factory_pass");
 
@@ -1499,70 +1493,57 @@ mod tests {
         };
 
         redfish
-            .set_bmc_root_password(
-                test_addr(),
-                RedfishVendor::LiteOnPowerShelf,
-                factory_creds,
-                "site_pass".to_string(),
-            )
-            .await
-            .expect("set_bmc_root_password should succeed against the sim");
+            .set_bmc_root_password(test_addr(), vendor, factory_creds, "site_pass".to_string())
+            .await?;
 
-        let calls = sim.create_client_calls();
-        assert_eq!(
-            calls.len(),
-            2,
-            "expected exactly two create_client calls (one for password change, one for policy), got {calls:?}"
-        );
-        assert_eq!(
-            calls[0].vendor,
-            Some(RedfishVendor::Unknown),
-            "the FIRST client (password change) must be uninitialized (Unknown) so \
-             libredfish skips its /Systems, /Managers, /Chassis fetches. Passing the \
-             real vendor regresses to those fetches, which factory BMCs (e.g. NVIDIA \
-             GBx00) reject with HTTP 403 PasswordChangeRequired -- blocking the very \
-             PATCH that would unblock them. got: {:?}",
-            calls[0].vendor,
-        );
-        assert_eq!(
-            calls[1].vendor,
-            Some(RedfishVendor::LiteOnPowerShelf),
-            "the SECOND client (set_machine_password_policy) must use the real vendor \
-             so vendor-specific impls (e.g. Lite-On omitting AccountLockoutCounterResetAfter) \
-             are dispatched. got: {:?}",
-            calls[1].vendor,
-        );
+        Ok(sim
+            .create_client_calls()
+            .into_iter()
+            .map(|call| call.vendor)
+            .collect())
     }
 
-    /// Same regression guard, but for a non-Lite-On vendor that also needs
-    /// vendor dispatch on the second client (NvidiaDpu uses
-    /// `change_password_by_id`). Locks in that the Unknown-vs-vendor split
-    /// is consistent across vendors.
+    /// When site-explorer rotates a BMC's root password it must make the
+    /// rotation PATCH with an uninitialized `Unknown` client and only use the
+    /// real vendor on the follow-up policy client.
+    ///
+    /// The vendor-specific client triggers libredfish's full init path
+    /// (fetches `/Systems`, `/Managers`, `/Chassis`) which is unnecessary just
+    /// to PATCH `/AccountService`. Worse, factory BMCs like NVIDIA GBx00
+    /// authenticate the supplied creds but return HTTP 403
+    /// `Base.1.18.1.PasswordChangeRequired` on `/Systems` until the password is
+    /// rotated -- so an init-first flow blocks the very PATCH that would unblock
+    /// it. Only the SECOND client (set after the rotation succeeds) should be
+    /// vendor-specific, so `set_machine_password_policy` gets the right impl
+    /// (e.g. Lite-On omits `AccountLockoutCounterResetAfter`).
+    ///
+    /// Asserted as a table over vendors: each yields exactly two
+    /// `create_client` calls -- always `Unknown` first, then the real vendor --
+    /// which pins the call count, the uninitialized rotation client, and the
+    /// vendor-specific policy client all at once.
     #[tokio::test]
-    async fn set_bmc_root_password_uses_unknown_vendor_for_nvidia_dpu_too() {
-        let sim = Arc::new(RedfishSim::default());
-        sim.seed_user("root", "factory_pass");
-
-        let redfish = build_redfish_client(sim.clone());
-
-        let factory_creds = Credentials::UsernamePassword {
-            username: "root".to_string(),
-            password: "factory_pass".to_string(),
-        };
-
-        redfish
-            .set_bmc_root_password(
-                test_addr(),
-                RedfishVendor::NvidiaDpu,
-                factory_creds,
-                "site_pass".to_string(),
-            )
-            .await
-            .expect("set_bmc_root_password should succeed against the sim");
-
-        let calls = sim.create_client_calls();
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].vendor, Some(RedfishVendor::Unknown));
-        assert_eq!(calls[1].vendor, Some(RedfishVendor::NvidiaDpu));
+    async fn set_bmc_root_password_rotates_with_unknown_then_real_vendor() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "Lite-On power shelf gets a vendor-specific policy client",
+                    input: RedfishVendor::LiteOnPowerShelf,
+                    expect: Yields(vec![
+                        Some(RedfishVendor::Unknown),
+                        Some(RedfishVendor::LiteOnPowerShelf),
+                    ]),
+                },
+                Case {
+                    scenario: "NVIDIA DPU gets a vendor-specific policy client too",
+                    input: RedfishVendor::NvidiaDpu,
+                    expect: Yields(vec![
+                        Some(RedfishVendor::Unknown),
+                        Some(RedfishVendor::NvidiaDpu),
+                    ]),
+                },
+            ],
+            password_change_client_vendors,
+        )
+        .await;
     }
 }

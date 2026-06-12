@@ -27,7 +27,7 @@ use crate::dpf::common::DpfQuery;
 EXAMPLES:
 
 Enable DPF for a host machine:
-    $ carbide-admin-cli dpf enable 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli dpf enable 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

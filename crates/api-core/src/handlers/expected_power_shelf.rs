@@ -108,8 +108,13 @@ pub async fn update_expected_power_shelf(
         })?;
 
     if let Some(bmc_ip) = power_shelf.bmc_ip_address {
-        update_preallocated_machine_interface(&mut txn, power_shelf.bmc_mac_address, bmc_ip)
-            .await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            power_shelf.bmc_mac_address,
+            bmc_ip,
+            api.runtime_config.retained_boot_interface_window,
+        )
+        .await?;
     }
 
     db_expected_power_shelf::update(&mut txn, &power_shelf)

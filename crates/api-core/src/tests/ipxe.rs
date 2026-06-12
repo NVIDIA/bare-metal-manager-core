@@ -534,7 +534,7 @@ async fn preallocate_external_interface(
     let ip_addr: std::net::IpAddr = ip.parse().unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine_interface::preallocate_machine_interface(&mut txn, mac_address, ip_addr)
+    db::machine_interface::preallocate_machine_interface(&mut txn, mac_address, ip_addr, None)
         .await
         .unwrap();
     txn.commit().await.unwrap();

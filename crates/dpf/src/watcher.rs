@@ -367,10 +367,16 @@ where
             }
 
             if matches!(status.phase, DpuStatusPhase::Rebooting) {
+                let Some(host_bmc_ip) = dpu.spec.bmc_ip.as_deref().and_then(|ip| ip.parse().ok())
+                else {
+                    tracing::warn!(dpu = %dpu_name, "Skipping reboot event with missing or invalid BMC IP");
+                    return Ok(());
+                };
+
                 (cbs.reboot)(RebootRequiredEvent {
                     dpu_name: dpu_name.clone(),
                     node_name: node_name.clone(),
-                    host_bmc_ip: dpu.spec.bmc_ip.clone().unwrap_or_default(),
+                    host_bmc_ip,
                 })
                 .await?;
             }

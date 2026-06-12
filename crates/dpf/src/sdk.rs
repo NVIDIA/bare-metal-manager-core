@@ -76,8 +76,8 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch,
-    DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
+    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails, DpuDeviceInfo, DpuDeviceSummary,
+    DpuMismatch, DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
     DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot,
     InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
     ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
@@ -445,31 +445,44 @@ async fn create_bfb<R: BfbRepository>(
     }
 }
 
-// DPU flavor is immutable. You should never add any parameter here.
+/// Creates a DPUFlavor with a hash-derived name (`{default_flavor_name}-{spec_hash}`).
+/// Any change in the spec produces a different hash and therefore a new flavor name, which
+/// causes MachineUpdateManager to detect the DPUs as outdated and trigger reprovisioning.
 async fn create_dpu_flavor<R: DpuFlavorRepository>(
     repo: &R,
     namespace: &str,
     default_flavor_name: &str,
-) -> Result<(), DpfError> {
-    let flavor = crate::flavor::default_flavor(namespace, default_flavor_name);
+    proxy: &Option<DpfProxyDetails>,
+) -> Result<String, DpfError> {
+    let mut flavor = crate::flavor::default_flavor(namespace, proxy)?;
+    let name = flavor.unique_name(default_flavor_name)?;
+    flavor.metadata.name = Some(name.clone());
 
     match DpuFlavorRepository::create(repo, &flavor).await {
-        Ok(_) => Ok(()),
+        Ok(_) => Ok(name),
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
-            let existing = DpuFlavorRepository::get(repo, default_flavor_name, namespace).await?;
-            if existing
-                .as_ref()
-                .is_some_and(|f| f.metadata.deletion_timestamp.is_some())
-            {
-                return Err(DpfError::InvalidState(format!(
-                    "DPUFlavor {default_flavor_name} is being deleted (has deletionTimestamp); \
-                     cannot re-create until the old resource is fully removed",
-                )));
+            // The hash-named flavor already exists (e.g. created by a concurrent reconcile).
+            // Guard against the case where it is being deleted — re-creating while
+            // deletionTimestamp is set would conflict again once the finalizers clear.
+            let existing = DpuFlavorRepository::get(repo, &name, namespace).await?;
+            match existing {
+                None => Err(DpfError::InvalidState(format!(
+                    "DPUFlavor {name} disappeared after AlreadyExists conflict; \
+                     will retry on next reconcile",
+                ))),
+                Some(f) if f.metadata.deletion_timestamp.is_some() => {
+                    Err(DpfError::InvalidState(format!(
+                        "DPUFlavor {name} is being deleted (has deletionTimestamp); \
+                         cannot re-create until the old resource is fully removed",
+                    )))
+                }
+                Some(_) => {
+                    tracing::debug!(flavor = %name, "DPU flavor already exists");
+                    Ok(name)
+                }
             }
-            tracing::debug!("DPU flavor already exists");
-            Ok(())
         }
         Err(e) => Err(e),
     }
@@ -1055,8 +1068,9 @@ async fn create_flavor_services_and_deployment<
     deployment_name: &str,
     bfb_name: &str,
     default_flavor_name: &str,
+    proxy: &Option<DpfProxyDetails>,
 ) -> Result<(), DpfError> {
-    create_dpu_flavor(repo, namespace, default_flavor_name).await?;
+    let flavor_name = create_dpu_flavor(repo, namespace, default_flavor_name, proxy).await?;
 
     let interfaces = build_dpu_interfaces_vec();
 
@@ -1078,7 +1092,7 @@ async fn create_flavor_services_and_deployment<
         services,
         deployment_name,
         bfb_name,
-        default_flavor_name,
+        &flavor_name,
         namespace,
         labeler,
         &interfaces,
@@ -1125,6 +1139,7 @@ impl<
             &config.deployment_name,
             &bfb_name,
             &config.flavor_name,
+            &config.proxy,
         )
         .await?;
 
@@ -1190,7 +1205,7 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 ..Default::default()
             },
             spec: DpuDeviceSpec {
-                bmc_ip: Some(info.dpu_bmc_ip),
+                bmc_ip: Some(info.dpu_bmc_ip.to_string()),
                 bmc_port: Some(443),
                 number_of_p_fs: Some(1),
                 opn: None,
@@ -2139,8 +2154,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2165,7 +2180,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string(), "dpu-002".to_string()],
         };
 
@@ -2189,8 +2204,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2221,7 +2236,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
 
@@ -2246,7 +2261,7 @@ mod tests {
         fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
             BTreeMap::from([
                 ("test/device".to_string(), "true".to_string()),
-                ("test/host-bmc-ip".to_string(), info.host_bmc_ip.clone()),
+                ("test/host-bmc-ip".to_string(), info.host_bmc_ip.to_string()),
                 (
                     "test/dpu-machine-id".to_string(),
                     info.dpu_machine_id.clone(),
@@ -2274,8 +2289,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2310,8 +2325,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2337,7 +2352,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
 
@@ -2362,7 +2377,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
 
@@ -2427,8 +2442,8 @@ mod tests {
 
         let device_info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2524,8 +2539,8 @@ mod tests {
 
         let info1 = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN111".to_string(),
             dpu_machine_id: "dpu-111".to_string(),
             is_primary: true,
@@ -2533,8 +2548,8 @@ mod tests {
 
         let info2 = DpuDeviceInfo {
             device_id: "dpu-002".to_string(),
-            dpu_bmc_ip: "10.0.0.20".to_string(),
-            host_bmc_ip: "10.0.0.2".to_string(),
+            dpu_bmc_ip: "10.0.0.20".parse().unwrap(),
+            host_bmc_ip: "10.0.0.2".parse().unwrap(),
             serial_number: "SN222".to_string(),
             dpu_machine_id: "dpu-222".to_string(),
             is_primary: false,
@@ -2669,6 +2684,7 @@ mod tests {
             deployment_name: "my-deployment".to_string(),
             flavor_name: "my-flavor".to_string(),
             services: vec![],
+            proxy: None,
         };
 
         assert_eq!(config.bfb_url, "http://example.com/test.bfb");
@@ -2715,8 +2731,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2760,8 +2776,8 @@ mod tests {
 
         let info = DpuDeviceInfo {
             device_id: "dpu-001".to_string(),
-            dpu_bmc_ip: "10.0.0.10".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            dpu_bmc_ip: "10.0.0.10".parse().unwrap(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
@@ -2799,7 +2815,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
         let err = sdk.register_dpu_node(info).await.unwrap_err();
@@ -2838,17 +2854,126 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
         sdk.register_dpu_node(info).await.unwrap();
     }
 
     #[tokio::test]
+    async fn test_create_dpu_flavor_fresh() {
+        let mock = SdkMock::new();
+        let name = create_dpu_flavor(
+            &mock,
+            TEST_NAMESPACE,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            &None,
+        )
+        .await
+        .unwrap();
+
+        // Returned name should have the expected "<prefix>-<hex>" shape.
+        assert!(
+            name.starts_with(crate::flavor::DEFAULT_FLAVOR_NAME),
+            "flavor name should start with the default prefix; got {name}"
+        );
+        assert_ne!(
+            name,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            "name must include hash suffix"
+        );
+
+        // The flavor must actually be stored in the mock.
+        let stored = DpuFlavorRepository::get(&mock, &name, TEST_NAMESPACE)
+            .await
+            .unwrap();
+        assert!(stored.is_some(), "created flavor should be retrievable");
+    }
+
+    #[tokio::test]
+    async fn test_create_dpu_flavor_fresh_with_proxy() {
+        use crate::types::DpfProxyDetails;
+        let mock = SdkMock::new();
+        let proxy = Some(DpfProxyDetails {
+            https_proxy: "http://proxy.corp:3128".to_string(),
+            no_proxy: vec!["10.0.0.0/8".to_string()],
+        });
+
+        let name_with_proxy = create_dpu_flavor(
+            &mock,
+            TEST_NAMESPACE,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            &proxy,
+        )
+        .await
+        .unwrap();
+
+        // Proxy flavor must get a different hash than the no-proxy flavor.
+        let name_no_proxy = {
+            let f = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
+            f.unique_name(crate::flavor::DEFAULT_FLAVOR_NAME).unwrap()
+        };
+        assert_ne!(
+            name_with_proxy, name_no_proxy,
+            "proxy and no-proxy flavors must produce distinct names"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_dpu_flavor_disappeared_after_conflict() {
+        // Simulate a race: create() returns AlreadyExists but the flavor is gone by the time we
+        // call get() — the function should return InvalidState rather than panic.
+
+        // We need a mock whose create() always returns AlreadyExists but get() returns None.
+        // Achieve this by pre-inserting then removing the flavor so the key is gone, and
+        // instead rely on the fact that SdkMock::create returns AlreadyExists only when the
+        // key is present — so we simply insert a *different* key so create conflicts but the
+        // flavor we look up is absent.
+        //
+        // Easier: insert the flavor under a wrong key so `create` finds a key collision on the
+        // real key (it won't), or just verify the existing None branch indirectly.
+        //
+        // The cleanest approach: build a custom mock that always errors on create.
+        #[derive(Clone, Default)]
+        struct AlwaysConflictsMock {
+            // empty — get() will always return None
+        }
+
+        #[async_trait::async_trait]
+        impl DpuFlavorRepository for AlwaysConflictsMock {
+            async fn get(&self, _name: &str, _ns: &str) -> Result<Option<DPUFlavor>, DpfError> {
+                Ok(None)
+            }
+            async fn create(&self, f: &DPUFlavor) -> Result<DPUFlavor, DpfError> {
+                Err(already_exists_error(f.meta().name.as_deref().unwrap_or("")))
+            }
+        }
+
+        let mock = AlwaysConflictsMock::default();
+        let err = create_dpu_flavor(
+            &mock,
+            TEST_NAMESPACE,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            &None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, DpfError::InvalidState(_)),
+            "expected InvalidState when flavor disappears after conflict; got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_create_dpu_flavor_fails_when_terminating() {
         let mock = SdkMock::new();
-        let flavor =
-            crate::flavor::default_flavor(TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME);
+        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
+        // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
+        let hash_name = flavor
+            .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
+            .unwrap();
+        flavor.metadata.name = Some(hash_name);
         let mut terminating_flavor = flavor.clone();
         terminating_flavor.metadata.deletion_timestamp = Some(terminating_timestamp());
         mock.flavors
@@ -2856,9 +2981,14 @@ mod tests {
             .unwrap()
             .insert(SdkMock::key(&terminating_flavor), terminating_flavor);
 
-        let err = create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
-            .await
-            .unwrap_err();
+        let err = create_dpu_flavor(
+            &mock,
+            TEST_NAMESPACE,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            &None,
+        )
+        .await
+        .unwrap_err();
         assert!(
             matches!(err, DpfError::InvalidState(_)),
             "expected InvalidState, got: {err:?}"
@@ -2868,16 +2998,26 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_ok_when_existing_not_terminating() {
         let mock = SdkMock::new();
-        let flavor =
-            crate::flavor::default_flavor(TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME);
+        let mut flavor = crate::flavor::default_flavor(TEST_NAMESPACE, &None).unwrap();
+        // Use the hash-derived name so the mock key matches what create_dpu_flavor will use.
+        flavor.metadata.name = Some(
+            flavor
+                .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
+                .unwrap(),
+        );
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
-            .await
-            .unwrap();
+        create_dpu_flavor(
+            &mock,
+            TEST_NAMESPACE,
+            crate::flavor::DEFAULT_FLAVOR_NAME,
+            &None,
+        )
+        .await
+        .unwrap();
     }
 
     #[derive(Clone, Default)]
@@ -2999,7 +3139,7 @@ mod tests {
 
         let info = DpuNodeInfo {
             node_id: "host-001".to_string(),
-            host_bmc_ip: "10.0.0.1".to_string(),
+            host_bmc_ip: "10.0.0.1".parse().unwrap(),
             device_ids: vec!["dpu-001".to_string()],
         };
         sdk.register_dpu_node(info).await.unwrap();

@@ -25,10 +25,10 @@ use clap::Parser;
 EXAMPLES:
 
 List all managed switches:
-    $ carbide-admin-cli managed-switch show
+    $ nico-admin-cli managed-switch show
 
 Show one managed switch by ID or name:
-    $ carbide-admin-cli managed-switch show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli managed-switch show 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub struct Args {

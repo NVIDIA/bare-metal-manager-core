@@ -20,8 +20,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_secrets::credentials::{CredentialReader, Credentials};
 use carbide_utils::HostPortPair;
-use forge_secrets::credentials::{CredentialReader, Credentials};
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Endpoint, Redfish};
 

@@ -26,6 +26,7 @@ use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::machine_validation::MachineValidationId;
+use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, HealthReportApplyMode};
@@ -1762,17 +1763,12 @@ pub async fn list_machines_requested_for_host_reprovisioning(
 pub async fn apply_agent_upgrade_policy(
     txn: &mut PgConnection,
     policy: AgentUpgradePolicy,
-    machine_id: &MachineId,
+    machine: &Machine,
 ) -> Result<bool, DatabaseError> {
     if policy == AgentUpgradePolicy::Off {
         return Ok(false);
     }
-    let machine = find_one(&mut *txn, machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| DatabaseError::NotFoundError {
-            kind: "dpu_machine",
-            id: machine_id.to_string(),
-        })?;
+
     match machine.network_status_observation.as_ref() {
         None => Ok(false),
         Some(obs) => {
@@ -1784,7 +1780,7 @@ pub async fn apply_agent_upgrade_policy(
             if should_upgrade != machine.needs_agent_upgrade() {
                 set_dpu_agent_upgrade_requested(
                     txn,
-                    machine_id,
+                    &machine.id,
                     should_upgrade,
                     carbide_api_version,
                 )
@@ -2581,6 +2577,52 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
             hardware_health_report: hardware_health_report.0,
         })
     }
+}
+
+/// RMS identity for a compute tray machine: the machine ID (used as the RMS
+/// node_id), the BMC IP address, the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct MachineRmsIdentity {
+    pub id: String,
+    pub bmc_ip: IpAddr,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for compute tray machines by their
+/// BMC IP addresses.
+pub async fn find_rms_identities_by_bmc_ips(
+    db: impl crate::db_read::DbReader<'_>,
+    bmc_ips: &[IpAddr],
+) -> DatabaseResult<Vec<MachineRmsIdentity>> {
+    let ip_strings: Vec<String> = bmc_ips.iter().map(ToString::to_string).collect();
+    let sql = r#"
+        SELECT m.id::text, mia.address AS bmc_ip, mi.mac_address AS bmc_mac_address, m.rack_id
+        FROM machines m
+        JOIN machine_interfaces mi
+            ON mi.machine_id = m.id
+            AND mi.interface_type = 'Bmc'
+        JOIN machine_interface_addresses mia
+            ON mia.interface_id = mi.id
+        WHERE host(mia.address) = ANY($1)
+    "#;
+
+    let rows: Vec<MachineRmsIdentity> = sqlx::query_as(sql)
+        .bind(ip_strings)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("machine::find_rms_identities_by_bmc_ips", err))?;
+
+    let mut seen = std::collections::HashSet::with_capacity(rows.len());
+    for row in &rows {
+        if !seen.insert(row.bmc_ip) {
+            return Err(DatabaseError::internal(format!(
+                "duplicate machine RMS identity mapping for bmc_ip={}",
+                row.bmc_ip
+            )));
+        }
+    }
+    Ok(rows)
 }
 
 pub fn count_healthy_unhealthy_host_machines(

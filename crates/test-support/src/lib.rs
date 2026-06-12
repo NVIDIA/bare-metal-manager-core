@@ -25,8 +25,8 @@
 //! # A table of cases
 //!
 //! ```
-//! use nico_test_support::Outcome::*;
-//! use nico_test_support::{Case, check_cases};
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases};
 //!
 //! check_cases(
 //!     [
@@ -57,8 +57,8 @@
 //! counterpart to [`check_cases`]:
 //!
 //! ```
-//! use nico_test_support::Case;
-//! use nico_test_support::Outcome::*;
+//! use carbide_test_support::Case;
+//! use carbide_test_support::Outcome::*;
 //!
 //! Case {
 //!     scenario: "in range",
@@ -66,6 +66,61 @@
 //!     expect: Yields(42),
 //! }
 //! .check(|s| s.parse::<u8>().map_err(|_| ()));
+//! ```
+//!
+//! # Async
+//!
+//! For an `async` operation, use [`check_cases_async`] (or [`Case::check_async`])
+//! and `.await` it — [`Outcome`], [`Case`], and the asserting are unchanged:
+//!
+//! ```
+//! use carbide_test_support::Outcome::*;
+//! use carbide_test_support::{Case, check_cases_async};
+//!
+//! # async fn example() {
+//! check_cases_async(
+//!     [
+//!         Case {
+//!             scenario: "doubles",
+//!             input: 2u8,
+//!             expect: Yields(4),
+//!         },
+//!         Case {
+//!             scenario: "overflows",
+//!             input: 200u8,
+//!             expect: Fails,
+//!         },
+//!     ],
+//!     |n| async move { n.checked_mul(2).ok_or(()) },
+//! )
+//! .await;
+//! # }
+//! ```
+//!
+//! # A plain value (no `Result`)
+//!
+//! When the operation returns a plain value rather than a `Result` — a `bool`
+//! predicate, a getter — use [`check_values`] with [`Check`]. There's no
+//! [`Outcome`] to dress up; `expect` is just the value:
+//!
+//! ```
+//! use carbide_test_support::{Check, check_values};
+//!
+//! check_values(
+//!     [
+//!         Check {
+//!             scenario: "even",
+//!             input: 4,
+//!             expect: true,
+//!         },
+//!         Check {
+//!             scenario: "odd",
+//!             input: 7,
+//!             expect: false,
+//!         },
+//!     ],
+//!     |n| n % 2 == 0,
+//! );
 //! ```
 //!
 //! # What's shared, and what stays a convention
@@ -79,6 +134,7 @@
 //! not a type.
 
 use std::fmt::Debug;
+use std::future::Future;
 
 /// The expected result of a fallible operation under test.
 ///
@@ -122,6 +178,17 @@ impl<I, T, E> Case<I, T, E> {
     {
         assert_outcome(run(self.input), self.expect, self.scenario);
     }
+
+    /// Async counterpart to [`check`](Case::check): runs an `async` operation and
+    /// awaits its result before asserting.
+    pub async fn check_async<Fut>(self, run: impl FnOnce(I) -> Fut)
+    where
+        Fut: Future<Output = Result<T, E>>,
+        T: PartialEq + Debug,
+        E: PartialEq + Debug,
+    {
+        assert_outcome(run(self.input).await, self.expect, self.scenario);
+    }
 }
 
 /// Run each case's `input` through `run` and assert its [`Outcome`]. `run` is the
@@ -135,6 +202,22 @@ pub fn check_cases<I, T, E>(
 {
     for case in cases {
         case.check(&run);
+    }
+}
+
+/// Async counterpart to [`check_cases`]: each case's `input` is run through the
+/// `async` operation `run` and its result awaited. Call it from an async test
+/// (e.g. `#[tokio::test]`) and `.await` it.
+pub async fn check_cases_async<I, T, E, Fut>(
+    cases: impl IntoIterator<Item = Case<I, T, E>>,
+    run: impl Fn(I) -> Fut,
+) where
+    Fut: Future<Output = Result<T, E>>,
+    T: PartialEq + Debug,
+    E: PartialEq + Debug,
+{
+    for case in cases {
+        case.check_async(&run).await;
     }
 }
 
@@ -155,10 +238,47 @@ where
     }
 }
 
+/// One row of a *total* table test: a labeled `input` and the plain value the
+/// operation is expected to return. The counterpart to [`Case`] for an operation
+/// that can't fail — a predicate, a getter, any `fn(I) -> T`.
+pub struct Check<I, T> {
+    /// What this row exercises; used as the failure label.
+    pub scenario: &'static str,
+    /// The input handed to the operation under test.
+    pub input: I,
+    /// The value the operation should return.
+    pub expect: T,
+}
+
+impl<I, T> Check<I, T> {
+    /// Run this check's `input` through `run` and assert it returns `expect`,
+    /// naming a failure by `scenario`. The single-row counterpart to
+    /// [`check_values`].
+    pub fn check(self, run: impl FnOnce(I) -> T)
+    where
+        T: PartialEq + Debug,
+    {
+        assert_eq!(run(self.input), self.expect, "{}", self.scenario);
+    }
+}
+
+/// Run each check's `input` through `run` and assert the returned value equals its
+/// `expect`. The total-function counterpart to [`check_cases`]: reach for it when
+/// the operation under test returns a plain value — a `bool` predicate, a getter —
+/// rather than a `Result`.
+pub fn check_values<I, T>(checks: impl IntoIterator<Item = Check<I, T>>, run: impl Fn(I) -> T)
+where
+    T: PartialEq + Debug,
+{
+    for check in checks {
+        check.check(&run);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Outcome::*;
-    use super::{Case, assert_outcome, check_cases};
+    use super::{Case, Check, assert_outcome, check_cases, check_values};
 
     #[test]
     fn check_runs_a_single_case() {
@@ -187,6 +307,46 @@ mod tests {
             ],
             |n| n.checked_mul(2).ok_or("overflow"),
         );
+    }
+
+    #[test]
+    fn check_values_runs_every_row() {
+        check_values(
+            [
+                Check {
+                    scenario: "even",
+                    input: 4,
+                    expect: true,
+                },
+                Check {
+                    scenario: "odd",
+                    input: 7,
+                    expect: false,
+                },
+            ],
+            |n| n % 2 == 0,
+        );
+    }
+
+    #[test]
+    fn check_runs_a_single_value() {
+        Check {
+            scenario: "doubles",
+            input: 21,
+            expect: 42,
+        }
+        .check(|n| n * 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "the value is wrong")]
+    fn flags_an_unexpected_value() {
+        Check {
+            scenario: "the value is wrong",
+            input: 1,
+            expect: 2,
+        }
+        .check(|n| n);
     }
 
     #[test]

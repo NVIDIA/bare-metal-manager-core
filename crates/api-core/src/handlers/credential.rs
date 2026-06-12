@@ -22,8 +22,9 @@ use std::net::{IpAddr, SocketAddr};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc};
 use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
+    NicLockdownIkm,
 };
 use mac_address::MacAddress;
 use model::ConfigValidationError;
@@ -76,6 +77,15 @@ pub(crate) async fn create_credential(
                 .map_err(|e| {
                     CarbideError::internal(format!(
                         "Error setting Site Wide BMC Root credentials: {e:?} "
+                    ))
+                })?;
+        }
+        rpc::CredentialType::SiteWideNicLockdownIkm => {
+            set_sitewide_nic_lockdown_ikm(api, password)
+                .await
+                .map_err(|e| {
+                    CarbideError::internal(format!(
+                        "Error setting Site Wide NIC lockdown IKM: {e:?} "
                     ))
                 })?;
         }
@@ -342,7 +352,9 @@ pub(crate) async fn delete_credential(
         | rpc::CredentialType::HostBmcFactoryDefault
         | rpc::CredentialType::DpuBmcFactoryDefault
         | rpc::CredentialType::BmcForgeAdminByMacAddress
-        | rpc::CredentialType::NmxM => {
+        | rpc::CredentialType::NmxM
+        // Deleting the lockdown IKM would break NIC unlock; rotate it instead.
+        | rpc::CredentialType::SiteWideNicLockdownIkm => {
             // Not support delete credential for these types
         }
         rpc::CredentialType::BgpSiteWideLeafPassword => {
@@ -567,6 +579,30 @@ async fn set_sitewide_bmc_root_credentials(
     };
 
     set_bmc_credentials(api, &credential_key, &credentials).await
+}
+
+// set_sitewide_nic_lockdown_ikm writes the dedicated site-wide SuperNIC
+// lockdown IKM. This lets an SRE configure (or rotate) the lockdown key
+// independently of the BMC root at site bring-up, mirroring how the site-wide
+// BMC root is set.
+async fn set_sitewide_nic_lockdown_ikm(api: &Api, password: String) -> Result<(), CarbideError> {
+    let credential_key = CredentialKey::NicLockdownIkm {
+        credential_type: NicLockdownIkm::SiteWide {
+            version: crate::dpa::lockdown::CURRENT_LOCKDOWN_IKM_VERSION,
+        },
+    };
+
+    let credentials = Credentials::UsernamePassword {
+        username: "".to_string(),
+        password,
+    };
+
+    api.credential_manager
+        .set_credentials(&credential_key, &credentials)
+        .await
+        .map_err(|e| {
+            CarbideError::internal(format!("Error setting NIC lockdown IKM credential: {e:?}"))
+        })
 }
 
 pub(crate) async fn delete_bmc_root_credentials_by_mac(

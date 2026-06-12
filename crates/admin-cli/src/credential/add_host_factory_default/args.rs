@@ -23,7 +23,7 @@ use rpc::{CredentialType, forge as forgerpc};
 EXAMPLES:
 
 Add the factory-default host BMC credential for a vendor:
-    $ carbide-admin-cli credential add-host-factory-default --vendor nvidia \
+    $ nico-admin-cli credential add-host-factory-default --vendor nvidia \
     --username admin --password mypassword
 
 ")]

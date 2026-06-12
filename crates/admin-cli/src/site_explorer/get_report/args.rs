@@ -22,13 +22,13 @@ use clap::{ArgGroup, Parser};
 EXAMPLES:
 
 Dump the entire latest report as JSON:
-    $ carbide-admin-cli site-explorer get-report all
+    $ nico-admin-cli site-explorer get-report all
 
 Show discovered managed-host details:
-    $ carbide-admin-cli site-explorer get-report managed-host
+    $ nico-admin-cli site-explorer get-report managed-host
 
 Show explored endpoint details:
-    $ carbide-admin-cli site-explorer get-report endpoint
+    $ nico-admin-cli site-explorer get-report endpoint
 
 ")]
 pub enum Args {
@@ -46,16 +46,16 @@ pub enum Args {
 EXAMPLES:
 
 List all explored endpoints:
-    $ carbide-admin-cli site-explorer get-report endpoint
+    $ nico-admin-cli site-explorer get-report endpoint
 
 Show one endpoint by BMC IP:
-    $ carbide-admin-cli site-explorer get-report endpoint 192.0.2.10
+    $ nico-admin-cli site-explorer get-report endpoint 192.0.2.10
 
 Show only endpoints that errored, filtered by vendor:
-    $ carbide-admin-cli site-explorer get-report endpoint --erroronly --vendor nvidia
+    $ nico-admin-cli site-explorer get-report endpoint --erroronly --vendor nvidia
 
 Show only endpoints not yet paired to a managed host:
-    $ carbide-admin-cli site-explorer get-report endpoint --unpairedonly
+    $ nico-admin-cli site-explorer get-report endpoint --unpairedonly
 
 ")]
 pub struct EndpointInfo {
@@ -88,13 +88,13 @@ pub struct EndpointInfo {
 EXAMPLES:
 
 List all discovered managed hosts:
-    $ carbide-admin-cli site-explorer get-report managed-host
+    $ nico-admin-cli site-explorer get-report managed-host
 
 Show one managed host by its host/DPU BMC IP:
-    $ carbide-admin-cli site-explorer get-report managed-host 192.0.2.10
+    $ nico-admin-cli site-explorer get-report managed-host 192.0.2.10
 
 Filter managed hosts by vendor:
-    $ carbide-admin-cli site-explorer get-report managed-host --vendor nvidia
+    $ nico-admin-cli site-explorer get-report managed-host --vendor nvidia
 
 ")]
 pub struct ManagedHostInfo {

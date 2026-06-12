@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/sqltypes"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	dbtestutil "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/testutil"
 	"github.com/NVIDIA/infra-controller/rest-api/powershelf-manager/pkg/common/vendor"
@@ -61,11 +62,11 @@ func parseMac(t *testing.T, s string) MacAddr {
 }
 
 // parseIP is a test helper that parses an IP address and converts to IPAddr
-func parseIP(t *testing.T, s string) IPAddr {
+func parseIP(t *testing.T, s string) sqltypes.IPAddr {
 	t.Helper()
 	ip := net.ParseIP(s)
 	require.NotNil(t, ip)
-	return IPAddr(ip)
+	return sqltypes.IPAddr(ip)
 }
 
 func TestIntegration_PMC_CreateAndGet(t *testing.T) {

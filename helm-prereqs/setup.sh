@@ -115,7 +115,8 @@ done
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks — env vars, tools, config files. Resolves NICO_REST_DIR
-# (in-tree rest-api/). Exits 1 if user declines to continue.
+# (in-tree rest-api/) and NICO_REST_HELM_DIR (in-tree helm/rest/). Exits 1 if
+# user declines to continue.
 # ---------------------------------------------------------------------------
 export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW
 # shellcheck source=preflight.sh
@@ -534,15 +535,21 @@ if "${SKIP_REST}"; then
     exit 0
 fi
 
-# --- 7a. NICo REST source tree (in-tree at ../rest-api) --------------------------
-# preflight.sh resolves and validates rest-api/ in this repo into NICO_REST_DIR.
+# --- 7a. NICo REST source tree and Helm charts (in-tree) -------------------------
+# preflight.sh resolves and validates rest-api/ into NICO_REST_DIR and
+# helm/rest/ into NICO_REST_HELM_DIR.
 # If it didn't, preflight already errored out — guard the consumer side too in
 # case someone sources setup.sh without going through preflight.
 if [[ -z "${NICO_REST_DIR:-}" ]]; then
-    echo "ERROR: NICO_REST_DIR is unset — preflight didn't resolve rest-api/. Make sure your checkout contains rest-api/helm/charts/nico-rest."
+    echo "ERROR: NICO_REST_DIR is unset — preflight didn't resolve rest-api/. Make sure your checkout contains rest-api/."
+    exit 1
+fi
+if [[ -z "${NICO_REST_HELM_DIR:-}" ]]; then
+    echo "ERROR: NICO_REST_HELM_DIR is unset — preflight didn't resolve helm/rest/. Make sure your checkout contains helm/rest/nico-rest and helm/rest/nico-rest-site-agent."
     exit 1
 fi
 echo "NICo REST source: ${NICO_REST_DIR}"
+echo "NICo REST charts: ${NICO_REST_HELM_DIR}"
 
 # Create NICo REST namespace
 kubectl create namespace nico-rest 2>/dev/null || true
@@ -633,7 +640,7 @@ echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
 # --- 7g. NICo REST helm chart -------------------------------------------------
-NICO_HELM_CHART="${NICO_REST_DIR}/helm/charts/nico-rest"
+NICO_HELM_CHART="${NICO_REST_HELM_DIR}/nico-rest"
 NICO_REST_CMD=(
     helm upgrade --install nico-rest "${NICO_HELM_CHART}"
     --namespace nico-rest
@@ -701,7 +708,7 @@ fi
 #
 # The site-agent binary also needs DB credentials for its local elektratest DB.
 # All of this is wired via --set flags so nico-rest.yaml stays registry-agnostic.
-NICO_SITE_AGENT_CHART="${NICO_REST_DIR}/helm/charts/nico-rest-site-agent"
+NICO_SITE_AGENT_CHART="${NICO_REST_HELM_DIR}/nico-rest-site-agent"
 
 # Stable placeholder UUID for this site (must be a valid UUID).
 NICO_SITE_UUID="${NICO_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"

@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # NVIDIA Infra Controller REST OpenAPI Schema
 
-This repo contains OpenAPI schema for NVIDIA Infra Controller REST endpoints. The latest Redoc-rendered version is available at https://nvidia.github.io/infra-controller-rest/
+This repo contains OpenAPI schema for NVIDIA Infra Controller REST endpoints. The latest rendered version is available at https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference
 
 # Development
 

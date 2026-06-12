@@ -15,7 +15,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 EXAMPLES:
 
 Insert a chassis serial to NMX-C endpoint mapping:
-    $ carbide-admin-cli nvlink-nmxc-endpoints create --chassis-serial 1234567890123 \
+    $ nico-admin-cli nvlink-nmxc-endpoints create --chassis-serial 1234567890123 \
     --endpoint https://192.0.2.10:50051
 
 ")]
