@@ -231,7 +231,7 @@ pub struct PowerShelfSearchFilter {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
@@ -405,5 +405,366 @@ mod tests {
             operation: PowerShelfMaintenanceOperation::PowerOff,
         };
         assert_ne!(on, off);
+    }
+
+    #[test]
+    fn controller_state_deserializes_from_tagged_json() {
+        // Each tagged-JSON form parses back to its variant; malformed or unknown
+        // tags are rejected. The op yields the parsed variant so both the accepted
+        // shapes and the rejected ones are pinned in one table.
+        check_cases(
+            [
+                Case {
+                    scenario: "initializing tag",
+                    input: r#"{"state":"initializing"}"#,
+                    expect: Yields(PowerShelfControllerState::Initializing),
+                },
+                Case {
+                    scenario: "fetchingdata tag",
+                    input: r#"{"state":"fetchingdata"}"#,
+                    expect: Yields(PowerShelfControllerState::FetchingData),
+                },
+                Case {
+                    scenario: "configuring tag",
+                    input: r#"{"state":"configuring"}"#,
+                    expect: Yields(PowerShelfControllerState::Configuring),
+                },
+                Case {
+                    scenario: "ready tag",
+                    input: r#"{"state":"ready"}"#,
+                    expect: Yields(PowerShelfControllerState::Ready),
+                },
+                Case {
+                    scenario: "deleting tag",
+                    input: r#"{"state":"deleting"}"#,
+                    expect: Yields(PowerShelfControllerState::Deleting),
+                },
+                Case {
+                    scenario: "error with cause",
+                    input: r#"{"state":"error","cause":"boom"}"#,
+                    expect: Yields(PowerShelfControllerState::Error {
+                        cause: "boom".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "error with empty cause",
+                    input: r#"{"state":"error","cause":""}"#,
+                    expect: Yields(PowerShelfControllerState::Error {
+                        cause: String::new(),
+                    }),
+                },
+                Case {
+                    scenario: "maintenance power-on",
+                    input: r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#,
+                    expect: Yields(PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOn,
+                    }),
+                },
+                Case {
+                    scenario: "maintenance power-off",
+                    input: r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#,
+                    expect: Yields(PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOff,
+                    }),
+                },
+                Case {
+                    scenario: "unknown tag is rejected",
+                    input: r#"{"state":"running"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wrong-case tag is rejected",
+                    input: r#"{"state":"Initializing"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "error without cause is rejected",
+                    input: r#"{"state":"error"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "maintenance without operation is rejected",
+                    input: r#"{"state":"maintenance"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing state tag is rejected",
+                    input: r#"{}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "not an object is rejected",
+                    input: r#""initializing""#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "malformed json is rejected",
+                    input: r#"{"state":"#,
+                    expect: Fails,
+                },
+            ],
+            |json: &str| serde_json::from_str::<PowerShelfControllerState>(json).map_err(drop),
+        );
+    }
+
+    #[test]
+    fn maintenance_operation_deserializes_from_tagged_json() {
+        // The lowercase operation tags parse back to their variants; unknown or
+        // wrong-case tags are rejected.
+        check_cases(
+            [
+                Case {
+                    scenario: "poweron tag",
+                    input: r#"{"operation":"poweron"}"#,
+                    expect: Yields(PowerShelfMaintenanceOperation::PowerOn),
+                },
+                Case {
+                    scenario: "poweroff tag",
+                    input: r#"{"operation":"poweroff"}"#,
+                    expect: Yields(PowerShelfMaintenanceOperation::PowerOff),
+                },
+                Case {
+                    scenario: "unknown operation is rejected",
+                    input: r#"{"operation":"reset"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wrong-case operation is rejected",
+                    input: r#"{"operation":"PowerOn"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing operation tag is rejected",
+                    input: r#"{}"#,
+                    expect: Fails,
+                },
+            ],
+            |json: &str| serde_json::from_str::<PowerShelfMaintenanceOperation>(json).map_err(drop),
+        );
+    }
+
+    #[test]
+    fn config_round_trips_through_json() {
+        // PowerShelfConfig round-trips for present/absent optionals, empty names, and
+        // numeric boundaries. The op yields the value parsed back from its own JSON.
+        check_cases(
+            [
+                Case {
+                    scenario: "all fields present",
+                    input: PowerShelfConfig {
+                        name: "shelf-1".to_string(),
+                        capacity: Some(5000),
+                        voltage: Some(48),
+                    },
+                    expect: Yields(PowerShelfConfig {
+                        name: "shelf-1".to_string(),
+                        capacity: Some(5000),
+                        voltage: Some(48),
+                    }),
+                },
+                Case {
+                    scenario: "optionals absent",
+                    input: PowerShelfConfig {
+                        name: "shelf-2".to_string(),
+                        capacity: None,
+                        voltage: None,
+                    },
+                    expect: Yields(PowerShelfConfig {
+                        name: "shelf-2".to_string(),
+                        capacity: None,
+                        voltage: None,
+                    }),
+                },
+                Case {
+                    scenario: "empty name and zero values",
+                    input: PowerShelfConfig {
+                        name: String::new(),
+                        capacity: Some(0),
+                        voltage: Some(0),
+                    },
+                    expect: Yields(PowerShelfConfig {
+                        name: String::new(),
+                        capacity: Some(0),
+                        voltage: Some(0),
+                    }),
+                },
+                Case {
+                    scenario: "u32 maxima",
+                    input: PowerShelfConfig {
+                        name: "max".to_string(),
+                        capacity: Some(u32::MAX),
+                        voltage: Some(u32::MAX),
+                    },
+                    expect: Yields(PowerShelfConfig {
+                        name: "max".to_string(),
+                        capacity: Some(u32::MAX),
+                        voltage: Some(u32::MAX),
+                    }),
+                },
+            ],
+            |config: PowerShelfConfig| {
+                let serialized = serde_json::to_string(&config).map_err(drop)?;
+                serde_json::from_str::<PowerShelfConfig>(&serialized).map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn status_round_trips_through_json() {
+        // PowerShelfStatus round-trips across each power/health string the field is
+        // documented to hold, plus empty strings.
+        check_cases(
+            [
+                Case {
+                    scenario: "on / ok",
+                    input: PowerShelfStatus {
+                        shelf_name: "psu-a".to_string(),
+                        power_state: "on".to_string(),
+                        health_status: "ok".to_string(),
+                    },
+                    expect: Yields(PowerShelfStatus {
+                        shelf_name: "psu-a".to_string(),
+                        power_state: "on".to_string(),
+                        health_status: "ok".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "off / warning",
+                    input: PowerShelfStatus {
+                        shelf_name: "psu-b".to_string(),
+                        power_state: "off".to_string(),
+                        health_status: "warning".to_string(),
+                    },
+                    expect: Yields(PowerShelfStatus {
+                        shelf_name: "psu-b".to_string(),
+                        power_state: "off".to_string(),
+                        health_status: "warning".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "standby / critical",
+                    input: PowerShelfStatus {
+                        shelf_name: "psu-c".to_string(),
+                        power_state: "standby".to_string(),
+                        health_status: "critical".to_string(),
+                    },
+                    expect: Yields(PowerShelfStatus {
+                        shelf_name: "psu-c".to_string(),
+                        power_state: "standby".to_string(),
+                        health_status: "critical".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "empty strings",
+                    input: PowerShelfStatus {
+                        shelf_name: String::new(),
+                        power_state: String::new(),
+                        health_status: String::new(),
+                    },
+                    expect: Yields(PowerShelfStatus {
+                        shelf_name: String::new(),
+                        power_state: String::new(),
+                        health_status: String::new(),
+                    }),
+                },
+            ],
+            |status: PowerShelfStatus| {
+                let serialized = serde_json::to_string(&status).map_err(drop)?;
+                serde_json::from_str::<PowerShelfStatus>(&serialized).map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn state_sla_reports_whether_an_sla_applies() {
+        // `state_sla` selects an SLA bucket per controller state. Driven from an
+        // epoch-old `ConfigVersion` (via `invalid()`), the time-in-state is far past
+        // any finite SLA, so each SLA-bearing state reports its exact SLA duration and
+        // an `above_sla` of true, while the no-SLA states report `None`/false. The op
+        // yields `(sla, time_in_state_above_sla)`.
+        let stale = ConfigVersion::invalid();
+        let secs = |s: u64| Some(std::time::Duration::from_secs(s));
+        check_values(
+            [
+                Check {
+                    scenario: "initializing has an SLA and is overdue",
+                    input: PowerShelfControllerState::Initializing,
+                    expect: (secs(slas::INITIALIZING), true),
+                },
+                Check {
+                    scenario: "fetching-data has an SLA and is overdue",
+                    input: PowerShelfControllerState::FetchingData,
+                    expect: (secs(slas::FETCHING_DATA), true),
+                },
+                Check {
+                    scenario: "configuring has an SLA and is overdue",
+                    input: PowerShelfControllerState::Configuring,
+                    expect: (secs(slas::CONFIGURING), true),
+                },
+                Check {
+                    scenario: "deleting has an SLA and is overdue",
+                    input: PowerShelfControllerState::Deleting,
+                    expect: (secs(slas::DELETING), true),
+                },
+                Check {
+                    scenario: "maintenance power-on has the maintenance SLA",
+                    input: PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOn,
+                    },
+                    expect: (secs(slas::MAINTENANCE), true),
+                },
+                Check {
+                    scenario: "maintenance power-off has the maintenance SLA",
+                    input: PowerShelfControllerState::Maintenance {
+                        operation: PowerShelfMaintenanceOperation::PowerOff,
+                    },
+                    expect: (secs(slas::MAINTENANCE), true),
+                },
+                Check {
+                    scenario: "ready carries no SLA",
+                    input: PowerShelfControllerState::Ready,
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "error carries no SLA",
+                    input: PowerShelfControllerState::Error {
+                        cause: "boom".to_string(),
+                    },
+                    expect: (None, false),
+                },
+            ],
+            |state: PowerShelfControllerState| {
+                let result = state_sla(&state, &stale);
+                (result.sla, result.time_in_state_above_sla)
+            },
+        );
+    }
+
+    #[test]
+    fn aggregate_health_prefers_the_replace_source() {
+        // When a `replace` source is set, `derive_power_shelf_aggregate_health` returns
+        // it verbatim (its `observed_at` untouched), short-circuiting the merge path.
+        // The op yields the derived report's source name.
+        let with_replace = |source: &str| HealthReportSources {
+            replace: Some(health_report::HealthReport::empty(source.to_string())),
+            ..Default::default()
+        };
+        check_cases(
+            [
+                Case {
+                    scenario: "replace source wins",
+                    input: with_replace("override.sre"),
+                    expect: Yields("override.sre".to_string()),
+                },
+                Case {
+                    scenario: "no replace falls back to the aggregate name",
+                    input: HealthReportSources::default(),
+                    expect: Yields("power-shelf-aggregate-health".to_string()),
+                },
+            ],
+            |sources: HealthReportSources| {
+                Ok::<_, ()>(derive_power_shelf_aggregate_health(&sources).source)
+            },
+        );
     }
 }

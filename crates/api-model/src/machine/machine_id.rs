@@ -106,11 +106,28 @@ pub enum MissingHardwareInfo {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use carbide_uuid::machine::MACHINE_ID_LENGTH;
 
     use super::*;
-    use crate::hardware_info::TpmEkCertificate;
+    use crate::hardware_info::{DmiData, TpmEkCertificate};
+
+    // Build a `HardwareInfo` carrying only the two fields the ID derivation looks
+    // at — an optional TPM certificate and optional DMI serials — leaving every
+    // other field defaulted. `tpm` is the certificate bytes (when present) and
+    // `serials` is the (product, board, chassis) triple folded into `DmiData`.
+    fn info_for_id(tpm: Option<Vec<u8>>, serials: Option<(&str, &str, &str)>) -> HardwareInfo {
+        HardwareInfo {
+            tpm_ek_certificate: tpm.map(TpmEkCertificate::from),
+            dmi_data: serials.map(|(product, board, chassis)| DmiData {
+                product_serial: product.to_string(),
+                board_serial: board.to_string(),
+                chassis_serial: chassis.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/hardware_info/test_data");
 
@@ -235,6 +252,289 @@ mod tests {
 
                 test_derive_machine_id(&mut fingerprint, expected_type, constructor);
                 Ok(())
+            },
+        );
+    }
+
+    // The error paths of `from_hardware_info_with_type`: a present-but-empty TPM
+    // certificate, DMI data with every serial blank, and neither TPM nor DMI
+    // present each map to a distinct `MissingHardwareInfo`. A non-empty TPM cert,
+    // or DMI data with at least one serial, derives an ID and so `Yields`.
+    #[test]
+    fn from_hardware_info_with_type_error_paths() {
+        check_cases(
+            [
+                Case {
+                    scenario: "present but empty TPM cert is rejected",
+                    input: info_for_id(Some(vec![]), None),
+                    expect: FailsWith(MissingHardwareInfo::TPMCertEmpty),
+                },
+                Case {
+                    scenario: "empty TPM cert is rejected even with valid serials present",
+                    input: info_for_id(Some(vec![]), Some(("p1", "b1", "c1"))),
+                    expect: FailsWith(MissingHardwareInfo::TPMCertEmpty),
+                },
+                Case {
+                    scenario: "DMI data with all serials blank is rejected",
+                    input: info_for_id(None, Some(("", "", ""))),
+                    expect: FailsWith(MissingHardwareInfo::Serial),
+                },
+                Case {
+                    scenario: "neither TPM nor DMI present",
+                    input: info_for_id(None, None),
+                    expect: FailsWith(MissingHardwareInfo::All),
+                },
+                Case {
+                    scenario: "non-empty TPM cert derives an ID",
+                    input: info_for_id(Some(vec![1, 2, 3, 4]), None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "product serial alone derives an ID",
+                    input: info_for_id(None, Some(("p1", "", ""))),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "board serial alone derives an ID",
+                    input: info_for_id(None, Some(("", "b1", ""))),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "chassis serial alone derives an ID",
+                    input: info_for_id(None, Some(("", "", "c1"))),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "all three serials present derives an ID",
+                    input: info_for_id(None, Some(("p1", "b1", "c1"))),
+                    expect: Yields(()),
+                },
+            ],
+            // Drop the derived ID so a success is `Ok(())`: the `Yields(())` rows
+            // assert an ID was derived, while the error rows keep their exact
+            // `MissingHardwareInfo` for the `FailsWith` checks.
+            |info| from_hardware_info_with_type(&info, MachineType::Host).map(drop),
+        );
+    }
+
+    // Which `MachineIdSource` the derivation selects: a present TPM certificate
+    // wins outright, and falls through to the product/board/chassis serial source
+    // only when no TPM certificate is present.
+    #[test]
+    fn from_hardware_info_with_type_selects_source() {
+        check_cases(
+            [
+                Case {
+                    scenario: "TPM certificate selects the Tpm source",
+                    input: info_for_id(Some(vec![9]), None),
+                    expect: Yields(MachineIdSource::Tpm),
+                },
+                Case {
+                    scenario: "TPM certificate wins even when serials are present",
+                    input: info_for_id(Some(vec![9]), Some(("p1", "b1", "c1"))),
+                    expect: Yields(MachineIdSource::Tpm),
+                },
+                Case {
+                    scenario: "serials select the ProductBoardChassisSerial source",
+                    input: info_for_id(None, Some(("p1", "", ""))),
+                    expect: Yields(MachineIdSource::ProductBoardChassisSerial),
+                },
+            ],
+            |info| {
+                from_hardware_info_with_type(&info, MachineType::Host)
+                    .map(|id| id.source())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // The requested `MachineType` is carried onto the derived ID unchanged,
+    // independent of which hardware source produced the fingerprint.
+    #[test]
+    fn from_hardware_info_with_type_carries_machine_type() {
+        check_cases(
+            [
+                Case {
+                    scenario: "Host onto a TPM-derived ID",
+                    input: (info_for_id(Some(vec![7]), None), MachineType::Host),
+                    expect: Yields(MachineType::Host),
+                },
+                Case {
+                    scenario: "Dpu onto a TPM-derived ID",
+                    input: (info_for_id(Some(vec![7]), None), MachineType::Dpu),
+                    expect: Yields(MachineType::Dpu),
+                },
+                Case {
+                    scenario: "PredictedHost onto a TPM-derived ID",
+                    input: (info_for_id(Some(vec![7]), None), MachineType::PredictedHost),
+                    expect: Yields(MachineType::PredictedHost),
+                },
+                Case {
+                    scenario: "Host onto a serial-derived ID",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::Host,
+                    ),
+                    expect: Yields(MachineType::Host),
+                },
+                Case {
+                    scenario: "Dpu onto a serial-derived ID",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::Dpu,
+                    ),
+                    expect: Yields(MachineType::Dpu),
+                },
+                Case {
+                    scenario: "PredictedHost onto a serial-derived ID",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::PredictedHost,
+                    ),
+                    expect: Yields(MachineType::PredictedHost),
+                },
+            ],
+            |(info, ty)| {
+                from_hardware_info_with_type(&info, ty)
+                    .map(|id| id.machine_type())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // The derivation is a deterministic hash: the same fingerprint and type
+    // produce the same ID string, and the string fields differing on type/source
+    // change the rendered prefix.
+    #[test]
+    fn from_hardware_info_with_type_is_deterministic() {
+        check_values(
+            [
+                Check {
+                    scenario: "same TPM cert and type yields the same id string",
+                    input: (
+                        info_for_id(Some(vec![1, 2, 3]), None),
+                        info_for_id(Some(vec![1, 2, 3]), None),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "different TPM certs yield different id strings",
+                    input: (
+                        info_for_id(Some(vec![1, 2, 3]), None),
+                        info_for_id(Some(vec![4, 5, 6]), None),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "different serials yield different id strings",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        info_for_id(None, Some(("p2", "b1", "c1"))),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "same serials yield the same id string",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                    ),
+                    expect: true,
+                },
+            ],
+            |(left, right)| {
+                let left = from_hardware_info_with_type(&left, MachineType::Host).unwrap();
+                let right = from_hardware_info_with_type(&right, MachineType::Host).unwrap();
+                left.to_string() == right.to_string()
+            },
+        );
+    }
+
+    // The rendered ID string opens with the type+source prefix the constructed
+    // fingerprint and requested type imply (see `MachineType::id_prefix` and
+    // `MachineIdSource::id_char`).
+    #[test]
+    fn from_hardware_info_with_type_renders_expected_prefix() {
+        check_cases(
+            [
+                Case {
+                    scenario: "host + TPM renders fm100ht",
+                    input: (
+                        info_for_id(Some(vec![1]), None),
+                        MachineType::Host,
+                        "fm100ht",
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "dpu + TPM renders fm100dt",
+                    input: (
+                        info_for_id(Some(vec![1]), None),
+                        MachineType::Dpu,
+                        "fm100dt",
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "predicted host + serial renders fm100ps",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::PredictedHost,
+                        "fm100ps",
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "host + serial renders fm100hs",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::Host,
+                        "fm100hs",
+                    ),
+                    expect: Yields(true),
+                },
+            ],
+            |(info, ty, prefix)| {
+                from_hardware_info_with_type(&info, ty)
+                    .map(|id| id.to_string().starts_with(prefix))
+                    .map_err(drop)
+            },
+        );
+    }
+
+    // The rendered ID string is exactly `MACHINE_ID_LENGTH` characters regardless
+    // of which source or type produced it.
+    #[test]
+    fn from_hardware_info_with_type_renders_fixed_length() {
+        check_values(
+            [
+                Check {
+                    scenario: "TPM-derived host id length",
+                    input: (info_for_id(Some(vec![1, 2]), None), MachineType::Host),
+                    expect: MACHINE_ID_LENGTH,
+                },
+                Check {
+                    scenario: "serial-derived dpu id length",
+                    input: (
+                        info_for_id(None, Some(("p1", "b1", "c1"))),
+                        MachineType::Dpu,
+                    ),
+                    expect: MACHINE_ID_LENGTH,
+                },
+                Check {
+                    scenario: "serial-derived predicted-host id length",
+                    input: (
+                        info_for_id(None, Some(("", "b1", ""))),
+                        MachineType::PredictedHost,
+                    ),
+                    expect: MACHINE_ID_LENGTH,
+                },
+            ],
+            |(info, ty)| {
+                from_hardware_info_with_type(&info, ty)
+                    .unwrap()
+                    .to_string()
+                    .len()
             },
         );
     }

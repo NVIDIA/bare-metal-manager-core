@@ -323,6 +323,22 @@ mod tests {
             observed_at: chrono::Utc::now(),
         };
 
+        // Observation where the interface is observable but sits on a different
+        // partition than the config requests, so the config is not synced.
+        let other_partition_id: IBPartitionId =
+            uuid::uuid!("00000000-0000-0000-0000-0000deadbeef").into();
+        let other_pkey: PartitionKey = 0x42.try_into().unwrap();
+        let mismatched = MachineInfinibandStatusObservation {
+            ib_interfaces: vec![MachineIbInterfaceStatusObservation {
+                guid: "946dae03006104f8".to_string(),
+                lid: 0x10,
+                fabric_id: "default".to_string(),
+                associated_pkeys: Some([other_pkey].into_iter().collect()),
+                associated_partition_ids: Some([other_partition_id].into_iter().collect()),
+            }],
+            observed_at: chrono::Utc::now(),
+        };
+
         // ib_config_synced over (observation, config, use_tenant_network). The
         // error variant's `details` are built dynamically, so rather than assert
         // the exact reason we project the result to a comparable summary:
@@ -353,6 +369,11 @@ mod tests {
                     scenario: "ok when synced",
                     input: (Some(&synced), Some(&cfg), true),
                     expect: Yields(("ok", Vec::new(), false, false)),
+                },
+                Case {
+                    scenario: "configuration mismatch (interface on a different partition)",
+                    input: (Some(&mismatched), Some(&cfg), true),
+                    expect: Yields(("ConfigurationMismatch", Vec::new(), false, false)),
                 },
             ],
             |(observation, config, use_tenant_network)| -> Result<Summary, ()> {

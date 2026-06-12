@@ -439,7 +439,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
@@ -482,6 +482,38 @@ mod tests {
                     )),
                 },
                 Case {
+                    scenario: "extracts fields for astra interface type",
+                    input: DeviceInfoInput {
+                        base_mac: Some(MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap()),
+                        device_type: "ConnectX7".to_string(),
+                        pci_name: "02:00.1".to_string(),
+                        device_description: None,
+                        interface_type: DpaInterfaceType::Astra,
+                    },
+                    expect: Yields((
+                        machine_id,
+                        MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+                        "ConnectX7".to_string(),
+                        "02:00.1".to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "extracts fields with empty device type and pci name",
+                    input: DeviceInfoInput {
+                        base_mac: Some(MacAddress::from_str("00:00:00:00:00:00").unwrap()),
+                        device_type: String::new(),
+                        pci_name: String::new(),
+                        device_description: Some(String::new()),
+                        interface_type: DpaInterfaceType::Svpc,
+                    },
+                    expect: Yields((
+                        machine_id,
+                        MacAddress::from_str("00:00:00:00:00:00").unwrap(),
+                        String::new(),
+                        String::new(),
+                    )),
+                },
+                Case {
                     scenario: "returns none without base mac",
                     input: DeviceInfoInput {
                         base_mac: None,
@@ -489,6 +521,17 @@ mod tests {
                         pci_name: "01:00.0".to_string(),
                         device_description: None,
                         interface_type: DpaInterfaceType::Svpc,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "returns none without base mac for astra",
+                    input: DeviceInfoInput {
+                        base_mac: None,
+                        device_type: "ConnectX7".to_string(),
+                        pci_name: "02:00.1".to_string(),
+                        device_description: Some("desc".to_string()),
+                        interface_type: DpaInterfaceType::Astra,
                     },
                     expect: Fails,
                 },
@@ -526,9 +569,29 @@ mod tests {
                     expect: Yields("{\"state\":\"ready\"}".to_string()),
                 },
                 Case {
+                    scenario: "unlocking",
+                    input: DpaInterfaceControllerState::Unlocking,
+                    expect: Yields("{\"state\":\"unlocking\"}".to_string()),
+                },
+                Case {
                     scenario: "applyfirmware",
                     input: DpaInterfaceControllerState::ApplyFirmware,
                     expect: Yields("{\"state\":\"applyfirmware\"}".to_string()),
+                },
+                Case {
+                    scenario: "applyprofile",
+                    input: DpaInterfaceControllerState::ApplyProfile,
+                    expect: Yields("{\"state\":\"applyprofile\"}".to_string()),
+                },
+                Case {
+                    scenario: "locking",
+                    input: DpaInterfaceControllerState::Locking,
+                    expect: Yields("{\"state\":\"locking\"}".to_string()),
+                },
+                Case {
+                    scenario: "assigned",
+                    input: DpaInterfaceControllerState::Assigned,
+                    expect: Yields("{\"state\":\"assigned\"}".to_string()),
                 },
             ],
             |state| -> Result<String, ()> {
@@ -537,6 +600,201 @@ mod tests {
                     serde_json::from_str::<DpaInterfaceControllerState>(&serialized)
                         .map_err(|_| ())?;
                 assert_eq!(round_tripped, state);
+                Ok(serialized)
+            },
+        );
+    }
+
+    #[test]
+    fn lock_mode_try_from_i32() {
+        // `DpaLockMode::try_from(i32)` accepts only 1 (Locked) and 2 (Unlocked);
+        // every other value — including the zero and the values just outside the
+        // accepted pair — is rejected with the same static error.
+        check_cases(
+            [
+                Case {
+                    scenario: "one is locked",
+                    input: 1,
+                    expect: Yields(DpaLockMode::Locked),
+                },
+                Case {
+                    scenario: "two is unlocked",
+                    input: 2,
+                    expect: Yields(DpaLockMode::Unlocked),
+                },
+                Case {
+                    scenario: "zero is invalid",
+                    input: 0,
+                    expect: FailsWith("Invalid value for DpaLockMode"),
+                },
+                Case {
+                    scenario: "three is invalid",
+                    input: 3,
+                    expect: FailsWith("Invalid value for DpaLockMode"),
+                },
+                Case {
+                    scenario: "negative is invalid",
+                    input: -1,
+                    expect: FailsWith("Invalid value for DpaLockMode"),
+                },
+                Case {
+                    scenario: "max is invalid",
+                    input: i32::MAX,
+                    expect: FailsWith("Invalid value for DpaLockMode"),
+                },
+                Case {
+                    scenario: "min is invalid",
+                    input: i32::MIN,
+                    expect: FailsWith("Invalid value for DpaLockMode"),
+                },
+            ],
+            DpaLockMode::try_from,
+        );
+    }
+
+    #[test]
+    fn controller_state_display() {
+        // The `Display` impl defers to `Debug`, so each variant renders as its
+        // bare Rust identifier — distinct from the lowercase serde tag.
+        check_values(
+            [
+                Check {
+                    scenario: "provisioning",
+                    input: DpaInterfaceControllerState::Provisioning,
+                    expect: "Provisioning".to_string(),
+                },
+                Check {
+                    scenario: "ready",
+                    input: DpaInterfaceControllerState::Ready,
+                    expect: "Ready".to_string(),
+                },
+                Check {
+                    scenario: "unlocking",
+                    input: DpaInterfaceControllerState::Unlocking,
+                    expect: "Unlocking".to_string(),
+                },
+                Check {
+                    scenario: "applyfirmware",
+                    input: DpaInterfaceControllerState::ApplyFirmware,
+                    expect: "ApplyFirmware".to_string(),
+                },
+                Check {
+                    scenario: "applyprofile",
+                    input: DpaInterfaceControllerState::ApplyProfile,
+                    expect: "ApplyProfile".to_string(),
+                },
+                Check {
+                    scenario: "locking",
+                    input: DpaInterfaceControllerState::Locking,
+                    expect: "Locking".to_string(),
+                },
+                Check {
+                    scenario: "assigned",
+                    input: DpaInterfaceControllerState::Assigned,
+                    expect: "Assigned".to_string(),
+                },
+            ],
+            |state| state.to_string(),
+        );
+    }
+
+    #[test]
+    fn controller_state_deserialize_rejects_unknown_tag() {
+        // The accepted tags are exactly the lowercase variant names; an unknown
+        // tag and a missing tag are both rejected.
+        check_cases(
+            [
+                Case {
+                    scenario: "known tag deserializes",
+                    input: "{\"state\":\"ready\"}",
+                    expect: Yields(DpaInterfaceControllerState::Ready),
+                },
+                Case {
+                    scenario: "capitalized tag is rejected",
+                    input: "{\"state\":\"Ready\"}",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unknown tag is rejected",
+                    input: "{\"state\":\"bogus\"}",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing tag is rejected",
+                    input: "{}",
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<DpaInterfaceControllerState>(json).map_err(|_| ()),
+        );
+    }
+
+    #[test]
+    fn network_config_default_uses_admin_network() {
+        // The default network config opts into the admin network and carries no
+        // quarantine state.
+        check_values(
+            [Check {
+                scenario: "defaults to admin network",
+                input: (),
+                expect: (Some(true), None),
+            }],
+            |()| {
+                let cfg = DpaInterfaceNetworkConfig::default();
+                (cfg.use_admin_network, cfg.quarantine_state)
+            },
+        );
+    }
+
+    #[test]
+    fn lock_mode_serde_round_trips() {
+        // Both lock modes survive a JSON round-trip, serializing to their bare
+        // variant names.
+        check_cases(
+            [
+                Case {
+                    scenario: "locked",
+                    input: DpaLockMode::Locked,
+                    expect: Yields("\"Locked\"".to_string()),
+                },
+                Case {
+                    scenario: "unlocked",
+                    input: DpaLockMode::Unlocked,
+                    expect: Yields("\"Unlocked\"".to_string()),
+                },
+            ],
+            |mode| -> Result<String, ()> {
+                let serialized = serde_json::to_string(&mode).map_err(|_| ())?;
+                let round_tripped =
+                    serde_json::from_str::<DpaLockMode>(&serialized).map_err(|_| ())?;
+                assert_eq!(round_tripped, mode);
+                Ok(serialized)
+            },
+        );
+    }
+
+    #[test]
+    fn interface_type_serde_round_trips() {
+        // Each `DpaInterfaceType` variant serializes to its bare name and parses
+        // back to itself.
+        check_cases(
+            [
+                Case {
+                    scenario: "svpc",
+                    input: DpaInterfaceType::Svpc,
+                    expect: Yields("\"Svpc\"".to_string()),
+                },
+                Case {
+                    scenario: "astra",
+                    input: DpaInterfaceType::Astra,
+                    expect: Yields("\"Astra\"".to_string()),
+                },
+            ],
+            |ty| -> Result<String, ()> {
+                let serialized = serde_json::to_string(&ty).map_err(|_| ())?;
+                let round_tripped =
+                    serde_json::from_str::<DpaInterfaceType>(&serialized).map_err(|_| ())?;
+                assert_eq!(round_tripped, ty);
                 Ok(serialized)
             },
         );

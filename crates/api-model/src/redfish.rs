@@ -105,12 +105,50 @@ pub struct RedfishCreateAction {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
+    /// `From<i64>` is a plain field move; enumerate the integer boundaries it must
+    /// carry through unchanged.
     #[test]
-    fn redfish_action_id_from_i64() {
-        let id = RedfishActionId::from(99i64);
-        assert_eq!(id.request_id, 99);
+    fn redfish_action_id_from_i64_carries_the_value() {
+        check_values(
+            [
+                Check {
+                    scenario: "positive",
+                    input: 99i64,
+                    expect: 99i64,
+                },
+                Check {
+                    scenario: "zero",
+                    input: 0,
+                    expect: 0,
+                },
+                Check {
+                    scenario: "one",
+                    input: 1,
+                    expect: 1,
+                },
+                Check {
+                    scenario: "negative",
+                    input: -1,
+                    expect: -1,
+                },
+                Check {
+                    scenario: "i64::MAX",
+                    input: i64::MAX,
+                    expect: i64::MAX,
+                },
+                Check {
+                    scenario: "i64::MIN",
+                    input: i64::MIN,
+                    expect: i64::MIN,
+                },
+            ],
+            |n| RedfishActionId::from(n).request_id,
+        );
     }
 
     #[test]
@@ -118,5 +156,100 @@ mod tests {
         let id = RedfishActionId { request_id: 1 };
         let id2 = id;
         assert_eq!(id.request_id, id2.request_id);
+    }
+
+    #[test]
+    fn redfish_list_actions_filter_default_is_empty() {
+        check_values(
+            [Check {
+                scenario: "default leaves machine_ip unset",
+                input: RedfishListActionsFilter::default(),
+                expect: None,
+            }],
+            |filter| filter.machine_ip,
+        );
+    }
+
+    fn bmc_response(status: &str, body: &str) -> BMCResponse {
+        BMCResponse {
+            headers: HashMap::new(),
+            status: status.to_string(),
+            body: body.to_string(),
+            completed_at: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+        }
+    }
+
+    /// `BMCResponse` is round-tripped through JSON when persisted; assert the
+    /// serialized form survives a deserialize back to the same fields. The error
+    /// type (`serde_json::Error`) isn't `PartialEq`, so map it away.
+    #[test]
+    fn bmc_response_round_trips_through_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ok with empty body",
+                    input: bmc_response("200 OK", ""),
+                    expect: Yields(("200 OK".to_string(), String::new())),
+                },
+                Case {
+                    scenario: "ok with json body",
+                    input: bmc_response("200 OK", r#"{"k":"v"}"#),
+                    expect: Yields(("200 OK".to_string(), r#"{"k":"v"}"#.to_string())),
+                },
+                Case {
+                    scenario: "error status",
+                    input: bmc_response("500 Internal Server Error", "boom"),
+                    expect: Yields(("500 Internal Server Error".to_string(), "boom".to_string())),
+                },
+                Case {
+                    scenario: "unicode body",
+                    input: bmc_response("202 Accepted", "café ☕"),
+                    expect: Yields(("202 Accepted".to_string(), "café ☕".to_string())),
+                },
+            ],
+            |response| {
+                let json = serde_json::to_string(&response).map_err(drop)?;
+                let back: BMCResponse = serde_json::from_str(&json).map_err(drop)?;
+                Ok::<_, ()>((back.status, back.body))
+            },
+        );
+    }
+
+    /// Headers are an arbitrary map; assert the serialized form preserves a chosen
+    /// key after the JSON round-trip.
+    #[test]
+    fn bmc_response_round_trip_preserves_headers() {
+        check_cases(
+            [
+                Case {
+                    scenario: "single header",
+                    input: ("Content-Type", "application/json"),
+                    expect: Yields(Some("application/json".to_string())),
+                },
+                Case {
+                    scenario: "header value with spaces",
+                    input: ("ETag", "W/\"abc 123\""),
+                    expect: Yields(Some("W/\"abc 123\"".to_string())),
+                },
+                Case {
+                    scenario: "empty header value",
+                    input: ("X-Empty", ""),
+                    expect: Yields(Some(String::new())),
+                },
+            ],
+            |(key, value): (&str, &str)| {
+                let mut headers = HashMap::new();
+                headers.insert(key.to_string(), value.to_string());
+                let response = BMCResponse {
+                    headers,
+                    status: "200 OK".to_string(),
+                    body: String::new(),
+                    completed_at: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+                };
+                let json = serde_json::to_string(&response).map_err(drop)?;
+                let back: BMCResponse = serde_json::from_str(&json).map_err(drop)?;
+                Ok::<_, ()>(back.headers.get(key).cloned())
+            },
+        );
     }
 }

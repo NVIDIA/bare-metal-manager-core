@@ -113,8 +113,88 @@ mod tests {
         check_cases(
             [
                 Case {
+                    scenario: "empty yields nothing",
+                    input: sources(None, &[]),
+                    expect: Yields(vec![]),
+                },
+                Case {
+                    scenario: "single merge",
+                    input: sources(None, &["only"]),
+                    expect: Yields(vec![("only".to_string(), HealthReportApplyMode::Merge)]),
+                },
+                Case {
                     scenario: "merges only",
                     input: sources(None, &["source-a", "source-b"]),
+                    expect: Yields(vec![
+                        ("source-a".to_string(), HealthReportApplyMode::Merge),
+                        ("source-b".to_string(), HealthReportApplyMode::Merge),
+                    ]),
+                },
+                Case {
+                    // The map is keyed by source name, so iteration follows the
+                    // BTreeMap's sorted key order regardless of insertion order.
+                    scenario: "merges sorted by source key, not insertion order",
+                    input: sources(None, &["zebra", "alpha", "mike"]),
+                    expect: Yields(vec![
+                        ("alpha".to_string(), HealthReportApplyMode::Merge),
+                        ("mike".to_string(), HealthReportApplyMode::Merge),
+                        ("zebra".to_string(), HealthReportApplyMode::Merge),
+                    ]),
+                },
+                Case {
+                    scenario: "replace only",
+                    input: sources(Some("admin-replace"), &[]),
+                    expect: Yields(vec![(
+                        "admin-replace".to_string(),
+                        HealthReportApplyMode::Replace,
+                    )]),
+                },
+                Case {
+                    scenario: "mixed merge and replace",
+                    input: sources(Some("sre-override"), &["external-monitor"]),
+                    expect: Yields(vec![
+                        ("external-monitor".to_string(), HealthReportApplyMode::Merge),
+                        ("sre-override".to_string(), HealthReportApplyMode::Replace),
+                    ]),
+                },
+                Case {
+                    // The replace source always trails the merges, even when its name
+                    // would sort before them.
+                    scenario: "replace trails merges regardless of its name",
+                    input: sources(Some("aaa-replace"), &["mmm", "zzz"]),
+                    expect: Yields(vec![
+                        ("mmm".to_string(), HealthReportApplyMode::Merge),
+                        ("zzz".to_string(), HealthReportApplyMode::Merge),
+                        ("aaa-replace".to_string(), HealthReportApplyMode::Replace),
+                    ]),
+                },
+            ],
+            |sources: HealthReportSources| {
+                Ok::<_, ()>(
+                    sources
+                        .into_iter()
+                        .map(|(report, mode)| (report.source, mode))
+                        .collect::<Vec<_>>(),
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn health_reports_iter() {
+        // `iter` borrows rather than consuming, but yields the same (source, mode)
+        // sequence as `into_iter`: merges first in sorted key order, then the
+        // replace source. Infallible, so every row `Yields`.
+        check_cases(
+            [
+                Case {
+                    scenario: "empty borrows nothing",
+                    input: sources(None, &[]),
+                    expect: Yields(vec![]),
+                },
+                Case {
+                    scenario: "merges only",
+                    input: sources(None, &["source-b", "source-a"]),
                     expect: Yields(vec![
                         ("source-a".to_string(), HealthReportApplyMode::Merge),
                         ("source-b".to_string(), HealthReportApplyMode::Merge),
@@ -140,11 +220,81 @@ mod tests {
             |sources: HealthReportSources| {
                 Ok::<_, ()>(
                     sources
-                        .into_iter()
-                        .map(|(report, mode)| (report.source, mode))
+                        .iter()
+                        .map(|(report, mode)| (report.source.clone(), mode))
                         .collect::<Vec<_>>(),
                 )
             },
+        );
+    }
+
+    #[test]
+    fn health_reports_repair_merge_active() {
+        // `repair_merge_active` is true exactly when a merge source named
+        // `repair-request` or `request-online-repair` is present. The replace slot
+        // is irrelevant, as are unrelated merge sources. Infallible predicate, so
+        // every row `Yields` a bool.
+        check_cases(
+            [
+                Case {
+                    scenario: "no sources at all",
+                    input: sources(None, &[]),
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "only unrelated merges",
+                    input: sources(None, &["external-monitor", "sre"]),
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "repair-request merge present",
+                    input: sources(None, &[health_report::REPAIR_REQUEST_MERGE_SOURCE]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "request-online-repair merge present",
+                    input: sources(None, &[health_report::REQUEST_ONLINE_REPAIR_MERGE_SOURCE]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "both repair merges present",
+                    input: sources(
+                        None,
+                        &[
+                            health_report::REPAIR_REQUEST_MERGE_SOURCE,
+                            health_report::REQUEST_ONLINE_REPAIR_MERGE_SOURCE,
+                        ],
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "repair merge alongside unrelated merges",
+                    input: sources(
+                        None,
+                        &[
+                            "external-monitor",
+                            health_report::REPAIR_REQUEST_MERGE_SOURCE,
+                        ],
+                    ),
+                    expect: Yields(true),
+                },
+                Case {
+                    // The repair signal lives in the merges map; a replace source by
+                    // the same name does not count.
+                    scenario: "repair name in replace slot does not count",
+                    input: sources(Some(health_report::REPAIR_REQUEST_MERGE_SOURCE), &[]),
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "repair merge present with an unrelated replace",
+                    input: sources(
+                        Some("admin-replace"),
+                        &[health_report::REQUEST_ONLINE_REPAIR_MERGE_SOURCE],
+                    ),
+                    expect: Yields(true),
+                },
+            ],
+            |sources: HealthReportSources| Ok::<_, ()>(sources.repair_merge_active()),
         );
     }
 

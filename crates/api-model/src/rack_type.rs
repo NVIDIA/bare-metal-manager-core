@@ -280,7 +280,7 @@ impl RackProfileConfig {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
@@ -437,24 +437,130 @@ count = 2
         );
     }
 
+    // Display forwards the inner string verbatim, including for the wildcard
+    // and for empty/odd inputs.
     #[test]
     fn test_rack_hardware_type_display() {
-        assert_eq!(RackHardwareType::any().to_string(), "any");
-        assert_eq!(
-            RackHardwareType::from("dsx_gb200nvl_72x1").to_string(),
-            "dsx_gb200nvl_72x1"
+        check_values(
+            [
+                Check {
+                    scenario: "wildcard any",
+                    input: RackHardwareType::any(),
+                    expect: "any".to_string(),
+                },
+                Check {
+                    scenario: "dsx hardware type",
+                    input: RackHardwareType::from("dsx_gb200nvl_72x1"),
+                    expect: "dsx_gb200nvl_72x1".to_string(),
+                },
+                Check {
+                    scenario: "empty string",
+                    input: RackHardwareType::from(""),
+                    expect: String::new(),
+                },
+                Check {
+                    scenario: "uppercase verbatim",
+                    input: RackHardwareType::from("ANY"),
+                    expect: "ANY".to_string(),
+                },
+                Check {
+                    scenario: "whitespace preserved",
+                    input: RackHardwareType::from("  spaced  "),
+                    expect: "  spaced  ".to_string(),
+                },
+                Check {
+                    scenario: "default renders as any",
+                    input: RackHardwareType::default(),
+                    expect: "any".to_string(),
+                },
+            ],
+            |hw_type| hw_type.to_string(),
         );
     }
 
+    // is_any is an exact, case-sensitive match against the literal "any".
     #[test]
     fn test_rack_hardware_type_is_any() {
-        assert!(RackHardwareType::any().is_any());
-        assert!(!RackHardwareType::from("dsx_gb200nvl_72x1").is_any());
+        check_values(
+            [
+                Check {
+                    scenario: "constructed via any()",
+                    input: RackHardwareType::any(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "default is any",
+                    input: RackHardwareType::default(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "literal any from str",
+                    input: RackHardwareType::from("any"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "concrete hardware type",
+                    input: RackHardwareType::from("dsx_gb200nvl_72x1"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty is not any",
+                    input: RackHardwareType::from(""),
+                    expect: false,
+                },
+                Check {
+                    scenario: "uppercase is not any",
+                    input: RackHardwareType::from("ANY"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "any with trailing space is not any",
+                    input: RackHardwareType::from("any "),
+                    expect: false,
+                },
+                Check {
+                    scenario: "substring is not any",
+                    input: RackHardwareType::from("anything"),
+                    expect: false,
+                },
+            ],
+            |hw_type| hw_type.is_any(),
+        );
     }
 
     #[test]
     fn test_rack_hardware_type_default_is_any() {
         assert_eq!(RackHardwareType::default(), RackHardwareType::any());
+    }
+
+    // Both From conversions wrap the input verbatim and agree with each other.
+    #[test]
+    fn test_rack_hardware_type_from_conversions() {
+        check_values(
+            [
+                Check {
+                    scenario: "from owned string",
+                    input: RackHardwareType::from("dsx".to_string()),
+                    expect: RackHardwareType("dsx".to_string()),
+                },
+                Check {
+                    scenario: "from str slice",
+                    input: RackHardwareType::from("dsx"),
+                    expect: RackHardwareType("dsx".to_string()),
+                },
+                Check {
+                    scenario: "from empty str",
+                    input: RackHardwareType::from(""),
+                    expect: RackHardwareType(String::new()),
+                },
+                Check {
+                    scenario: "owned and borrowed agree",
+                    input: RackHardwareType::from("any".to_string()),
+                    expect: RackHardwareType::from("any"),
+                },
+            ],
+            |hw_type| hw_type,
+        );
     }
 
     // RackHardwareTopology serde.
@@ -523,19 +629,81 @@ count = 2
         );
     }
 
+    // Display covers every topology variant; the rendered string matches the
+    // snake_case serde form.
     #[test]
     fn test_rack_hardware_topology_display() {
-        assert_eq!(
-            RackHardwareTopology::Gb200Nvl36r1C2g4Topology.to_string(),
-            "gb200_nvl36r1_c2g4_topology"
+        check_values(
+            [
+                Check {
+                    scenario: "gb200 nvl36",
+                    input: RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
+                    expect: "gb200_nvl36r1_c2g4_topology".to_string(),
+                },
+                Check {
+                    scenario: "gb300 nvl36",
+                    input: RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
+                    expect: "gb300_nvl36r1_c2g4_topology".to_string(),
+                },
+                Check {
+                    scenario: "gb200 nvl72",
+                    input: RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
+                    expect: "gb200_nvl72r1_c2g4_topology".to_string(),
+                },
+                Check {
+                    scenario: "gb300 nvl72",
+                    input: RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
+                    expect: "gb300_nvl72r1_c2g4_topology".to_string(),
+                },
+                Check {
+                    scenario: "vr nvl8 rtf",
+                    input: RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
+                    expect: "vr_nvl8r1_c2g4_rtf_topology".to_string(),
+                },
+                Check {
+                    scenario: "vr nvl72",
+                    input: RackHardwareTopology::VrNvl72r1C2g4Topology,
+                    expect: "vr_nvl72r1_c2g4_topology".to_string(),
+                },
+            ],
+            |variant| variant.to_string(),
         );
-        assert_eq!(
-            RackHardwareTopology::VrNvl8r1C2g4RtfTopology.to_string(),
-            "vr_nvl8r1_c2g4_rtf_topology"
-        );
-        assert_eq!(
-            RackHardwareTopology::VrNvl72r1C2g4Topology.to_string(),
-            "vr_nvl72r1_c2g4_topology"
+    }
+
+    // Deserialization accepts exactly the snake_case names and rejects anything
+    // else (unknown names, the Display-only variant casing, empty). The
+    // (non-PartialEq) serde error is discarded with map_err(drop).
+    #[test]
+    fn test_rack_hardware_topology_deserialize() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid gb200 nvl36",
+                    input: "\"gb200_nvl36r1_c2g4_topology\"",
+                    expect: Yields(RackHardwareTopology::Gb200Nvl36r1C2g4Topology),
+                },
+                Case {
+                    scenario: "valid vr nvl72",
+                    input: "\"vr_nvl72r1_c2g4_topology\"",
+                    expect: Yields(RackHardwareTopology::VrNvl72r1C2g4Topology),
+                },
+                Case {
+                    scenario: "unknown topology name",
+                    input: "\"gb500_nvl99_topology\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "\"\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wrong json type",
+                    input: "42",
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<RackHardwareTopology>(json).map_err(drop),
         );
     }
 
@@ -569,7 +737,82 @@ count = 2
 
     #[test]
     fn test_rack_hardware_class_display() {
-        assert_eq!(RackHardwareClass::Dev.to_string(), "dev");
-        assert_eq!(RackHardwareClass::Prod.to_string(), "prod");
+        check_values(
+            [
+                Check {
+                    scenario: "dev",
+                    input: RackHardwareClass::Dev,
+                    expect: "dev".to_string(),
+                },
+                Check {
+                    scenario: "prod",
+                    input: RackHardwareClass::Prod,
+                    expect: "prod".to_string(),
+                },
+            ],
+            |variant| variant.to_string(),
+        );
+    }
+
+    // Deserialization accepts the two snake_case names and rejects others.
+    // The (non-PartialEq) serde error is discarded with map_err(drop).
+    #[test]
+    fn test_rack_hardware_class_deserialize() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid dev",
+                    input: "\"dev\"",
+                    expect: Yields(RackHardwareClass::Dev),
+                },
+                Case {
+                    scenario: "valid prod",
+                    input: "\"prod\"",
+                    expect: Yields(RackHardwareClass::Prod),
+                },
+                Case {
+                    scenario: "uppercase rejected",
+                    input: "\"Dev\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unknown class",
+                    input: "\"staging\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty string",
+                    input: "\"\"",
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<RackHardwareClass>(json).map_err(drop),
+        );
+    }
+
+    // RackCapabilityType Display renders each variant with its canonical
+    // PascalCase label.
+    #[test]
+    fn test_rack_capability_type_display() {
+        check_values(
+            [
+                Check {
+                    scenario: "compute",
+                    input: RackCapabilityType::Compute,
+                    expect: "Compute".to_string(),
+                },
+                Check {
+                    scenario: "switch",
+                    input: RackCapabilityType::Switch,
+                    expect: "Switch".to_string(),
+                },
+                Check {
+                    scenario: "power shelf",
+                    input: RackCapabilityType::PowerShelf,
+                    expect: "PowerShelf".to_string(),
+                },
+            ],
+            |variant| variant.to_string(),
+        );
     }
 }

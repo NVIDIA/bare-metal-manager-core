@@ -947,6 +947,22 @@ mod tests {
                     ),
                     expect: Yields(()),
                 },
+                Case {
+                    scenario: "ETV rejects an IPv6-only Tenant segment",
+                    input: (
+                        VpcVirtualizationType::EthernetVirtualizer,
+                        segment_with(NetworkSegmentType::Tenant, vec!["2001:db8::/64"], None),
+                    ),
+                    expect: FailsWith(ipv6_unsupported),
+                },
+                Case {
+                    scenario: "Flat + HostInband accepts an IPv6-only segment",
+                    input: (
+                        VpcVirtualizationType::Flat,
+                        segment_with(NetworkSegmentType::HostInband, vec!["2001:db8::/64"], None),
+                    ),
+                    expect: Yields(()),
+                },
             ],
             // The operation under test: gate a segment against a VPC type. The
             // error type isn't `PartialEq`, so we project it to its discriminant

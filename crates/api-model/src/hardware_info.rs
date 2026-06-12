@@ -397,9 +397,19 @@ impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
 mod tests {
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
+
+    // Build a `HardwareInfo` carrying only the architecture and `DmiData` fields
+    // the classification predicates look at, leaving everything else defaulted.
+    fn info_with_dmi(machine_type: CpuArchitecture, dmi: DmiData) -> HardwareInfo {
+        HardwareInfo {
+            machine_type,
+            dmi_data: Some(dmi),
+            ..Default::default()
+        }
+    }
 
     const DPU_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_info.json");
     const DPU_BF3_INFO_JSON: &[u8] = include_bytes!("hardware_info/test_data/dpu_bf3_info.json");
@@ -652,6 +662,516 @@ mod tests {
         assert_eq!(
             deserialized.cert.as_ref().map(|cert| cert.as_bytes()),
             Some(cert_data.as_slice())
+        );
+    }
+
+    // `is_dpu()` is true only when the architecture is Aarch64 *and* the DMI board
+    // name contains "bluefield" (case-insensitively). Both conditions must hold.
+    #[test]
+    fn hardware_info_is_dpu() {
+        check_values(
+            [
+                Check {
+                    scenario: "aarch64 with bluefield board is a DPU",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            board_name: "BlueField-3".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "board name match is case-insensitive",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            board_name: "MY-BLUEFIELD-CARD".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "bluefield as a lowercase substring still matches",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            board_name: "prefix-bluefield-suffix".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "aarch64 without bluefield board is not a DPU",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            board_name: "GenericBoard".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "aarch64 with empty board name is not a DPU",
+                    input: info_with_dmi(CpuArchitecture::Aarch64, DmiData::default()),
+                    expect: false,
+                },
+                Check {
+                    scenario: "x86_64 with bluefield board is not a DPU",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            board_name: "BlueField-3".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "unknown arch with bluefield board is not a DPU",
+                    input: info_with_dmi(
+                        CpuArchitecture::Unknown,
+                        DmiData {
+                            board_name: "BlueField-3".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "aarch64 with no dmi data at all is not a DPU",
+                    input: HardwareInfo {
+                        machine_type: CpuArchitecture::Aarch64,
+                        dmi_data: None,
+                        ..Default::default()
+                    },
+                    expect: false,
+                },
+            ],
+            |info| info.is_dpu(),
+        );
+    }
+
+    // `factory_mac_address()` requires `dpu_info` and a parseable MAC string within
+    // it; its error type is not PartialEq, so failures are asserted as `Fails`.
+    #[test]
+    fn hardware_info_factory_mac_address() {
+        check_cases(
+            [
+                Case {
+                    scenario: "valid mac in dpu info yields the address",
+                    input: HardwareInfo {
+                        dpu_info: Some(DpuData {
+                            factory_mac_address: "00:11:22:33:44:55".to_string(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    expect: Yields(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
+                },
+                Case {
+                    scenario: "missing dpu info fails",
+                    input: HardwareInfo::default(),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty mac string fails to parse",
+                    input: HardwareInfo {
+                        dpu_info: Some(DpuData {
+                            factory_mac_address: String::new(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "malformed mac string fails to parse",
+                    input: HardwareInfo {
+                        dpu_info: Some(DpuData {
+                            factory_mac_address: "not-a-mac".to_string(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "too-short mac string fails to parse",
+                    input: HardwareInfo {
+                        dpu_info: Some(DpuData {
+                            factory_mac_address: "00:11:22".to_string(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    expect: Fails,
+                },
+            ],
+            // HardwareInfoError is not PartialEq, so drop the error to make the run
+            // closure's error type `()`.
+            |info| info.factory_mac_address().map_err(drop),
+        );
+    }
+
+    // `bmc_vendor()` maps the DMI `sys_vendor` string through `from_udev_dmi`, and
+    // falls back to `Unknown` when there is no DMI data at all.
+    #[test]
+    fn hardware_info_bmc_vendor() {
+        check_values(
+            [
+                Check {
+                    scenario: "lenovo sys vendor",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "Lenovo".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Lenovo,
+                },
+                Check {
+                    scenario: "dell sys vendor",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "Dell Inc.".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Dell,
+                },
+                Check {
+                    scenario: "nvidia sys vendor",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            sys_vendor: "NVIDIA".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Nvidia,
+                },
+                Check {
+                    scenario: "mellanox url maps to nvidia",
+                    input: info_with_dmi(
+                        CpuArchitecture::Aarch64,
+                        DmiData {
+                            sys_vendor: "https://www.mellanox.com".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Nvidia,
+                },
+                Check {
+                    scenario: "supermicro sys vendor",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "Supermicro".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Supermicro,
+                },
+                Check {
+                    scenario: "hpe sys vendor",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "HPE".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Hpe,
+                },
+                Check {
+                    scenario: "unrecognized sys vendor is unknown",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "Acme Corp".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Unknown,
+                },
+                Check {
+                    scenario: "case-sensitive: lowercase dell is unknown",
+                    input: info_with_dmi(
+                        CpuArchitecture::X86_64,
+                        DmiData {
+                            sys_vendor: "dell inc.".to_string(),
+                            ..Default::default()
+                        },
+                    ),
+                    expect: bmc_vendor::BMCVendor::Unknown,
+                },
+                Check {
+                    scenario: "no dmi data is unknown",
+                    input: HardwareInfo::default(),
+                    expect: bmc_vendor::BMCVendor::Unknown,
+                },
+            ],
+            |info| info.bmc_vendor(),
+        );
+    }
+
+    // `is_gbx00()` checks for a "GB200" substring in the product name; `is_dgx_h100()`
+    // wants an exact NVIDIA / DGXH100 pairing.
+    #[test]
+    fn hardware_info_product_predicates() {
+        check_values(
+            [
+                Check {
+                    scenario: "exact GB200 product name",
+                    input: ("GB200", false),
+                    expect: true,
+                },
+                Check {
+                    scenario: "GB200 as a substring",
+                    input: ("NVIDIA GB200 NVL72", false),
+                    expect: true,
+                },
+                Check {
+                    scenario: "different product is not gbx00",
+                    input: ("GB300", false),
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty product name is not gbx00",
+                    input: ("", false),
+                    expect: false,
+                },
+                Check {
+                    scenario: "case-sensitive: lowercase gb200 is not gbx00",
+                    input: ("gb200", false),
+                    expect: false,
+                },
+            ],
+            |(product_name, _)| {
+                info_with_dmi(
+                    CpuArchitecture::Aarch64,
+                    DmiData {
+                        product_name: product_name.to_string(),
+                        ..Default::default()
+                    },
+                )
+                .is_gbx00()
+            },
+        );
+    }
+
+    // `is_dgx_h100()` requires both sys_vendor == "NVIDIA" and product_name == "DGXH100".
+    #[test]
+    fn hardware_info_is_dgx_h100() {
+        check_values(
+            [
+                Check {
+                    scenario: "nvidia vendor and dgxh100 product",
+                    input: ("NVIDIA", "DGXH100"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "wrong product is not a dgx h100",
+                    input: ("NVIDIA", "DGXH200"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "wrong vendor is not a dgx h100",
+                    input: ("Supermicro", "DGXH100"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "both empty is not a dgx h100",
+                    input: ("", ""),
+                    expect: false,
+                },
+                Check {
+                    scenario: "product as substring is rejected (exact match required)",
+                    input: ("NVIDIA", "DGXH100-rev2"),
+                    expect: false,
+                },
+            ],
+            |(sys_vendor, product_name)| {
+                info_with_dmi(
+                    CpuArchitecture::X86_64,
+                    DmiData {
+                        sys_vendor: sys_vendor.to_string(),
+                        product_name: product_name.to_string(),
+                        ..Default::default()
+                    },
+                )
+                .is_dgx_h100()
+            },
+        );
+    }
+
+    // `all_mac_addresses()` projects each network interface's MAC, in order.
+    #[test]
+    fn hardware_info_all_mac_addresses() {
+        let iface = |mac: &str| NetworkInterface {
+            mac_address: MacAddress::from_str(mac).unwrap(),
+            pci_properties: None,
+        };
+        check_values(
+            [
+                Check {
+                    scenario: "no interfaces yields an empty list",
+                    input: vec![],
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "one interface yields its mac",
+                    input: vec![iface("00:11:22:33:44:55")],
+                    expect: vec![MacAddress::from_str("00:11:22:33:44:55").unwrap()],
+                },
+                Check {
+                    scenario: "several interfaces preserve order",
+                    input: vec![iface("00:11:22:33:44:55"), iface("aa:bb:cc:dd:ee:ff")],
+                    expect: vec![
+                        MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+                        MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
+                    ],
+                },
+            ],
+            |network_interfaces| {
+                HardwareInfo {
+                    network_interfaces,
+                    ..Default::default()
+                }
+                .all_mac_addresses()
+            },
+        );
+    }
+
+    // `Display` for a software component renders as `url/name:version`, including
+    // the empty-url case.
+    #[test]
+    fn machine_inventory_component_display() {
+        check_values(
+            [
+                Check {
+                    scenario: "all fields populated",
+                    input: ("nvidia.com", "bar", "2.0"),
+                    expect: "nvidia.com/bar:2.0".to_string(),
+                },
+                Check {
+                    scenario: "empty url keeps the leading slash",
+                    input: ("", "foo", "1.0"),
+                    expect: "/foo:1.0".to_string(),
+                },
+                Check {
+                    scenario: "all fields empty",
+                    input: ("", "", ""),
+                    expect: "/:".to_string(),
+                },
+            ],
+            |(url, name, version)| {
+                MachineInventorySoftwareComponent {
+                    name: name.to_string(),
+                    version: version.to_string(),
+                    url: url.to_string(),
+                }
+                .to_string()
+            },
+        );
+    }
+
+    // `TpmEkCertificate` round-trips its bytes through `From`, `as_bytes`, and
+    // `into_bytes`, including the empty-certificate case.
+    #[test]
+    fn tpm_ek_certificate_byte_accessors() {
+        check_values(
+            [
+                Check {
+                    scenario: "non-empty certificate round-trips",
+                    input: vec![1u8, 2, 3, 4],
+                    expect: vec![1u8, 2, 3, 4],
+                },
+                Check {
+                    scenario: "empty certificate round-trips",
+                    input: vec![],
+                    expect: vec![],
+                },
+            ],
+            |bytes: Vec<u8>| {
+                let cert = TpmEkCertificate::from(bytes.clone());
+                assert_eq!(cert.as_bytes(), bytes.as_slice());
+                cert.into_bytes()
+            },
+        );
+    }
+
+    // `NvLinkGpu::from` pulls tray/slot from `location_info` (defaulting to 0 when
+    // absent or unset) and copies device_id / device_uid straight across.
+    #[test]
+    fn nvlink_gpu_from_nmxm_gpu() {
+        check_values(
+            [
+                Check {
+                    scenario: "full location info is carried through",
+                    input: r#"{
+                        "LocationInfo": {"TrayIndex": 3, "SlotID": 7},
+                        "DeviceUID": 42,
+                        "DeviceID": 5,
+                        "DevicePcieID": 0,
+                        "SystemUID": 0,
+                        "VendorID": 0,
+                        "ALIDList": []
+                    }"#,
+                    expect: NvLinkGpu {
+                        tray_index: 3,
+                        slot_id: 7,
+                        device_id: 5,
+                        guid: 42,
+                    },
+                },
+                Check {
+                    scenario: "absent location info defaults tray and slot to zero",
+                    input: r#"{
+                        "DeviceUID": 99,
+                        "DeviceID": 1,
+                        "DevicePcieID": 0,
+                        "SystemUID": 0,
+                        "VendorID": 0,
+                        "ALIDList": []
+                    }"#,
+                    expect: NvLinkGpu {
+                        tray_index: 0,
+                        slot_id: 0,
+                        device_id: 1,
+                        guid: 99,
+                    },
+                },
+                Check {
+                    scenario: "partial location info defaults the missing field",
+                    input: r#"{
+                        "LocationInfo": {"TrayIndex": 2},
+                        "DeviceUID": 0,
+                        "DeviceID": 0,
+                        "DevicePcieID": 0,
+                        "SystemUID": 0,
+                        "VendorID": 0,
+                        "ALIDList": []
+                    }"#,
+                    expect: NvLinkGpu {
+                        tray_index: 2,
+                        slot_id: 0,
+                        device_id: 0,
+                        guid: 0,
+                    },
+                },
+            ],
+            |json| {
+                let gpu = serde_json::from_str::<libnmxm::nmxm_model::Gpu>(json).unwrap();
+                NvLinkGpu::from(gpu)
+            },
         );
     }
 }

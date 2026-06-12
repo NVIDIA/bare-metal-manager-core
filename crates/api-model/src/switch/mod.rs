@@ -382,83 +382,441 @@ pub struct SwitchSearchFilter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
     use super::*;
 
+    /// Build a `FabricManagerStatus` with only the two fields `display_status`
+    /// inspects; the rest are irrelevant to its logic.
+    fn fm_status(state: FabricManagerState, addition_info: Option<&str>) -> FabricManagerStatus {
+        FabricManagerStatus {
+            fabric_manager_state: state,
+            addition_info: addition_info.map(str::to_string),
+            reason: None,
+            error_message: None,
+        }
+    }
+
     #[test]
-    fn serialize_controller_state() {
-        let state = SwitchControllerState::Created;
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"created\"}");
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
+    fn controller_state_serializes_to_expected_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "created",
+                    input: SwitchControllerState::Created,
+                    expect: Yields(r#"{"state":"created"}"#.to_string()),
+                },
+                Case {
+                    scenario: "initializing",
+                    input: SwitchControllerState::Initializing {
+                        initializing_state: InitializingState::WaitForOsMachineInterface,
+                    },
+                    expect: Yields(
+                        r#"{"state":"initializing","initializing_state":"WaitForOsMachineInterface"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "configuring",
+                    input: SwitchControllerState::Configuring {
+                        config_state: ConfiguringState::RotateOsPassword,
+                    },
+                    expect: Yields(
+                        r#"{"state":"configuring","config_state":"RotateOsPassword"}"#.to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "validating",
+                    input: SwitchControllerState::Validating {
+                        validating_state: ValidatingState::ValidationComplete,
+                    },
+                    expect: Yields(
+                        r#"{"state":"validating","validating_state":"ValidationComplete"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "bomvalidating",
+                    input: SwitchControllerState::BomValidating {
+                        bom_validating_state: BomValidatingState::BomValidationComplete,
+                    },
+                    expect: Yields(
+                        r#"{"state":"bomvalidating","bom_validating_state":"BomValidationComplete"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "ready",
+                    input: SwitchControllerState::Ready,
+                    expect: Yields(r#"{"state":"ready"}"#.to_string()),
+                },
+                Case {
+                    scenario: "maintenance: power on",
+                    input: SwitchControllerState::Maintenance {
+                        operation: SwitchMaintenanceOperation::PowerOn,
+                    },
+                    expect: Yields(
+                        r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#.to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "maintenance: power off",
+                    input: SwitchControllerState::Maintenance {
+                        operation: SwitchMaintenanceOperation::PowerOff,
+                    },
+                    expect: Yields(
+                        r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "maintenance: reset",
+                    input: SwitchControllerState::Maintenance {
+                        operation: SwitchMaintenanceOperation::Reset,
+                    },
+                    expect: Yields(
+                        r#"{"state":"maintenance","operation":{"operation":"reset"}}"#.to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "reprovisioning: firmware upgrade",
+                    input: SwitchControllerState::ReProvisioning {
+                        reprovisioning_state:
+                            ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                    },
+                    expect: Yields(
+                        r#"{"state":"reprovisioning","reprovisioning_state":"WaitingForRackFirmwareUpgrade"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "reprovisioning: nvos upgrade",
+                    input: SwitchControllerState::ReProvisioning {
+                        reprovisioning_state: ReProvisioningState::WaitingForNVOSUpgrade,
+                    },
+                    expect: Yields(
+                        r#"{"state":"reprovisioning","reprovisioning_state":"WaitingForNVOSUpgrade"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "reprovisioning: nmxc configure",
+                    input: SwitchControllerState::ReProvisioning {
+                        reprovisioning_state: ReProvisioningState::WaitingForNMXCConfigure,
+                    },
+                    expect: Yields(
+                        r#"{"state":"reprovisioning","reprovisioning_state":"WaitingForNMXCConfigure"}"#
+                            .to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "error carries its cause",
+                    input: SwitchControllerState::Error {
+                        cause: "cause goes here".to_string(),
+                    },
+                    expect: Yields(
+                        r#"{"state":"error","cause":"cause goes here"}"#.to_string(),
+                    ),
+                },
+                Case {
+                    scenario: "deleting",
+                    input: SwitchControllerState::Deleting,
+                    expect: Yields(r#"{"state":"deleting"}"#.to_string()),
+                },
+            ],
+            |state| serde_json::to_string(&state).map_err(drop),
         );
-        let state = SwitchControllerState::Initializing {
-            initializing_state: InitializingState::WaitForOsMachineInterface,
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            "{\"state\":\"initializing\",\"initializing_state\":\"WaitForOsMachineInterface\"}"
+    }
+
+    #[test]
+    fn controller_state_deserializes_from_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "created",
+                    input: r#"{"state":"created"}"#,
+                    expect: Yields(SwitchControllerState::Created),
+                },
+                Case {
+                    scenario: "initializing",
+                    input: r#"{"state":"initializing","initializing_state":"WaitForOsMachineInterface"}"#,
+                    expect: Yields(SwitchControllerState::Initializing {
+                        initializing_state: InitializingState::WaitForOsMachineInterface,
+                    }),
+                },
+                Case {
+                    scenario: "configuring",
+                    input: r#"{"state":"configuring","config_state":"RotateOsPassword"}"#,
+                    expect: Yields(SwitchControllerState::Configuring {
+                        config_state: ConfiguringState::RotateOsPassword,
+                    }),
+                },
+                Case {
+                    scenario: "validating",
+                    input: r#"{"state":"validating","validating_state":"ValidationComplete"}"#,
+                    expect: Yields(SwitchControllerState::Validating {
+                        validating_state: ValidatingState::ValidationComplete,
+                    }),
+                },
+                Case {
+                    scenario: "bomvalidating",
+                    input: r#"{"state":"bomvalidating","bom_validating_state":"BomValidationComplete"}"#,
+                    expect: Yields(SwitchControllerState::BomValidating {
+                        bom_validating_state: BomValidatingState::BomValidationComplete,
+                    }),
+                },
+                Case {
+                    scenario: "ready",
+                    input: r#"{"state":"ready"}"#,
+                    expect: Yields(SwitchControllerState::Ready),
+                },
+                Case {
+                    scenario: "legacy ready with stray ready_state still deserializes to Ready",
+                    input: r#"{"state":"ready","ready_state":"poweroff"}"#,
+                    expect: Yields(SwitchControllerState::Ready),
+                },
+                Case {
+                    scenario: "maintenance: reset",
+                    input: r#"{"state":"maintenance","operation":{"operation":"reset"}}"#,
+                    expect: Yields(SwitchControllerState::Maintenance {
+                        operation: SwitchMaintenanceOperation::Reset,
+                    }),
+                },
+                Case {
+                    scenario: "error",
+                    input: r#"{"state":"error","cause":"boom"}"#,
+                    expect: Yields(SwitchControllerState::Error {
+                        cause: "boom".to_string(),
+                    }),
+                },
+                Case {
+                    scenario: "deleting",
+                    input: r#"{"state":"deleting"}"#,
+                    expect: Yields(SwitchControllerState::Deleting),
+                },
+                Case {
+                    scenario: "unknown state tag is rejected",
+                    input: r#"{"state":"frobnicating"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing state tag is rejected",
+                    input: r#"{"cause":"boom"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "error without its cause is rejected",
+                    input: r#"{"state":"error"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "not even json",
+                    input: "not json",
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<SwitchControllerState>(json).map_err(drop),
         );
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    #[test]
+    fn maintenance_operation_serializes_lowercase() {
+        check_cases(
+            [
+                Case {
+                    scenario: "power on",
+                    input: SwitchMaintenanceOperation::PowerOn,
+                    expect: Yields(r#"{"operation":"poweron"}"#.to_string()),
+                },
+                Case {
+                    scenario: "power off",
+                    input: SwitchMaintenanceOperation::PowerOff,
+                    expect: Yields(r#"{"operation":"poweroff"}"#.to_string()),
+                },
+                Case {
+                    scenario: "reset",
+                    input: SwitchMaintenanceOperation::Reset,
+                    expect: Yields(r#"{"operation":"reset"}"#.to_string()),
+                },
+            ],
+            |op| serde_json::to_string(&op).map_err(drop),
         );
-        let state = SwitchControllerState::Configuring {
-            config_state: ConfiguringState::RotateOsPassword,
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            "{\"state\":\"configuring\",\"config_state\":\"RotateOsPassword\"}"
+    }
+
+    #[test]
+    fn maintenance_operation_deserializes() {
+        check_cases(
+            [
+                Case {
+                    scenario: "power on",
+                    input: r#"{"operation":"poweron"}"#,
+                    expect: Yields(SwitchMaintenanceOperation::PowerOn),
+                },
+                Case {
+                    scenario: "power off",
+                    input: r#"{"operation":"poweroff"}"#,
+                    expect: Yields(SwitchMaintenanceOperation::PowerOff),
+                },
+                Case {
+                    scenario: "reset",
+                    input: r#"{"operation":"reset"}"#,
+                    expect: Yields(SwitchMaintenanceOperation::Reset),
+                },
+                Case {
+                    scenario: "uppercase tag is rejected",
+                    input: r#"{"operation":"PowerOn"}"#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unknown operation is rejected",
+                    input: r#"{"operation":"explode"}"#,
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<SwitchMaintenanceOperation>(json).map_err(drop),
         );
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    #[test]
+    fn fabric_manager_state_serializes_snake_case() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ok",
+                    input: FabricManagerState::Ok,
+                    expect: Yields(r#""ok""#.to_string()),
+                },
+                Case {
+                    scenario: "not ok renders snake_case",
+                    input: FabricManagerState::NotOk,
+                    expect: Yields(r#""not_ok""#.to_string()),
+                },
+                Case {
+                    scenario: "unknown",
+                    input: FabricManagerState::Unknown,
+                    expect: Yields(r#""unknown""#.to_string()),
+                },
+            ],
+            |state| serde_json::to_string(&state).map_err(drop),
         );
-        let state = SwitchControllerState::Ready;
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, r#"{"state":"ready"}"#);
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    #[test]
+    fn fabric_manager_state_deserializes() {
+        check_cases(
+            [
+                Case {
+                    scenario: "ok",
+                    input: r#""ok""#,
+                    expect: Yields(FabricManagerState::Ok),
+                },
+                Case {
+                    scenario: "not_ok",
+                    input: r#""not_ok""#,
+                    expect: Yields(FabricManagerState::NotOk),
+                },
+                Case {
+                    scenario: "unknown",
+                    input: r#""unknown""#,
+                    expect: Yields(FabricManagerState::Unknown),
+                },
+                Case {
+                    scenario: "camelCase NotOk is rejected",
+                    input: r#""NotOk""#,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unrecognized state is rejected",
+                    input: r#""degraded""#,
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<FabricManagerState>(json).map_err(drop),
         );
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(
-                r#"{"state":"ready","ready_state":"poweroff"}"#
-            )
-            .unwrap(),
-            SwitchControllerState::Ready,
-            "legacy Ready JSON with ready_state deserializes to Ready",
+    }
+
+    #[test]
+    fn display_status_is_running_only_when_ok_and_configured() {
+        check_values(
+            [
+                Check {
+                    scenario: "ok + CONFIGURED is running",
+                    input: fm_status(
+                        FabricManagerState::Ok,
+                        Some("CONTROL_PLANE_STATE_CONFIGURED"),
+                    ),
+                    expect: "running",
+                },
+                Check {
+                    scenario: "ok but no addition_info is not running",
+                    input: fm_status(FabricManagerState::Ok, None),
+                    expect: "not_running",
+                },
+                Check {
+                    scenario: "ok but different addition_info is not running",
+                    input: fm_status(
+                        FabricManagerState::Ok,
+                        Some("CONTROL_PLANE_STATE_INITIALIZING"),
+                    ),
+                    expect: "not_running",
+                },
+                Check {
+                    scenario: "ok but empty addition_info is not running",
+                    input: fm_status(FabricManagerState::Ok, Some("")),
+                    expect: "not_running",
+                },
+                Check {
+                    scenario: "not_ok even when configured is not running",
+                    input: fm_status(
+                        FabricManagerState::NotOk,
+                        Some("CONTROL_PLANE_STATE_CONFIGURED"),
+                    ),
+                    expect: "not_running",
+                },
+                Check {
+                    scenario: "unknown even when configured is not running",
+                    input: fm_status(
+                        FabricManagerState::Unknown,
+                        Some("CONTROL_PLANE_STATE_CONFIGURED"),
+                    ),
+                    expect: "not_running",
+                },
+                Check {
+                    scenario: "not_ok with no info is not running",
+                    input: fm_status(FabricManagerState::NotOk, None),
+                    expect: "not_running",
+                },
+            ],
+            |status| status.display_status(),
         );
-        let state = SwitchControllerState::Maintenance {
-            operation: SwitchMaintenanceOperation::PowerOn,
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#
-        );
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = SwitchControllerState::Error {
-            cause: "cause goes here".to_string(),
-        };
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, r#"{"state":"error","cause":"cause goes here"}"#);
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
-        );
-        let state = SwitchControllerState::Deleting;
-        let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"deleting\"}");
-        assert_eq!(
-            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
-            state
+    }
+
+    #[test]
+    fn reprovision_request_defaults_continue_after_firmware_upgrade_to_true() {
+        check_cases(
+            [
+                Case {
+                    scenario: "omitted flag defaults to true",
+                    input: r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op"}"#,
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "explicit false is honored",
+                    input: r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op","continue_after_firmware_upgrade":false}"#,
+                    expect: Yields(false),
+                },
+                Case {
+                    scenario: "explicit true is honored",
+                    input: r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op","continue_after_firmware_upgrade":true}"#,
+                    expect: Yields(true),
+                },
+            ],
+            |json| {
+                serde_json::from_str::<SwitchReprovisionRequest>(json)
+                    .map(|r| r.continue_after_firmware_upgrade)
+                    .map_err(drop)
+            },
         );
     }
 }

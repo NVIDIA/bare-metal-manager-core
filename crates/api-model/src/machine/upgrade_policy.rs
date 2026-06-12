@@ -361,6 +361,61 @@ fn test_parse_version() {
                 }),
             },
             Case {
+                scenario: "date tag with rc and hotfix (3 parts, non-numeric second)",
+                input: "v2024.05.02-rc3-0",
+                expect: Yields(BuildVersion {
+                    version: "2024.05.02",
+                    rc: "rc3",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            Case {
+                scenario: "date tag with rc, hotfix, commits and hash (5 parts)",
+                input: "v2024.05.02-rc4-0-27-gc3ce4d5d",
+                expect: Yields(BuildVersion {
+                    version: "2024.05.02",
+                    rc: "rc4",
+                    hotfix: 0,
+                    commits: 27,
+                    git_hash: "gc3ce4d5d",
+                }),
+            },
+            Case {
+                scenario: "bare semver, two parts only is treated as rc",
+                input: "v2023.09-rc1",
+                expect: Yields(BuildVersion {
+                    version: "2023.09",
+                    rc: "rc1",
+                    hotfix: 0,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            Case {
+                scenario: "semver with rc, hotfix, commits and hash (5 parts)",
+                input: "v0.0.4-rc4-0-27-gc3ce4d5d",
+                expect: Yields(BuildVersion {
+                    version: "0.0.4",
+                    rc: "rc4",
+                    hotfix: 0,
+                    commits: 27,
+                    git_hash: "gc3ce4d5d",
+                }),
+            },
+            Case {
+                scenario: "nonzero hotfix parses",
+                input: "v2024.05.02-rc3-2",
+                expect: Yields(BuildVersion {
+                    version: "2024.05.02",
+                    rc: "rc3",
+                    hotfix: 2,
+                    commits: 0,
+                    git_hash: "",
+                }),
+            },
+            Case {
                 scenario: "too many dash-separated parts",
                 input: "v2023.08-rc1-0-3-g123eff-x",
                 expect: Fails,
@@ -368,6 +423,31 @@ fn test_parse_version() {
             Case {
                 scenario: "no version number after the 'v'",
                 input: "v-rc1",
+                expect: Fails,
+            },
+            Case {
+                scenario: "empty string",
+                input: "",
+                expect: Fails,
+            },
+            Case {
+                scenario: "missing the leading 'v'",
+                input: "2023.08",
+                expect: Fails,
+            },
+            Case {
+                scenario: "just the leading 'v'",
+                input: "v",
+                expect: Fails,
+            },
+            Case {
+                scenario: "first part does not start with a digit",
+                input: "vfoo.bar",
+                expect: Fails,
+            },
+            Case {
+                scenario: "leading 'v' followed by a dash",
+                input: "v-",
                 expect: Fails,
             },
         ],
@@ -380,7 +460,449 @@ fn test_parse_version() {
 
 #[cfg(test)]
 mod tests {
-    use super::BuildVersion;
+    use std::cmp::Ordering;
+
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
+
+    use super::{AgentUpgradePolicy, BuildVersion};
+    use crate::firmware::AgentUpgradePolicyChoice;
+
+    #[test]
+    fn agent_upgrade_policy_display() {
+        check_values(
+            [
+                Check {
+                    scenario: "off",
+                    input: AgentUpgradePolicy::Off,
+                    expect: "Off".to_string(),
+                },
+                Check {
+                    scenario: "up-only",
+                    input: AgentUpgradePolicy::UpOnly,
+                    expect: "UpOnly".to_string(),
+                },
+                Check {
+                    scenario: "up-down",
+                    input: AgentUpgradePolicy::UpDown,
+                    expect: "UpDown".to_string(),
+                },
+            ],
+            |p| p.to_string(),
+        );
+    }
+
+    #[test]
+    fn agent_upgrade_policy_from_str() {
+        check_values(
+            [
+                Check {
+                    scenario: "canonical Off",
+                    input: "Off",
+                    expect: AgentUpgradePolicy::Off,
+                },
+                Check {
+                    scenario: "lowercase off",
+                    input: "off",
+                    expect: AgentUpgradePolicy::Off,
+                },
+                Check {
+                    scenario: "canonical UpOnly",
+                    input: "UpOnly",
+                    expect: AgentUpgradePolicy::UpOnly,
+                },
+                Check {
+                    scenario: "lowercase uponly",
+                    input: "uponly",
+                    expect: AgentUpgradePolicy::UpOnly,
+                },
+                Check {
+                    scenario: "snake_case up_only",
+                    input: "up_only",
+                    expect: AgentUpgradePolicy::UpOnly,
+                },
+                Check {
+                    scenario: "canonical UpDown",
+                    input: "UpDown",
+                    expect: AgentUpgradePolicy::UpDown,
+                },
+                Check {
+                    scenario: "lowercase updown",
+                    input: "updown",
+                    expect: AgentUpgradePolicy::UpDown,
+                },
+                Check {
+                    scenario: "snake_case up_down",
+                    input: "up_down",
+                    expect: AgentUpgradePolicy::UpDown,
+                },
+                Check {
+                    scenario: "unknown string falls back to Off",
+                    input: "nonsense",
+                    expect: AgentUpgradePolicy::Off,
+                },
+                Check {
+                    scenario: "empty string falls back to Off",
+                    input: "",
+                    expect: AgentUpgradePolicy::Off,
+                },
+                Check {
+                    scenario: "wrong casing falls back to Off",
+                    input: "OFF",
+                    expect: AgentUpgradePolicy::Off,
+                },
+            ],
+            AgentUpgradePolicy::from,
+        );
+    }
+
+    #[test]
+    fn agent_upgrade_policy_from_choice() {
+        check_values(
+            [
+                Check {
+                    scenario: "off",
+                    input: AgentUpgradePolicyChoice::Off,
+                    expect: AgentUpgradePolicy::Off,
+                },
+                Check {
+                    scenario: "up-only",
+                    input: AgentUpgradePolicyChoice::UpOnly,
+                    expect: AgentUpgradePolicy::UpOnly,
+                },
+                Check {
+                    scenario: "up-down",
+                    input: AgentUpgradePolicyChoice::UpDown,
+                    expect: AgentUpgradePolicy::UpDown,
+                },
+            ],
+            AgentUpgradePolicy::from,
+        );
+    }
+
+    #[test]
+    fn should_upgrade_decides_per_policy() {
+        struct Inputs {
+            policy: AgentUpgradePolicy,
+            agent: &'static str,
+            carbide: &'static str,
+        }
+        check_values(
+            [
+                // Off never upgrades, regardless of versions.
+                Check {
+                    scenario: "off, agent older",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::Off,
+                        agent: "v2023.08",
+                        carbide: "v2023.09",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "off, agent newer",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::Off,
+                        agent: "v2023.09",
+                        carbide: "v2023.08",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "off, invalid agent version",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::Off,
+                        agent: "garbage",
+                        carbide: "v2023.08",
+                    },
+                    expect: false,
+                },
+                // UpOnly upgrades only when the agent is strictly older.
+                Check {
+                    scenario: "up-only, agent older",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2023.08",
+                        carbide: "v2023.09",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-only, agent equal",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2023.09",
+                        carbide: "v2023.09",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "up-only, agent newer (no downgrade)",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2023.09",
+                        carbide: "v2023.08",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "up-only, agent older by commit count",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2023.08-14-gbc549a66",
+                        carbide: "v2023.08-92-g1b48e8b6",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-only, semver agent newer than date carbide (no upgrade)",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v0.0.1",
+                        carbide: "v2024.05.10-rc1-3",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "up-only, date agent older than semver carbide",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2024.05.10-rc1-3",
+                        carbide: "v0.0.1",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-only, invalid agent version forces upgrade",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "not-a-version",
+                        carbide: "v2023.09",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-only, invalid carbide version waits (no upgrade)",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpOnly,
+                        agent: "v2023.08",
+                        carbide: "not-a-version",
+                    },
+                    expect: false,
+                },
+                // UpDown upgrades on any string difference.
+                Check {
+                    scenario: "up-down, identical versions",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpDown,
+                        agent: "v2023.09",
+                        carbide: "v2023.09",
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "up-down, agent older",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpDown,
+                        agent: "v2023.08",
+                        carbide: "v2023.09",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-down, agent newer (downgrade)",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpDown,
+                        agent: "v2023.09",
+                        carbide: "v2023.08",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "up-down, differing only by hash",
+                    input: Inputs {
+                        policy: AgentUpgradePolicy::UpDown,
+                        agent: "v2023.08-92-g1b48e8b6",
+                        carbide: "v2023.08-92-gdeadbeef",
+                    },
+                    expect: true,
+                },
+            ],
+            |Inputs {
+                 policy,
+                 agent,
+                 carbide,
+             }| policy.should_upgrade(agent, carbide),
+        );
+    }
+
+    #[test]
+    fn build_version_display_round_trips() {
+        check_cases(
+            [
+                Case {
+                    scenario: "bare date tag",
+                    input: "v2023.08",
+                    expect: Yields("v2023.08".to_string()),
+                },
+                Case {
+                    scenario: "bare semver tag",
+                    input: "v1.2.3",
+                    expect: Yields("v1.2.3".to_string()),
+                },
+                Case {
+                    scenario: "date tag with commits and hash",
+                    input: "v2023.08-92-g1b48e8b6",
+                    expect: Yields("v2023.08-92-g1b48e8b6".to_string()),
+                },
+                Case {
+                    scenario: "rc and hotfix both render",
+                    input: "v2024.05.02-rc3-0",
+                    expect: Yields("v2024.05.02-rc3-0".to_string()),
+                },
+                Case {
+                    scenario: "full version with rc, hotfix, commits and hash",
+                    input: "v2024.05.02-rc4-0-27-gc3ce4d5d",
+                    expect: Yields("v2024.05.02-rc4-0-27-gc3ce4d5d".to_string()),
+                },
+                Case {
+                    scenario: "two-part input normalizes hotfix to 0",
+                    input: "v2023.09-rc1",
+                    expect: Yields("v2023.09-rc1-0".to_string()),
+                },
+            ],
+            |s| {
+                BuildVersion::try_from(s)
+                    .map(|bv| bv.to_string())
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn build_version_ordering() {
+        struct Pair {
+            left: &'static str,
+            right: &'static str,
+        }
+        check_values(
+            [
+                Check {
+                    scenario: "older date less than newer date",
+                    input: Pair {
+                        left: "v2023.08",
+                        right: "v2023.09",
+                    },
+                    expect: Ordering::Less,
+                },
+                Check {
+                    scenario: "equal date tags",
+                    input: Pair {
+                        left: "v2023.08",
+                        right: "v2023.08",
+                    },
+                    expect: Ordering::Equal,
+                },
+                Check {
+                    scenario: "newer date greater than older date",
+                    input: Pair {
+                        left: "v2023.09",
+                        right: "v2023.08",
+                    },
+                    expect: Ordering::Greater,
+                },
+                Check {
+                    scenario: "more commits is greater",
+                    input: Pair {
+                        left: "v2023.08-92-g1b48e8b6",
+                        right: "v2023.08-14-gbc549a66",
+                    },
+                    expect: Ordering::Greater,
+                },
+                Check {
+                    scenario: "date is always less than semver",
+                    input: Pair {
+                        left: "v2024.05.10-rc1-3",
+                        right: "v0.0.1",
+                    },
+                    expect: Ordering::Less,
+                },
+                Check {
+                    scenario: "semver is always greater than date",
+                    input: Pair {
+                        left: "v0.0.1",
+                        right: "v2024.05.10-rc1-3",
+                    },
+                    expect: Ordering::Greater,
+                },
+                Check {
+                    scenario: "lower semver less than higher semver",
+                    input: Pair {
+                        left: "v0.0.1",
+                        right: "v0.0.4-rc4-0-g2a3c98cac",
+                    },
+                    expect: Ordering::Less,
+                },
+                Check {
+                    scenario: "semver major dominates",
+                    input: Pair {
+                        left: "v0.0.4-rc4-0-g2a3c98cac",
+                        right: "v1.0.0",
+                    },
+                    expect: Ordering::Less,
+                },
+                Check {
+                    scenario: "equal semver tags",
+                    input: Pair {
+                        left: "v1.2.3",
+                        right: "v1.2.3",
+                    },
+                    expect: Ordering::Equal,
+                },
+                Check {
+                    scenario: "semver patch difference",
+                    input: Pair {
+                        left: "v0.0.4",
+                        right: "v0.0.5",
+                    },
+                    expect: Ordering::Less,
+                },
+            ],
+            |Pair { left, right }| {
+                let l = BuildVersion::try_from(left).unwrap();
+                let r = BuildVersion::try_from(right).unwrap();
+                l.cmp(&r)
+            },
+        );
+    }
+
+    #[test]
+    fn build_version_partial_cmp_matches_cmp() {
+        check_values(
+            [
+                Check {
+                    scenario: "less",
+                    input: ("v0.0.1", "v1.0.0"),
+                    expect: Some(Ordering::Less),
+                },
+                Check {
+                    scenario: "greater",
+                    input: ("v1.0.0", "v0.0.1"),
+                    expect: Some(Ordering::Greater),
+                },
+                Check {
+                    scenario: "equal",
+                    input: ("v1.0.0", "v1.0.0"),
+                    expect: Some(Ordering::Equal),
+                },
+            ],
+            |(l, r)| {
+                BuildVersion::try_from(l)
+                    .unwrap()
+                    .partial_cmp(&BuildVersion::try_from(r).unwrap())
+            },
+        );
+    }
 
     #[test]
     fn test_compare_versions() -> eyre::Result<()> {
@@ -442,23 +964,6 @@ mod tests {
                 panic!("Pos {i} does not match. Got {got} expected {expect}.");
             }
         }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_semver_comparison() -> eyre::Result<()> {
-        let v0_0_1 = BuildVersion::try_from("v0.0.1")?;
-        let v0_0_4 = BuildVersion::try_from("v0.0.4-rc4-0-g2a3c98cac")?;
-        let v1_0_0 = BuildVersion::try_from("v1.0.0")?;
-        let v_date = BuildVersion::try_from("v2024.05.10-rc1-3")?;
-
-        // Semver ordering
-        assert!(v0_0_1 < v0_0_4);
-        assert!(v0_0_4 < v1_0_0);
-
-        // Semver is always newer than date-based
-        assert!(v_date < v0_0_1);
 
         Ok(())
     }
