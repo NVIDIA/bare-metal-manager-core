@@ -221,7 +221,11 @@ fn setup_tracing() -> Result<(), Box<dyn Error>> {
         .add_directive("hickory_proto=info".parse().unwrap());
 
     tracing_subscriber::registry()
-        .with(logfmt::layer().with_filter(env_filter))
+        .with(
+            logfmt::layer()
+                .with_event_fields([logfmt::EventField::with_default("component", "nico-dhcp")])
+                .with_filter(env_filter),
+        )
         .try_init()?;
     Ok(())
 }

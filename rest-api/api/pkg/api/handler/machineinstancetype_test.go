@@ -592,7 +592,7 @@ func TestDeleteMachineInstanceTypeHandler_Handle(t *testing.T) {
 
 	al, err := alDAO.GetByID(context.Background(), nil, uuid.MustParse(apial.ID), nil)
 	assert.NoError(t, err)
-	alcs, _, err := alcDAO.GetAll(context.Background(), nil, []uuid.UUID{al.ID}, nil, nil, nil, nil, nil, nil, nil, nil)
+	alcs, _, err := alcDAO.GetAll(context.Background(), nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{al.ID}}, paginator.PageInput{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(alcs))
 

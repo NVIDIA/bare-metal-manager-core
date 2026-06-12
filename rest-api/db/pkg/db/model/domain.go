@@ -38,6 +38,38 @@ var (
 	}
 )
 
+// DomainCreateInput input parameters for Create method
+type DomainCreateInput struct {
+	Hostname           string
+	Org                string
+	ControllerDomainID *uuid.UUID
+	Status             string
+	CreatedBy          uuid.UUID
+}
+
+// DomainUpdateInput input parameters for Update method
+type DomainUpdateInput struct {
+	DomainID           uuid.UUID
+	Hostname           *string
+	Org                *string
+	ControllerDomainID *uuid.UUID
+	Status             *string
+}
+
+// DomainClearInput input parameters for Clear method
+type DomainClearInput struct {
+	DomainID           uuid.UUID
+	ControllerDomainID bool
+}
+
+// DomainFilterInput input parameters for GetAll method
+type DomainFilterInput struct {
+	Hostname           *string
+	Org                *string
+	ControllerDomainID *uuid.UUID
+	Status             *string
+}
+
 // Domain contains information about the fully qualified domain
 // name for determining machine hostnames
 type Domain struct {
@@ -71,17 +103,17 @@ func (d *Domain) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 // DomainDAO is an interface for interacting with the Domain model
 type DomainDAO interface {
 	//
-	CreateFromParams(ctx context.Context, tx *db.Tx, hostname string, org string, controllerDomainID *uuid.UUID, status string, createdBy uuid.UUID) (*Domain, error)
+	Create(ctx context.Context, tx *db.Tx, input DomainCreateInput) (*Domain, error)
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*Domain, error)
 	//
-	GetAll(ctx context.Context, tx *db.Tx, hostname, org *string, controllerDomainID *uuid.UUID, status *string, includeRelations []string) ([]Domain, error)
+	GetAll(ctx context.Context, tx *db.Tx, filter DomainFilterInput, includeRelations []string) ([]Domain, error)
 	//
-	UpdateFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, hostname *string, org *string, controllerDomainID *uuid.UUID, status *string) (*Domain, error)
+	Update(ctx context.Context, tx *db.Tx, input DomainUpdateInput) (*Domain, error)
 	//
-	ClearFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, controllerDomainID bool) (*Domain, error)
+	Clear(ctx context.Context, tx *db.Tx, input DomainClearInput) (*Domain, error)
 	//
-	DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 }
 
 // DomainSQLDAO is an implementation of the DomainDAO interface
@@ -91,28 +123,22 @@ type DomainSQLDAO struct {
 	tracerSpan *stracer.TracerSpan
 }
 
-// CreateFromParams creates a new Domain from the given parameters
-// since there are 2 operations (INSERT, SELECT), in this, it is required that
-// this library call happens within a transaction
-func (dsd DomainSQLDAO) CreateFromParams(
-	ctx context.Context, tx *db.Tx,
-	hostname string,
-	org string,
-	controllerDomainID *uuid.UUID,
-	status string, createdBy uuid.UUID) (*Domain, error) {
+// Create creates a new Domain from the given input.
+// Since there are 2 operations (INSERT, SELECT), this call must happen within a transaction.
+func (dsd DomainSQLDAO) Create(ctx context.Context, tx *db.Tx, input DomainCreateInput) (*Domain, error) {
 	// Create a child span and set the attributes for current request
-	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.CreateFromParams")
+	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.Create")
 	if domainDAOSpan != nil {
 		defer domainDAOSpan.End()
 	}
 
 	d := &Domain{
 		ID:                 uuid.New(),
-		Hostname:           hostname,
-		Org:                org,
-		ControllerDomainID: controllerDomainID,
-		Status:             status,
-		CreatedBy:          createdBy,
+		Hostname:           input.Hostname,
+		Org:                input.Org,
+		ControllerDomainID: input.ControllerDomainID,
+		Status:             input.Status,
+		CreatedBy:          input.CreatedBy,
 	}
 
 	_, err := db.GetIDB(tx, dsd.dbSession).NewInsert().Model(d).Exec(ctx)
@@ -163,7 +189,7 @@ func (dsd DomainSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, in
 // Optional filters can be specified on hostname, org, controllerDomainID
 // errors are returned only when there is a db related error
 // if records not found, then error is nil, but length of returned slice is 0
-func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, hostname, org *string, controllerDomainID *uuid.UUID, status *string, includeRelations []string) ([]Domain, error) {
+func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter DomainFilterInput, includeRelations []string) ([]Domain, error) {
 	// Create a child span and set the attributes for current request
 	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.GetAll")
 	if domainDAOSpan != nil {
@@ -174,32 +200,32 @@ func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, hostname, org *st
 
 	query := db.GetIDB(tx, dsd.dbSession).NewSelect().Model(&d)
 
-	if hostname != nil {
-		query = query.Where("d.hostname = ?", *hostname)
+	if filter.Hostname != nil {
+		query = query.Where("d.hostname = ?", *filter.Hostname)
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "hostname", *hostname)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "hostname", *filter.Hostname)
 		}
 	}
-	if org != nil {
-		query = query.Where("d.org = ?", *org)
+	if filter.Org != nil {
+		query = query.Where("d.org = ?", *filter.Org)
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "org", *org)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "org", *filter.Org)
 		}
 	}
-	if controllerDomainID != nil {
-		query = query.Where("d.controller_domain_id = ?", *controllerDomainID)
+	if filter.ControllerDomainID != nil {
+		query = query.Where("d.controller_domain_id = ?", *filter.ControllerDomainID)
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "controller_domain_id", controllerDomainID.String())
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "controller_domain_id", filter.ControllerDomainID.String())
 		}
 	}
-	if status != nil {
-		query = query.Where("d.status = ?", *status)
+	if filter.Status != nil {
+		query = query.Where("d.status = ?", *filter.Status)
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "status", *status)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "status", *filter.Status)
 		}
 	}
 
@@ -216,66 +242,60 @@ func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, hostname, org *st
 	return d, nil
 }
 
-// UpdateFromParams updates specified fields of an existing Domain
+// Update updates specified fields of an existing Domain
 // The updated fields are assumed to be set to non-null values
-// For setting to null values, use: ClearFromParams
+// For setting to null values, use: Clear
 // since there are 2 operations (UPDATE, SELECT), in this, it is required that
 // this library call happens within a transaction
-func (dsd DomainSQLDAO) UpdateFromParams(
-	ctx context.Context, tx *db.Tx,
-	id uuid.UUID,
-	hostname *string,
-	org *string,
-	controllerDomainID *uuid.UUID,
-	status *string) (*Domain, error) {
+func (dsd DomainSQLDAO) Update(ctx context.Context, tx *db.Tx, input DomainUpdateInput) (*Domain, error) {
 	d := &Domain{
-		ID: id,
+		ID: input.DomainID,
 	}
 	// Create a child span and set the attributes for current request
-	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.UpdateFromParams")
+	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.Update")
 	if domainDAOSpan != nil {
 		defer domainDAOSpan.End()
 	}
 
 	updatedFields := []string{}
 
-	if hostname != nil {
-		d.Hostname = *hostname
+	if input.Hostname != nil {
+		d.Hostname = *input.Hostname
 		updatedFields = append(updatedFields, "hostname")
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "hostname", *hostname)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "hostname", *input.Hostname)
 		}
 	}
-	if org != nil {
-		d.Org = *org
+	if input.Org != nil {
+		d.Org = *input.Org
 		updatedFields = append(updatedFields, "org")
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "org", *org)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "org", *input.Org)
 		}
 	}
-	if controllerDomainID != nil {
-		d.ControllerDomainID = controllerDomainID
+	if input.ControllerDomainID != nil {
+		d.ControllerDomainID = input.ControllerDomainID
 		updatedFields = append(updatedFields, "controller_domain_id")
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "controller_domain_id", controllerDomainID.String())
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "controller_domain_id", input.ControllerDomainID.String())
 		}
 	}
-	if status != nil {
-		d.Status = *status
+	if input.Status != nil {
+		d.Status = *input.Status
 		updatedFields = append(updatedFields, "status")
 
 		if domainDAOSpan != nil {
-			dsd.tracerSpan.SetAttribute(domainDAOSpan, "status", *status)
+			dsd.tracerSpan.SetAttribute(domainDAOSpan, "status", *input.Status)
 		}
 	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, dsd.dbSession).NewUpdate().Model(d).Column(updatedFields...).Where("id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, dsd.dbSession).NewUpdate().Model(d).Column(updatedFields...).Where("id = ?", input.DomainID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -288,24 +308,24 @@ func (dsd DomainSQLDAO) UpdateFromParams(
 	return nv, nil
 }
 
-// ClearFromParams sets parameters of an existing Domain to null values in db
+// Clear sets parameters of an existing Domain to null values in db
 // parameter controllerDomainID when true, the are set to null in db
 // since there are 2 operations (UPDATE, SELECT), it is required that
 // this must be within a transaction
-func (dsd DomainSQLDAO) ClearFromParams(ctx context.Context, tx *db.Tx, id uuid.UUID, controllerDomainID bool) (*Domain, error) {
+func (dsd DomainSQLDAO) Clear(ctx context.Context, tx *db.Tx, input DomainClearInput) (*Domain, error) {
 	// Create a child span and set the attributes for current request
-	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.ClearFromParams")
+	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.Clear")
 	if domainDAOSpan != nil {
 		defer domainDAOSpan.End()
 	}
 
 	d := &Domain{
-		ID: id,
+		ID: input.DomainID,
 	}
 
 	updatedFields := []string{}
 
-	if controllerDomainID {
+	if input.ControllerDomainID {
 		d.ControllerDomainID = nil
 		updatedFields = append(updatedFields, "controller_domain_id")
 	}
@@ -313,25 +333,25 @@ func (dsd DomainSQLDAO) ClearFromParams(ctx context.Context, tx *db.Tx, id uuid.
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, dsd.dbSession).NewUpdate().Model(d).Column(updatedFields...).Where("id = ?", id).Exec(ctx)
+		_, err := db.GetIDB(tx, dsd.dbSession).NewUpdate().Model(d).Column(updatedFields...).Where("id = ?", input.DomainID).Exec(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	nv, err := dsd.GetByID(ctx, tx, d.ID, nil)
+	nv, err := dsd.GetByID(ctx, tx, input.DomainID, nil)
 	if err != nil {
 		return nil, err
 	}
 	return nv, nil
 }
 
-// DeleteByID deletes an Domain by ID
+// Delete deletes an Domain by ID
 // error is returned only if there is a db error
 // if the object being deleted doesnt exist, error is not returned (idempotent delete)
-func (dsd DomainSQLDAO) DeleteByID(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
+func (dsd DomainSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error {
 	// Create a child span and set the attributes for current request
-	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.DeleteByID")
+	ctx, domainDAOSpan := dsd.tracerSpan.CreateChildInCurrentContext(ctx, "DomainDAO.Delete")
 	if domainDAOSpan != nil {
 		defer domainDAOSpan.End()
 	}

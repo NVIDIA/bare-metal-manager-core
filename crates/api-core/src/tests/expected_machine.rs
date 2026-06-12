@@ -1827,10 +1827,11 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     assert_eq!(machine3.into_inner().bmc_username, "admin3_updated");
 }
 
-// test_patch_dpf_enabled_null_stays_null verifies that when dpf_enabled is NULL
-// in the DB and an update is applied with is_dpf_enabled: None, the value remains NULL.
+// test_patch_dpf_enabled_none_to_true verifies that when an expected machine is
+// added with is_dpf_enabled: None, the value defaults to true on insert, and a
+// subsequent update with is_dpf_enabled: None preserves that value.
 #[crate::sqlx_test()]
-async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
+async fn test_patch_dpf_enabled_none_to_true(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let bmc_mac_address = "AA:BB:CC:DD:EE:F0";
 
@@ -1859,8 +1860,8 @@ async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
         .expect("unable to fetch expected machine")
         .into_inner();
 
-    // default should be updated as false
-    assert_eq!(updated.is_dpf_enabled, Some(false),);
+    // default should be true
+    assert_eq!(updated.is_dpf_enabled, Some(true),);
 
     updated.id = None;
     updated.bmc_username = "ADMIN_PATCHED".into();
@@ -1881,7 +1882,7 @@ async fn test_patch_dpf_enabled_none_to_false(pool: sqlx::PgPool) {
         .expect("unable to fetch expected machine after update")
         .into_inner();
 
-    assert_eq!(retrieved.is_dpf_enabled, Some(false),);
+    assert_eq!(retrieved.is_dpf_enabled, Some(true),);
 }
 
 // test_patch_dpf_enabled_true_stays_true_when_patched_with_null verifies that when

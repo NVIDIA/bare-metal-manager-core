@@ -1411,7 +1411,10 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusBadRequest, "Instance Type is being used by one or more Instances and cannot be deleted", nil)
 		}
 
-		acs, _, derr := acDAO.GetAll(ctx, tx, nil, &resourceType, []uuid.UUID{it.ID}, nil, nil, nil, nil, nil, nil)
+		acs, _, derr := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+			ResourceType:    &resourceType,
+			ResourceTypeIDs: []uuid.UUID{it.ID},
+		}, cdbp.PageInput{}, nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Allocation Constraints for Instance Type from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Instance Type", nil)

@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 fn main() -> eyre::Result<()> {
-    carbide_host_support::init_logging()?;
+    carbide_host_support::init_logging("nico-dpu-agent")?;
 
     // We need a multi-threaded runtime since background threads will queue work
     // on it, and the foreground thread might not be blocked onto the runtime

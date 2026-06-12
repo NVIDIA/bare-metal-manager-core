@@ -1387,8 +1387,8 @@ pub async fn create(
     let rack_id = expected_machine_data.and_then(|data| data.rack_id.as_ref());
     let sku_id = expected_machine_data.and_then(|data| data.sku_id.as_ref());
     let dpf_enabled = match expected_machine_data {
-        Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
-        None => true,                                    // EM entry does not exist
+        Some(data) => data.dpf_enabled.unwrap_or(true), // EM entry exists
+        None => true,                                   // EM entry does not exist
     };
     let host_profile = HostProfile::from_expected_machine(expected_machine_data);
 

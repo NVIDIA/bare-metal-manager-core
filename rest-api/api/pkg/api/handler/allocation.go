@@ -361,7 +361,15 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 		imAcAdd := []cdbm.AllocationConstraint{}
 		imAcUpd := []cdbm.AllocationConstraint{}
 		for _, ac := range dbacs {
-			retac, serr := acDAO.CreateFromParams(ctx, tx, a.ID, ac.ResourceType, ac.ResourceTypeID, ac.ConstraintType, ac.ConstraintValue, ac.DerivedResourceID, dbUser.ID)
+			retac, serr := acDAO.Create(ctx, tx, cdbm.AllocationConstraintCreateInput{
+				AllocationID:      a.ID,
+				ResourceType:      ac.ResourceType,
+				ResourceTypeID:    ac.ResourceTypeID,
+				ConstraintType:    ac.ConstraintType,
+				ConstraintValue:   ac.ConstraintValue,
+				DerivedResourceID: ac.DerivedResourceID,
+				CreatedBy:         dbUser.ID,
+			})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Allocation Constraint DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Allocation Constraint entry for Allocation", nil)
@@ -749,11 +757,14 @@ func (gaah GetAllAllocationHandler) Handle(c echo.Context) error {
 	apials := []*model.APIAllocation{}
 
 	// Get allocation constraints based on allocation filter by resource type
-	acDAO := cdbm.NewAllocationConstraintDAO(gaah.dbSession)
-	alcs, _, err := acDAO.GetAll(ctx, nil, aids, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving Allocation Constraints for Allocations from DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to populate Constraints for Allocations", nil)
+	var alcs []cdbm.AllocationConstraint
+	if len(aids) > 0 {
+		acDAO := cdbm.NewAllocationConstraintDAO(gaah.dbSession)
+		alcs, _, err = acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: aids}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Allocation Constraints for Allocations from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to populate Constraints for Allocations", nil)
+		}
 	}
 
 	// Get Resource Type info
@@ -884,7 +895,7 @@ func (gah GetAllocationHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for Allocation", nil)
 	}
 	acDAO := cdbm.NewAllocationConstraintDAO(gah.dbSession)
-	acs, _, err := acDAO.GetAll(ctx, nil, []uuid.UUID{a.ID}, nil, nil, nil, nil, nil, nil, nil, nil)
+	acs, _, err := acDAO.GetAll(ctx, nil, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{a.ID}}, cdbp.PageInput{}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Allocation Constraints for Allocation from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Allocation", nil)
@@ -1059,7 +1070,10 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 			// If this was an IP Block allocation, then update the derived resource name
 			// Get IP Block Allocation Constraints, if any
 			acDAO := cdbm.NewAllocationConstraintDAO(uah.dbSession)
-			ipbAcs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock), nil, nil, nil, nil, nil, nil, nil)
+			ipbAcs, _, derr := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{
+				AllocationIDs: []uuid.UUID{a.ID},
+				ResourceType:  cutil.GetPtr(cdbm.AllocationResourceTypeIPBlock),
+			}, cdbp.PageInput{}, nil)
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Allocation Constraints for Allocation from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Allocation", nil)
@@ -1097,7 +1111,7 @@ func (uah UpdateAllocationHandler) Handle(c echo.Context) error {
 		ssds = retSsds
 
 		acDAO := cdbm.NewAllocationConstraintDAO(uah.dbSession)
-		retAcs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, nil, nil, nil, nil, nil, nil, nil, nil)
+		retAcs, _, derr := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{a.ID}}, cdbp.PageInput{}, nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Allocation Constraints for Allocation from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation Constraints for Allocation", nil)
@@ -1233,7 +1247,7 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 
 		// check dependent objects (instances or subnets for the tenant) in allocation constraints for the allocation
 		acDAO := cdbm.NewAllocationConstraintDAO(dah.dbSession)
-		acs, _, derr := acDAO.GetAll(ctx, tx, []uuid.UUID{a.ID}, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		acs, _, derr := acDAO.GetAll(ctx, tx, cdbm.AllocationConstraintFilterInput{AllocationIDs: []uuid.UUID{a.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if derr != nil && derr != cdb.ErrDoesNotExist {
 			logger.Error().Err(derr).Msg("error retrieving Allocation Constraints from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Error getting allocation constraints for allocation", nil)

@@ -35,9 +35,13 @@ static LOG_SETUP: Once = Once::new();
 
 /// Initialize global logging output to STDOUT. Applies to all threads.
 /// Use `export RUST_LOG=trace|debug|info|warn|error` to change log level.
-pub fn init_logging() -> eyre::Result<()> {
+///
+/// `component` tags every log line with `component=<value>` (e.g. `nico-scout`,
+/// `nico-dpu-agent`) so logs can be filtered by the emitting binary. It must be
+/// passed by the caller because this setup is shared across binaries.
+pub fn init_logging(component: &str) -> eyre::Result<()> {
     LOG_SETUP.call_once(|| {
-        subscriber()
+        subscriber(component)
             .try_init()
             .expect("tracing_subscriber setup failed");
     });
@@ -47,9 +51,9 @@ pub fn init_logging() -> eyre::Result<()> {
 // A logging subscriber for use on the current thread.
 // Usually you want `init_logging()` instead.
 //
-// Usage: `let guard = subscriber().set_default()`
+// Usage: `let guard = subscriber("nico-scout").set_default()`
 // Subscriber is unregistered when guard is dropped.
-pub fn subscriber() -> impl SubscriberInitExt {
+pub fn subscriber(component: &str) -> impl SubscriberInitExt {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
@@ -64,6 +68,7 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap())
         .add_directive("netlink_proto=warn".parse().unwrap());
-    let stdout_formatter = logfmt::layer();
+    let stdout_formatter = logfmt::layer()
+        .with_event_fields([logfmt::EventField::with_default("component", component)]);
     Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
 }

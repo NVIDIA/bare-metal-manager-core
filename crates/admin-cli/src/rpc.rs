@@ -738,7 +738,7 @@ impl ApiClient {
             rack_id: rack_id.or(expected_machine.rack_id),
             default_pause_ingestion_and_poweron,
             #[allow(deprecated)]
-            dpf_enabled: dpf_enabled.unwrap_or_default(),
+            dpf_enabled: dpf_enabled.unwrap_or(true),
             is_dpf_enabled: dpf_enabled,
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
@@ -776,7 +776,7 @@ impl ApiClient {
                     default_pause_ingestion_and_poweron: machine
                         .default_pause_ingestion_and_poweron,
                     #[allow(deprecated)]
-                    dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
+                    dpf_enabled: machine.dpf_enabled.unwrap_or(true),
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,

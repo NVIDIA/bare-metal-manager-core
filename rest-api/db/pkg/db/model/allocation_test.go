@@ -391,11 +391,19 @@ func TestAllocationSQLDAO_GetAll(t *testing.T) {
 		if i%2 == 0 {
 			// Create AllocationConstraint for every other Allocation
 			var serr error
-			allocationConstraint1, serr = acDAO.CreateFromParams(ctx, nil, at.ID, AllocationResourceTypeInstanceType, it.ID, AllocationConstraintTypeReserved, 5, nil, user.ID)
+			allocationConstraint1, serr = acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+				AllocationID: at.ID, ResourceType: AllocationResourceTypeInstanceType,
+				ResourceTypeID: it.ID, ConstraintType: AllocationConstraintTypeReserved,
+				ConstraintValue: 5, CreatedBy: user.ID,
+			})
 			assert.NoError(t, serr)
 		} else {
 			var serr error
-			allocationConstraint2, serr = acDAO.CreateFromParams(ctx, nil, at.ID, AllocationResourceTypeIPBlock, ipb.ID, AllocationConstraintTypeReserved, 10, nil, user.ID)
+			allocationConstraint2, serr = acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+				AllocationID: at.ID, ResourceType: AllocationResourceTypeIPBlock,
+				ResourceTypeID: ipb.ID, ConstraintType: AllocationConstraintTypeReserved,
+				ConstraintValue: 10, CreatedBy: user.ID,
+			})
 			assert.NoError(t, serr)
 		}
 	}
@@ -1102,9 +1110,17 @@ func TestAllocationSQLDAO_GetCount(t *testing.T) {
 		asTenant1 = append(asTenant1, *at)
 		if i%2 == 0 {
 			// Create AllocationConstraint for every other Allocation
-			_, serr := acDAO.CreateFromParams(ctx, nil, at.ID, AllocationResourceTypeInstanceType, it.ID, AllocationConstraintTypeReserved, 5, nil, user.ID)
+			_, serr := acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+				AllocationID: at.ID, ResourceType: AllocationResourceTypeInstanceType,
+				ResourceTypeID: it.ID, ConstraintType: AllocationConstraintTypeReserved,
+				ConstraintValue: 5, CreatedBy: user.ID,
+			})
 			assert.NoError(t, serr)
-			_, serr = acDAO.CreateFromParams(ctx, nil, at.ID, AllocationResourceTypeInstanceType, it2.ID, AllocationConstraintTypeReserved, 5, nil, user.ID)
+			_, serr = acDAO.Create(ctx, nil, AllocationConstraintCreateInput{
+				AllocationID: at.ID, ResourceType: AllocationResourceTypeInstanceType,
+				ResourceTypeID: it2.ID, ConstraintType: AllocationConstraintTypeReserved,
+				ConstraintValue: 5, CreatedBy: user.ID,
+			})
 			assert.NoError(t, serr)
 		}
 	}

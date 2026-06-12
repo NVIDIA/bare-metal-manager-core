@@ -1908,7 +1908,7 @@ mod tests {
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor(unsafe)]
     fn setup() {
-        carbide_host_support::init_logging().unwrap();
+        carbide_host_support::init_logging("nico-dpu-agent").unwrap();
     }
 
     #[test]
