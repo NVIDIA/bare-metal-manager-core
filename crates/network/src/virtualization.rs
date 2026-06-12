@@ -134,6 +134,7 @@ impl sqlx::Decode<'_, sqlx::Postgres> for VpcVirtualizationType {
 
 #[cfg(all(test, feature = "sqlx"))]
 mod sqlx_tests {
+    use carbide_test_support::{Check, check_values};
     use sqlx::Encode;
     use sqlx::postgres::PgArgumentBuffer;
 
@@ -146,29 +147,93 @@ mod sqlx_tests {
     }
 
     #[test]
-    fn encode_etv_writes_etv() {
-        assert_eq!(
-            encode_to_string(VpcVirtualizationType::EthernetVirtualizer),
-            "etv"
+    fn encode_writes_the_wire_string_for_each_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "EthernetVirtualizer encodes as etv",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: "etv".to_string(),
+                },
+                Check {
+                    scenario: "EthernetVirtualizerWithNvue encodes as legacy etv",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: "etv".to_string(),
+                },
+                Check {
+                    scenario: "Fnn encodes as fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: "fnn".to_string(),
+                },
+                Check {
+                    scenario: "Flat encodes as flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: "flat".to_string(),
+                },
+            ],
+            encode_to_string,
         );
     }
+}
 
-    #[test]
-    fn encode_etv_nvue_writes_etv() {
-        assert_eq!(
-            encode_to_string(VpcVirtualizationType::EthernetVirtualizerWithNvue),
-            "etv"
-        );
-    }
+// Real Postgres round-trips for the sqlx `Encode`/`Decode` impls. Each case binds
+// a value (`Encode`) and reads it back (`Decode`) through a live connection, which
+// is the half the buffer-only `encode` test above can't reach. The per-test pool
+// comes from the shared harness (`DATABASE_URL` via `.envrc`); the closure does
+// the database work, so `carbide-test-support` itself stays db-agnostic.
+#[cfg(all(test, feature = "sqlx"))]
+mod sqlx_db_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async};
 
-    #[test]
-    fn encode_fnn_writes_fnn() {
-        assert_eq!(encode_to_string(VpcVirtualizationType::Fnn), "fnn");
-    }
+    use super::VpcVirtualizationType;
 
-    #[test]
-    fn encode_flat_writes_flat() {
-        assert_eq!(encode_to_string(VpcVirtualizationType::Flat), "flat");
+    #[crate::sqlx_test]
+    async fn vpc_virtualization_type_round_trips_through_postgres(
+        pool: sqlx::PgPool,
+    ) -> eyre::Result<()> {
+        // The custom `network_virtualization_type_t` enum already exists in the
+        // harness's schema, so we go straight to the round-trip.
+        check_cases_async(
+            [
+                Case {
+                    scenario: "etv round-trips",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    // Encodes to the shared `etv` label, so it decodes back to the
+                    // canonical EthernetVirtualizer rather than the nvue alias.
+                    scenario: "etv-with-nvue collapses onto etv on the way back",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "fnn round-trips",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: Yields(VpcVirtualizationType::Fnn),
+                },
+                Case {
+                    scenario: "flat round-trips",
+                    input: VpcVirtualizationType::Flat,
+                    expect: Yields(VpcVirtualizationType::Flat),
+                },
+            ],
+            |v: VpcVirtualizationType| {
+                let pool = pool.clone();
+                async move {
+                    sqlx::query_scalar::<_, VpcVirtualizationType>(
+                        "SELECT $1::network_virtualization_type_t",
+                    )
+                    .bind(v)
+                    .fetch_one(&pool)
+                    .await
+                    .map_err(drop)
+                }
+            },
+        )
+        .await;
+        Ok(())
     }
 }
 
@@ -259,87 +324,467 @@ pub fn get_svi_ip(
 
 #[cfg(test)]
 mod tests {
-    use std::net::IpAddr;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
     #[test]
-    fn from_str_etv_nvue_maps_to_etv() {
-        assert_eq!(
-            "etv_nvue".parse::<VpcVirtualizationType>().unwrap(),
-            VpcVirtualizationType::EthernetVirtualizer
+    fn from_str_maps_known_strings_and_rejects_the_rest() {
+        check_cases(
+            [
+                Case {
+                    scenario: "etv -> EthernetVirtualizer",
+                    input: "etv",
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "etv_nvue is an alias for EthernetVirtualizer",
+                    input: "etv_nvue",
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "fnn -> Fnn",
+                    input: "fnn",
+                    expect: Yields(VpcVirtualizationType::Fnn),
+                },
+                Case {
+                    scenario: "flat -> Flat",
+                    input: "flat",
+                    expect: Yields(VpcVirtualizationType::Flat),
+                },
+                Case {
+                    scenario: "unknown token is rejected",
+                    input: "bogus",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty string is rejected",
+                    input: "",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wrong case is rejected (match is exact)",
+                    input: "ETV",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "leading whitespace is not trimmed",
+                    input: " etv",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "trailing whitespace is not trimmed",
+                    input: "flat ",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "etv-nvue with a hyphen is not the alias",
+                    input: "etv-nvue",
+                    expect: Fails,
+                },
+            ],
+            |s| s.parse::<VpcVirtualizationType>().map_err(drop),
         );
     }
 
     #[test]
-    fn from_str_etv_maps_to_etv() {
-        assert_eq!(
-            "etv".parse::<VpcVirtualizationType>().unwrap(),
-            VpcVirtualizationType::EthernetVirtualizer
+    fn from_str_unknown_token_reports_the_input() {
+        check_cases(
+            [
+                Case {
+                    scenario: "error names the unknown token",
+                    input: ("bogus", &["Unknown virt type", "bogus"][..]),
+                    expect: Yields(true),
+                },
+                Case {
+                    scenario: "error echoes a numeric token",
+                    input: ("42", &["Unknown virt type", "42"][..]),
+                    expect: Yields(true),
+                },
+            ],
+            |(value, tokens)| {
+                let produced = value
+                    .parse::<VpcVirtualizationType>()
+                    .map_err(|e| e.to_string())
+                    .expect_err("unknown token must fail");
+                Ok::<_, ()>(tokens.iter().all(|t| produced.contains(t)))
+            },
         );
     }
 
     #[test]
-    fn display_etv_with_nvue_shows_etv() {
-        assert_eq!(
-            VpcVirtualizationType::EthernetVirtualizerWithNvue.to_string(),
-            "etv"
+    fn as_str_renders_each_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "EthernetVirtualizer -> etv",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: "etv",
+                },
+                Check {
+                    scenario: "EthernetVirtualizerWithNvue -> etv",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: "etv",
+                },
+                Check {
+                    scenario: "Fnn -> fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: "fnn",
+                },
+                Check {
+                    scenario: "Flat -> flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: "flat",
+                },
+            ],
+            |v| v.as_str(),
         );
     }
 
     #[test]
-    fn from_str_flat_maps_to_flat() {
-        assert_eq!(
-            "flat".parse::<VpcVirtualizationType>().unwrap(),
-            VpcVirtualizationType::Flat
+    fn display_renders_each_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "EthernetVirtualizer displays etv",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: "etv".to_string(),
+                },
+                Check {
+                    scenario: "EthernetVirtualizerWithNvue displays etv",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: "etv".to_string(),
+                },
+                Check {
+                    scenario: "Fnn displays fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: "fnn".to_string(),
+                },
+                Check {
+                    scenario: "Flat displays flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: "flat".to_string(),
+                },
+            ],
+            |v| v.to_string(),
         );
     }
 
     #[test]
-    fn display_flat_shows_flat() {
-        assert_eq!(VpcVirtualizationType::Flat.to_string(), "flat");
+    fn display_agrees_with_as_str_for_every_variant() {
+        check_values(
+            [
+                Check {
+                    scenario: "EthernetVirtualizer",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: true,
+                },
+                Check {
+                    scenario: "EthernetVirtualizerWithNvue",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: true,
+                },
+                Check {
+                    scenario: "Fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: true,
+                },
+                Check {
+                    scenario: "Flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: true,
+                },
+            ],
+            |v| v.to_string() == v.as_str(),
+        );
     }
 
     #[test]
-    fn test_get_host_ip_ipv4_slash32() {
-        let network = IpNetwork::new("10.0.0.5".parse().unwrap(), 32).unwrap();
-        let result = get_host_ip(&network).unwrap();
-        assert_eq!(result, "10.0.0.5".parse::<IpAddr>().unwrap());
+    fn default_is_ethernet_virtualizer() {
+        check_values(
+            [
+                Check {
+                    scenario: "Default trait yields EthernetVirtualizer",
+                    input: (),
+                    expect: VpcVirtualizationType::EthernetVirtualizer,
+                },
+                Check {
+                    scenario: "the DEFAULT_* constant agrees with Default",
+                    input: (),
+                    expect: DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
+                },
+            ],
+            |()| VpcVirtualizationType::default(),
+        );
     }
 
     #[test]
-    fn test_get_host_ip_ipv6_slash128() {
-        let network = IpNetwork::new("2001:db8::1".parse().unwrap(), 128).unwrap();
-        let result = get_host_ip(&network).unwrap();
-        assert_eq!(result, "2001:db8::1".parse::<IpAddr>().unwrap());
+    fn from_str_round_trips_through_as_str() {
+        check_cases(
+            [
+                Case {
+                    scenario: "EthernetVirtualizer",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "Fnn",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: Yields(VpcVirtualizationType::Fnn),
+                },
+                Case {
+                    scenario: "Flat",
+                    input: VpcVirtualizationType::Flat,
+                    expect: Yields(VpcVirtualizationType::Flat),
+                },
+            ],
+            |v| v.as_str().parse::<VpcVirtualizationType>().map_err(drop),
+        );
     }
 
     #[test]
-    fn test_get_host_ip_ipv4_slash31_point_to_point() {
-        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 31).unwrap();
-        let result = get_host_ip(&network).unwrap();
-        assert_eq!(result, "10.0.0.1".parse::<IpAddr>().unwrap());
+    fn serde_round_trips_through_json() {
+        check_cases(
+            [
+                Case {
+                    scenario: "EthernetVirtualizer serializes to \"etv\"",
+                    input: VpcVirtualizationType::EthernetVirtualizer,
+                    expect: Yields("\"etv\"".to_string()),
+                },
+                Case {
+                    scenario: "EthernetVirtualizerWithNvue also serializes to \"etv\"",
+                    input: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    expect: Yields("\"etv\"".to_string()),
+                },
+                Case {
+                    scenario: "Fnn serializes to \"fnn\"",
+                    input: VpcVirtualizationType::Fnn,
+                    expect: Yields("\"fnn\"".to_string()),
+                },
+                Case {
+                    scenario: "Flat serializes to \"flat\"",
+                    input: VpcVirtualizationType::Flat,
+                    expect: Yields("\"flat\"".to_string()),
+                },
+            ],
+            |v| serde_json::to_string(&v).map_err(drop),
+        );
     }
 
     #[test]
-    fn test_get_host_ip_ipv6_slash127_point_to_point() {
-        let network = IpNetwork::new("2001:db8::0".parse().unwrap(), 127).unwrap();
-        let result = get_host_ip(&network).unwrap();
-        assert_eq!(result, "2001:db8::1".parse::<IpAddr>().unwrap());
+    fn deserialize_accepts_known_strings_and_rejects_the_rest() {
+        check_cases(
+            [
+                Case {
+                    scenario: "\"etv\" -> EthernetVirtualizer",
+                    input: "\"etv\"",
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "\"etv_nvue\" alias -> EthernetVirtualizer",
+                    input: "\"etv_nvue\"",
+                    expect: Yields(VpcVirtualizationType::EthernetVirtualizer),
+                },
+                Case {
+                    scenario: "\"fnn\" -> Fnn",
+                    input: "\"fnn\"",
+                    expect: Yields(VpcVirtualizationType::Fnn),
+                },
+                Case {
+                    scenario: "\"flat\" -> Flat",
+                    input: "\"flat\"",
+                    expect: Yields(VpcVirtualizationType::Flat),
+                },
+                Case {
+                    scenario: "unknown string is rejected",
+                    input: "\"bogus\"",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "a JSON number is rejected (expects a string)",
+                    input: "7",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "a JSON null is rejected",
+                    input: "null",
+                    expect: Fails,
+                },
+            ],
+            |json| serde_json::from_str::<VpcVirtualizationType>(json).map_err(drop),
+        );
     }
 
     #[test]
-    fn test_get_host_ip_ipv4_slash30_legacy() {
-        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 30).unwrap();
-        let result = get_host_ip(&network).unwrap();
-        assert_eq!(result, "10.0.0.3".parse::<IpAddr>().unwrap());
+    fn build_dual_stack_list_assembles_the_address_list() {
+        check_values(
+            [
+                Check {
+                    scenario: "v4 only when v6 is absent",
+                    input: ("10.0.0.1".to_string(), None),
+                    expect: vec!["10.0.0.1".to_string()],
+                },
+                Check {
+                    scenario: "v4 then v6 when both present",
+                    input: ("10.0.0.1".to_string(), Some("2001:db8::1".to_string())),
+                    expect: vec!["10.0.0.1".to_string(), "2001:db8::1".to_string()],
+                },
+                Check {
+                    scenario: "empty v6 string is filtered out",
+                    input: ("10.0.0.1".to_string(), Some(String::new())),
+                    expect: vec!["10.0.0.1".to_string()],
+                },
+                Check {
+                    scenario: "v4 is kept even when empty (it is required)",
+                    input: (String::new(), None),
+                    expect: vec![String::new()],
+                },
+                Check {
+                    scenario: "empty v4 with a real v6 keeps both",
+                    input: (String::new(), Some("2001:db8::1".to_string())),
+                    expect: vec![String::new(), "2001:db8::1".to_string()],
+                },
+            ],
+            |(v4, v6)| build_dual_stack_list(v4, v6),
+        );
     }
 
-    #[test]
-    fn test_get_host_ip_unsupported_prefix() {
-        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 29).unwrap();
-        let result = get_host_ip(&network);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unsupported"));
+    #[cfg(feature = "ipnetwork")]
+    mod ip {
+        use std::net::IpAddr;
+
+        use carbide_test_support::Outcome::*;
+        use carbide_test_support::{Case, check_cases};
+
+        use super::super::*;
+
+        fn net(ip: &str, prefix: u8) -> IpNetwork {
+            IpNetwork::new(ip.parse().unwrap(), prefix).unwrap()
+        }
+
+        #[test]
+        fn get_host_ip_picks_the_right_address_per_prefix() {
+            check_cases(
+                [
+                    Case {
+                        scenario: "ipv4 /32 single host is itself",
+                        input: net("10.0.0.5", 32),
+                        expect: Yields("10.0.0.5".parse::<IpAddr>().unwrap()),
+                    },
+                    Case {
+                        scenario: "ipv6 /128 single host is itself",
+                        input: net("2001:db8::1", 128),
+                        expect: Yields("2001:db8::1".parse::<IpAddr>().unwrap()),
+                    },
+                    Case {
+                        scenario: "ipv4 /31 point-to-point uses the second address",
+                        input: net("10.0.0.0", 31),
+                        expect: Yields("10.0.0.1".parse::<IpAddr>().unwrap()),
+                    },
+                    Case {
+                        scenario: "ipv6 /127 point-to-point uses the second address",
+                        input: net("2001:db8::0", 127),
+                        expect: Yields("2001:db8::1".parse::<IpAddr>().unwrap()),
+                    },
+                    Case {
+                        scenario: "ipv4 /30 legacy uses the fourth address",
+                        input: net("10.0.0.0", 30),
+                        expect: Yields("10.0.0.3".parse::<IpAddr>().unwrap()),
+                    },
+                    Case {
+                        scenario: "ipv4 /29 is too large to be supported",
+                        input: net("10.0.0.0", 29),
+                        expect: Fails,
+                    },
+                    Case {
+                        scenario: "ipv4 /24 is unsupported",
+                        input: net("10.0.0.0", 24),
+                        expect: Fails,
+                    },
+                    Case {
+                        scenario: "ipv4 /0 is unsupported",
+                        input: net("0.0.0.0", 0),
+                        expect: Fails,
+                    },
+                    Case {
+                        scenario: "ipv6 /64 is unsupported",
+                        input: net("2001:db8::", 64),
+                        expect: Fails,
+                    },
+                    Case {
+                        scenario: "ipv6 /126 is unsupported",
+                        input: net("2001:db8::", 126),
+                        expect: Fails,
+                    },
+                ],
+                |network| get_host_ip(&network).map_err(drop),
+            );
+        }
+
+        #[test]
+        fn get_host_ip_unsupported_prefix_names_the_problem() {
+            check_cases(
+                [Case {
+                    scenario: "error mentions it is unsupported",
+                    input: (net("10.0.0.0", 29), &["unsupported"][..]),
+                    expect: Yields(true),
+                }],
+                |(network, tokens)| {
+                    let produced = get_host_ip(&network)
+                        .map_err(|e| e.to_string())
+                        .expect_err("oversized prefix must fail");
+                    Ok::<_, ()>(tokens.iter().all(|t| produced.contains(t)))
+                },
+            );
+        }
+
+        #[test]
+        fn get_svi_ip_only_yields_for_fnn_l2_segments() {
+            let svi_ip: IpAddr = "10.0.0.1".parse().unwrap();
+            let svi: Option<IpAddr> = Some(svi_ip);
+            check_cases(
+                [
+                    Case {
+                        scenario: "fnn + l2 + allocated svi yields the network",
+                        input: (svi, VpcVirtualizationType::Fnn, true, 24u8),
+                        expect: Yields(Some(IpNetwork::new(svi_ip, 24).unwrap())),
+                    },
+                    Case {
+                        scenario: "fnn + l2 but no svi allocated fails",
+                        input: (None, VpcVirtualizationType::Fnn, true, 24u8),
+                        expect: Fails,
+                    },
+                    Case {
+                        scenario: "fnn but not an l2 segment yields none",
+                        input: (svi, VpcVirtualizationType::Fnn, false, 24u8),
+                        expect: Yields(None),
+                    },
+                    Case {
+                        scenario: "l2 but not fnn yields none",
+                        input: (svi, VpcVirtualizationType::EthernetVirtualizer, true, 24u8),
+                        expect: Yields(None),
+                    },
+                    Case {
+                        scenario: "flat l2 segment yields none",
+                        input: (svi, VpcVirtualizationType::Flat, true, 24u8),
+                        expect: Yields(None),
+                    },
+                    Case {
+                        scenario: "neither fnn nor l2 yields none",
+                        input: (svi, VpcVirtualizationType::EthernetVirtualizer, false, 24u8),
+                        expect: Yields(None),
+                    },
+                    Case {
+                        scenario: "fnn + l2 + invalid prefix for ipv4 fails",
+                        input: (svi, VpcVirtualizationType::Fnn, true, 33u8),
+                        expect: Fails,
+                    },
+                ],
+                |(svi_ip, virt, is_l2, prefix)| {
+                    get_svi_ip(&svi_ip, virt, is_l2, prefix).map_err(drop)
+                },
+            );
+        }
     }
 }
