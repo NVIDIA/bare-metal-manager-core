@@ -62,6 +62,8 @@ mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
 mod metrics;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;

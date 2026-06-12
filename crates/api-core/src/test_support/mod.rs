@@ -17,7 +17,6 @@
 
 pub mod builder;
 pub mod default_config;
-pub mod endpoint_explorer;
 pub mod fixture_config;
 pub mod ib_fabric;
 pub mod ib_guid_pool;

@@ -20,9 +20,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
 use common::api_fixtures::TestEnv;
-use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;

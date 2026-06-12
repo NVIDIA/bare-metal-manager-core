@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
-use carbide_site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 use libredfish::{PowerState, RoleId, SystemPowerControl};
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
@@ -28,7 +28,9 @@ use model::site_explorer::{
     NicMode,
 };
 
-/// EndpointExplorer which returns predefined data
+use crate::{EndpointExplorer, SiteExplorationMetrics};
+
+/// EndpointExplorer which returns predefined data.
 #[derive(Clone, Default, Debug)]
 pub struct MockEndpointExplorer {
     pub reports:
@@ -37,7 +39,7 @@ pub struct MockEndpointExplorer {
     pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
     /// Records every call to `set_nic_mode` (BMC address + requested target
     /// mode) so tests can assert the auto-correct path fired with the
-    /// right arguments. Cleared on each `insert_endpoints` reset.
+    /// right arguments.
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
@@ -52,7 +54,7 @@ impl MockEndpointExplorer {
         self.insert_endpoint_results(
             endpoints
                 .into_iter()
-                .map(|(addr, report)| (addr, Ok(report)))
+                .map(|(address, report)| (address, Ok(report)))
                 .collect(),
         )
     }
@@ -87,6 +89,7 @@ impl EndpointExplorer for MockEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }
+
     async fn explore_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
@@ -125,7 +128,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+    ) -> Result<PowerState, EndpointExplorationError> {
         Ok(self
             .power_states
             .lock()
@@ -139,7 +142,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        action: libredfish::SystemPowerControl,
+        action: SystemPowerControl,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_power_control_calls
             .lock()
@@ -176,7 +179,7 @@ impl EndpointExplorer for MockEndpointExplorer {
     ) -> Result<LockdownStatus, EndpointExplorationError> {
         Ok(LockdownStatus {
             status: InternalLockdownStatus::Disabled,
-            message: "".to_string(),
+            message: String::new(),
         })
     }
 

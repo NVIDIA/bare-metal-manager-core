@@ -58,6 +58,7 @@ use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -133,13 +134,12 @@ use crate::test_support::fixture_config::{
 };
 use crate::test_support::ib_fabric::ib_fabric_test_manager;
 pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
+pub use crate::test_support::network_segment;
 use crate::test_support::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
-pub use crate::test_support::{endpoint_explorer, network_segment};
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub mod dpu;
