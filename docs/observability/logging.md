@@ -56,12 +56,16 @@ sidecar - just configure your collector to read pod logs.
 ### 2.1 logfmt format
 
 Most NICo components use [logfmt](https://brandur.org/logfmt) - a line-oriented format of
-space-separated `key=value` pairs, easy for both humans and machines to parse:
+space-separated `key=value` pairs, easy for both humans and machines to parse.
 
+**Event lines** — one per log call:
 ```
-level=INFO msg="Starting reconciliation" machine_id=abc-123 state=provisioning location="handlers/machine.rs:142"
-level=DEBUG span_id=7f3a msg="BMC power status" power_state=on location="bmc_session_manager.rs:89"
-level=SPAN timing_start_time="2026-01-15T10:23:45Z" timing_busy_ns=1523000 name="power_control" location="component_manager.rs:312"
+level=INFO component=nico-api span_id=0x4f… msg="Starting reconciliation" location="handlers/machine.rs:142"
+```
+
+**Span lines** — emitted when a unit of work closes (`level=SPAN`), carrying timing data:
+```
+level=SPAN component=site-explorer span_id=0xf7… span_name=explore_site timing_elapsed_us=1523 timing_busy_ns=1200000 timing_idle_ns=323000
 ```
 
 Common fields:
@@ -69,14 +73,62 @@ Common fields:
 | Field | Description |
 |-------|-------------|
 | `level` | Log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SPAN` for span lifecycle events. |
+| `component` | Emitting component (see below). |
 | `msg` | Human-readable message. |
 | `span_id` | Correlation ID linking events within the same operation. |
 | `location` | Source file and line number (`file.rs:line`). |
-| `timing_*` | Span timing fields: `timing_start_time`, `timing_busy_ns`, `timing_idle_ns`. |
+| `timing_*` | Span timing fields: `timing_elapsed_us`, `timing_busy_ns`, `timing_idle_ns`. |
 
 The logfmt layer is implemented in the `logfmt` crate (`crates/logfmt`). It emits span lifecycle
 events (open/close) as `level=SPAN` lines with timing data - useful for identifying slow operations
 without enabling full distributed tracing.
+
+#### The `component` field
+
+On logfmt lines, NICo sets the `component` field to identify the emitting service or subsystem:
+
+```
+nico-api                       — API handlers, DB, startup: anything not in a subsystem below
+├── site-explorer
+├── machine_state_controller
+├── switch_controller
+├── rack_controller
+├── power_shelf_controller
+├── network_segments_controller
+├── vpc_prefix_controller
+├── ib_partition_controller
+└── attestation_controller
+nico-bmc-proxy
+nico-dhcp
+nico-dsx-exchange-consumer
+nico-fmds
+nico-hardware-health
+nico-rvs
+nico-test-artifact-cache
+nico-dpu-agent
+nico-scout
+```
+
+State-controller lines also carry a `controller=<name>` field with the same value.
+
+This enables filtering logs by component in your backend. For example, with Loki:
+```logql
+{namespace="nico-system"} | logfmt | component="site-explorer"
+```
+
+> **Convention**: NICo uses `component` for the emitting service/subsystem. Don't reuse this key
+> for domain data - give those their own keys (e.g. `machine_id`, `controller`).
+
+#### Coverage
+
+Components that **do not** use the logfmt layer and carry no `component` field:
+
+| Component | Format | Notes |
+|-----------|--------|-------|
+| nico-dns | JSON | Uses tracing-subscriber JSON formatter |
+| nico-pxe | plain text | Hand-rolled `println!` logging |
+| nico-ssh-console | compact | Uses tracing-subscriber compact formatter |
+| nico-dpu-otel-agent | compact | Certificate renewal agent |
 
 ### 2.2 JSON format (nico-dns)
 
