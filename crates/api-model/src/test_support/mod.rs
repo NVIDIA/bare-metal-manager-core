@@ -21,7 +21,9 @@ pub mod dpu;
 pub mod managed_host;
 
 pub use dpu::DpuConfig;
-pub use managed_host::ManagedHostConfig;
+pub use managed_host::{
+    ManagedDpuExplorationReport, ManagedHostConfig, ManagedHostExplorationResults,
+};
 
 #[derive(Debug, Clone)]
 pub enum HardwareInfoTemplate {
